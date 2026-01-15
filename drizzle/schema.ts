@@ -66,6 +66,15 @@ export const memories = pgTable('memories', {
   accessCount: integer('access_count').default(0),
   lastAccessedAt: timestamp('last_accessed_at'),
 
+  // Merge tracking
+  isMerged: boolean('is_merged').default(false), // Soft archive flag
+  mergedIntoId: uuid('merged_into_id').references(() => memories.id), // Points to canonical memory
+  mergedAt: timestamp('merged_at'),
+  isCanonical: boolean('is_canonical').default(false), // True if result of merge
+  mergeSourceIds: jsonb('merge_source_ids').$type<string[]>(), // IDs merged into this one
+  isMergeable: boolean('is_mergeable').default(true), // Immutability flag
+  mergeVersion: integer('merge_version').default(1), // Incremented on each merge
+
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 }, (table) => [
@@ -75,6 +84,8 @@ export const memories = pgTable('memories', {
   index('memories_tags_idx').on(table.tags),
   index('memories_relevance_idx').on(table.relevanceScore),
   index('memories_private_idx').on(table.isPrivate),
+  index('memories_merged_idx').on(table.isMerged),
+  index('memories_canonical_idx').on(table.isCanonical),
 ]);
 
 /**
@@ -223,6 +234,97 @@ export const entityRelations = pgTable('entity_relations', {
 ]);
 
 // ============================================================================
+// Memory Merging Tables
+// ============================================================================
+
+/**
+ * Memory Merge Proposals - tracks suggested merges before user approval
+ */
+export const memoryMergeProposals = pgTable('memory_merge_proposals', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }).notNull(),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+
+  // Source memories to be merged
+  sourceMemoryIds: jsonb('source_memory_ids').$type<string[]>().notNull(),
+
+  // Proposed merged content
+  proposedContent: text('proposed_content').notNull(),
+  proposedSummary: text('proposed_summary'),
+  proposedTags: jsonb('proposed_tags').$type<string[]>(),
+  proposedMetadata: jsonb('proposed_metadata').$type<Record<string, unknown>>(),
+
+  // Detection metadata
+  detectionMethod: text('detection_method').notNull().$type<'simhash' | 'minhash' | 'embedding'>(),
+  similarityScore: real('similarity_score').notNull(), // 0-1
+  confidenceLevel: text('confidence_level').notNull().$type<'high' | 'medium' | 'low'>(),
+
+  // Merge rationale
+  mergeReason: text('merge_reason').notNull(),
+  conflictWarnings: jsonb('conflict_warnings').$type<string[]>(),
+
+  // Status
+  status: text('status').notNull().$type<'pending' | 'approved' | 'rejected' | 'expired'>().default('pending'),
+  reviewedAt: timestamp('reviewed_at'),
+  reviewNotes: text('review_notes'),
+
+  // Timestamps
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  expiresAt: timestamp('expires_at'), // Auto-expire old proposals
+}, (table) => [
+  index('memory_merge_proposals_project_status_idx').on(table.projectId, table.status),
+  index('memory_merge_proposals_created_at_idx').on(table.createdAt),
+]);
+
+/**
+ * Memory Merge History - audit trail of completed merges
+ */
+export const memoryMergeHistory = pgTable('memory_merge_history', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }).notNull(),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+
+  // Merge details
+  proposalId: uuid('proposal_id').references(() => memoryMergeProposals.id, { onDelete: 'set null' }),
+  sourceMemoryIds: jsonb('source_memory_ids').$type<string[]>().notNull(),
+  canonicalMemoryId: uuid('canonical_memory_id').references(() => memories.id, { onDelete: 'cascade' }).notNull(),
+
+  // Snapshot of merged memories (for reversibility)
+  sourceMemoriesSnapshot: jsonb('source_memories_snapshot').$type<Record<string, unknown>[]>().notNull(),
+
+  // Merge metadata
+  mergeStrategy: text('merge_strategy').notNull().$type<'union' | 'latest' | 'voting' | 'custom'>(),
+  tokensSaved: integer('tokens_saved'), // Estimated context window savings
+
+  // Reversibility
+  isReversed: boolean('is_reversed').default(false),
+  reversedAt: timestamp('reversed_at'),
+  reversedBy: uuid('reversed_by'),
+
+  // Timestamps
+  mergedAt: timestamp('merged_at').defaultNow().notNull(),
+});
+
+/**
+ * Memory Hash Cache - cached hash signatures for efficient duplicate detection
+ */
+export const memoryHashCache = pgTable('memory_hash_cache', {
+  memoryId: uuid('memory_id').primaryKey().references(() => memories.id, { onDelete: 'cascade' }),
+  projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }).notNull(),
+
+  // Hash signatures
+  simhash: text('simhash'), // 64-bit hash as hex string
+  minhash: jsonb('minhash').$type<number[]>(), // Array of 128 hash values
+
+  // Metadata for cache invalidation
+  contentHash: text('content_hash').notNull(), // MD5/SHA of content for invalidation
+  lastUpdated: timestamp('last_updated').defaultNow().notNull(),
+}, (table) => [
+  index('memory_hash_cache_project_id_idx').on(table.projectId),
+  index('memory_hash_cache_simhash_idx').on(table.simhash), // For Hamming distance queries
+]);
+
+// ============================================================================
 // Relations (Drizzle ORM)
 // ============================================================================
 
@@ -302,6 +404,47 @@ export const entityRelationsRelations = relations(entityRelations, ({ one }) => 
   }),
 }));
 
+export const memoryMergeProposalsRelations = relations(memoryMergeProposals, ({ one }) => ({
+  project: one(projects, {
+    fields: [memoryMergeProposals.projectId],
+    references: [projects.id],
+  }),
+  user: one(users, {
+    fields: [memoryMergeProposals.userId],
+    references: [users.id],
+  }),
+}));
+
+export const memoryMergeHistoryRelations = relations(memoryMergeHistory, ({ one }) => ({
+  project: one(projects, {
+    fields: [memoryMergeHistory.projectId],
+    references: [projects.id],
+  }),
+  user: one(users, {
+    fields: [memoryMergeHistory.userId],
+    references: [users.id],
+  }),
+  canonicalMemory: one(memories, {
+    fields: [memoryMergeHistory.canonicalMemoryId],
+    references: [memories.id],
+  }),
+  proposal: one(memoryMergeProposals, {
+    fields: [memoryMergeHistory.proposalId],
+    references: [memoryMergeProposals.id],
+  }),
+}));
+
+export const memoryHashCacheRelations = relations(memoryHashCache, ({ one }) => ({
+  memory: one(memories, {
+    fields: [memoryHashCache.memoryId],
+    references: [memories.id],
+  }),
+  project: one(projects, {
+    fields: [memoryHashCache.projectId],
+    references: [projects.id],
+  }),
+}));
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -329,3 +472,12 @@ export type NewEntity = typeof entities.$inferInsert;
 
 export type EntityRelation = typeof entityRelations.$inferSelect;
 export type NewEntityRelation = typeof entityRelations.$inferInsert;
+
+export type MemoryMergeProposal = typeof memoryMergeProposals.$inferSelect;
+export type NewMemoryMergeProposal = typeof memoryMergeProposals.$inferInsert;
+
+export type MemoryMergeHistory = typeof memoryMergeHistory.$inferSelect;
+export type NewMemoryMergeHistory = typeof memoryMergeHistory.$inferInsert;
+
+export type MemoryHashCache = typeof memoryHashCache.$inferSelect;
+export type NewMemoryHashCache = typeof memoryHashCache.$inferInsert;

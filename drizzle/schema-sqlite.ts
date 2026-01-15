@@ -70,6 +70,15 @@ export const memories = sqliteTable('memories', {
   accessCount: integer('access_count').default(0),
   lastAccessedAt: integer('last_accessed_at', { mode: 'timestamp' }),
 
+  // Merge tracking
+  isMerged: integer('is_merged', { mode: 'boolean' }).default(false),
+  mergedIntoId: text('merged_into_id').references(() => memories.id),
+  mergedAt: integer('merged_at', { mode: 'timestamp' }),
+  isCanonical: integer('is_canonical', { mode: 'boolean' }).default(false),
+  mergeSourceIds: text('merge_source_ids').$type<string[]>(),
+  isMergeable: integer('is_mergeable', { mode: 'boolean' }).default(true),
+  mergeVersion: integer('merge_version').default(1),
+
   createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
@@ -79,6 +88,8 @@ export const memories = sqliteTable('memories', {
   index('memories_tags_idx').on(table.tags),
   index('memories_relevance_idx').on(table.relevanceScore),
   index('memories_private_idx').on(table.isPrivate),
+  index('memories_merged_idx').on(table.isMerged),
+  index('memories_canonical_idx').on(table.isCanonical),
 ]);
 
 /**
@@ -195,6 +206,83 @@ export const entities = sqliteTable('entities', {
   index('entities_name_idx').on(table.name),
 ]);
 
+// ============================================================================
+// Memory Merging Tables
+// ============================================================================
+
+/**
+ * Memory Merge Proposals - tracks suggested merges before user approval
+ */
+export const memoryMergeProposals = sqliteTable('memory_merge_proposals', {
+  id: text('id').primaryKey().$default(() => crypto.randomUUID()),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  userId: text('user_id').references(() => users.id, { onDelete: 'set null' }),
+
+  sourceMemoryIds: text('source_memory_ids').$type<string[]>().notNull(),
+  proposedContent: text('proposed_content').notNull(),
+  proposedSummary: text('proposed_summary'),
+  proposedTags: text('proposed_tags').$type<string[]>(),
+  proposedMetadata: text('proposed_metadata').$type<Record<string, unknown>>(),
+
+  detectionMethod: text('detection_method').notNull().$type<'simhash' | 'minhash' | 'embedding'>(),
+  similarityScore: text('similarity_score').notNull(),
+  confidenceLevel: text('confidence_level').notNull().$type<'high' | 'medium' | 'low'>(),
+
+  mergeReason: text('merge_reason').notNull(),
+  conflictWarnings: text('conflict_warnings').$type<string[]>(),
+
+  status: text('status').$type<'pending' | 'approved' | 'rejected' | 'expired'>().default('pending').notNull(),
+  reviewedAt: integer('reviewed_at', { mode: 'timestamp' }),
+  reviewNotes: text('review_notes'),
+
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  expiresAt: integer('expires_at', { mode: 'timestamp' }),
+}, (table) => [
+  index('memory_merge_proposals_project_status_idx').on(table.projectId, table.status),
+  index('memory_merge_proposals_created_at_idx').on(table.createdAt),
+]);
+
+/**
+ * Memory Merge History - audit trail of completed merges
+ */
+export const memoryMergeHistory = sqliteTable('memory_merge_history', {
+  id: text('id').primaryKey().$default(() => crypto.randomUUID()),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  userId: text('user_id').references(() => users.id, { onDelete: 'set null' }),
+
+  proposalId: text('proposal_id').references(() => memoryMergeProposals.id, { onDelete: 'set null' }),
+  sourceMemoryIds: text('source_memory_ids').$type<string[]>().notNull(),
+  canonicalMemoryId: text('canonical_memory_id').notNull().references(() => memories.id, { onDelete: 'cascade' }),
+
+  sourceMemoriesSnapshot: text('source_memories_snapshot').$type<Record<string, unknown>[]>().notNull(),
+
+  mergeStrategy: text('merge_strategy').notNull().$type<'union' | 'latest' | 'voting' | 'custom'>(),
+  tokensSaved: integer('tokens_saved'),
+
+  isReversed: integer('is_reversed', { mode: 'boolean' }).default(false),
+  reversedAt: integer('reversed_at', { mode: 'timestamp' }),
+  reversedBy: text('reversed_by'),
+
+  mergedAt: integer('merged_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+/**
+ * Memory Hash Cache - cached hash signatures for efficient duplicate detection
+ */
+export const memoryHashCache = sqliteTable('memory_hash_cache', {
+  memoryId: text('memory_id').primaryKey().references(() => memories.id, { onDelete: 'cascade' }),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+
+  simhash: text('simhash'),
+  minhash: text('minhash').$type<number[]>(),
+
+  contentHash: text('content_hash').notNull(),
+  lastUpdated: integer('last_updated', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('memory_hash_cache_project_id_idx').on(table.projectId),
+  index('memory_hash_cache_simhash_idx').on(table.simhash),
+]);
+
 /**
  * Entity Relations - relationships between entities
  */
@@ -213,3 +301,40 @@ export const entityRelations = sqliteTable('entity_relations', {
   index('relations_to_idx').on(table.toEntityId),
   index('relations_type_idx').on(table.type),
 ]);
+
+// ============================================================================
+// Types
+// ============================================================================
+
+export type User = typeof users.$inferSelect;
+export type NewUser = typeof users.$inferInsert;
+
+export type Project = typeof projects.$inferSelect;
+export type NewProject = typeof projects.$inferInsert;
+
+export type Memory = typeof memories.$inferSelect;
+export type NewMemory = typeof memories.$inferInsert;
+
+export type Conversation = typeof conversations.$inferSelect;
+export type NewConversation = typeof conversations.$inferInsert;
+
+export type Message = typeof messages.$inferSelect;
+export type NewMessage = typeof messages.$inferInsert;
+
+export type Observation = typeof observations.$inferSelect;
+export type NewObservation = typeof observations.$inferInsert;
+
+export type Entity = typeof entities.$inferSelect;
+export type NewEntity = typeof entities.$inferInsert;
+
+export type EntityRelation = typeof entityRelations.$inferSelect;
+export type NewEntityRelation = typeof entityRelations.$inferInsert;
+
+export type MemoryMergeProposal = typeof memoryMergeProposals.$inferSelect;
+export type NewMemoryMergeProposal = typeof memoryMergeProposals.$inferInsert;
+
+export type MemoryMergeHistory = typeof memoryMergeHistory.$inferSelect;
+export type NewMemoryMergeHistory = typeof memoryMergeHistory.$inferInsert;
+
+export type MemoryHashCache = typeof memoryHashCache.$inferSelect;
+export type NewMemoryHashCache = typeof memoryHashCache.$inferInsert;
