@@ -1,0 +1,77 @@
+{
+  "name": "squish",
+  "version": "0.2.7",
+  "description": "Production-ready local-first persistent memory for Claude Code with auto-capture, folder context, privacy, and team sync",
+  "main": "dist/index.js",
+  "type": "module",
+  "bin": {
+    "squish": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/src/index.js",
+    "web": "node dist/src/web-server.js",
+    "dev": "bun --hot src/index.ts",
+    "test": "node --test dist/**/*.test.js",
+    "clean": "rm -rf dist *.log",
+    "bench": "bun benchmark/memory.ts",
+    "bench:db": "bun benchmark/run.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/michielhdoteth/squish-memory.git"
+  },
+  "homepage": "https://github.com/michielhdoteth/squish-memory#readme",
+  "bugs": {
+    "url": "https://github.com/michielhdoteth/squish-memory/issues"
+  },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "mcp",
+    "model-context-protocol",
+    "memory",
+    "semantic-search",
+    "persistent-memory",
+    "ai",
+    "plugin"
+  ],
+  "author": "michielhdoteth",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "better-sqlite3": "^12.6.0",
+    "bull": "^4.16.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.0",
+    "drizzle-orm": "^0.38.0",
+    "express": "^4.21.0",
+    "pg": "^8.13.0",
+    "pgvector": "^0.2.0",
+    "redis": "^4.7.0",
+    "tree-sitter": "^0.22.0",
+    "tree-sitter-javascript": "^0.23.0",
+    "tree-sitter-python": "^0.23.0",
+    "tree-sitter-typescript": "^0.23.0",
+    "ws": "^8.18.0",
+    "zod": "^3.24.0",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.0.0",
+    "@types/pg": "^8.11.10",
+    "@types/ws": "^8.5.13",
+    "drizzle-kit": "^0.30.0",
+    "typescript": "^5.7.0"
+  }
+}

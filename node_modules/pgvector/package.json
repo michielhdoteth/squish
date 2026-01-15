@@ -1,0 +1,111 @@
+{
+  "name": "pgvector",
+  "version": "0.2.1",
+  "description": "pgvector support for Node.js, Deno, and Bun (and TypeScript)",
+  "homepage": "https://github.com/pgvector/pgvector-node",
+  "license": "MIT",
+  "authors": [
+    "ankane"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pgvector/pgvector-node"
+  },
+  "exports": {
+    ".": {
+      "types": "./types/index.d.ts",
+      "default": "./src/index.js"
+    },
+    "./knex": {
+      "types": "./types/knex/index.d.ts",
+      "default": "./src/knex/index.js"
+    },
+    "./kysely": {
+      "types": "./types/kysely/index.d.ts",
+      "default": "./src/kysely/index.js"
+    },
+    "./mikro-orm": {
+      "types": "./types/mikro-orm/index.d.ts",
+      "default": "./src/mikro-orm/index.js"
+    },
+    "./objection": {
+      "types": "./types/objection/index.d.ts",
+      "default": "./src/objection/index.js"
+    },
+    "./pg": {
+      "types": "./types/pg/index.d.ts",
+      "default": "./src/pg/index.js"
+    },
+    "./pg-promise": {
+      "types": "./types/pg-promise/index.d.ts",
+      "default": "./src/pg-promise/index.js"
+    },
+    "./sequelize": {
+      "types": "./types/sequelize/index.d.ts",
+      "default": "./src/sequelize/index.js"
+    },
+    "./utils": {
+      "types": "./types/utils/index.d.ts",
+      "default": "./src/utils/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "typesVersions": {
+    "*": {
+      "*": [
+        "types/index.d.ts"
+      ],
+      "knex": [
+        "types/knex/index.d.ts"
+      ],
+      "kysely": [
+        "types/kysely/index.d.ts"
+      ],
+      "mikro-orm": [
+        "types/mikro-orm/index.d.ts"
+      ],
+      "objection": [
+        "types/objection/index.d.ts"
+      ],
+      "pg": [
+        "types/pg/index.d.ts"
+      ],
+      "pg-promise": [
+        "types/pg-promise/index.d.ts"
+      ],
+      "sequelize": [
+        "types/sequelize/index.d.ts"
+      ],
+      "utils": [
+        "types/utils/index.d.ts"
+      ]
+    }
+  },
+  "files": [
+    "src",
+    "types"
+  ],
+  "engines": {
+    "node": ">= 18"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "@mikro-orm/core": "^6.1.1",
+    "@mikro-orm/postgresql": "^6.1.1",
+    "@prisma/client": "^6.2.1",
+    "drizzle-orm": "^0.43.1",
+    "knex": "^3.1.0",
+    "kysely": "^0.28.2",
+    "objection": "^3.1.3",
+    "pg": "^8.6.0",
+    "pg-promise": "^11.4.3",
+    "postgres": "^3.3.4",
+    "sequelize": "^6.6.2",
+    "slonik": "^47.1.0",
+    "typeorm": "^0.3.17",
+    "typescript": "^5.0.3"
+  }
+}

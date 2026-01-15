@@ -1,0 +1,78 @@
+{
+  "id": "squish-memory",
+  "name": "Squish Memory",
+  "version": "0.2.7",
+  "description": "Production-ready local-first persistent memory for Claude Code with automatic capture and context injection",
+  "author": "michielhdoteth",
+  "license": "MIT",
+  "homepage": "https://github.com/michielhdoteth/squish",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/michielhdoteth/squish.git"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "memory",
+    "mcp",
+    "persistent",
+    "semantic-search",
+    "plugin"
+  ],
+  "hooks": {
+    "onInstall": "dist/features/plugin/plugin-wrapper.js:onInstall",
+    "onSessionStart": "dist/features/plugin/plugin-wrapper.js:onSessionStart",
+    "onUserPromptSubmit": "dist/features/plugin/plugin-wrapper.js:onUserPromptSubmit",
+    "onPostToolUse": "dist/features/plugin/plugin-wrapper.js:onPostToolUse",
+    "onSessionStop": "dist/features/plugin/plugin-wrapper.js:onSessionStop"
+  },
+  "mcp": {
+    "command": "node",
+    "args": ["./dist/index.js"]
+  },
+  "permissions": {
+    "readFiles": ["**/*.ts", "**/*.js", "**/*.json", ".claude*", "CLAUDE.md"],
+    "writeFiles": ["CLAUDE.md", ".claude*"],
+    "readEnvironment": ["SQUISH_*"],
+    "readDir": true
+  },
+  "configuration": {
+    "type": "object",
+    "properties": {
+      "autoCapture": {
+        "type": "boolean",
+        "default": true,
+        "description": "Automatically capture tool usage and observations"
+      },
+      "autoInject": {
+        "type": "boolean",
+        "default": true,
+        "description": "Automatically inject relevant context into sessions"
+      },
+      "generateFolderContext": {
+        "type": "boolean",
+        "default": true,
+        "description": "Generate CLAUDE.md files with session summaries"
+      },
+      "privacyMode": {
+        "type": "string",
+        "enum": ["strict", "moderate", "off"],
+        "default": "moderate",
+        "description": "How aggressively to filter private/sensitive data"
+      },
+      "maxContextItems": {
+        "type": "number",
+        "default": 15,
+        "description": "Maximum number of memories to inject per session"
+      },
+      "maxContextTokens": {
+        "type": "number",
+        "default": 3000,
+        "description": "Maximum tokens of context to inject per session"
+      }
+    }
+  }
+}

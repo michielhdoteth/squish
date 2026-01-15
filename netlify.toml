@@ -1,0 +1,13 @@
+[build]
+  publish = "."
+  command = "echo 'No build step'"
+
+[[headers]]
+  for = "/get-squishapp-dev.sh"
+  [headers.values]
+    Content-Type = "application/x-shellscript"
+
+[[redirects]]
+  from = "/*"
+  to = "/install-index.html"
+  status = 200
