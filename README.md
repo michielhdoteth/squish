@@ -1,118 +1,137 @@
-# Squish Memory Server - Mono-Repo
+# Squish - Production-Ready Memory Plugin for Claude Code
 
-Production-ready local-first persistent memory for Claude Code with auto-capture, folder context, privacy filtering, and optional team mode.
+Production-ready local-first persistent memory for Claude Code with auto-capture, folder context, privacy filtering, and optional team mode. Remembers conversations, tools used, decisions made, and project insights across sessions.
 
-## Quick Start
+## Installation
 
-### Installation
+### Using Claude Code Plugin
+
+The easiest way to use Squish is as a Claude Code plugin. It will auto-install when you first run Claude Code with it enabled.
+
+### Manual Installation
 
 ```bash
 # Using npm
 npm install -g squish
-squish
 
 # Using curl (macOS/Linux)
 curl -fsSL https://get.squishapp.dev | bash
 
-# Using bun (for development)
+# For development with Bun
+git clone https://github.com/michielhdoteth/squish
+cd squish
 bun install
-bun run dev:server
-```
-
-### Configure Claude Code
-
-Add to `~/.claude/settings.json`:
-
-```json
-{
-  "mcpServers": {
-    "squish": {
-      "command": "node",
-      "args": ["/path/to/squish/packages/server/dist/src/index.js"]
-    }
-  }
-}
+bun run build
+node dist/index.js
 ```
 
 ## Repository Structure
 
-This is a **mono-repo** containing:
-
-- **`packages/server/`** - MCP memory server with full-text search and semantic embeddings
-- **`packages/installer/`** - Installation scripts and distribution assets
-- **`infra/`** - Docker Compose configuration for team mode (PostgreSQL + Redis)
-- **`benchmarks/`** - Performance testing suite
+- **`features/`** - Feature modules
+  - `memory/` - Memory storage and retrieval
+  - `search/` - Conversation search and entity extraction
+  - `plugin/` - Claude Code plugin hooks (auto-capture, context injection)
+  - `web/` - Web UI for memory visualization (port 37777)
+- **`core/`** - Shared services and utilities
+- **`db/`** - Database layer (SQLite local, PostgreSQL team)
+- **`drizzle/`** - Database schemas
 - **`docs/`** - Complete documentation
+- **`infra/`** - Docker Compose for team mode (PostgreSQL + Redis)
 
 ## Features
 
-### ✅ Fully Implemented MCP Tools
+### Auto-Capture System
+- **User Input**: Automatically captures all your prompts
+- **Tool Usage**: Records every tool Claude Code uses (files read, written, executed)
+- **Observations**: Tracks patterns, errors, decisions, and insights
+- **Context Injection**: Automatically injects relevant memories into new sessions
+- **Privacy Filtering**: Detects and filters secrets, API keys, and sensitive data
+
+### Memory Tools
 - `remember` - Store memories with semantic embeddings
 - `recall` - Get memory by ID
-- `search` - Full-text + semantic search
+- `search` - Full-text + semantic search across all memories
 - `conversations` - Search past conversations
-- `observe` - Store tool usage observations
-- `context` - Get project context
+- `observe` - Store observations from tool usage
+- `context` - Get project context with memories and observations
 - `health` - Service status checks
 
-### ✅ Dual Storage Modes
-- **Local Mode**: SQLite with FTS5 + JSON embeddings (zero config)
-- **Team Mode**: PostgreSQL with pgvector + Redis cache (enterprise-ready)
+### Storage Modes
+- **Local Mode**: SQLite with FTS5 full-text search (zero config, everything local)
+- **Team Mode**: PostgreSQL with pgvector semantic search + Redis cache (multi-user, enterprise-ready)
 
-### ✅ Pluggable Embeddings
-- OpenAI API (`text-embedding-3-small`)
-- Ollama local models
-- Graceful fallback when disabled
+### Web UI
+- Real-time memory and observation browser at http://localhost:37777
+- Live counts and status monitoring
+- Visual search interface
 
-## Development
+### Pluggable Embeddings
+- **OpenAI API** (`text-embedding-3-small`) - Best quality, requires API key
+- **Ollama** - Run local models privately
+- **TF-IDF** - Simple fallback when embeddings disabled
+
+## Quick Configuration
+
+### Default Setup (Local Mode)
+Works out of the box with SQLite. No configuration needed:
 
 ```bash
-# Install dependencies (all packages)
-bun install
-
-# Build all packages
 bun run build
-
-# Develop server (with hot reload)
-bun run dev:server
-
-# Run tests
-bun run test
-
-# Start Docker services (team mode)
-bun run docker:up
-
-# Clean all builds
-bun run clean
+node dist/index.js
 ```
 
-## Configuration
+### Team Mode (Multi-user with PostgreSQL)
+```bash
+# Start PostgreSQL and Redis
+bun run docker:up
+
+# Configure database
+export DATABASE_URL=postgres://user:password@localhost/squish
+export REDIS_URL=redis://localhost:6379
+
+# Run server
+node dist/index.js
+```
 
 ### Environment Variables
 
 ```bash
-# Embeddings
-SQUISH_EMBEDDINGS_PROVIDER=openai|ollama|none
-SQUISH_OPENAI_API_KEY=...
-SQUISH_OLLAMA_URL=http://localhost:11434
+# Storage mode
+DATABASE_URL=postgres://user:pass@localhost/squish  # Optional - defaults to SQLite
+REDIS_URL=redis://localhost:6379                   # Optional - use for team mode
 
-# Team mode
-DATABASE_URL=postgres://user:pass@localhost/squish
-REDIS_URL=redis://localhost:6379
+# Embeddings (optional - improves semantic search)
+SQUISH_EMBEDDINGS_PROVIDER=openai|ollama|none      # Default: none
+SQUISH_OPENAI_API_KEY=sk-...                       # If using OpenAI
+SQUISH_OLLAMA_URL=http://localhost:11434           # If using Ollama
 
 # Web UI
-SQUISH_WEB_PORT=37777
+SQUISH_WEB_PORT=37777                              # Default: 37777
+
+# Privacy & Filtering
+SQUISH_PRIVACY_MODE=strict|moderate|off            # Default: moderate
 ```
 
-### Local Mode (Default)
-```bash
-node packages/server/dist/src/index.js
-```
+## Development
 
-### Team Mode (Docker)
 ```bash
-docker compose -f infra/docker-compose.yml up -d
-DATABASE_URL=postgres://... REDIS_URL=redis://... node packages/server/dist/src/index.js
+# Install dependencies
+bun install
+
+# Build project
+bun run build
+
+# Development with watch
+bun run dev
+
+# Type checking
+bun run typecheck
+
+# Clean builds
+bun run clean
+
+# Start Docker services (team mode)
+bun run docker:up
 ```
 
 ## Documentation

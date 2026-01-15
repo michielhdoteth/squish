@@ -4,7 +4,7 @@ import { getDb } from '../db/index.js';
 import { getSchema } from '../db/schema.js';
 import { config } from '../config.js';
 import { getEmbedding } from './embeddings.js';
-import { ensureProject, getProjectByPath } from '../features/search/entities.js';
+import { ensureProject, getProjectByPath } from './projects.js';
 import { fromSqliteJson, toSqliteJson } from '../features/memory/serialization.js';
 import { createDatabaseClient } from './database.js';
 export async function createObservation(input) {

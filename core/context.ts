@@ -1,12 +1,11 @@
-import { getProjectByPath } from '../features/search/entities.js';
+import { getProjectByPath } from './projects.js';
 import { getRecentMemories } from '../features/memory/memories.js';
 import { getObservationsForProject } from './observations.js';
 import { getEntitiesForProject } from '../features/search/entities.js';
-import { getRecentMessagesForProject } from '../db/schema.js';
 
 export interface ContextInput {
   project: string;
-  include?: Array<'memories' | 'observations' | 'entities' | 'messages'>;
+  include?: Array<'memories' | 'observations' | 'entities'>;
   limit?: number;
 }
 
@@ -31,10 +30,6 @@ export async function getProjectContext(input: ContextInput): Promise<Record<str
 
   if (include.includes('entities')) {
     result.entities = await getEntitiesForProject(project.path, limit);
-  }
-
-  if (include.includes('messages')) {
-    result.messages = await getRecentMessagesForProject(project.path, limit);
   }
 
   return result;

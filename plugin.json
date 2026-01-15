@@ -16,11 +16,13 @@
   "keywords": [
     "claude",
     "claude-code",
+    "plugin",
     "memory",
-    "mcp",
-    "persistent",
+    "persistent-memory",
     "semantic-search",
-    "plugin"
+    "full-text-search",
+    "local-first",
+    "privacy"
   ],
   "hooks": {
     "onInstall": "dist/features/plugin/plugin-wrapper.js:onInstall",

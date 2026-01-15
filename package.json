@@ -9,8 +9,8 @@
   },
   "scripts": {
     "build": "tsc",
-    "start": "node dist/src/index.js",
-    "web": "node dist/src/web-server.js",
+    "start": "node dist/index.js",
+    "web": "node dist/features/web/web-server.js",
     "dev": "bun --hot src/index.ts",
     "test": "node --test dist/**/*.test.js",
     "clean": "rm -rf dist *.log",
@@ -23,22 +23,29 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/michielhdoteth/squish-memory.git"
+    "url": "https://github.com/michielhdoteth/squish.git"
   },
-  "homepage": "https://github.com/michielhdoteth/squish-memory#readme",
+  "homepage": "https://github.com/michielhdoteth/squish#readme",
   "bugs": {
-    "url": "https://github.com/michielhdoteth/squish-memory/issues"
+    "url": "https://github.com/michielhdoteth/squish/issues"
   },
   "keywords": [
     "claude",
     "claude-code",
-    "mcp",
-    "model-context-protocol",
+    "plugin",
     "memory",
-    "semantic-search",
     "persistent-memory",
-    "ai",
-    "plugin"
+    "semantic-search",
+    "full-text-search",
+    "local-first",
+    "privacy",
+    "ai-assistant"
+  ],
+  "files": [
+    "dist",
+    "plugin.json",
+    "LICENSE",
+    "README.md"
   ],
   "author": "michielhdoteth",
   "license": "MIT",
