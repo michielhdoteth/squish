@@ -5,6 +5,7 @@ import { config } from '../../config.js';
 import { getProjectByPath } from '../../core/projects.js';
 import { fromSqliteJson } from '../../features/memory/serialization.js';
 import { createDatabaseClient } from '../../core/database.js';
+import { normalizeTimestamp, clampLimit } from '../../core/utils.js';
 
 export interface ConversationRecord {
   id: string;
@@ -32,7 +33,7 @@ export interface RecentConversationsInput {
 }
 
 export async function searchConversations(input: ConversationSearchInput): Promise<ConversationRecord[]> {
-  const limit = Math.min(Math.max(input.limit ?? 5, 1), 50);
+  const limit = clampLimit(input.limit, 5, 1, 50);
   if (config.isTeamMode) {
     return await searchConversationsPostgres(input, limit);
   }
@@ -42,7 +43,7 @@ export async function searchConversations(input: ConversationSearchInput): Promi
 export async function getRecentConversations(input: RecentConversationsInput): Promise<ConversationRecord[]> {
   const db = createDatabaseClient(await getDb());
   const schema = await getSchema();
-  const limit = Math.min(Math.max(input.n ?? 3, 1), 50);
+  const limit = clampLimit(input.n, 3, 1, 50);
   const whereParts = [] as any[];
 
   if (input.project) {
@@ -164,12 +165,4 @@ function normalizeConversation(row: any): ConversationRecord {
     startedAt: normalizeTimestamp(row.startedAt ?? row.started_at),
     endedAt: normalizeTimestamp(row.endedAt ?? row.ended_at),
   };
-}
-
-function normalizeTimestamp(value: any): string | null {
-  if (!value) return null;
-  if (value instanceof Date) return value.toISOString();
-  if (typeof value === 'number') return new Date(value * 1000).toISOString();
-  if (typeof value === 'string') return value;
-  return null;
 }

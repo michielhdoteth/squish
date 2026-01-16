@@ -44,6 +44,11 @@ import { handleApproveMerge } from './features/merge/handlers/approve-merge.js';
 import { handleRejectMerge } from './features/merge/handlers/reject-merge.js';
 import { handleReverseMerge } from './features/merge/handlers/reverse-merge.js';
 import { handleGetMergeStats } from './features/merge/handlers/get-stats.js';
+import { forceLifecycleMaintenance } from './core/worker.js';
+import { summarizeSession } from './core/summarization.js';
+import { storeAgentMemory, getRelatedMemories } from './core/agent-memory.js';
+import { protectMemory, pinMemory } from './core/governance.js';
+import { isDatabaseUnavailableError, determineOverallStatus } from './core/utils.js';
 
 const VERSION = '0.2.5';
 
@@ -237,6 +242,80 @@ const TOOLS = [
       },
       required: ['projectId']
     }
+  },
+  {
+    name: 'lifecycle',
+    description: 'Run memory lifecycle maintenance (decay, eviction, tier updates)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Project path (optional)' },
+        force: { type: 'boolean', description: 'Force immediate execution' }
+      }
+    }
+  },
+  {
+    name: 'summarize_session',
+    description: 'Summarize a conversation session',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        conversationId: { type: 'string', description: 'Conversation UUID' },
+        type: { type: 'string', enum: ['incremental', 'rolling', 'final'], description: 'Summary type' }
+      },
+      required: ['conversationId', 'type']
+    }
+  },
+  {
+    name: 'agent_remember',
+    description: 'Store memory with agent context and visibility scope',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        content: { type: 'string', description: 'Memory content' },
+        agentId: { type: 'string', description: 'Agent identifier' },
+        agentRole: { type: 'string', description: 'Agent role' },
+        visibilityScope: { type: 'string', enum: ['private', 'project', 'team', 'global'] },
+        sector: { type: 'string', enum: ['episodic', 'semantic', 'procedural', 'autobiographical', 'working'] },
+        tags: { type: 'array', items: { type: 'string' } }
+      },
+      required: ['content', 'agentId']
+    }
+  },
+  {
+    name: 'protect_memory',
+    description: 'Mark memory as protected (cannot be evicted)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        memoryId: { type: 'string', description: 'Memory UUID' },
+        reason: { type: 'string', description: 'Protection reason' }
+      },
+      required: ['memoryId', 'reason']
+    }
+  },
+  {
+    name: 'pin_memory',
+    description: 'Pin memory for automatic injection into context',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        memoryId: { type: 'string', description: 'Memory UUID' }
+      },
+      required: ['memoryId']
+    }
+  },
+  {
+    name: 'get_related',
+    description: 'Get related memories via association graph',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        memoryId: { type: 'string', description: 'Memory UUID' },
+        limit: { type: 'number', description: 'Max results (default: 10)' }
+      },
+      required: ['memoryId']
+    }
   }
 ] as const;
 
@@ -269,7 +348,7 @@ class Squish {
             try {
               return this.jsonResponse({ ok: true, data: await rememberMemory(args as any) });
             } catch (dbError: any) {
-              if (dbError.message?.includes('Database unavailable')) {
+              if (isDatabaseUnavailableError(dbError)) {
                 throw new McpError(ErrorCode.InternalError, 'Database unavailable - memory storage disabled');
               }
               throw dbError;
@@ -283,7 +362,7 @@ class Squish {
               const memory = await getMemoryById(String(args.id));
               return this.jsonResponse({ ok: true, found: !!memory, data: memory });
             } catch (dbError: any) {
-              if (dbError.message?.includes('Database unavailable')) {
+              if (isDatabaseUnavailableError(dbError)) {
                 throw new McpError(ErrorCode.InternalError, 'Database unavailable - memory retrieval disabled');
               }
               throw dbError;
@@ -296,7 +375,7 @@ class Squish {
             try {
               return this.jsonResponse({ ok: true, data: await searchMemories(args as any) });
             } catch (dbError: any) {
-              if (dbError.message?.includes('Database unavailable')) {
+              if (isDatabaseUnavailableError(dbError)) {
                 throw new McpError(ErrorCode.InternalError, 'Database unavailable - memory search disabled');
               }
               throw dbError;
@@ -309,7 +388,7 @@ class Squish {
             try {
               return this.jsonResponse({ ok: true, data: await searchConversations(args as any) });
             } catch (dbError: any) {
-              if (dbError.message?.includes('Database unavailable')) {
+              if (isDatabaseUnavailableError(dbError)) {
                 throw new McpError(ErrorCode.InternalError, 'Database unavailable - conversation search disabled');
               }
               throw dbError;
@@ -319,7 +398,7 @@ class Squish {
             try {
               return this.jsonResponse({ ok: true, data: await getRecentConversations(args as any) });
             } catch (dbError: any) {
-              if (dbError.message?.includes('Database unavailable')) {
+              if (isDatabaseUnavailableError(dbError)) {
                 throw new McpError(ErrorCode.InternalError, 'Database unavailable - conversation retrieval disabled');
               }
               throw dbError;
@@ -331,7 +410,7 @@ class Squish {
             try {
               return this.jsonResponse({ ok: true, data: await createObservation(args as any) });
             } catch (dbError: any) {
-              if (dbError.message?.includes('Database unavailable')) {
+              if (isDatabaseUnavailableError(dbError)) {
                 throw new McpError(ErrorCode.InternalError, 'Database unavailable - observation storage disabled');
               }
               throw dbError;
@@ -344,7 +423,7 @@ class Squish {
             try {
               return this.jsonResponse({ ok: true, data: await getProjectContext(args as any) });
             } catch (dbError: any) {
-              if (dbError.message?.includes('Database unavailable')) {
+              if (isDatabaseUnavailableError(dbError)) {
                 throw new McpError(ErrorCode.InternalError, 'Database unavailable - context retrieval disabled');
               }
               throw dbError;
@@ -366,6 +445,127 @@ class Squish {
             return this.jsonResponse(await handleReverseMerge(args as any));
           case 'get_merge_stats':
             return this.jsonResponse(await handleGetMergeStats(args as any));
+          case 'lifecycle': {
+            const { project } = args as { project?: string };
+            const result = await forceLifecycleMaintenance(project);
+            return this.jsonResponse({
+              success: true,
+              message: 'Lifecycle maintenance completed',
+              stats: result,
+            });
+          }
+          case 'summarize_session': {
+            const { conversationId, type } = args as {
+              conversationId: string;
+              type: 'incremental' | 'rolling' | 'final';
+            };
+            if (!conversationId || !type) {
+              throw new McpError(
+                ErrorCode.InvalidParams,
+                'conversationId and type are required'
+              );
+            }
+            const result = await summarizeSession(conversationId, type);
+            return this.jsonResponse({
+              success: true,
+              summaryId: result.summaryId,
+              tokensSaved: result.tokensSaved,
+              message: `Session summarized with type: ${type}`,
+            });
+          }
+          case 'agent_remember': {
+            const {
+              content,
+              agentId,
+              agentRole,
+              visibilityScope,
+              sector,
+            } = args as {
+              content: string;
+              agentId: string;
+              agentRole?: string;
+              visibilityScope?: 'private' | 'project' | 'team' | 'global';
+              sector?:
+                | 'episodic'
+                | 'semantic'
+                | 'procedural'
+                | 'autobiographical'
+                | 'working';
+            };
+            if (!content || !agentId) {
+              throw new McpError(
+                ErrorCode.InvalidParams,
+                'content and agentId are required'
+              );
+            }
+            const memoryId = await storeAgentMemory(content, {
+              agentId,
+              agentRole,
+            } as any, {
+              visibilityScope,
+              sector,
+            });
+            return this.jsonResponse({
+              success: true,
+              memoryId,
+              message: 'Memory stored with agent context',
+            });
+          }
+          case 'protect_memory': {
+            const { memoryId, reason } = args as {
+              memoryId: string;
+              reason: string;
+            };
+            if (!memoryId || !reason) {
+              throw new McpError(
+                ErrorCode.InvalidParams,
+                'memoryId and reason are required'
+              );
+            }
+            await protectMemory(memoryId, reason);
+            return this.jsonResponse({
+              success: true,
+              memoryId,
+              message: 'Memory protected from eviction',
+            });
+          }
+          case 'pin_memory': {
+            const { memoryId } = args as { memoryId: string };
+            if (!memoryId) {
+              throw new McpError(
+                ErrorCode.InvalidParams,
+                'memoryId is required'
+              );
+            }
+            await pinMemory(memoryId);
+            return this.jsonResponse({
+              success: true,
+              memoryId,
+              message: 'Memory pinned for auto-injection',
+            });
+          }
+          case 'get_related': {
+            const { memoryId, limit } = args as {
+              memoryId: string;
+              limit?: number;
+            };
+            if (!memoryId) {
+              throw new McpError(
+                ErrorCode.InvalidParams,
+                'memoryId is required'
+              );
+            }
+            const related = await getRelatedMemories(
+              memoryId,
+              limit || 10
+            );
+            return this.jsonResponse({
+              success: true,
+              memoryId,
+              relatedCount: related.length,
+              memories: related,
+            });
+          }
           default:
             throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
         }
@@ -403,8 +603,7 @@ class Squish {
       dbOk = await checkDatabaseHealth();
       dbStatus = dbOk ? 'ok' : 'unavailable';
     } catch (error: any) {
-      if (error.message?.includes('not a valid Win32 application') ||
-          error.message?.includes('Database unavailable')) {
+      if (isDatabaseUnavailableError(error)) {
         dbStatus = 'unavailable';
       } else {
         dbStatus = 'error';
@@ -412,9 +611,7 @@ class Squish {
     }
 
     const redisOk = await checkRedisHealth();
-
-    const overallStatus = (dbStatus === 'ok' || dbStatus === 'unavailable') && redisOk ? 'ok' :
-                         dbStatus === 'unavailable' ? 'degraded' : 'error';
+    const overallStatus = determineOverallStatus(dbStatus, redisOk);
 
     return this.jsonResponse({
       version: VERSION,

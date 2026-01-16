@@ -8,12 +8,12 @@
  * This is the main entry point for finding duplicate memories.
  */
 
-import type { Memory, MemoryType } from '../../../drizzle/schema';
-import { getEmbedding } from '../../../core/embeddings';
-import { SimHashFilter, MinHashFilter, findCandidatePairs } from './hash-filters';
-import { rankCandidates, analyzePair } from './semantic-ranker';
-import { createDatabaseClient, getDb } from '../../../db';
-import { getSchema } from '../../../db/adapter';
+import type { Memory, MemoryType } from '../../../drizzle/schema.js';
+import { getEmbedding } from '../../../core/embeddings.js';
+import { SimHashFilter, MinHashFilter, findCandidatePairs } from './hash-filters.js';
+import { rankCandidates, analyzePair } from './semantic-ranker.js';
+import { createDatabaseClient, getDb } from '../../../db/index.js';
+import { getSchema } from '../../../db/adapter.js';
 import { eq, and } from 'drizzle-orm';
 
 export interface MemoryPair {

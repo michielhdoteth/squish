@@ -1,145 +1,227 @@
 /**
- * Async Summarization Worker
- * Processes observations asynchronously for summarization and relevance scoring
+ * Background Worker
+ * Handles lifecycle maintenance, summarization, and other async tasks
  */
 
-import Queue from 'bull';
+import { config } from '../config.js';
+import { runLifecycleMaintenance } from './lifecycle.js';
+import { pruneWeakAssociations, getAssociationStats } from './associations.js';
+import { pruneOldSummaries, getSummarizationStats } from './summarization.js';
 
-const REDIS_CONFIG = {
-  host: process.env.REDIS_HOST || 'localhost',
-  port: parseInt(process.env.REDIS_PORT || '6379'),
-  maxRetriesPerRequest: null
+interface WorkerConfig {
+  lifecycleInterval: number;
+  pruningInterval: number;
+  summarizationCheckInterval: number;
+  associationPruningThreshold: number;
+  summaryPruningAge: number;
+}
+
+const DEFAULT_WORKER_CONFIG: WorkerConfig = {
+  lifecycleInterval: config.lifecycleInterval || 3600000,
+  pruningInterval: 7 * 24 * 60 * 60 * 1000,
+  summarizationCheckInterval: 5 * 60 * 1000,
+  associationPruningThreshold: 5,
+  summaryPruningAge: 30,
 };
 
-const QUEUE_SETTINGS = {
-  maxStalledCount: 2,
-  lockRenewTime: 5000,
-  lockDuration: 30000
-};
+class SquishWorker {
+  private lifecycleTimer?: NodeJS.Timeout;
+  private pruningTimer?: NodeJS.Timeout;
+  private summarizationTimer?: NodeJS.Timeout;
+  private config: WorkerConfig;
+  private isRunning: boolean = false;
+  private stats = {
+    lifecycleRuns: 0,
+    pruningRuns: 0,
+    summarizationRuns: 0,
+    lastLifecycleStats: null as any,
+    lastAssociationStats: null as any,
+    lastSummarizationStats: null as any,
+  };
 
-const summaryQueue = new Queue('squish-summaries', {
-  redis: REDIS_CONFIG,
-  settings: QUEUE_SETTINGS
-});
-
-export interface SummarizationJob {
-  observationId: string;
-  projectPath?: string;
-  retries?: number;
-}
-
-const TYPE_SCORES: Record<string, number> = {
-  error: 0.8,
-  insight: 0.85,
-  decision: 0.75,
-  tool_use: 0.6,
-  file_change: 0.5,
-  pattern: 0.7,
-  user_prompt: 0.4
-};
-
-function generateBasicSummary(observation: Record<string, unknown>): string {
-  if (observation.summary) return observation.summary as string;
-
-  const parts: string[] = [];
-  const details = observation.details as Record<string, unknown> | undefined;
-
-  if (observation.action) {
-    parts.push(`Action: ${observation.action}`);
-  }
-  if (details?.arguments) {
-    parts.push(`Args: ${JSON.stringify(details.arguments).substring(0, 100)}`);
-  }
-  if (details?.result) {
-    const resultStr = typeof details.result === 'string'
-      ? details.result
-      : JSON.stringify(details.result);
-    parts.push(`Result: ${resultStr.substring(0, 100)}`);
+  constructor(customConfig: Partial<WorkerConfig> = {}) {
+    this.config = { ...DEFAULT_WORKER_CONFIG, ...customConfig };
   }
 
-  return parts.length > 0 ? parts.join(' | ') : 'Observation recorded';
-}
-
-function calculateRelevanceScore(observation: Record<string, unknown>): number {
-  const type = observation.type as string;
-  let score = TYPE_SCORES[type] || 0.5;
-
-  if (observation.createdAt) {
-    const ageHours = (Date.now() - (observation.createdAt as Date).getTime()) / (1000 * 60 * 60);
-    const recencyBoost = Math.max(0, 0.3 * (1 - ageHours / (24 * 30)));
-    score = Math.min(1, score + recencyBoost);
-  }
-
-  if (observation.hasSecrets) {
-    score *= 0.5;
-  }
-
-  return Math.round(score * 100) / 100;
-}
-
-async function processSummarizationJob(job: SummarizationJob): Promise<void> {
-  console.error(`[squish-worker] Processed observation ${job.observationId}`);
-}
-
-export async function processWorkerQueue(): Promise<void> {
-  console.error('[squish-worker] Starting summarization worker');
-
-  summaryQueue.process(async (job) => {
-    await processSummarizationJob(job.data as SummarizationJob);
-    return { success: true };
-  });
-
-  summaryQueue.on('failed', (job, err) => {
-    console.error(`[squish-worker] Job ${job.id} failed:`, err.message);
-  });
-
-  summaryQueue.on('completed', (job) => {
-    console.error(`[squish-worker] Job ${job.id} completed`);
-  });
-
-  summaryQueue.on('stalled', (job) => {
-    console.error(`[squish-worker] Job ${job.id} stalled`);
-  });
-}
-
-export async function queueForSummarization(observationId: string, projectPath?: string): Promise<void> {
-  await summaryQueue.add(
-    { observationId, projectPath } as SummarizationJob,
-    {
-      attempts: 3,
-      backoff: { type: 'exponential', delay: 2000 },
-      removeOnComplete: true,
-      removeOnFail: false
+  async start(): Promise<void> {
+    if (this.isRunning) {
+      console.warn('[squish] Worker already running');
+      return;
     }
-  ).catch(err => console.error('[squish] Queue error:', err));
 
-  console.error(`[squish] Queued observation for summarization: ${observationId}`);
-}
+    this.isRunning = true;
+    console.log('[squish] Starting background worker...');
 
-export async function getWorkerStats(): Promise<{
-  waiting: number;
-  active: number;
-  completed: number;
-  failed: number;
-  delayed: number;
-}> {
-  return summaryQueue.getJobCounts();
-}
+    if (config.lifecycleEnabled) {
+      this.scheduleLifecycleMaintenance();
+    }
 
-export async function drainWorkerQueue(): Promise<void> {
-  await summaryQueue.close().catch(err =>
-    console.error('[squish-worker] Error closing queue:', err)
-  );
-  console.error('[squish-worker] Queue drained and closed');
-}
+    this.schedulePruning();
 
-export async function checkWorkerHealth(): Promise<boolean> {
-  try {
-    await getWorkerStats();
-    return true;
-  } catch {
-    return false;
+    if (config.summarizationEnabled) {
+      this.scheduleSummarizationCheck();
+    }
+
+    console.log('[squish] Background worker started');
+  }
+
+  async stop(): Promise<void> {
+    if (!this.isRunning) {
+      return;
+    }
+
+    this.isRunning = false;
+
+    if (this.lifecycleTimer) clearInterval(this.lifecycleTimer);
+    if (this.pruningTimer) clearInterval(this.pruningTimer);
+    if (this.summarizationTimer) clearInterval(this.summarizationTimer);
+
+    console.log('[squish] Background worker stopped');
+  }
+
+  private scheduleLifecycleMaintenance(): void {
+    this.runLifecycleMaintenance().catch((err) => {
+      console.error('[squish] Initial lifecycle maintenance failed:', err);
+    });
+
+    this.lifecycleTimer = setInterval(() => {
+      this.runLifecycleMaintenance().catch((err) => {
+        console.error('[squish] Scheduled lifecycle maintenance failed:', err);
+      });
+    }, this.config.lifecycleInterval);
+  }
+
+  private async runLifecycleMaintenance(): Promise<void> {
+    try {
+      const stats = await runLifecycleMaintenance();
+      this.stats.lifecycleRuns++;
+      this.stats.lastLifecycleStats = {
+        timestamp: new Date().toISOString(),
+        ...stats,
+      };
+
+      console.log('[squish] Lifecycle maintenance completed:', {
+        decayed: stats.decayed,
+        evicted: stats.evicted,
+        promoted: stats.promoted,
+      });
+    } catch (error) {
+      console.error('[squish] Lifecycle maintenance error:', error);
+    }
+  }
+
+  private schedulePruning(): void {
+    this.runPruning().catch((err) => {
+      console.error('[squish] Initial pruning failed:', err);
+    });
+
+    this.pruningTimer = setInterval(() => {
+      this.runPruning().catch((err) => {
+        console.error('[squish] Scheduled pruning failed:', err);
+      });
+    }, this.config.pruningInterval);
+  }
+
+  private async runPruning(): Promise<void> {
+    try {
+      this.stats.pruningRuns++;
+
+      const prunedAssociations = await pruneWeakAssociations(
+        this.config.associationPruningThreshold
+      );
+
+      const assocStats = await getAssociationStats();
+      this.stats.lastAssociationStats = {
+        timestamp: new Date().toISOString(),
+        pruned: prunedAssociations,
+        ...assocStats,
+      };
+
+      const prunedSummaries = await pruneOldSummaries(this.config.summaryPruningAge);
+
+      console.log('[squish] Pruning completed:', {
+        associationsPruned: prunedAssociations,
+        summariesPruned: prunedSummaries,
+      });
+    } catch (error) {
+      console.error('[squish] Pruning error:', error);
+    }
+  }
+
+  private scheduleSummarizationCheck(): void {
+    this.summarizationTimer = setInterval(() => {
+      this.runSummarizationCheck().catch((err) => {
+        console.error('[squish] Summarization check failed:', err);
+      });
+    }, this.config.summarizationCheckInterval);
+  }
+
+  private async runSummarizationCheck(): Promise<void> {
+    try {
+      this.stats.summarizationRuns++;
+      const stats = await getSummarizationStats();
+      this.stats.lastSummarizationStats = {
+        timestamp: new Date().toISOString(),
+        ...stats,
+      };
+    } catch (error) {
+      console.error('[squish] Summarization check error:', error);
+    }
+  }
+
+  getStats() {
+    return {
+      isRunning: this.isRunning,
+      stats: this.stats,
+      config: this.config,
+    };
+  }
+
+  async forceLifecycleMaintenance(projectId?: string): Promise<any> {
+    return await runLifecycleMaintenance(projectId);
+  }
+
+  async forcePruning(): Promise<any> {
+    return await this.runPruning();
   }
 }
 
-export { summaryQueue };
+let globalWorker: SquishWorker | null = null;
+
+export function getWorker(customConfig?: Partial<WorkerConfig>): SquishWorker {
+  if (!globalWorker) {
+    globalWorker = new SquishWorker(customConfig);
+  }
+  return globalWorker;
+}
+
+export async function startWorker(): Promise<void> {
+  const worker = getWorker();
+  await worker.start();
+}
+
+export async function stopWorker(): Promise<void> {
+  if (globalWorker) {
+    await globalWorker.stop();
+  }
+}
+
+export function getWorkerStats() {
+  if (!globalWorker) {
+    return null;
+  }
+  return globalWorker.getStats();
+}
+
+export async function forceLifecycleMaintenance(projectId?: string): Promise<any> {
+  const worker = getWorker();
+  return await worker.forceLifecycleMaintenance(projectId);
+}
+
+export async function forcePruning(): Promise<any> {
+  const worker = getWorker();
+  return await worker.forcePruning();
+}
+
+export type { WorkerConfig };
+export { SquishWorker };

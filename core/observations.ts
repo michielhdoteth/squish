@@ -7,6 +7,7 @@ import { getEmbedding } from './embeddings.js';
 import { ensureProject, getProjectByPath } from './projects.js';
 import { fromSqliteJson, toSqliteJson } from '../features/memory/serialization.js';
 import { createDatabaseClient } from './database.js';
+import { normalizeTimestamp, isDatabaseUnavailableError, prepareEmbedding } from './utils.js';
 
 export type ObservationType = 'tool_use' | 'file_change' | 'error' | 'pattern' | 'insight';
 
@@ -39,29 +40,23 @@ export async function createObservation(input: ObservationInput): Promise<Observ
   const embedding = await getEmbedding(input.summary);
   const id = randomUUID();
 
-  if (config.isTeamMode) {
-    await db.insert(schema.observations).values({
-      id,
-      projectId: project?.id ?? null,
-      type: input.type,
-      action: input.action,
-      target: input.target ?? null,
-      summary: input.summary,
-      details: input.details ?? null,
-      embedding: embedding ?? null,
-    });
-  } else {
-    await db.insert(schema.observations).values({
-      id,
-      projectId: project?.id ?? null,
-      type: input.type,
-      action: input.action,
-      target: input.target ?? null,
-      summary: input.summary,
-      details: toSqliteJson(input.details ?? null),
-      embeddingJson: toSqliteJson(embedding ?? null),
-    });
-  }
+  const baseValues = {
+    id,
+    projectId: project?.id ?? null,
+    type: input.type,
+    action: input.action,
+    target: input.target ?? null,
+    summary: input.summary,
+  };
+
+  const embeddingValues = prepareEmbedding(embedding);
+  const detailsValue = config.isTeamMode ? input.details ?? null : toSqliteJson(input.details ?? null);
+
+  await db.insert(schema.observations).values({
+    ...baseValues,
+    details: detailsValue,
+    ...embeddingValues,
+  });
 
   return {
     id,
@@ -89,11 +84,52 @@ export async function getObservationsForProject(projectPath: string, limit: numb
 
     return rows.map((row: any) => normalizeObservation(row));
   } catch (error: any) {
-    if (error.message?.includes('Database unavailable') ||
-        error.message?.includes('not a valid Win32 application')) {
+    if (isDatabaseUnavailableError(error)) {
       return []; // Graceful degradation - database unavailable
     }
     throw error;
+  }
+}
+
+export async function getRecentObservations(projectPath: string, limit: number = 10): Promise<ObservationRecord[]> {
+  try {
+    const db = createDatabaseClient(await getDb());
+    const schema = await getSchema();
+    const project = await getProjectByPath(projectPath);
+    if (!project) return [];
+
+    const rows = await db.select().from(schema.observations)
+      .where(eq(schema.observations.projectId, project.id))
+      .orderBy(desc(schema.observations.createdAt))
+      .limit(limit);
+
+    return rows.map((row: any) => normalizeObservation(row));
+  } catch (error: any) {
+    if (isDatabaseUnavailableError(error)) {
+      return [];
+    }
+    console.error('[squish] Error getting recent observations:', error);
+    return [];
+  }
+}
+
+export async function getObservationById(observationId: string): Promise<ObservationRecord | null> {
+  try {
+    const db = createDatabaseClient(await getDb());
+    const schema = await getSchema();
+
+    const rows = await db.select().from(schema.observations)
+      .where(eq(schema.observations.id, observationId))
+      .limit(1);
+
+    if (rows.length === 0) return null;
+    return normalizeObservation(rows[0]);
+  } catch (error: any) {
+    if (isDatabaseUnavailableError(error)) {
+      return null;
+    }
+    console.error('[squish] Error getting observation:', error);
+    return null;
   }
 }
 
@@ -110,12 +146,4 @@ function normalizeObservation(row: any): ObservationRecord {
     details,
     createdAt: normalizeTimestamp(row.createdAt ?? row.created_at),
   };
-}
-
-function normalizeTimestamp(value: any): string | null {
-  if (!value) return null;
-  if (value instanceof Date) return value.toISOString();
-  if (typeof value === 'number') return new Date(value * 1000).toISOString();
-  if (typeof value === 'string') return value;
-  return null;
 }

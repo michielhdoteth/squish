@@ -7,6 +7,7 @@ import { ensureProject, getProjectByPath } from '../../core/projects.js';
 import { getEmbedding } from '../../core/embeddings.js';
 import { fromSqliteJson, fromSqliteTags, normalizeTags, toSqliteJson, toSqliteTags } from '../../features/memory/serialization.js';
 import { createDatabaseClient } from '../../core/database.js';
+import { normalizeTimestamp, isDatabaseUnavailableError, clampLimit, prepareEmbedding } from '../../core/utils.js';
 
 export type MemoryType = 'observation' | 'fact' | 'decision' | 'context' | 'preference';
 
@@ -52,29 +53,24 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
   const id = randomUUID();
   const type = input.type ?? 'observation';
 
-  if (config.isTeamMode) {
-    await db.insert(schema.memories).values({
-      id,
-      projectId: project?.id ?? null,
-      type,
-      content: input.content,
-      tags: tags.length ? tags : null,
-      metadata: input.metadata ?? null,
-      source: input.source ?? 'mcp',
-      embedding: embedding ?? null,
-    });
-  } else {
-    await db.insert(schema.memories).values({
-      id,
-      projectId: project?.id ?? null,
-      type,
-      content: input.content,
-      tags: toSqliteTags(tags),
-      metadata: toSqliteJson(input.metadata ?? null),
-      source: input.source ?? 'mcp',
-      embeddingJson: toSqliteJson(embedding ?? null),
-    });
-  }
+  const baseValues = {
+    id,
+    projectId: project?.id ?? null,
+    type,
+    content: input.content,
+    source: input.source ?? 'mcp',
+  };
+
+  const embeddingValues = prepareEmbedding(embedding);
+  const tagsValue = config.isTeamMode ? (tags.length ? tags : null) : toSqliteTags(tags);
+  const metadataValue = config.isTeamMode ? input.metadata ?? null : toSqliteJson(input.metadata ?? null);
+
+  await db.insert(schema.memories).values({
+    ...baseValues,
+    tags: tagsValue,
+    metadata: metadataValue,
+    ...embeddingValues,
+  });
 
   return {
     id,
@@ -95,8 +91,7 @@ export async function getMemoryById(id: string): Promise<MemoryRecord | null> {
     if (!row) return null;
     return normalizeMemory(row);
   } catch (error: any) {
-    if (error.message?.includes('Database unavailable') ||
-        error.message?.includes('not a valid Win32 application')) {
+    if (isDatabaseUnavailableError(error)) {
       return null; // Graceful degradation - database unavailable
     }
     throw error;
@@ -117,8 +112,7 @@ export async function getRecentMemories(projectPath: string, limit: number): Pro
 
     return rows.map((row: any) => normalizeMemory(row));
   } catch (error: any) {
-    if (error.message?.includes('Database unavailable') ||
-        error.message?.includes('not a valid Win32 application')) {
+    if (isDatabaseUnavailableError(error)) {
       return []; // Graceful degradation - database unavailable
     }
     throw error;
@@ -126,7 +120,7 @@ export async function getRecentMemories(projectPath: string, limit: number): Pro
 }
 
 export async function searchMemories(input: SearchInput): Promise<MemoryRecord[]> {
-  const limit = Math.min(Math.max(input.limit ?? 10, 1), 100);
+  const limit = clampLimit(input.limit, 10, 1, 100);
   const tags = normalizeTags(input.tags);
 
   if (config.isTeamMode) {
@@ -275,12 +269,4 @@ function normalizeMemory(row: any): MemoryRecord {
     metadata,
     createdAt: normalizeTimestamp(row.createdAt ?? row.created_at),
   };
-}
-
-function normalizeTimestamp(value: any): string | null {
-  if (!value) return null;
-  if (value instanceof Date) return value.toISOString();
-  if (typeof value === 'number') return new Date(value * 1000).toISOString();
-  if (typeof value === 'string') return value;
-  return null;
 }

@@ -7,13 +7,12 @@
 
 import type { UUID } from 'crypto';
 import { randomUUID } from 'crypto';
-import { detectDuplicates } from '../detection/two-stage-detector';
-import { runSafetyChecks, checkBlockers } from '../safety/safety-checks';
-import { SimHashFilter, MinHashFilter } from '../detection/hash-filters';
-import { mergeMemories } from '../strategies/merge-strategies';
-import { estimateTokensSaved } from '../analytics/token-estimator';
-import { createDatabaseClient, getDb } from '../../../db';
-import { getSchema } from '../../../db/adapter';
+import { detectDuplicates } from '../detection/two-stage-detector.js';
+import { runSafetyChecks, checkBlockers } from '../safety/safety-checks.js';
+import { mergeMemories } from '../strategies/merge-strategies.js';
+import { estimateTokensSaved } from '../analytics/token-estimator.js';
+import { createDatabaseClient, getDb } from '../../../db/index.js';
+import { getSchema } from '../../../db/adapter.js';
 import { eq } from 'drizzle-orm';
 
 interface DetectDuplicatesInput {

@@ -5,10 +5,10 @@
  * (Can be upgraded to tiktoken library for exact counts)
  */
 
-import type { Memory } from '../../../drizzle/schema';
-import type { MergedMemory } from '../strategies/merge-strategies';
-import { createDatabaseClient, getDb } from '../../../db';
-import { getSchema } from '../../../db/adapter';
+import type { Memory } from '../../../drizzle/schema.js';
+import type { MergedMemory } from '../strategies/merge-strategies.js';
+import { createDatabaseClient, getDb } from '../../../db/index.js';
+import { getSchema } from '../../../db/adapter.js';
 import { eq } from 'drizzle-orm';
 
 /**

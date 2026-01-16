@@ -5,6 +5,7 @@ import { config } from '../../config.js';
 import { getProjectByPath } from '../../core/projects.js';
 import { fromSqliteJson } from '../../features/memory/serialization.js';
 import { createDatabaseClient } from '../../core/database.js';
+import { normalizeTimestamp } from '../../core/utils.js';
 
 export interface EntityRecord {
   id: string;
@@ -43,12 +44,4 @@ function normalizeEntity(row: any): EntityRecord {
     createdAt: normalizeTimestamp(row.createdAt ?? row.created_at),
     updatedAt: normalizeTimestamp(row.updatedAt ?? row.updated_at),
   };
-}
-
-function normalizeTimestamp(value: any): string | null {
-  if (!value) return null;
-  if (value instanceof Date) return value.toISOString();
-  if (typeof value === 'number') return new Date(value * 1000).toISOString();
-  if (typeof value === 'string') return value;
-  return null;
 }
