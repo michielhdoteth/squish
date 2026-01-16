@@ -1,11 +1,12 @@
 {
   "name": "squish",
-  "version": "0.2.7",
-  "description": "Production-ready local-first persistent memory for Claude Code with auto-capture, folder context, privacy, and team sync",
+  "version": "0.3.0",
+  "description": "Local-first persistent memory for Claude Code with lifecycle management, agent isolation, memory governance, and team sync",
   "main": "dist/index.js",
   "type": "module",
   "bin": {
-    "squish": "dist/index.js"
+    "squish": "dist/index.js",
+    "squish-install": "npx-installer.js"
   },
   "scripts": {
     "build": "tsc",
@@ -19,7 +20,9 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "prepublishOnly": "npm run clean && npm run build",
+    "release": "./scripts/build-release.sh && ./scripts/github-release.sh"
   },
   "repository": {
     "type": "git",
@@ -79,6 +82,7 @@
     "@types/pg": "^8.11.10",
     "@types/ws": "^8.5.13",
     "drizzle-kit": "^0.30.0",
+    "pkg": "^5.8.1",
     "typescript": "^5.7.0"
   }
 }
