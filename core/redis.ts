@@ -1,4 +1,5 @@
 import { createClient, RedisClientType } from 'redis';
+import { performRedisPublish } from './utils/memory-operations.js';
 
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
 
@@ -57,8 +58,7 @@ export async function cacheClear(pattern: string): Promise<void> {
 
 // Pub/Sub for real-time sync
 export async function publish(channel: string, message: unknown): Promise<void> {
-  const redis = await getRedisClient();
-  await redis.publish(channel, JSON.stringify(message));
+  await performRedisPublish(getRedisClient, channel, message);
 }
 
 export async function subscribe(channel: string, callback: (message: unknown) => void): Promise<void> {

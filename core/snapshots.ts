@@ -3,6 +3,7 @@ import { eq, desc } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
 import { getSchema } from '../db/schema.js';
+import { cleanupOldMemorySnapshots } from './utils/cleanup-operations.js';
 
 export interface MemoryDiff {
   added?: string[];
@@ -160,21 +161,7 @@ export async function getMemorySnapshot(snapshotId: string): Promise<any> {
 }
 
 export async function deleteOldSnapshots(olderThanDays: number = 90): Promise<number> {
-  try {
-    const db = await getDb();
-    const schema = await getSchema();
-
-    const threshold = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000);
-
-    const result = await (db as any)
-      .delete(schema.memorySnapshots)
-      .where((schema.memorySnapshots.createdAt as any) < threshold);
-
-    return result?.rowCount || 0;
-  } catch (error) {
-    console.error('[squish] Error deleting old snapshots:', error);
-    return 0;
-  }
+  return cleanupOldMemorySnapshots(olderThanDays);
 }
 
 function extractMetadata(memory: any): Record<string, unknown> {
