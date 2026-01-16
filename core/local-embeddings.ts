@@ -94,35 +94,15 @@ export async function initializeEmbeddingProvider(): Promise<void> {
   }
 }
 
-export async function generateEmbedding(text: string): Promise<Embedding> {
-  if (!currentProvider) await initializeEmbeddingProvider();
-  return currentProvider?.embed(text) ?? Array(EMBEDDING_DIMENSIONS).fill(0);
-}
 
-export async function isEmbeddingAvailable(): Promise<boolean> {
-  if (!currentProvider) await initializeEmbeddingProvider();
-  return currentProvider?.isAvailable() ?? false;
-}
 
-export function getEmbeddingDimensions(): number {
-  return EMBEDDING_DIMENSIONS;
-}
 
-export function serializeEmbedding(embedding: Embedding): Buffer {
-  const buffer = Buffer.alloc(embedding.length * 4);
-  for (let i = 0; i < embedding.length; i++) {
-    buffer.writeFloatLE(embedding[i], i * 4);
-  }
-  return buffer;
-}
 
-export function deserializeEmbedding(buffer: Buffer): Embedding {
-  const embedding: Embedding = [];
-  for (let i = 0; i < buffer.length; i += 4) {
-    embedding.push(buffer.readFloatLE(i));
-  }
-  return embedding;
-}
+
+
+
+
+
 
 export function cosineSimilarity(a: Embedding, b: Embedding): number {
   if (a.length !== b.length) {
@@ -143,27 +123,6 @@ export function cosineSimilarity(a: Embedding, b: Embedding): number {
   return denominator === 0 ? 0 : dotProduct / denominator;
 }
 
-export function euclideanDistance(a: Embedding, b: Embedding): number {
-  if (a.length !== b.length) {
-    throw new Error('Embeddings must have same dimensions');
-  }
 
-  let sum = 0;
-  for (let i = 0; i < a.length; i++) {
-    const diff = a[i] - b[i];
-    sum += diff * diff;
-  }
 
-  return Math.sqrt(sum);
-}
 
-export function findNearestNeighbors(
-  query: Embedding,
-  candidates: Array<{ embedding: Embedding; id: string }>,
-  k = 5
-): Array<{ id: string; similarity: number }> {
-  return candidates
-    .map(c => ({ id: c.id, similarity: cosineSimilarity(query, c.embedding) }))
-    .sort((a, b) => b.similarity - a.similarity)
-    .slice(0, k);
-}

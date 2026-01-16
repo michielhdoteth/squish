@@ -121,34 +121,7 @@ export async function getRelatedMemories(
   }
 }
 
-/**
- * Get association strength between two memories
- */
-export async function getAssociationWeight(
-  fromMemoryId: string,
-  toMemoryId: string
-): Promise<number> {
-  try {
-    const db = await getDb();
-    const schema = await getSchema();
 
-    const association = await (db as any)
-      .select()
-      .from(schema.memoryAssociations)
-      .where(
-        and(
-          eq(schema.memoryAssociations.fromMemoryId, fromMemoryId),
-          eq(schema.memoryAssociations.toMemoryId, toMemoryId)
-        )
-      )
-      .limit(1);
-
-    return association.length > 0 ? association[0].weight : 0;
-  } catch (error) {
-    console.error('[squish] Error getting association weight:', error);
-    return 0;
-  }
-}
 
 /**
  * Prune weak associations (weight < threshold)
@@ -215,13 +188,4 @@ export async function getAssociationStats(): Promise<{
   }
 }
 
-/**
- * Mark a memory as superseding another
- */
-export async function markSupersession(previousMemoryId: string, newMemoryId: string): Promise<void> {
-  try {
-    await createAssociation(newMemoryId, previousMemoryId, 'supersedes', 100);
-  } catch (error) {
-    console.error('[squish] Error marking supersession:', error);
-  }
-}
+
