@@ -1,11 +1,11 @@
 {
-  "name": "squish-marketplace",
+  "name": "squish-memory",
   "owner": {
     "name": "michielhdoteth"
   },
   "plugins": [
     {
-      "name": "squish-memory",
+      "name": "squish",
       "version": "0.3.0",
       "description": "Local-first persistent memory for Claude Code with automatic capture, lifecycle management, and context injection",
       "author": {

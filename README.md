@@ -9,14 +9,14 @@ Local-first persistent memory for Claude Code with auto-capture, folder context,
 The easiest way to use Squish is through the Claude Code plugin marketplace:
 
 ```
-/plugin marketplace add michielhdoteth/squish
-/plugin install squish-memory@michielhdoteth-squish
+/plugin marketplace add squish-memory
+/plugin install squish@squish-memory
 ```
 
 Or manually install from GitHub:
 
 ```
-/plugin install squish-memory@https://github.com/michielhdoteth/squish
+/plugin install squish@https://github.com/michielhdoteth/squish
 ```
 
 ### Quick Install with npx
