@@ -114,23 +114,23 @@ export async function captureToolUse(
   return observation;
 }
 
-export async function queueForSummarization(observationId: string): Promise<void> {
+export async function queueForSummarization(observationId: string, projectPath: string = ''): Promise<void> {
   try {
     if (!config.summarizationEnabled) {
       return;
     }
 
     const observation = await getObservationById(observationId);
-    if (!observation || !observation.session) {
+    if (!observation || !observation.conversationId) {
       return;
     }
 
     try {
-      const recentObservations = await getRecentObservations(observation.project || '', 100);
+      const recentObservations = await getRecentObservations(projectPath, 100);
       const messageCount = recentObservations.length;
 
       if (messageCount > 0 && messageCount % config.incrementalThreshold === 0) {
-        await summarizeSession(observation.session, 'incremental');
+        await summarizeSession(observation.conversationId, 'incremental');
         console.error(`[squish] Session summarized (incremental) after ${messageCount} observations`);
       }
     } catch (error) {

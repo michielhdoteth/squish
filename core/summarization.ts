@@ -33,11 +33,11 @@ export async function summarizeSession(
   conversationId: string,
   summaryType: SummaryType,
   customConfig: Partial<SummarizationConfig> = {}
-): Promise<string> {
+): Promise<{ summaryId: string; tokensSaved: number; summary: string }> {
   const finalConfig = { ...DEFAULT_CONFIG, ...customConfig };
 
   if (!finalConfig.enabled) {
-    return '';
+    return { summaryId: '', tokensSaved: 0, summary: '' };
   }
 
   try {
@@ -52,7 +52,7 @@ export async function summarizeSession(
       .orderBy(schema.messages.createdAt);
 
     if (messages.length === 0) {
-      return '';
+      return { summaryId: '', tokensSaved: 0, summary: '' };
     }
 
     let summary = '';
@@ -80,9 +80,10 @@ export async function summarizeSession(
 
       if (conversation.length > 0) {
         const tokensSaved = estimateTokensSaved(messages, summary);
+        const summaryId = randomUUID();
 
         await (db as any).insert(schema.sessionSummaries).values({
-          id: randomUUID(),
+          id: summaryId,
           conversationId,
           projectId: conversation[0].projectId,
           summaryType,
@@ -92,13 +93,15 @@ export async function summarizeSession(
           embedding: embedding || null,
           createdAt: new Date(),
         });
+
+        return { summaryId, tokensSaved, summary };
       }
     }
 
-    return summary;
+    return { summaryId: '', tokensSaved: 0, summary };
   } catch (error) {
     console.error('[squish] Error summarizing session:', error);
-    return '';
+    return { summaryId: '', tokensSaved: 0, summary: '' };
   }
 }
 

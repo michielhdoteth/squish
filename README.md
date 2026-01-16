@@ -19,6 +19,16 @@ Or manually install from GitHub:
 /plugin install https://github.com/michielhdoteth/squish
 ```
 
+### Quick Install with npx
+
+The fastest way to install Squish:
+
+```bash
+npx squish-install
+```
+
+This will download and install Squish automatically, then configure Claude Code.
+
 ### Manual Installation
 
 ```bash
@@ -29,7 +39,7 @@ npm install -g squish
 curl -fsSL https://get.squishapp.dev | bash
 
 # For development with Bun
-git clone https://github.com/michielhdoteth/squish
+git clone https://github.com/michielhdoteth/squish.git
 cd squish
 bun install
 bun run build

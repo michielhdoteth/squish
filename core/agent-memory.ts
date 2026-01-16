@@ -102,19 +102,19 @@ export async function searchAgentMemories(
     const limit = Math.min(options.limit || 10, 100);
 
     // Build visibility filter
-    const visibilityFilters = [eq(schema.memories.agentId, context.agentId)];
+    const visibilityFilters: any[] = [eq(schema.memories.agentId, context.agentId)];
 
     if (options.includeShared && context.projectId) {
       visibilityFilters.push(
         and(
-          eq(schema.memories.projectId, context.projectId),
+          eq(schema.memories.projectId as any, context.projectId),
           inArray(schema.memories.visibilityScope as any, ['project', 'team', 'global'])
-        )
+        ) as any
       );
     }
 
     // Build where clause
-    let where: any = or(...visibilityFilters);
+    let where: any = visibilityFilters.length > 1 ? or(...visibilityFilters) : visibilityFilters[0];
 
     if (options.type) {
       where = and(where, eq(schema.memories.type as any, options.type));

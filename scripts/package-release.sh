@@ -68,4 +68,4 @@ echo "🎉 Release packages created:"
 ls -la *.tar.gz *.zip 2>/dev/null || true
 echo ""
 echo "Upload these to GitHub releases at:"
-echo "https://github.com/michielhdoteth/squish-memory/releases/tag/v$VERSION"
+echo "https://github.com/michielhdoteth/squish/releases/tag/v$VERSION"

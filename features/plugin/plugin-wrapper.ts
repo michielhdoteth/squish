@@ -82,7 +82,7 @@ export async function onPostToolUse(context: PluginContext): Promise<void> {
   captureToolUse(projectPath, context.toolName, context.toolArguments, context.toolResult, context)
     .then(observation => {
       if (observation?.id) {
-        queueForSummarization(observation.id).catch(err =>
+        queueForSummarization(observation.id, projectPath).catch(err =>
           console.error('[squish] Summarization queue error:', err)
         );
       }
