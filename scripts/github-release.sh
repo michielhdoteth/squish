@@ -3,7 +3,7 @@
 # Squish GitHub Release Script
 # Run after npm publish to create GitHub release
 
-VERSION="0.2.7"
+VERSION="0.3.0"
 REPO="michielhdoteth/squish"
 
 echo "🏷️ Creating GitHub release v$VERSION..."
@@ -37,16 +37,17 @@ echo "📦 Binaries created!"
 echo "🚀 Creating GitHub release..."
 gh release create "v${VERSION}" \
   --title "Squish v${VERSION} - Memory Plugin for Claude Code" \
-  --notes "Local-first persistent memory for Claude Code with auto-capture, folder context, and team sync.
+  --notes "Local-first persistent memory for Claude Code with code quality improvements and better maintainability.
 
-## What's New
-- Enhanced web dashboard with real-time monitoring
-- Improved memory lifecycle management
-- Better privacy filtering and security
-- npx installation support
-- Comprehensive documentation
+## What's New in v0.3.0
 
-## Installation
+### Code Quality Improvements
+- Reduced complexity in core modules (summarization, temporal-facts, requirements)
+- Split long files into focused submodules for better organization
+- Eliminated ~200+ lines of duplicated code
+- Created 9 shared utility modules in core/utils/
+
+### Installation
 \`\`\`bash
 npx squish-install
 \`\`\`

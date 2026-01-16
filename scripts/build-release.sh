@@ -5,7 +5,7 @@
 
 set -e
 
-echo "🔨 Building Squish v0.2.7..."
+echo "🔨 Building Squish v0.3.0..."
 
 # Clean previous builds
 npm run clean
