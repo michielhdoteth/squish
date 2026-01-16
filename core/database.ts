@@ -6,6 +6,8 @@ export interface DatabaseClient {
   $clientType: 'sqlite' | 'postgres';
   select: (...args: any[]) => any;
   insert: (...args: any[]) => any;
+  update: (...args: any[]) => any;
+  delete: (...args: any[]) => any;
 }
 
 export function createDatabaseClient(db: any): DatabaseClient {
@@ -15,5 +17,7 @@ export function createDatabaseClient(db: any): DatabaseClient {
     $clientType: isSqlite ? 'sqlite' : 'postgres',
     select: (...args: any[]) => db.select(...args),
     insert: (...args: any[]) => db.insert(...args),
+    update: (...args: any[]) => db.update(...args),
+    delete: (...args: any[]) => db.delete(...args),
   };
 }

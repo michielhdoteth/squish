@@ -37,99 +37,103 @@ export const projects = sqliteTable('projects', {
 /**
  * Memories - core memory storage
  */
-export const memories = sqliteTable('memories', {
-  id: text('id').primaryKey().$default(() => crypto.randomUUID()),
-  projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }),
-  userId: text('user_id').references(() => users.id, { onDelete: 'set null' }),
+export const memories = sqliteTable(
+  'memories',
+  {
+    id: text('id').primaryKey().$default(() => crypto.randomUUID()),
+    projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }),
+    userId: text('user_id').references(() => users.id, { onDelete: 'set null' }),
 
-  // Content
-  type: text('type').notNull().$type<'observation' | 'fact' | 'decision' | 'context' | 'preference'>(),
-  content: text('content').notNull(),
-  summary: text('summary'),
+    // Content
+    type: text('type').notNull().$type<'observation' | 'fact' | 'decision' | 'context' | 'preference'>(),
+    content: text('content').notNull(),
+    summary: text('summary'),
 
-  // Embeddings stored as JSON string (not for semantic search in SQLite)
-  embeddingJson: text('embedding_json'),
+    // Embeddings stored as JSON string (not for semantic search in SQLite)
+    embeddingJson: text('embedding_json'),
 
-  // v0.2.0: Vector embedding for local search
-  embedding: blob('embedding'),
+    // v0.2.0: Vector embedding for local search
+    embedding: blob('embedding'),
 
-  // Metadata
-  source: text('source'),
-  confidence: integer('confidence').default(100),
-  tags: text('tags').$type<string[]>(),
-  metadata: text('metadata').$type<Record<string, unknown>>(),
+    // Metadata
+    source: text('source'),
+    confidence: integer('confidence').default(100),
+    tags: text('tags').$type<string[]>(),
+    metadata: text('metadata').$type<Record<string, unknown>>(),
 
-  // v0.2.0: Privacy and relevance
-  isPrivate: integer('is_private', { mode: 'boolean' }).default(false),
-  hasSecrets: integer('has_secrets', { mode: 'boolean' }).default(false),
-  relevanceScore: integer('relevance_score').default(50), // 0-100
+    // v0.2.0: Privacy and relevance
+    isPrivate: integer('is_private', { mode: 'boolean' }).default(false),
+    hasSecrets: integer('has_secrets', { mode: 'boolean' }).default(false),
+    relevanceScore: integer('relevance_score').default(50), // 0-100
 
-  // Lifecycle
-  isActive: integer('is_active', { mode: 'boolean' }).default(true),
-  expiresAt: integer('expires_at', { mode: 'timestamp' }),
-  accessCount: integer('access_count').default(0),
-  lastAccessedAt: integer('last_accessed_at', { mode: 'timestamp' }),
+    // Lifecycle
+    isActive: integer('is_active', { mode: 'boolean' }).default(true),
+    expiresAt: integer('expires_at', { mode: 'timestamp' }),
+    accessCount: integer('access_count').default(0),
+    lastAccessedAt: integer('last_accessed_at', { mode: 'timestamp' }),
 
-  // Merge tracking
-  isMerged: integer('is_merged', { mode: 'boolean' }).default(false),
-  mergedIntoId: text('merged_into_id').references(() => memories.id),
-  mergedAt: integer('merged_at', { mode: 'timestamp' }),
-  isCanonical: integer('is_canonical', { mode: 'boolean' }).default(false),
-  mergeSourceIds: text('merge_source_ids').$type<string[]>(),
-  isMergeable: integer('is_mergeable', { mode: 'boolean' }).default(true),
-  mergeVersion: integer('merge_version').default(1),
+    // Merge tracking
+    isMerged: integer('is_merged', { mode: 'boolean' }).default(false),
+    mergedIntoId: text('merged_into_id').references((): any => (memories as any).id),
+    mergedAt: integer('merged_at', { mode: 'timestamp' }),
+    isCanonical: integer('is_canonical', { mode: 'boolean' }).default(false),
+    mergeSourceIds: text('merge_source_ids').$type<string[]>(),
+    isMergeable: integer('is_mergeable', { mode: 'boolean' }).default(true),
+    mergeVersion: integer('merge_version').default(1),
 
-  // v0.3.0: Memory Lifecycle Management
-  sector: text('sector').$type<'episodic' | 'semantic' | 'procedural' | 'autobiographical' | 'working'>().default('episodic'),
-  tier: text('tier').$type<'hot' | 'warm' | 'cold'>().default('hot'),
-  decayRate: integer('decay_rate').default(30),
-  coactivationScore: integer('coactivation_score').default(0),
-  lastDecayAt: integer('last_decay_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`),
+    // v0.3.0: Memory Lifecycle Management
+    sector: text('sector').$type<'episodic' | 'semantic' | 'procedural' | 'autobiographical' | 'working'>().default('episodic'),
+    tier: text('tier').$type<'hot' | 'warm' | 'cold'>().default('hot'),
+    decayRate: integer('decay_rate').default(30),
+    coactivationScore: integer('coactivation_score').default(0),
+    lastDecayAt: integer('last_decay_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`),
 
-  // v0.3.0: Agent-Aware Memory
-  agentId: text('agent_id'),
-  agentRole: text('agent_role'),
-  visibilityScope: text('visibility_scope').$type<'private' | 'project' | 'team' | 'global'>().default('private'),
+    // v0.3.0: Agent-Aware Memory
+    agentId: text('agent_id'),
+    agentRole: text('agent_role'),
+    visibilityScope: text('visibility_scope').$type<'private' | 'project' | 'team' | 'global'>().default('private'),
 
-  // v0.3.0: Memory Governance
-  isProtected: integer('is_protected', { mode: 'boolean' }).default(false),
-  isPinned: integer('is_pinned', { mode: 'boolean' }).default(false),
-  isImmutable: integer('is_immutable', { mode: 'boolean' }).default(false),
-  writeScope: text('write_scope').$type<string[]>(),
-  readScope: text('read_scope').$type<string[]>(),
+    // v0.3.0: Memory Governance
+    isProtected: integer('is_protected', { mode: 'boolean' }).default(false),
+    isPinned: integer('is_pinned', { mode: 'boolean' }).default(false),
+    isImmutable: integer('is_immutable', { mode: 'boolean' }).default(false),
+    writeScope: text('write_scope').$type<string[]>(),
+    readScope: text('read_scope').$type<string[]>(),
 
-  // v0.3.0: Provenance
-  triggeredBy: text('triggered_by'),
-  captureReason: text('capture_reason'),
-  lastUsedAt: integer('last_used_at', { mode: 'timestamp' }),
-  usageCount: integer('usage_count').default(0),
+    // v0.3.0: Provenance
+    triggeredBy: text('triggered_by'),
+    captureReason: text('capture_reason'),
+    lastUsedAt: integer('last_used_at', { mode: 'timestamp' }),
+    usageCount: integer('usage_count').default(0),
 
-  // v0.3.0: Temporal Facts
-  validFrom: integer('valid_from', { mode: 'timestamp' }),
-  validTo: integer('valid_to', { mode: 'timestamp' }),
-  supersededBy: text('superseded_by').references(() => memories.id),
-  version: integer('version').default(1),
+    // v0.3.0: Temporal Facts
+    validFrom: integer('valid_from', { mode: 'timestamp' }),
+    validTo: integer('valid_to', { mode: 'timestamp' }),
+    supersededBy: text('superseded_by').references((): any => (memories as any).id),
+    version: integer('version').default(1),
 
-  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
-  updatedAt: integer('updated_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
-}, (table) => [
-  index('memories_project_idx').on(table.projectId),
-  index('memories_type_idx').on(table.type),
-  index('memories_created_idx').on(table.createdAt),
-  index('memories_tags_idx').on(table.tags),
-  index('memories_relevance_idx').on(table.relevanceScore),
-  index('memories_private_idx').on(table.isPrivate),
-  index('memories_merged_idx').on(table.isMerged),
-  index('memories_canonical_idx').on(table.isCanonical),
-  index('memories_sector_idx').on(table.sector),
-  index('memories_tier_idx').on(table.tier),
-  index('memories_agent_idx').on(table.agentId),
-  index('memories_visibility_idx').on(table.visibilityScope),
-  index('memories_protected_idx').on(table.isProtected),
-  index('memories_pinned_idx').on(table.isPinned),
-  index('memories_valid_from_idx').on(table.validFrom),
-  index('memories_valid_to_idx').on(table.validTo),
-]);
+    createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+    updatedAt: integer('updated_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  },
+  (table): any => [
+    index('memories_project_idx').on(table.projectId),
+    index('memories_type_idx').on(table.type),
+    index('memories_created_idx').on(table.createdAt),
+    index('memories_tags_idx').on(table.tags),
+    index('memories_relevance_idx').on(table.relevanceScore),
+    index('memories_private_idx').on(table.isPrivate),
+    index('memories_merged_idx').on(table.isMerged),
+    index('memories_canonical_idx').on(table.isCanonical),
+    index('memories_sector_idx').on(table.sector),
+    index('memories_tier_idx').on(table.tier),
+    index('memories_agent_idx').on(table.agentId),
+    index('memories_visibility_idx').on(table.visibilityScope),
+    index('memories_protected_idx').on(table.isProtected),
+    index('memories_pinned_idx').on(table.isPinned),
+    index('memories_valid_from_idx').on(table.validFrom),
+    index('memories_valid_to_idx').on(table.validTo),
+  ],
+) as any;
 
 /**
  * Conversations - chat session tracking

@@ -56,7 +56,7 @@ export async function handleListProposals(input) {
             sourceMemoryIds: p.sourceMemoryIds || [],
             status: p.status || 'pending',
             confidenceLevel: p.confidenceLevel || 'medium',
-            similarityScore: p.similarityScore || 0,
+            similarityScore: typeof p.similarityScore === 'string' ? parseFloat(p.similarityScore) : p.similarityScore || 0,
             mergeReason: p.mergeReason || '',
             createdAt: p.createdAt?.toISOString() || '',
             conflictWarnings: p.conflictWarnings || [],

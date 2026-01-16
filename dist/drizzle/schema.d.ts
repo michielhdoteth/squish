@@ -1,3 +1,4 @@
+export type MemoryType = 'observation' | 'fact' | 'decision' | 'context' | 'preference';
 /**
  * Users - represents Claude Code users
  */

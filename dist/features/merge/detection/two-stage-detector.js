@@ -83,7 +83,7 @@ export async function detectDuplicates(options) {
                 memory1: memoriesById.get(pair.memoryId1),
                 memory2: memoriesById.get(pair.memoryId2),
                 similarityScore: Math.max(1 - pair.simhashDistance / 64, pair.minhashSimilarity),
-                detectionMethod: pair.matched,
+                detectionMethod: pair.matched === 'both' ? 'simhash' : pair.matched,
                 confidenceLevel: 'low',
                 mergeReason: 'Stage 1 candidate (embedding analysis skipped)',
             })),
@@ -190,7 +190,10 @@ function countByType(memories) {
         preference: 0,
     };
     for (const memory of memories) {
-        counts[memory.type]++;
+        const type = memory.type;
+        if (type in counts) {
+            counts[type]++;
+        }
     }
     return counts;
 }

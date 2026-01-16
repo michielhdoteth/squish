@@ -104,7 +104,7 @@ export async function handleListProposals(input: ListProposalsInput): Promise<Li
       sourceMemoryIds: (p.sourceMemoryIds as unknown as string[]) || [],
       status: (p.status as 'pending' | 'approved' | 'rejected' | 'expired') || 'pending',
       confidenceLevel: (p.confidenceLevel as 'high' | 'medium' | 'low') || 'medium',
-      similarityScore: p.similarityScore || 0,
+      similarityScore: typeof p.similarityScore === 'string' ? parseFloat(p.similarityScore) : p.similarityScore || 0,
       mergeReason: p.mergeReason || '',
       createdAt: p.createdAt?.toISOString() || '',
       conflictWarnings: (p.conflictWarnings as unknown as string[]) || [],

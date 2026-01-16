@@ -77,8 +77,8 @@ class FactMergeStrategy implements MergeStrategy {
       // Extract sentences (split by period, exclamation, question)
       const sentences = source.content
         .split(/[.!?]\s+/)
-        .map((s) => s.trim())
-        .filter((s) => s.length > 0);
+        .map((s: string) => s.trim())
+        .filter((s: string) => s.length > 0);
 
       for (const sentence of sentences) {
         sentenceSet.add(sentence);

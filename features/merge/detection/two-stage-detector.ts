@@ -139,7 +139,7 @@ export async function detectDuplicates(options: DetectionOptions): Promise<Detec
           1 - pair.simhashDistance / 64,
           pair.minhashSimilarity
         ),
-        detectionMethod: pair.matched,
+        detectionMethod: pair.matched === 'both' ? 'simhash' : pair.matched,
         confidenceLevel: 'low',
         mergeReason: 'Stage 1 candidate (embedding analysis skipped)',
       })),
@@ -279,7 +279,10 @@ function countByType(memories: Memory[]): Record<MemoryType, number> {
   };
 
   for (const memory of memories) {
-    counts[memory.type]++;
+    const type = memory.type as MemoryType;
+    if (type in counts) {
+      counts[type]++;
+    }
   }
 
   return counts;

@@ -1,0 +1,20 @@
+{
+  "name": "squish-marketplace",
+  "owner": {
+    "name": "michielhdoteth"
+  },
+  "plugins": [
+    {
+      "name": "squish-memory",
+      "version": "0.3.0",
+      "description": "Local-first persistent memory for Claude Code with automatic capture, lifecycle management, and context injection",
+      "author": {
+        "name": "michielhdoteth"
+      },
+      "license": "MIT",
+      "homepage": "https://github.com/michielhdoteth/squish",
+      "repository": "https://github.com/michielhdoteth/squish.git",
+      "source": "./"
+    }
+  ]
+}

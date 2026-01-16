@@ -42,97 +42,101 @@ export const projects = pgTable('projects', {
 /**
  * Memories - core memory storage with semantic search
  */
-export const memories = pgTable('memories', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }),
-  userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+export const memories = pgTable(
+  'memories',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
 
-  // Content
-  type: text('type').notNull().$type<'observation' | 'fact' | 'decision' | 'context' | 'preference'>(),
-  content: text('content').notNull(),
-  summary: text('summary'), // Compressed/summarized version
+    // Content
+    type: text('type').notNull().$type<'observation' | 'fact' | 'decision' | 'context' | 'preference'>(),
+    content: text('content').notNull(),
+    summary: text('summary'), // Compressed/summarized version
 
-  // Semantic search
-  embedding: vector('embedding', { dimensions: 1536 }), // OpenAI ada-002 compatible
+    // Semantic search
+    embedding: vector('embedding', { dimensions: 1536 }), // OpenAI ada-002 compatible
 
-  // Metadata
-  source: text('source'), // Where this memory came from (tool, hook, user)
-  confidence: integer('confidence').default(100), // 0-100 confidence score
-  tags: text('tags').array(),
-  metadata: jsonb('metadata').$type<Record<string, unknown>>(),
+    // Metadata
+    source: text('source'), // Where this memory came from (tool, hook, user)
+    confidence: integer('confidence').default(100), // 0-100 confidence score
+    tags: text('tags').array(),
+    metadata: jsonb('metadata').$type<Record<string, unknown>>(),
 
-  // v0.2.0: Privacy and relevance
-  isPrivate: boolean('is_private').default(false),
-  hasSecrets: boolean('has_secrets').default(false),
-  relevanceScore: integer('relevance_score').default(50), // 0-100
+    // v0.2.0: Privacy and relevance
+    isPrivate: boolean('is_private').default(false),
+    hasSecrets: boolean('has_secrets').default(false),
+    relevanceScore: integer('relevance_score').default(50), // 0-100
 
-  // v0.3.0: Lifecycle Management
-  sector: text('sector').default('episodic').$type<'episodic' | 'semantic' | 'procedural' | 'autobiographical' | 'working'>(),
-  tier: text('tier').default('hot').$type<'hot' | 'warm' | 'cold'>(),
-  decayRate: integer('decay_rate').default(30), // days until decay
-  coactivationScore: integer('coactivation_score').default(0), // 0-100
-  lastDecayAt: timestamp('last_decay_at').defaultNow(),
+    // v0.3.0: Lifecycle Management
+    sector: text('sector').default('episodic').$type<'episodic' | 'semantic' | 'procedural' | 'autobiographical' | 'working'>(),
+    tier: text('tier').default('hot').$type<'hot' | 'warm' | 'cold'>(),
+    decayRate: integer('decay_rate').default(30), // days until decay
+    coactivationScore: integer('coactivation_score').default(0), // 0-100
+    lastDecayAt: timestamp('last_decay_at').defaultNow(),
 
-  // v0.3.0: Agent-Aware
-  agentId: text('agent_id'), // e.g., 'main', 'research-agent'
-  agentRole: text('agent_role'), // e.g., 'general', 'specialist'
-  visibilityScope: text('visibility_scope').default('private').$type<'private' | 'project' | 'team' | 'global'>(),
+    // v0.3.0: Agent-Aware
+    agentId: text('agent_id'), // e.g., 'main', 'research-agent'
+    agentRole: text('agent_role'), // e.g., 'general', 'specialist'
+    visibilityScope: text('visibility_scope').default('private').$type<'private' | 'project' | 'team' | 'global'>(),
 
-  // v0.3.0: Governance
-  isProtected: boolean('is_protected').default(false), // Cannot be evicted
-  isPinned: boolean('is_pinned').default(false), // Always inject
-  isImmutable: boolean('is_immutable').default(false), // Cannot be updated
-  writeScope: text('write_scope').array(), // Who can modify
-  readScope: text('read_scope').array(), // Who can read
+    // v0.3.0: Governance
+    isProtected: boolean('is_protected').default(false), // Cannot be evicted
+    isPinned: boolean('is_pinned').default(false), // Always inject
+    isImmutable: boolean('is_immutable').default(false), // Cannot be updated
+    writeScope: text('write_scope').array(), // Who can modify
+    readScope: text('read_scope').array(), // Who can read
 
-  // v0.3.0: Provenance
-  triggeredBy: text('triggered_by'), // What triggered this memory
-  captureReason: text('capture_reason'), // Why was this remembered
-  lastUsedAt: timestamp('last_used_at'),
-  usageCount: integer('usage_count').default(0),
+    // v0.3.0: Provenance
+    triggeredBy: text('triggered_by'), // What triggered this memory
+    captureReason: text('capture_reason'), // Why was this remembered
+    lastUsedAt: timestamp('last_used_at'),
+    usageCount: integer('usage_count').default(0),
 
-  // v0.3.0: Temporal Facts
-  validFrom: timestamp('valid_from'),
-  validTo: timestamp('valid_to'),
-  supersededBy: uuid('superseded_by').references(() => memories.id),
-  version: integer('version').default(1),
+    // v0.3.0: Temporal Facts
+    validFrom: timestamp('valid_from'),
+    validTo: timestamp('valid_to'),
+    supersededBy: uuid('superseded_by').references((): any => (memories as any).id),
+    version: integer('version').default(1),
 
-  // Lifecycle
-  isActive: boolean('is_active').default(true),
-  expiresAt: timestamp('expires_at'),
-  accessCount: integer('access_count').default(0),
-  lastAccessedAt: timestamp('last_accessed_at'),
+    // Lifecycle
+    isActive: boolean('is_active').default(true),
+    expiresAt: timestamp('expires_at'),
+    accessCount: integer('access_count').default(0),
+    lastAccessedAt: timestamp('last_accessed_at'),
 
-  // Merge tracking
-  isMerged: boolean('is_merged').default(false), // Soft archive flag
-  mergedIntoId: uuid('merged_into_id').references(() => memories.id), // Points to canonical memory
-  mergedAt: timestamp('merged_at'),
-  isCanonical: boolean('is_canonical').default(false), // True if result of merge
-  mergeSourceIds: jsonb('merge_source_ids').$type<string[]>(), // IDs merged into this one
-  isMergeable: boolean('is_mergeable').default(true), // Immutability flag
-  mergeVersion: integer('merge_version').default(1), // Incremented on each merge
+    // Merge tracking
+    isMerged: boolean('is_merged').default(false), // Soft archive flag
+    mergedIntoId: uuid('merged_into_id').references((): any => (memories as any).id), // Points to canonical memory
+    mergedAt: timestamp('merged_at'),
+    isCanonical: boolean('is_canonical').default(false), // True if result of merge
+    mergeSourceIds: jsonb('merge_source_ids').$type<string[]>(), // IDs merged into this one
+    isMergeable: boolean('is_mergeable').default(true), // Immutability flag
+    mergeVersion: integer('merge_version').default(1), // Incremented on each merge
 
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
-}, (table) => [
-  index('memories_project_idx').on(table.projectId),
-  index('memories_type_idx').on(table.type),
-  index('memories_created_idx').on(table.createdAt),
-  index('memories_tags_idx').on(table.tags),
-  index('memories_relevance_idx').on(table.relevanceScore),
-  index('memories_private_idx').on(table.isPrivate),
-  index('memories_merged_idx').on(table.isMerged),
-  index('memories_canonical_idx').on(table.isCanonical),
-  // v0.3.0: Lifecycle indexes
-  index('memories_sector_idx').on(table.sector),
-  index('memories_tier_idx').on(table.tier),
-  index('memories_agent_idx').on(table.agentId),
-  index('memories_visibility_idx').on(table.visibilityScope),
-  index('memories_protected_idx').on(table.isProtected),
-  index('memories_pinned_idx').on(table.isPinned),
-  index('memories_valid_from_idx').on(table.validFrom),
-  index('memories_valid_to_idx').on(table.validTo),
-]);
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (table): any => [
+    index('memories_project_idx').on(table.projectId),
+    index('memories_type_idx').on(table.type),
+    index('memories_created_idx').on(table.createdAt),
+    index('memories_tags_idx').on(table.tags),
+    index('memories_relevance_idx').on(table.relevanceScore),
+    index('memories_private_idx').on(table.isPrivate),
+    index('memories_merged_idx').on(table.isMerged),
+    index('memories_canonical_idx').on(table.isCanonical),
+    // v0.3.0: Lifecycle indexes
+    index('memories_sector_idx').on(table.sector),
+    index('memories_tier_idx').on(table.tier),
+    index('memories_agent_idx').on(table.agentId),
+    index('memories_visibility_idx').on(table.visibilityScope),
+    index('memories_protected_idx').on(table.isProtected),
+    index('memories_pinned_idx').on(table.isPinned),
+    index('memories_valid_from_idx').on(table.validFrom),
+    index('memories_valid_to_idx').on(table.validTo),
+  ],
+) as any;
 
 /**
  * Conversations - chat session tracking
