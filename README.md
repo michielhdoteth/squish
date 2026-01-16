@@ -1,12 +1,23 @@
-# Squish - Production-Ready Memory Plugin for Claude Code
+# Squish - Memory Plugin for Claude Code
 
-Production-ready local-first persistent memory for Claude Code with auto-capture, folder context, privacy filtering, and optional team mode. Remembers conversations, tools used, decisions made, and project insights across sessions.
+Local-first persistent memory for Claude Code with auto-capture, folder context, privacy filtering, and optional team mode. Remembers conversations, tools used, decisions made, and project insights across sessions.
 
 ## Installation
 
-### Using Claude Code Plugin
+### Using Claude Code Plugin Marketplace
 
-The easiest way to use Squish is as a Claude Code plugin. It will auto-install when you first run Claude Code with it enabled.
+The easiest way to use Squish is through the Claude Code plugin marketplace:
+
+```
+/plugin marketplace add squish-memory
+/plugin install squish-memory
+```
+
+Or manually install from GitHub:
+
+```
+/plugin install https://github.com/michielhdoteth/squish
+```
 
 ### Manual Installation
 
@@ -58,7 +69,7 @@ node dist/index.js
 
 ### Storage Modes
 - **Local Mode**: SQLite with FTS5 full-text search (zero config, everything local)
-- **Team Mode**: PostgreSQL with pgvector semantic search + Redis cache (multi-user, enterprise-ready)
+- **Team Mode**: PostgreSQL with pgvector semantic search + Redis cache (multi-user, collaborative)
 
 ### Web UI
 - Real-time memory and observation browser at http://localhost:37777

@@ -1,8 +1,8 @@
 {
   "id": "squish-memory",
   "name": "Squish Memory",
-  "version": "0.2.7",
-  "description": "Production-ready local-first persistent memory for Claude Code with automatic capture and context injection",
+  "version": "0.3.0",
+  "description": "Local-first persistent memory for Claude Code with automatic capture, lifecycle management, and context injection",
   "author": "michielhdoteth",
   "license": "MIT",
   "homepage": "https://github.com/michielhdoteth/squish",
