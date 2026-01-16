@@ -18,5 +18,6 @@
     "full-text-search",
     "local-first",
     "privacy"
-  ]
+  ],
+  "commands": "./commands/"
 }

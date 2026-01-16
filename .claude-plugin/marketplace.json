@@ -14,7 +14,8 @@
       "license": "MIT",
       "homepage": "https://github.com/michielhdoteth/squish",
       "repository": "https://github.com/michielhdoteth/squish.git",
-      "source": "./"
+      "source": "./",
+      "commands": "./commands/"
     }
   ]
 }
