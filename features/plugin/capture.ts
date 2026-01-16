@@ -4,8 +4,11 @@
  */
 
 import type { PluginContext, CapturedObservation } from './types.js';
-import { createObservation } from '../../core/observations.js';
+import { createObservation, getObservationById, getRecentObservations } from '../../core/observations.js';
 import { shouldStore, stripPrivateTags } from '../../core/privacy.js';
+import { summarizeSession } from '../../core/summarization.js';
+import { trackCoactivation } from '../../core/associations.js';
+import { config } from '../../config.js';
 
 type ObservationType = CapturedObservation['type'];
 
@@ -86,7 +89,7 @@ export async function captureToolUse(
 
   const summary = `Tool ${toolName} executed with args: ${argsSummary}`;
 
-  return captureObservation(
+  const observation = await captureObservation(
     projectPath,
     'tool_use',
     toolName,
@@ -95,10 +98,47 @@ export async function captureToolUse(
     { toolName, arguments: toolArgs, result: toolResult, tags: ['auto-captured', 'tool-use', toolName] },
     context
   );
+
+  if (observation) {
+    try {
+      const recentObservations = await getRecentObservations(projectPath, 5);
+      if (recentObservations.length > 1) {
+        const observationIds = recentObservations.map(o => o.id);
+        await trackCoactivation(observationIds);
+      }
+    } catch (error) {
+      console.error('[squish] Failed to track co-activation:', error);
+    }
+  }
+
+  return observation;
 }
 
 export async function queueForSummarization(observationId: string): Promise<void> {
-  console.error(`[squish] Queued observation ${observationId} for summarization`);
+  try {
+    if (!config.summarizationEnabled) {
+      return;
+    }
+
+    const observation = await getObservationById(observationId);
+    if (!observation || !observation.session) {
+      return;
+    }
+
+    try {
+      const recentObservations = await getRecentObservations(observation.project || '', 100);
+      const messageCount = recentObservations.length;
+
+      if (messageCount > 0 && messageCount % config.incrementalThreshold === 0) {
+        await summarizeSession(observation.session, 'incremental');
+        console.error(`[squish] Session summarized (incremental) after ${messageCount} observations`);
+      }
+    } catch (error) {
+      console.error('[squish] Failed to queue summarization:', error);
+    }
+  } catch (error) {
+    console.error('[squish] Error in queueForSummarization:', error);
+  }
 }
 
 export async function captureFileChange(

@@ -60,6 +60,37 @@ export const memories = pgTable('memories', {
   hasSecrets: boolean('has_secrets').default(false),
   relevanceScore: integer('relevance_score').default(50), // 0-100
 
+  // v0.3.0: Lifecycle Management
+  sector: text('sector').default('episodic').$type<'episodic' | 'semantic' | 'procedural' | 'autobiographical' | 'working'>(),
+  tier: text('tier').default('hot').$type<'hot' | 'warm' | 'cold'>(),
+  decayRate: integer('decay_rate').default(30), // days until decay
+  coactivationScore: integer('coactivation_score').default(0), // 0-100
+  lastDecayAt: timestamp('last_decay_at').defaultNow(),
+
+  // v0.3.0: Agent-Aware
+  agentId: text('agent_id'), // e.g., 'main', 'research-agent'
+  agentRole: text('agent_role'), // e.g., 'general', 'specialist'
+  visibilityScope: text('visibility_scope').default('private').$type<'private' | 'project' | 'team' | 'global'>(),
+
+  // v0.3.0: Governance
+  isProtected: boolean('is_protected').default(false), // Cannot be evicted
+  isPinned: boolean('is_pinned').default(false), // Always inject
+  isImmutable: boolean('is_immutable').default(false), // Cannot be updated
+  writeScope: text('write_scope').array(), // Who can modify
+  readScope: text('read_scope').array(), // Who can read
+
+  // v0.3.0: Provenance
+  triggeredBy: text('triggered_by'), // What triggered this memory
+  captureReason: text('capture_reason'), // Why was this remembered
+  lastUsedAt: timestamp('last_used_at'),
+  usageCount: integer('usage_count').default(0),
+
+  // v0.3.0: Temporal Facts
+  validFrom: timestamp('valid_from'),
+  validTo: timestamp('valid_to'),
+  supersededBy: uuid('superseded_by').references(() => memories.id),
+  version: integer('version').default(1),
+
   // Lifecycle
   isActive: boolean('is_active').default(true),
   expiresAt: timestamp('expires_at'),
@@ -86,6 +117,15 @@ export const memories = pgTable('memories', {
   index('memories_private_idx').on(table.isPrivate),
   index('memories_merged_idx').on(table.isMerged),
   index('memories_canonical_idx').on(table.isCanonical),
+  // v0.3.0: Lifecycle indexes
+  index('memories_sector_idx').on(table.sector),
+  index('memories_tier_idx').on(table.tier),
+  index('memories_agent_idx').on(table.agentId),
+  index('memories_visibility_idx').on(table.visibilityScope),
+  index('memories_protected_idx').on(table.isProtected),
+  index('memories_pinned_idx').on(table.isPinned),
+  index('memories_valid_from_idx').on(table.validFrom),
+  index('memories_valid_to_idx').on(table.validTo),
 ]);
 
 /**
@@ -231,6 +271,73 @@ export const entityRelations = pgTable('entity_relations', {
   index('relations_from_idx').on(table.fromEntityId),
   index('relations_to_idx').on(table.toEntityId),
   index('relations_type_idx').on(table.type),
+]);
+
+// ============================================================================
+// v0.3.0: Lifecycle & Governance Tables
+// ============================================================================
+
+/**
+ * Memory Associations - Waypoint graph tracking memory relationships
+ */
+export const memoryAssociations = pgTable('memory_associations', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  fromMemoryId: uuid('from_memory_id').references(() => memories.id, { onDelete: 'cascade' }).notNull(),
+  toMemoryId: uuid('to_memory_id').references(() => memories.id, { onDelete: 'cascade' }).notNull(),
+
+  associationType: text('association_type').notNull().$type<'co_occurred' | 'supersedes' | 'contradicts' | 'supports' | 'relates_to'>(),
+  weight: integer('weight').default(1), // Association strength
+  coactivationCount: integer('coactivation_count').default(0),
+
+  metadata: jsonb('metadata').$type<Record<string, unknown>>(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  lastCoactivatedAt: timestamp('last_coactivated_at'),
+}, (table) => [
+  index('associations_from_idx').on(table.fromMemoryId),
+  index('associations_to_idx').on(table.toMemoryId),
+  index('associations_type_idx').on(table.associationType),
+  index('associations_weight_idx').on(table.weight),
+]);
+
+/**
+ * Session Summaries - Compressed conversation snapshots
+ */
+export const sessionSummaries = pgTable('session_summaries', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  conversationId: uuid('conversation_id').references(() => conversations.id, { onDelete: 'cascade' }).notNull(),
+  projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }),
+
+  summaryType: text('summary_type').notNull().$type<'incremental' | 'rolling' | 'final'>(),
+  content: text('content').notNull(),
+  compressedFrom: integer('compressed_from'), // How many messages compressed
+  tokensSaved: integer('tokens_saved'),
+
+  embedding: vector('embedding', { dimensions: 1536 }),
+
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => [
+  index('session_summaries_conversation_idx').on(table.conversationId),
+  index('session_summaries_project_idx').on(table.projectId),
+  index('session_summaries_type_idx').on(table.summaryType),
+]);
+
+/**
+ * Memory Snapshots - Before/after diffs for auditability
+ */
+export const memorySnapshots = pgTable('memory_snapshots', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  memoryId: uuid('memory_id').references(() => memories.id, { onDelete: 'cascade' }).notNull(),
+
+  snapshotType: text('snapshot_type').notNull().$type<'before_update' | 'after_update' | 'periodic'>(),
+  content: text('content').notNull(),
+  metadata: jsonb('metadata').$type<Record<string, unknown>>(),
+  diff: jsonb('diff').$type<{ added?: string[]; removed?: string[]; changed?: Record<string, { from: unknown; to: unknown }> }>(),
+
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => [
+  index('snapshots_memory_idx').on(table.memoryId),
+  index('snapshots_type_idx').on(table.snapshotType),
+  index('snapshots_created_idx').on(table.createdAt),
 ]);
 
 // ============================================================================
@@ -404,6 +511,37 @@ export const entityRelationsRelations = relations(entityRelations, ({ one }) => 
   }),
 }));
 
+export const memoryAssociationsRelations = relations(memoryAssociations, ({ one }) => ({
+  fromMemory: one(memories, {
+    fields: [memoryAssociations.fromMemoryId],
+    references: [memories.id],
+    relationName: 'fromAssociations',
+  }),
+  toMemory: one(memories, {
+    fields: [memoryAssociations.toMemoryId],
+    references: [memories.id],
+    relationName: 'toAssociations',
+  }),
+}));
+
+export const sessionSummariesRelations = relations(sessionSummaries, ({ one }) => ({
+  conversation: one(conversations, {
+    fields: [sessionSummaries.conversationId],
+    references: [conversations.id],
+  }),
+  project: one(projects, {
+    fields: [sessionSummaries.projectId],
+    references: [projects.id],
+  }),
+}));
+
+export const memorySnapshotsRelations = relations(memorySnapshots, ({ one }) => ({
+  memory: one(memories, {
+    fields: [memorySnapshots.memoryId],
+    references: [memories.id],
+  }),
+}));
+
 export const memoryMergeProposalsRelations = relations(memoryMergeProposals, ({ one }) => ({
   project: one(projects, {
     fields: [memoryMergeProposals.projectId],
@@ -481,3 +619,12 @@ export type NewMemoryMergeHistory = typeof memoryMergeHistory.$inferInsert;
 
 export type MemoryHashCache = typeof memoryHashCache.$inferSelect;
 export type NewMemoryHashCache = typeof memoryHashCache.$inferInsert;
+
+export type MemoryAssociation = typeof memoryAssociations.$inferSelect;
+export type NewMemoryAssociation = typeof memoryAssociations.$inferInsert;
+
+export type SessionSummary = typeof sessionSummaries.$inferSelect;
+export type NewSessionSummary = typeof sessionSummaries.$inferInsert;
+
+export type MemorySnapshot = typeof memorySnapshots.$inferSelect;
+export type NewMemorySnapshot = typeof memorySnapshots.$inferInsert;

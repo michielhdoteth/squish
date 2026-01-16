@@ -79,6 +79,37 @@ export const memories = sqliteTable('memories', {
   isMergeable: integer('is_mergeable', { mode: 'boolean' }).default(true),
   mergeVersion: integer('merge_version').default(1),
 
+  // v0.3.0: Memory Lifecycle Management
+  sector: text('sector').$type<'episodic' | 'semantic' | 'procedural' | 'autobiographical' | 'working'>().default('episodic'),
+  tier: text('tier').$type<'hot' | 'warm' | 'cold'>().default('hot'),
+  decayRate: integer('decay_rate').default(30),
+  coactivationScore: integer('coactivation_score').default(0),
+  lastDecayAt: integer('last_decay_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`),
+
+  // v0.3.0: Agent-Aware Memory
+  agentId: text('agent_id'),
+  agentRole: text('agent_role'),
+  visibilityScope: text('visibility_scope').$type<'private' | 'project' | 'team' | 'global'>().default('private'),
+
+  // v0.3.0: Memory Governance
+  isProtected: integer('is_protected', { mode: 'boolean' }).default(false),
+  isPinned: integer('is_pinned', { mode: 'boolean' }).default(false),
+  isImmutable: integer('is_immutable', { mode: 'boolean' }).default(false),
+  writeScope: text('write_scope').$type<string[]>(),
+  readScope: text('read_scope').$type<string[]>(),
+
+  // v0.3.0: Provenance
+  triggeredBy: text('triggered_by'),
+  captureReason: text('capture_reason'),
+  lastUsedAt: integer('last_used_at', { mode: 'timestamp' }),
+  usageCount: integer('usage_count').default(0),
+
+  // v0.3.0: Temporal Facts
+  validFrom: integer('valid_from', { mode: 'timestamp' }),
+  validTo: integer('valid_to', { mode: 'timestamp' }),
+  supersededBy: text('superseded_by').references(() => memories.id),
+  version: integer('version').default(1),
+
   createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
@@ -90,6 +121,14 @@ export const memories = sqliteTable('memories', {
   index('memories_private_idx').on(table.isPrivate),
   index('memories_merged_idx').on(table.isMerged),
   index('memories_canonical_idx').on(table.isCanonical),
+  index('memories_sector_idx').on(table.sector),
+  index('memories_tier_idx').on(table.tier),
+  index('memories_agent_idx').on(table.agentId),
+  index('memories_visibility_idx').on(table.visibilityScope),
+  index('memories_protected_idx').on(table.isProtected),
+  index('memories_pinned_idx').on(table.isPinned),
+  index('memories_valid_from_idx').on(table.validFrom),
+  index('memories_valid_to_idx').on(table.validTo),
 ]);
 
 /**
@@ -303,6 +342,67 @@ export const entityRelations = sqliteTable('entity_relations', {
 ]);
 
 // ============================================================================
+// v0.3.0: Lifecycle Features - Associations, Summarization, Snapshots
+// ============================================================================
+
+/**
+ * Memory Associations - waypoint graph for co-activation tracking
+ */
+export const memoryAssociations = sqliteTable('memory_associations', {
+  id: text('id').primaryKey().$default(() => crypto.randomUUID()),
+  fromMemoryId: text('from_memory_id').notNull().references(() => memories.id, { onDelete: 'cascade' }),
+  toMemoryId: text('to_memory_id').notNull().references(() => memories.id, { onDelete: 'cascade' }),
+  associationType: text('association_type').notNull().$type<'co_occurred' | 'supersedes' | 'contradicts' | 'supports' | 'relates_to'>(),
+  weight: integer('weight').default(1),
+  coactivationCount: integer('coactivation_count').default(0),
+  metadata: text('metadata').$type<Record<string, unknown>>(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  lastCoactivatedAt: integer('last_coactivated_at', { mode: 'timestamp' }),
+}, (table) => [
+  index('memory_associations_from_idx').on(table.fromMemoryId),
+  index('memory_associations_to_idx').on(table.toMemoryId),
+  index('memory_associations_type_idx').on(table.associationType),
+  index('memory_associations_weight_idx').on(table.weight),
+]);
+
+/**
+ * Session Summaries - incremental and rolling session summaries
+ */
+export const sessionSummaries = sqliteTable('session_summaries', {
+  id: text('id').primaryKey().$default(() => crypto.randomUUID()),
+  conversationId: text('conversation_id').notNull().references(() => conversations.id, { onDelete: 'cascade' }),
+  projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }),
+  summaryType: text('summary_type').notNull().$type<'incremental' | 'rolling' | 'final'>(),
+  content: text('content').notNull(),
+  compressedFrom: integer('compressed_from'),
+  tokensSaved: integer('tokens_saved'),
+  embedding: blob('embedding'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('session_summaries_conversation_idx').on(table.conversationId),
+  index('session_summaries_project_idx').on(table.projectId),
+  index('session_summaries_type_idx').on(table.summaryType),
+  index('session_summaries_created_idx').on(table.createdAt),
+]);
+
+/**
+ * Memory Snapshots - before/after diffs for auditability
+ */
+export const memorySnapshots = sqliteTable('memory_snapshots', {
+  id: text('id').primaryKey().$default(() => crypto.randomUUID()),
+  memoryId: text('memory_id').notNull().references(() => memories.id, { onDelete: 'cascade' }),
+  snapshotType: text('snapshot_type').notNull().$type<'before_update' | 'after_update' | 'periodic'>(),
+  content: text('content').notNull(),
+  metadata: text('metadata').$type<Record<string, unknown>>(),
+  diff: text('diff').$type<Record<string, unknown>>(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('memory_snapshots_memory_idx').on(table.memoryId),
+  index('memory_snapshots_type_idx').on(table.snapshotType),
+  index('memory_snapshots_created_idx').on(table.createdAt),
+]);
+
+// ============================================================================
 // Types
 // ============================================================================
 
@@ -338,3 +438,12 @@ export type NewMemoryMergeHistory = typeof memoryMergeHistory.$inferInsert;
 
 export type MemoryHashCache = typeof memoryHashCache.$inferSelect;
 export type NewMemoryHashCache = typeof memoryHashCache.$inferInsert;
+
+export type MemoryAssociation = typeof memoryAssociations.$inferSelect;
+export type NewMemoryAssociation = typeof memoryAssociations.$inferInsert;
+
+export type SessionSummary = typeof sessionSummaries.$inferSelect;
+export type NewSessionSummary = typeof sessionSummaries.$inferInsert;
+
+export type MemorySnapshot = typeof memorySnapshots.$inferSelect;
+export type NewMemorySnapshot = typeof memorySnapshots.$inferInsert;
