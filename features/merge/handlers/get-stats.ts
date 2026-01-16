@@ -4,11 +4,12 @@
  * Returns statistics about memory merges for a project
  */
 
-import { createDatabaseClient, getDb } from '../../../db';
-import { getSchema } from '../../../db/adapter';
+import { getDb } from '../../../db/index.js';
+import { getSchema } from '../../../db/schema.js';
+import { createDatabaseClient } from '../../../core/database.js';
 import { eq } from 'drizzle-orm';
-import { calculateProjectTokenSavings, formatTokenCount } from '../analytics/token-estimator';
-import type { Memory, MemoryMergeHistory } from '../../../drizzle/schema';
+import { calculateProjectTokenSavings, formatTokenCount } from '../analytics/token-estimator.js';
+import type { Memory, MemoryMergeHistory } from '../../../drizzle/schema.js';
 
 interface GetMergeStatsInput {
   projectId: string;

@@ -5,7 +5,7 @@
  * has different merge semantics to preserve meaning and prevent data loss.
  */
 
-import type { Memory, MemoryType } from '../../../drizzle/schema';
+import type { Memory, MemoryType } from '../../../drizzle/schema.js';
 
 export interface MergeStrategy {
   type: MemoryType;

@@ -7,8 +7,8 @@
  * This is the expensive stage but runs on much smaller candidate set.
  */
 
-import type { Memory } from '../../../drizzle/schema';
-import { cosineSimilarity } from '../../../core/local-embeddings';
+import type { Memory } from '../../../drizzle/schema.js';
+import { cosineSimilarity } from '../../../core/local-embeddings.js';
 
 export interface RankedCandidate {
   memoryId1: string;

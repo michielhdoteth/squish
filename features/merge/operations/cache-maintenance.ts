@@ -4,10 +4,11 @@
  * Updates and maintains SimHash/MinHash signatures for efficient duplicate detection
  */
 
-import { createDatabaseClient, getDb } from '../../../db';
-import { getSchema } from '../../../db/adapter';
+import { getDb } from '../../../db/index.js';
+import { getSchema } from '../../../db/schema.js';
+import { createDatabaseClient } from '../../../core/database.js';
 import { eq } from 'drizzle-orm';
-import { SimHashFilter, MinHashFilter } from '../detection/hash-filters';
+import { SimHashFilter, MinHashFilter } from '../detection/hash-filters.js';
 import crypto from 'crypto';
 
 /**

@@ -5,14 +5,15 @@
  * This handler must be bulletproof and atomically handle all operations
  */
 
-import type { Memory, MemoryMergeProposal, MemoryMergeHistory } from '../../../drizzle/schema';
+import type { Memory, MemoryMergeProposal, MemoryMergeHistory } from '../../../drizzle/schema.js';
 import { randomUUID } from 'crypto';
-import { createDatabaseClient, getDb } from '../../../db';
-import { getSchema } from '../../../db/adapter';
+import { getDb } from '../../../db/index.js';
+import { getSchema } from '../../../db/schema.js';
+import { createDatabaseClient } from '../../../core/database.js';
 import { eq, inArray } from 'drizzle-orm';
-import { mergeMemories } from '../strategies/merge-strategies';
-import { estimateTokensSaved } from '../analytics/token-estimator';
-import { getEmbedding } from '../../../core/embeddings';
+import { mergeMemories } from '../strategies/merge-strategies.js';
+import { estimateTokensSaved } from '../analytics/token-estimator.js';
+import { getEmbedding } from '../../../core/embeddings.js';
 
 interface ApproveMergeInput {
   proposalId: string;

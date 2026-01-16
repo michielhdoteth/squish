@@ -12,8 +12,9 @@ import type { Memory, MemoryType } from '../../../drizzle/schema.js';
 import { getEmbedding } from '../../../core/embeddings.js';
 import { SimHashFilter, MinHashFilter, findCandidatePairs } from './hash-filters.js';
 import { rankCandidates, analyzePair } from './semantic-ranker.js';
-import { createDatabaseClient, getDb } from '../../../db/index.js';
-import { getSchema } from '../../../db/adapter.js';
+import { getDb } from '../../../db/index.js';
+import { getSchema } from '../../../db/schema.js';
+import { createDatabaseClient } from '../../../core/database.js';
 import { eq, and } from 'drizzle-orm';
 
 export interface MemoryPair {

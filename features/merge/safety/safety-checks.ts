@@ -6,7 +6,7 @@
  * - WARNING: Soft alert, merge proceeds but with warnings
  */
 
-import type { Memory } from '../../../drizzle/schema';
+import type { Memory } from '../../../drizzle/schema.js';
 
 export interface SafetyCheckResult {
   passed: boolean;

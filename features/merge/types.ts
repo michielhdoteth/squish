@@ -2,7 +2,7 @@
  * TypeScript types and interfaces for memory merging
  */
 
-import type { Memory, MemoryMergeProposal, MemoryMergeHistory } from '../../drizzle/schema';
+import type { Memory, MemoryMergeProposal, MemoryMergeHistory } from '../../drizzle/schema.js';
 
 /**
  * Merge proposal status

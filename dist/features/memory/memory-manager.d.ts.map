@@ -1,0 +1,1 @@
+{"version":3,"file":"memory-manager.d.ts","sourceRoot":"","sources":["../../../features/memory/memory-manager.ts"],"names":[],"mappings":"AAGA,cAAM,aAAa;IACjB,OAAO,CAAC,UAAU,CAAK;IACvB,OAAO,CAAC,YAAY,CAAiB;IAErC,QAAQ,IAAI,OAAO;IAgBnB,EAAE,IAAI,IAAI;IASV,QAAQ;;;;;;CAST;AAED,eAAO,MAAM,aAAa,eAAsB,CAAC"}

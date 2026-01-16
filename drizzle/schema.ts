@@ -1,5 +1,11 @@
-import { pgTable, text, timestamp, uuid, integer, boolean, jsonb, index, vector } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, uuid, integer, boolean, jsonb, index, vector, numeric } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
+
+// ============================================================================
+// Type Definitions
+// ============================================================================
+
+export type MemoryType = 'observation' | 'fact' | 'decision' | 'context' | 'preference';
 
 // ============================================================================
 // Core Tables
@@ -363,7 +369,7 @@ export const memoryMergeProposals = pgTable('memory_merge_proposals', {
 
   // Detection metadata
   detectionMethod: text('detection_method').notNull().$type<'simhash' | 'minhash' | 'embedding'>(),
-  similarityScore: real('similarity_score').notNull(), // 0-1
+  similarityScore: numeric('similarity_score').notNull(), // 0-1
   confidenceLevel: text('confidence_level').notNull().$type<'high' | 'medium' | 'low'>(),
 
   // Merge rationale

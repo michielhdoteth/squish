@@ -6,9 +6,10 @@
  * This is critical for ensuring merges are reversible
  */
 
-import type { Memory } from '../../../drizzle/schema';
-import { createDatabaseClient, getDb } from '../../../db';
-import { getSchema } from '../../../db/adapter';
+import type { Memory } from '../../../drizzle/schema.js';
+import { getDb } from '../../../db/index.js';
+import { getSchema } from '../../../db/schema.js';
+import { createDatabaseClient } from '../../../core/database.js';
 import { eq } from 'drizzle-orm';
 
 interface ReverseMergeInput {
