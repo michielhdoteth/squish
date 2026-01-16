@@ -18,47 +18,5 @@
     "full-text-search",
     "local-first",
     "privacy"
-  ],
-  "commands": [
-    {
-      "name": "remember",
-      "description": "Store a memory with semantic embeddings"
-    },
-    {
-      "name": "recall",
-      "description": "Retrieve a memory by ID"
-    },
-    {
-      "name": "search",
-      "description": "Full-text and semantic search across memories"
-    },
-    {
-      "name": "conversations",
-      "description": "Search past conversations"
-    },
-    {
-      "name": "observe",
-      "description": "Store observations from tool usage"
-    },
-    {
-      "name": "context",
-      "description": "Get project context with relevant memories"
-    },
-    {
-      "name": "health",
-      "description": "Check service status"
-    },
-    {
-      "name": "forget",
-      "description": "Delete a memory by ID"
-    },
-    {
-      "name": "snapshots",
-      "description": "List memory snapshots"
-    },
-    {
-      "name": "requirements",
-      "description": "Track project requirements"
-    }
   ]
 }
