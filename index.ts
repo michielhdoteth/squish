@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 
 /**
- * Squish v0.2.5 - Production-ready local-first persistent memory for Claude Code
+ * Squish v0.4.0 - Production-ready local-first persistent memory for Claude Code
  *
  * Features:
- * - 8 MCP tools (remember, recall, search, conversations, recent, observe, context, health)
+ * - 14 MCP tools (consolidated from 23 for usability)
  * - Local mode: SQLite with FTS5 + auto-capture + folder context
  * - Team mode: PostgreSQL + pgvector + Redis
  * - Plugin system: Hooks for auto-capture, context injection, privacy filtering, folder context generation
@@ -51,19 +51,24 @@ import { getRelatedMemories } from './core/associations.js';
 import { protectMemory, pinMemory } from './core/governance.js';
 import { isDatabaseUnavailableError, determineOverallStatus } from './core/utils.js';
 
-const VERSION = '0.3.0';
+const VERSION = '0.4.0';
 
 const TOOLS = [
   {
     name: 'remember',
-    description: 'Store a memory',
+    description: 'Store a memory (with optional agent context)',
     inputSchema: {
       type: 'object',
       properties: {
         content: { type: 'string', description: 'Content to store' },
         type: { type: 'string', enum: ['observation', 'fact', 'decision', 'context', 'preference'] },
         tags: { type: 'array', items: { type: 'string' } },
-        project: { type: 'string', description: 'Project path' }
+        project: { type: 'string', description: 'Project path' },
+        metadata: { type: 'object', description: 'Custom metadata' },
+        agentId: { type: 'string', description: 'Agent identifier (optional)' },
+        agentRole: { type: 'string', description: 'Agent role (optional)' },
+        visibilityScope: { type: 'string', enum: ['private', 'project', 'team', 'global'], description: 'Visibility scope for agent memories' },
+        sector: { type: 'string', enum: ['episodic', 'semantic', 'procedural', 'autobiographical', 'working'], description: 'Memory sector classification' }
       },
       required: ['content']
     }
@@ -81,42 +86,25 @@ const TOOLS = [
   },
   {
     name: 'search',
-    description: 'Search memories',
+    description: 'Search memories, conversations, or get recent items',
     inputSchema: {
       type: 'object',
       properties: {
-        query: { type: 'string', description: 'Search query' },
+        query: { type: 'string', description: 'Search query (not required for scope=recent)' },
+        scope: {
+          type: 'string',
+          enum: ['memories', 'conversations', 'recent'],
+          default: 'memories',
+          description: 'Search scope: memories, conversations, or recent items'
+        },
         type: { type: 'string', enum: ['observation', 'fact', 'decision', 'context', 'preference'] },
         tags: { type: 'array', items: { type: 'string' } },
         limit: { type: 'number', default: 10 },
-        project: { type: 'string' }
-      },
-      required: ['query']
-    }
-  },
-  {
-    name: 'conversations',
-    description: 'Search past conversations',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        query: { type: 'string', description: 'Search query' },
-        limit: { type: 'number', default: 5 },
-        role: { type: 'string', enum: ['user', 'assistant'] }
-      },
-      required: ['query']
-    }
-  },
-  {
-    name: 'recent',
-    description: 'Get recent conversations',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        n: { type: 'number', default: 3 },
-        before: { type: 'string', description: 'ISO datetime' },
-        after: { type: 'string', description: 'ISO datetime' },
-        project: { type: 'string' }
+        project: { type: 'string' },
+        role: { type: 'string', enum: ['user', 'assistant'], description: 'Filter by role (conversations scope)' },
+        n: { type: 'number', description: 'Number of recent items (recent scope)' },
+        before: { type: 'string', description: 'ISO datetime for recent scope' },
+        after: { type: 'string', description: 'ISO datetime for recent scope' }
       }
     }
   },
@@ -159,89 +147,42 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: {} }
   },
   {
-    name: 'detect_duplicate_memories',
-    description: 'Scan for duplicate or similar memories and create merge proposals',
+    name: 'merge',
+    description: 'Manage memory merge proposals: detect, list, preview, or get statistics',
     inputSchema: {
       type: 'object',
       properties: {
-        projectId: { type: 'string', description: 'Project ID to scan' },
-        threshold: { type: 'number', description: 'Similarity threshold 0-1 (default: 0.85)' },
-        memoryType: { type: 'string', enum: ['fact', 'preference', 'decision', 'observation', 'context'] },
-        limit: { type: 'number', description: 'Max proposals to generate (default: 50)' },
-        autoCreateProposals: { type: 'boolean', description: 'Create merge proposals automatically (default: true)' }
-      },
-      required: ['projectId']
-    }
-  },
-  {
-    name: 'list_merge_proposals',
-    description: 'List pending merge proposals for review',
-    inputSchema: {
-      type: 'object',
-      properties: {
+        mode: {
+          type: 'string',
+          enum: ['detect', 'list', 'preview', 'stats'],
+          description: 'Operation mode'
+        },
         projectId: { type: 'string', description: 'Project ID' },
-        status: { type: 'string', enum: ['pending', 'approved', 'rejected', 'expired'] },
-        limit: { type: 'number', description: 'Max proposals to return (default: 20)' }
+        proposalId: { type: 'string', description: 'Proposal ID (required for preview mode)' },
+        threshold: { type: 'number', description: 'Similarity threshold 0-1 (detect mode)' },
+        memoryType: { type: 'string', enum: ['fact', 'preference', 'decision', 'observation', 'context'], description: 'Memory type filter (detect mode)' },
+        status: { type: 'string', enum: ['pending', 'approved', 'rejected', 'expired'], description: 'Proposal status filter (list mode)' },
+        limit: { type: 'number', description: 'Max results to return' }
       },
-      required: ['projectId']
+      required: ['mode', 'projectId']
     }
   },
   {
-    name: 'preview_merge',
-    description: 'Preview the result of a merge proposal without applying it',
+    name: 'merge_decide',
+    description: 'Approve, reject, or reverse memory merge proposals',
     inputSchema: {
       type: 'object',
       properties: {
-        proposalId: { type: 'string', description: 'Merge proposal ID' }
+        action: {
+          type: 'string',
+          enum: ['approve', 'reject', 'reverse'],
+          description: 'Decision action'
+        },
+        proposalId: { type: 'string', description: 'Proposal ID (for approve/reject)' },
+        mergeHistoryId: { type: 'string', description: 'Merge history ID (for reverse)' },
+        reviewNotes: { type: 'string', description: 'Notes or reason for decision' }
       },
-      required: ['proposalId']
-    }
-  },
-  {
-    name: 'approve_merge',
-    description: 'Approve and execute a merge proposal',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        proposalId: { type: 'string', description: 'Merge proposal ID to approve' },
-        reviewNotes: { type: 'string', description: 'Optional notes about the approval' }
-      },
-      required: ['proposalId']
-    }
-  },
-  {
-    name: 'reject_merge',
-    description: 'Reject a merge proposal',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        proposalId: { type: 'string', description: 'Merge proposal ID to reject' },
-        reviewNotes: { type: 'string', description: 'Reason for rejection' }
-      },
-      required: ['proposalId']
-    }
-  },
-  {
-    name: 'reverse_merge',
-    description: 'Reverse a completed merge and restore original memories',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        mergeHistoryId: { type: 'string', description: 'Merge history ID to reverse' },
-        reason: { type: 'string', description: 'Reason for reversal' }
-      },
-      required: ['mergeHistoryId']
-    }
-  },
-  {
-    name: 'get_merge_stats',
-    description: 'Get statistics about memory merges (tokens saved, merge count, etc.)',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        projectId: { type: 'string', description: 'Project ID' }
-      },
-      required: ['projectId']
+      required: ['action']
     }
   },
   {
@@ -265,22 +206,6 @@ const TOOLS = [
         type: { type: 'string', enum: ['incremental', 'rolling', 'final'], description: 'Summary type' }
       },
       required: ['conversationId', 'type']
-    }
-  },
-  {
-    name: 'agent_remember',
-    description: 'Store memory with agent context and visibility scope',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        content: { type: 'string', description: 'Memory content' },
-        agentId: { type: 'string', description: 'Agent identifier' },
-        agentRole: { type: 'string', description: 'Agent role' },
-        visibilityScope: { type: 'string', enum: ['private', 'project', 'team', 'global'] },
-        sector: { type: 'string', enum: ['episodic', 'semantic', 'procedural', 'autobiographical', 'working'] },
-        tags: { type: 'array', items: { type: 'string' } }
-      },
-      required: ['content', 'agentId']
     }
   },
   {
@@ -347,7 +272,23 @@ class Squish {
               throw new McpError(ErrorCode.InvalidParams, 'content is required');
             }
             try {
-              return this.jsonResponse({ ok: true, data: await rememberMemory(args as any) });
+              // Check if agent context is provided
+              if (args.agentId) {
+                const memoryId = await storeAgentMemory(args.content, {
+                  agentId: args.agentId,
+                  agentRole: args.agentRole as string | undefined,
+                } as any, {
+                  type: args.type as string | undefined,
+                  visibilityScope: args.visibilityScope as any,
+                  sector: args.sector as any,
+                  tags: args.tags as string[] | undefined,
+                  metadata: args.metadata as any,
+                });
+                return this.jsonResponse({ ok: true, memoryId, agentContext: true });
+              } else {
+                // Standard memory storage
+                return this.jsonResponse({ ok: true, data: await rememberMemory(args as any) });
+              }
             } catch (dbError: any) {
               if (isDatabaseUnavailableError(dbError)) {
                 throw new McpError(ErrorCode.InternalError, 'Database unavailable - memory storage disabled');
@@ -370,40 +311,30 @@ class Squish {
             }
           }
           case 'search': {
-            if (typeof args.query !== 'string' || !args.query) {
-              throw new McpError(ErrorCode.InvalidParams, 'query is required');
-            }
+            const scope = (args.scope as string) || 'memories';
             try {
-              return this.jsonResponse({ ok: true, data: await searchMemories(args as any) });
+              if (scope === 'memories') {
+                if (typeof args.query !== 'string' || !args.query) {
+                  throw new McpError(ErrorCode.InvalidParams, 'query is required for memory search');
+                }
+                return this.jsonResponse({ ok: true, scope: 'memories', data: await searchMemories(args as any) });
+              } else if (scope === 'conversations') {
+                if (typeof args.query !== 'string' || !args.query) {
+                  throw new McpError(ErrorCode.InvalidParams, 'query is required for conversation search');
+                }
+                return this.jsonResponse({ ok: true, scope: 'conversations', data: await searchConversations(args as any) });
+              } else if (scope === 'recent') {
+                return this.jsonResponse({ ok: true, scope: 'recent', data: await getRecentConversations(args as any) });
+              } else {
+                throw new McpError(ErrorCode.InvalidParams, `Unknown scope: ${scope}`);
+              }
             } catch (dbError: any) {
               if (isDatabaseUnavailableError(dbError)) {
-                throw new McpError(ErrorCode.InternalError, 'Database unavailable - memory search disabled');
+                throw new McpError(ErrorCode.InternalError, 'Database unavailable - search disabled');
               }
               throw dbError;
             }
           }
-          case 'conversations': {
-            if (typeof args.query !== 'string' || !args.query) {
-              throw new McpError(ErrorCode.InvalidParams, 'query is required');
-            }
-            try {
-              return this.jsonResponse({ ok: true, data: await searchConversations(args as any) });
-            } catch (dbError: any) {
-              if (isDatabaseUnavailableError(dbError)) {
-                throw new McpError(ErrorCode.InternalError, 'Database unavailable - conversation search disabled');
-              }
-              throw dbError;
-            }
-          }
-          case 'recent':
-            try {
-              return this.jsonResponse({ ok: true, data: await getRecentConversations(args as any) });
-            } catch (dbError: any) {
-              if (isDatabaseUnavailableError(dbError)) {
-                throw new McpError(ErrorCode.InternalError, 'Database unavailable - conversation retrieval disabled');
-              }
-              throw dbError;
-            }
           case 'observe': {
             if (!args.type || !args.action || !args.summary) {
               throw new McpError(ErrorCode.InvalidParams, 'type, action, and summary are required');
@@ -432,20 +363,34 @@ class Squish {
           }
           case 'health':
             return this.health();
-          case 'detect_duplicate_memories':
-            return this.jsonResponse(await handleDetectDuplicates(args as any));
-          case 'list_merge_proposals':
-            return this.jsonResponse(await handleListProposals(args as any));
-          case 'preview_merge':
-            return this.jsonResponse(await handlePreviewMerge(args as any));
-          case 'approve_merge':
-            return this.jsonResponse(await handleApproveMerge(args as any));
-          case 'reject_merge':
-            return this.jsonResponse(await handleRejectMerge(args as any));
-          case 'reverse_merge':
-            return this.jsonResponse(await handleReverseMerge(args as any));
-          case 'get_merge_stats':
-            return this.jsonResponse(await handleGetMergeStats(args as any));
+          case 'merge': {
+            const { mode } = args as { mode: string };
+            switch (mode) {
+              case 'detect':
+                return this.jsonResponse(await handleDetectDuplicates(args as any));
+              case 'list':
+                return this.jsonResponse(await handleListProposals(args as any));
+              case 'preview':
+                return this.jsonResponse(await handlePreviewMerge(args as any));
+              case 'stats':
+                return this.jsonResponse(await handleGetMergeStats(args as any));
+              default:
+                throw new McpError(ErrorCode.InvalidParams, `Unknown merge mode: ${mode}`);
+            }
+          }
+          case 'merge_decide': {
+            const { action } = args as { action: string };
+            switch (action) {
+              case 'approve':
+                return this.jsonResponse(await handleApproveMerge(args as any));
+              case 'reject':
+                return this.jsonResponse(await handleRejectMerge(args as any));
+              case 'reverse':
+                return this.jsonResponse(await handleReverseMerge(args as any));
+              default:
+                throw new McpError(ErrorCode.InvalidParams, `Unknown action: ${action}`);
+            }
+          }
           case 'lifecycle': {
             const { project } = args as { project?: string };
             const result = await forceLifecycleMaintenance(project);
@@ -472,44 +417,6 @@ class Squish {
               summaryId: result.summaryId,
               tokensSaved: result.tokensSaved,
               message: `Session summarized with type: ${type}`,
-            });
-          }
-          case 'agent_remember': {
-            const {
-              content,
-              agentId,
-              agentRole,
-              visibilityScope,
-              sector,
-            } = args as {
-              content: string;
-              agentId: string;
-              agentRole?: string;
-              visibilityScope?: 'private' | 'project' | 'team' | 'global';
-              sector?:
-                | 'episodic'
-                | 'semantic'
-                | 'procedural'
-                | 'autobiographical'
-                | 'working';
-            };
-            if (!content || !agentId) {
-              throw new McpError(
-                ErrorCode.InvalidParams,
-                'content and agentId are required'
-              );
-            }
-            const memoryId = await storeAgentMemory(content, {
-              agentId,
-              agentRole,
-            } as any, {
-              visibilityScope,
-              sector,
-            });
-            return this.jsonResponse({
-              success: true,
-              memoryId,
-              message: 'Memory stored with agent context',
             });
           }
           case 'protect_memory': {

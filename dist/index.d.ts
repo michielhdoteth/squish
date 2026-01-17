@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * Squish v0.2.5 - Production-ready local-first persistent memory for Claude Code
+ * Squish v0.4.0 - Production-ready local-first persistent memory for Claude Code
  *
  * Features:
- * - 8 MCP tools (remember, recall, search, conversations, recent, observe, context, health)
+ * - 14 MCP tools (consolidated from 23 for usability)
  * - Local mode: SQLite with FTS5 + auto-capture + folder context
  * - Team mode: PostgreSQL + pgvector + Redis
  * - Plugin system: Hooks for auto-capture, context injection, privacy filtering, folder context generation

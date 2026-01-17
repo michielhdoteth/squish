@@ -1,6 +1,6 @@
 {
   "name": "squish",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Local-first persistent memory for Claude Code with lifecycle management, agent isolation, memory governance, and team sync",
   "main": "dist/index.js",
   "type": "module",

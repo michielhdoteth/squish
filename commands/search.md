@@ -1,5 +1,10 @@
 ---
-description: Full-text and semantic search across memories
+description: Search memories, conversations, or get recent items with optional scope selection
 ---
 
-Search across all memories using full-text search and semantic similarity. Combine keyword search with AI-powered semantic matching to find relevant memories.
+Search across memories, conversations, or retrieve recent items. Use the `scope` parameter to select what to search.
+
+**Search scopes:**
+- `memories` (default): Full-text and semantic search across stored memories
+- `conversations`: Search past conversation history by query
+- `recent`: Get recent conversation items without requiring a query
