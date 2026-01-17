@@ -37,14 +37,13 @@ import { searchConversations, getRecentConversations } from './features/search/c
 import { createObservation } from './core/observations.js';
 import { getProjectContext } from './core/context.js';
 import { startWebServer } from './features/web/web.js';
-// Merge functionality disabled for stable release
-// import { handleDetectDuplicates } from './features/merge/handlers/detect-duplicates.js';
-// import { handleListProposals } from './features/merge/handlers/list-proposals.js';
-// import { handlePreviewMerge } from './features/merge/handlers/preview-merge.js';
-// import { handleApproveMerge } from './features/merge/handlers/approve-merge.js';
-// import { handleRejectMerge } from './features/merge/handlers/reject-merge.js';
-// import { handleReverseMerge } from './features/merge/handlers/reverse-merge.js';
-// import { handleGetMergeStats } from './features/merge/handlers/get-stats.js';
+import { handleDetectDuplicates } from './features/merge/handlers/detect-duplicates.js';
+import { handleListProposals } from './features/merge/handlers/list-proposals.js';
+import { handlePreviewMerge } from './features/merge/handlers/preview-merge.js';
+import { handleApproveMerge } from './features/merge/handlers/approve-merge.js';
+import { handleRejectMerge } from './features/merge/handlers/reject-merge.js';
+import { handleReverseMerge } from './features/merge/handlers/reverse-merge.js';
+import { handleGetMergeStats } from './features/merge/handlers/get-stats.js';
 import { forceLifecycleMaintenance } from './core/worker.js';
 import { summarizeSession } from './core/summarization.js';
 import { storeAgentMemory } from './core/agent-memory.js';
@@ -52,7 +51,7 @@ import { getRelatedMemories } from './core/associations.js';
 import { protectMemory, pinMemory } from './core/governance.js';
 import { isDatabaseUnavailableError, determineOverallStatus } from './core/utils.js';
 
-const VERSION = '0.2.5';
+const VERSION = '0.3.0';
 
 const TOOLS = [
   {
@@ -159,93 +158,92 @@ const TOOLS = [
     description: 'Check service status',
     inputSchema: { type: 'object', properties: {} }
   },
-  // Merge functionality disabled for stable release
-  // {
-  //   name: 'detect_duplicate_memories',
-  //   description: 'Scan for duplicate or similar memories and create merge proposals',
-  //   inputSchema: {
-  //     type: 'object',
-  //     properties: {
-  //       projectId: { type: 'string', description: 'Project ID to scan' },
-  //       threshold: { type: 'number', description: 'Similarity threshold 0-1 (default: 0.85)' },
-  //       memoryType: { type: 'string', enum: ['fact', 'preference', 'decision', 'observation', 'context'] },
-  //       limit: { type: 'number', description: 'Max proposals to generate (default: 50)' },
-  //       autoCreateProposals: { type: 'boolean', description: 'Create merge proposals automatically (default: true)' }
-  //     },
-  //     required: ['projectId']
-  //   }
-  // },
-  // {
-  //   name: 'list_merge_proposals',
-  //   description: 'List pending merge proposals for review',
-  //   inputSchema: {
-  //     type: 'object',
-  //     properties: {
-  //       projectId: { type: 'string', description: 'Project ID' },
-  //       status: { type: 'string', enum: ['pending', 'approved', 'rejected', 'expired'] },
-  //       limit: { type: 'number', description: 'Max proposals to return (default: 20)' }
-  //     },
-  //     required: ['projectId']
-  //   }
-  // },
-  // {
-  //   name: 'preview_merge',
-  //   description: 'Preview the result of a merge proposal without applying it',
-  //   inputSchema: {
-  //     type: 'object',
-  //     properties: {
-  //       proposalId: { type: 'string', description: 'Merge proposal ID' }
-  //     },
-  //     required: ['proposalId']
-  //   }
-  // },
-  // {
-  //   name: 'approve_merge',
-  //   description: 'Approve and execute a merge proposal',
-  //   inputSchema: {
-  //     type: 'object',
-  //     properties: {
-  //       proposalId: { type: 'string', description: 'Merge proposal ID to approve' },
-  //       reviewNotes: { type: 'string', description: 'Optional notes about the approval' }
-  //     },
-  //     required: ['proposalId']
-  //   }
-  // },
-  // {
-  //   name: 'reject_merge',
-  //   description: 'Reject a merge proposal',
-  //   inputSchema: {
-  //     type: 'object',
-  //     properties: {
-  //       proposalId: { type: 'string', description: 'Merge proposal ID to reject' },
-  //       reviewNotes: { type: 'string', description: 'Reason for rejection' }
-  //     },
-  //     required: ['proposalId']
-  //   }
-  // },
-  // {
-  //   name: 'reverse_merge',
-  //   description: 'Reverse a completed merge and restore original memories',
-  //   inputSchema: {
-  //     type: 'object',
-  //     properties: {
-  //       mergeHistoryId: { type: 'string', description: 'Merge history ID to reverse' },
-  //       reason: { type: 'string', description: 'Reason for reversal' }
-  //     },
-  //     required: ['mergeHistoryId']
-  //   }
-  // },
-  // {
-  //   name: 'get_merge_stats',
-  //   description: 'Get statistics about memory merges (tokens saved, merge count, etc.)',
-  //   inputSchema: {
-  //     type: 'object',
-  //     properties: {
-  //       projectId: { type: 'string', description: 'Project ID' }
-  //     },
-  //     required: ['projectId']
-  //   }
-  // },
+  {
+    name: 'detect_duplicate_memories',
+    description: 'Scan for duplicate or similar memories and create merge proposals',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        projectId: { type: 'string', description: 'Project ID to scan' },
+        threshold: { type: 'number', description: 'Similarity threshold 0-1 (default: 0.85)' },
+        memoryType: { type: 'string', enum: ['fact', 'preference', 'decision', 'observation', 'context'] },
+        limit: { type: 'number', description: 'Max proposals to generate (default: 50)' },
+        autoCreateProposals: { type: 'boolean', description: 'Create merge proposals automatically (default: true)' }
+      },
+      required: ['projectId']
+    }
+  },
+  {
+    name: 'list_merge_proposals',
+    description: 'List pending merge proposals for review',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        projectId: { type: 'string', description: 'Project ID' },
+        status: { type: 'string', enum: ['pending', 'approved', 'rejected', 'expired'] },
+        limit: { type: 'number', description: 'Max proposals to return (default: 20)' }
+      },
+      required: ['projectId']
+    }
+  },
+  {
+    name: 'preview_merge',
+    description: 'Preview the result of a merge proposal without applying it',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        proposalId: { type: 'string', description: 'Merge proposal ID' }
+      },
+      required: ['proposalId']
+    }
+  },
+  {
+    name: 'approve_merge',
+    description: 'Approve and execute a merge proposal',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        proposalId: { type: 'string', description: 'Merge proposal ID to approve' },
+        reviewNotes: { type: 'string', description: 'Optional notes about the approval' }
+      },
+      required: ['proposalId']
+    }
+  },
+  {
+    name: 'reject_merge',
+    description: 'Reject a merge proposal',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        proposalId: { type: 'string', description: 'Merge proposal ID to reject' },
+        reviewNotes: { type: 'string', description: 'Reason for rejection' }
+      },
+      required: ['proposalId']
+    }
+  },
+  {
+    name: 'reverse_merge',
+    description: 'Reverse a completed merge and restore original memories',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        mergeHistoryId: { type: 'string', description: 'Merge history ID to reverse' },
+        reason: { type: 'string', description: 'Reason for reversal' }
+      },
+      required: ['mergeHistoryId']
+    }
+  },
+  {
+    name: 'get_merge_stats',
+    description: 'Get statistics about memory merges (tokens saved, merge count, etc.)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        projectId: { type: 'string', description: 'Project ID' }
+      },
+      required: ['projectId']
+    }
+  },
   {
     name: 'lifecycle',
     description: 'Run memory lifecycle maintenance (decay, eviction, tier updates)',
@@ -434,21 +432,20 @@ class Squish {
           }
           case 'health':
             return this.health();
-           // Merge functionality disabled for stable release
-           // case 'detect_duplicate_memories':
-           //   return this.jsonResponse(await handleDetectDuplicates(args as any));
-           // case 'list_merge_proposals':
-           //   return this.jsonResponse(await handleListProposals(args as any));
-           // case 'preview_merge':
-           //   return this.jsonResponse(await handlePreviewMerge(args as any));
-           // case 'approve_merge':
-           //   return this.jsonResponse(await handleApproveMerge(args as any));
-           // case 'reject_merge':
-           //   return this.jsonResponse(await handleRejectMerge(args as any));
-           // case 'reverse_merge':
-           //   return this.jsonResponse(await handleReverseMerge(args as any));
-           // case 'get_merge_stats':
-           //   return this.jsonResponse(await handleGetMergeStats(args as any));
+          case 'detect_duplicate_memories':
+            return this.jsonResponse(await handleDetectDuplicates(args as any));
+          case 'list_merge_proposals':
+            return this.jsonResponse(await handleListProposals(args as any));
+          case 'preview_merge':
+            return this.jsonResponse(await handlePreviewMerge(args as any));
+          case 'approve_merge':
+            return this.jsonResponse(await handleApproveMerge(args as any));
+          case 'reject_merge':
+            return this.jsonResponse(await handleRejectMerge(args as any));
+          case 'reverse_merge':
+            return this.jsonResponse(await handleReverseMerge(args as any));
+          case 'get_merge_stats':
+            return this.jsonResponse(await handleGetMergeStats(args as any));
           case 'lifecycle': {
             const { project } = args as { project?: string };
             const result = await forceLifecycleMaintenance(project);

@@ -11,7 +11,7 @@ export interface MemoryDiff {
   changed?: Record<string, { from: unknown; to: unknown }>;
 }
 
-function calculateDiff(before: string, after: string): MemoryDiff {
+export function calculateDiff(before: string, after: string): MemoryDiff {
   const beforeLines = before.split('\n');
   const afterLines = after.split('\n');
 
