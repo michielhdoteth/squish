@@ -1,5 +1,0 @@
-<<<<<<< HEAD
-{"version":3,"file":"version-management.d.ts","sourceRoot":"","sources":["../../../core/utils/version-management.ts"],"names":[],"mappings":"AAAA;;;GAGG;AAQH;;GAEG;AACH,wBAAsB,oBAAoB,CACxC,SAAS,EAAE,MAAM,EACjB,UAAU,EAAE,MAAM,EAClB,gBAAgB,GAAE,MAAM,CAAC,MAAM,EAAE,GAAG,CAAM,EAC1C,MAAM,CAAC,EAAE,MAAM,GACd,OAAO,CAAC,MAAM,CAAC,CAsDjB"}
-=======
-{"version":3,"file":"version-management.d.ts","sourceRoot":"","sources":["../../../core/utils/version-management.ts"],"names":[],"mappings":"AAAA;;;GAGG;AAOH;;GAEG;AACH,wBAAsB,oBAAoB,CACxC,SAAS,EAAE,MAAM,EACjB,UAAU,EAAE,MAAM,EAClB,gBAAgB,GAAE,MAAM,CAAC,MAAM,EAAE,GAAG,CAAM,EAC1C,MAAM,CAAC,EAAE,MAAM,GACd,OAAO,CAAC,MAAM,CAAC,CAsDjB"}
->>>>>>> pr-3-branch

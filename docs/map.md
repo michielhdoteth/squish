@@ -1,4 +1,4 @@
-# Squish Codebase Map
+# Squish Codebase Map (v0.4.1)
 
 ## 📁 **Project Structure Overview**
 
@@ -46,9 +46,13 @@ squish/
 ```
 📁 features/
 ├── 📁 memory/
-│   ├── 📄 memories.ts          # CRUD operations
-│   ├── 📄 memory-manager.ts    # Lifecycle management
-│   ├── 📄 serialization.ts     # Data serialization
+│   ├── 📄 memories.ts              # CRUD operations
+│   ├── 📄 memory-manager.ts        # Lifecycle management
+│   ├── 📄 serialization.ts         # Data serialization
+│   ├── 📄 bridge-discovery.ts      # Cross-context linking (v0.4.1)
+│   ├── 📄 entity-extractor.ts      # Entity extraction (v0.4.1)
+│   ├── 📄 hybrid-scorer.ts         # Hybrid relevance scoring (v0.4.1)
+│   ├── 📄 temporal-parser.ts       # Temporal analysis (v0.4.1)
 │   └── 📄 index.ts
 ├── 📁 search/
 │   ├── 📄 conversations.ts     # Conversation search
@@ -424,4 +428,23 @@ Response Formatting
 
 ---
 
-*This codemap provides a comprehensive view of the Squish codebase architecture, showing how all 50+ files work together to create a sophisticated memory management system for Claude Code.*
+*This codemap provides a comprehensive view of the Squish v0.4.1 codebase architecture, showing how all 50+ files work together to create a sophisticated memory management system for Claude Code.*
+
+## 🆕 **v0.4.1 Enhancements (New Features)**
+
+### **Advanced Memory Features**
+- **Bridge Discovery** (`features/memory/bridge-discovery.ts`): Cross-context relationship detection
+- **Entity Extractor** (`features/memory/entity-extractor.ts`): Named entity recognition and extraction
+- **Hybrid Scorer** (`features/memory/hybrid-scorer.ts`): Multi-algorithm relevance scoring (30-100x faster)
+- **Temporal Parser** (`features/memory/temporal-parser.ts`): Time-based memory analysis
+
+### **Performance Improvements**
+- 30-100x faster coactivation tracking with LRU cache
+- Composite database indexes for 10-100x query speedup
+- Batch tier updates for 100-300x faster lifecycle maintenance
+- Parallel embedding generation
+
+### **Security & Stability**
+- Enhanced privacy filtering for secrets
+- Production-ready v0.4.1 hardening
+- Improved merge feature with two-stage duplicate detection
