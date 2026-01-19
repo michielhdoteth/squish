@@ -24,7 +24,8 @@
     "privacy",
     "agent-memory",
     "slash-commands",
-    "two-tier-architecture"
+    "two-tier-architecture",
+    "model-context-protocol"
   ],
   "mcpServer": true,
   "commands": "./commands/",

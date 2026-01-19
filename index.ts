@@ -568,11 +568,11 @@ class Squish {
 
   private async handleCoreMemory(args: Record<string, unknown>) {
     const action = args.action as string;
-    const projectId = String(args.projectId);
 
-    if (!projectId) {
+    if (!args.projectId) {
       throw new McpError(ErrorCode.InvalidParams, 'projectId is required');
     }
+    const projectId = String(args.projectId);
 
     try {
       await initializeCoreMemory(projectId);
@@ -614,11 +614,11 @@ class Squish {
 
   private async handleContextPaging(args: Record<string, unknown>) {
     const action = args.action as string;
-    const sessionId = String(args.sessionId);
 
-    if (!sessionId) {
+    if (!args.sessionId) {
       throw new McpError(ErrorCode.InvalidParams, 'sessionId is required');
     }
+    const sessionId = String(args.sessionId);
 
     try {
       if (action === 'load') {
