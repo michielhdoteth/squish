@@ -1,4 +1,6 @@
 import { createClient } from 'redis';
+import { performRedisPublish } from './utils/memory-operations.js';
+import { logger } from './logger.js';
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
 let client = null;
 export async function getRedisClient() {
@@ -7,10 +9,10 @@ export async function getRedisClient() {
     }
     client = createClient({ url: REDIS_URL });
     client.on('error', (err) => {
-        console.error('Redis client error:', err);
+        logger.error('Redis client error', err);
     });
     client.on('connect', () => {
-        console.error('Redis connected');
+        logger.info('Redis connected');
     });
     await client.connect();
     return client;
@@ -44,8 +46,7 @@ export async function cacheClear(pattern) {
 }
 // Pub/Sub for real-time sync
 export async function publish(channel, message) {
-    const redis = await getRedisClient();
-    await redis.publish(channel, JSON.stringify(message));
+    await performRedisPublish(getRedisClient, channel, message);
 }
 export async function subscribe(channel, callback) {
     const subscriber = (await getRedisClient()).duplicate();

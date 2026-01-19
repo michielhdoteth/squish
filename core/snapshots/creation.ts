@@ -7,6 +7,7 @@ import { eq } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
+import { logger } from '../logger.js';
 
 export interface MemoryDiff {
   added?: string[];
@@ -42,7 +43,7 @@ export async function createBeforeSnapshot(memoryId: string): Promise<string> {
 
     return snapshotId;
   } catch (error) {
-    console.error('[squish] Error creating before snapshot:', error);
+    logger.error('Error creating before snapshot', error);
     throw error;
   }
 }
@@ -90,7 +91,7 @@ export async function createAfterSnapshot(
 
     return { snapshotId, diff };
   } catch (error) {
-    console.error('[squish] Error creating after snapshot:', error);
+    logger.error('Error creating after snapshot', error);
     throw error;
   }
 }
@@ -123,7 +124,7 @@ export async function createPeriodicSnapshot(memoryId: string): Promise<string> 
 
     return snapshotId;
   } catch (error) {
-    console.error('[squish] Error creating periodic snapshot:', error);
+    logger.error('Error creating periodic snapshot', error);
     throw error;
   }
 }

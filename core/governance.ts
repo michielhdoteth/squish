@@ -8,6 +8,7 @@ import { getDb } from '../db/index.js';
 import { getSchema } from '../db/schema.js';
 import { config } from '../config.js';
 import { performMemoryOperation } from './utils/memory-operations.js';
+import { logger } from './logger.js';
 
 /**
  * Mark a memory as protected (cannot be evicted)
@@ -73,7 +74,7 @@ export async function getPinnedMemories(): Promise<any[]> {
       .where(eq(schema.memories.isPinned, true))
       .limit(50);
   } catch (error) {
-    console.error('[squish] Error retrieving pinned memories:', error);
+    logger.error('Error retrieving pinned memories', error);
     return [];
   }
 }

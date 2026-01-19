@@ -23,8 +23,7 @@
     "features/**/*.ts",
     "db/**/*.ts",
     "tools/**/*.ts",
-    "drizzle/**/*.ts",
-    "tests/**/*.ts"
+    "drizzle/**/*.ts"
   ],
-  "exclude": ["node_modules", "dist", "tests/merge", "benchmark", "docs"]
+  "exclude": ["node_modules", "dist", "tests", "benchmark", "docs"]
 }

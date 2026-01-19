@@ -1,4 +1,5 @@
 import { config } from '../../config.js';
+import { logger } from '../../core/logger.js';
 
 // Memory monitoring and optimization
 class MemoryManager {
@@ -24,7 +25,7 @@ class MemoryManager {
   gc(): void {
     if (global.gc && this.shouldGc()) {
       if (process.env.NODE_ENV !== 'production') {
-        console.log('[squish] Running garbage collection');
+        logger.info('Running garbage collection');
       }
       global.gc();
     }
@@ -47,6 +48,6 @@ export const memoryManager = new MemoryManager();
 if (process.env.NODE_ENV !== 'production') {
   setInterval(() => {
     const stats = memoryManager.getStats();
-    console.log(`[squish] Memory: ${stats.heapUsed}MB used, ${stats.heapTotal}MB total`);
+    logger.info(`Memory: ${stats.heapUsed}MB used, ${stats.heapTotal}MB total`);
   }, 10 * 60 * 1000); // Every 10 minutes
 }

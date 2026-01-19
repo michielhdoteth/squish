@@ -16,10 +16,6 @@ export declare function trackCoactivation(memoryIds: string[]): Promise<void>;
  */
 export declare function getRelatedMemories(memoryId: string, limit?: number): Promise<any[]>;
 /**
- * Get association strength between two memories
- */
-export declare function getAssociationWeight(fromMemoryId: string, toMemoryId: string): Promise<number>;
-/**
  * Prune weak associations (weight < threshold)
  */
 export declare function pruneWeakAssociations(weightThreshold?: number): Promise<number>;
@@ -32,8 +28,4 @@ export declare function getAssociationStats(): Promise<{
     avgWeight: number;
     maxWeight: number;
 }>;
-/**
- * Mark a memory as superseding another
- */
-export declare function markSupersession(previousMemoryId: string, newMemoryId: string): Promise<void>;
 //# sourceMappingURL=associations.d.ts.map

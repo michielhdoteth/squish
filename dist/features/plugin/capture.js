@@ -7,6 +7,7 @@ import { shouldStore, stripPrivateTags } from '../../core/privacy.js';
 import { summarizeSession } from '../../core/summarization.js';
 import { trackCoactivation } from '../../core/associations.js';
 import { config } from '../../config.js';
+import { logger } from '../../core/logger.js';
 function truncate(text, maxLength) {
     return text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
 }
@@ -15,7 +16,7 @@ function createObservationResult(id, type, action, target, summary, projectPath,
 }
 async function captureObservation(projectPath, type, action, target, summary, details, context) {
     if (!(await shouldStore(summary, projectPath))) {
-        console.error(`[squish] ${type} blocked by privacy filter`);
+        logger.info(`${type} blocked by privacy filter`);
         return null;
     }
     const observation = await createObservation({
@@ -27,7 +28,7 @@ async function captureObservation(projectPath, type, action, target, summary, de
         session: context.sessionId,
         project: projectPath
     });
-    console.error(`[squish] Captured ${type}: ${observation.id}`);
+    logger.debug(`Captured ${type}: ${observation.id}`);
     return createObservationResult(observation.id, type, action, target, summary, projectPath, details);
 }
 export async function captureUserPrompt(projectPath, prompt, context) {
@@ -51,7 +52,7 @@ export async function captureToolUse(projectPath, toolName, toolArgs, toolResult
             }
         }
         catch (error) {
-            console.error('[squish] Failed to track co-activation:', error);
+            logger.error('Failed to track co-activation', error);
         }
     }
     return observation;
@@ -70,15 +71,15 @@ export async function queueForSummarization(observationId, projectPath = '') {
             const messageCount = recentObservations.length;
             if (messageCount > 0 && messageCount % config.incrementalThreshold === 0) {
                 await summarizeSession(observation.conversationId, 'incremental');
-                console.error(`[squish] Session summarized (incremental) after ${messageCount} observations`);
+                logger.info(`Session summarized (incremental) after ${messageCount} observations`);
             }
         }
         catch (error) {
-            console.error('[squish] Failed to queue summarization:', error);
+            logger.error('Failed to queue summarization', error);
         }
     }
     catch (error) {
-        console.error('[squish] Error in queueForSummarization:', error);
+        logger.error('Error in queueForSummarization', error);
     }
 }
 export async function captureFileChange(projectPath, filePath, changeType, context) {

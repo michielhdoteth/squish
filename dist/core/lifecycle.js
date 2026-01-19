@@ -6,15 +6,14 @@ import { and, eq, lt } from 'drizzle-orm';
 import { getDb } from '../db/index.js';
 import { getSchema } from '../db/schema.js';
 import { config } from '../config.js';
-// Sector decay rates (days until decay)
+import { logger } from './logger.js';
 const SECTOR_DECAY_RATES = {
-    episodic: 30, // Recent events, fast decay
-    semantic: 90, // Facts, slower decay
-    procedural: 180, // How-to knowledge, very slow decay
-    autobiographical: 365, // Personal history, slowest decay
-    working: 7, // Temporary context, very fast decay
+    episodic: 30,
+    semantic: 90,
+    procedural: 180,
+    autobiographical: 365,
+    working: 7,
 };
-// Tier thresholds (based on recency, coactivation, salience)
 const TIER_THRESHOLDS = {
     hot: { recency: 7, coactivation: 10, salience: 70 },
     warm: { recency: 30, coactivation: 5, salience: 50 },
@@ -39,7 +38,7 @@ export async function runLifecycleMaintenance(projectId) {
         await evictOldMemories(projectId, stats);
     }
     catch (error) {
-        console.error('[squish] Lifecycle maintenance error:', error);
+        logger.error('Lifecycle maintenance error', error);
     }
     return stats;
 }
@@ -74,7 +73,7 @@ async function applyDecay(projectId, stats) {
         }
     }
     catch (error) {
-        console.error('[squish] Error applying decay:', error);
+        logger.error('Error applying decay', error);
     }
 }
 /**
@@ -117,7 +116,7 @@ async function updateTiers(projectId, stats) {
         }
     }
     catch (error) {
-        console.error('[squish] Error updating tiers:', error);
+        logger.error('Error updating tiers', error);
     }
 }
 /**
@@ -136,73 +135,7 @@ async function evictOldMemories(projectId, stats) {
         stats.evicted = result?.rowCount || 0;
     }
     catch (error) {
-        console.error('[squish] Error evicting memories:', error);
-    }
-}
-/**
- * Promote a memory: boost salience and mark as hot
- */
-export async function promoteMemory(memoryId) {
-    try {
-        const db = await getDb();
-        const schema = await getSchema();
-        await db
-            .update(schema.memories)
-            .set({
-            promotionCount: schema.memories.promotionCount + 1,
-            relevanceScore: Math.min(100, schema.memories.relevanceScore + 10),
-            tier: 'hot',
-        })
-            .where(eq(schema.memories.id, memoryId));
-    }
-    catch (error) {
-        console.error('[squish] Error promoting memory:', error);
-    }
-}
-/**
- * Get lifecycle statistics for a project
- */
-export async function getLifecycleStats(projectId) {
-    try {
-        const db = await getDb();
-        const schema = await getSchema();
-        const where = projectId ? eq(schema.memories.projectId, projectId) : undefined;
-        const memories = await db
-            .select({
-            id: schema.memories.id,
-            tier: schema.memories.tier,
-            sector: schema.memories.sector,
-            isProtected: schema.memories.isProtected,
-            isPinned: schema.memories.isPinned,
-        })
-            .from(schema.memories)
-            .where(where);
-        const stats = {
-            totalMemories: memories.length,
-            byTier: { hot: 0, warm: 0, cold: 0 },
-            bySector: {},
-            protected: 0,
-            pinned: 0,
-        };
-        for (const mem of memories) {
-            stats.byTier[mem.tier]++;
-            stats.bySector[mem.sector] = (stats.bySector[mem.sector] || 0) + 1;
-            if (mem.isProtected)
-                stats.protected++;
-            if (mem.isPinned)
-                stats.pinned++;
-        }
-        return stats;
-    }
-    catch (error) {
-        console.error('[squish] Error getting lifecycle stats:', error);
-        return {
-            totalMemories: 0,
-            byTier: { hot: 0, warm: 0, cold: 0 },
-            bySector: {},
-            protected: 0,
-            pinned: 0,
-        };
+        logger.error('Error evicting memories', error);
     }
 }
 //# sourceMappingURL=lifecycle.js.map

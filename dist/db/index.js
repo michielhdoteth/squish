@@ -1,5 +1,6 @@
 import { createDb } from './adapter.js';
 import { config } from '../config.js';
+import { logger } from '../core/logger.js';
 let db = null;
 let dbError = null;
 export async function getDb() {
@@ -33,7 +34,7 @@ export async function checkDatabaseHealth() {
             error.message?.includes('Database unavailable')) {
             return false; // Graceful degradation - database unavailable but not an error
         }
-        console.error('Database health check failed:', error);
+        logger.error('Database health check failed', error);
         return false;
     }
 }

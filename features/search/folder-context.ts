@@ -6,6 +6,7 @@
 import { promises as fs } from 'fs';
 import path from 'path';
 import { getRecentConversations } from './conversations.js';
+import { logger } from '../../core/logger.js';
 
 interface FolderContextData {
   projectPath: string;
@@ -105,7 +106,7 @@ export async function generateAndInjectFolderContext(projectPath: string): Promi
   const userContent = await preserveUserContent(claudeMdPath);
 
   await fs.writeFile(claudeMdPath, newContent + userContent, 'utf-8');
-  console.error(`[squish] Updated folder context: ${claudeMdPath}`);
+  logger.info(`Updated folder context: ${claudeMdPath}`);
 }
 
 export async function readFolderContext(projectPath: string): Promise<FolderContextData | null> {

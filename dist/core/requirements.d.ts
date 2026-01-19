@@ -1,8 +1,3 @@
-export declare class MemoryRequirementError extends Error {
-    readonly missingCriteria: any;
-    readonly context?: any | undefined;
-    constructor(message: string, missingCriteria: any, context?: any | undefined);
-}
 export interface MemoryCriteria {
     tag?: string;
     type?: string;

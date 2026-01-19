@@ -17,6 +17,7 @@ import {
   estimateTokens
 } from './utils/summarization-helpers.js';
 import { extractMessageContent, generateExtractiveSummary } from './utils/content-extraction.js';
+import { logger } from './logger.js';
 
 export type SummaryType = 'incremental' | 'rolling' | 'final';
 
@@ -108,7 +109,7 @@ export async function summarizeSession(
 
     return { summaryId: '', tokensSaved: 0, summary };
   } catch (error) {
-    console.error('[squish] Error summarizing session:', error);
+    logger.error('Error summarizing session', error);
     return { summaryId: '', tokensSaved: 0, summary: '' };
   }
 }
@@ -179,7 +180,7 @@ export async function getRecentSummaries(
       .orderBy(desc(schema.sessionSummaries.createdAt))
       .limit(limit);
   } catch (error) {
-    console.error('[squish] Error getting recent summaries:', error);
+    logger.error('Error getting recent summaries', error);
     return [];
   }
 }
@@ -229,7 +230,7 @@ export async function getSummarizationStats(projectId?: string): Promise<{
 
     return stats;
   } catch (error) {
-    console.error('[squish] Error getting summarization stats:', error);
+    logger.error('Error getting summarization stats', error);
     return {
       totalSummaries: 0,
       byType: {},

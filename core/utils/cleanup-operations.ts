@@ -5,6 +5,7 @@
 
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
+import { logger } from '../logger.js';
 
 /**
  * Cleanup old session summaries
@@ -22,7 +23,7 @@ export async function cleanupOldSessionSummaries(olderThanDays: number = 30): Pr
 
     return result?.rowCount || 0;
   } catch (error) {
-    console.error('[squish] Error pruning old summaries:', error);
+    logger.error('Error pruning old summaries', error);
     return 0;
   }
 }
@@ -43,7 +44,7 @@ export async function cleanupOldMemorySnapshots(olderThanDays: number = 90): Pro
 
     return result?.rowCount || 0;
   } catch (error) {
-    console.error('[squish] Error deleting old snapshots:', error);
+    logger.error('Error deleting old snapshots', error);
     return 0;
   }
 }

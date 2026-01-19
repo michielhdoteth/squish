@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { startWebServer } from './web.js';
+import { logger } from '../../core/logger.js';
 
-console.log('[squish-web] Starting web UI server...');
+logger.info('Starting web UI server...');
 startWebServer();

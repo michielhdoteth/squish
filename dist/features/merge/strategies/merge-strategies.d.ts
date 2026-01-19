@@ -1,8 +1,6 @@
 /**
- * Type-specific merge strategies for different memory types
- *
- * Each memory type (fact, preference, decision, observation, context)
- * has different merge semantics to preserve meaning and prevent data loss.
+ * Type-specific merge strategies for different memory types.
+ * Each type has different merge semantics to preserve meaning and prevent data loss.
  */
 import type { Memory, MemoryType } from '../../../drizzle/schema.js';
 export interface MergeStrategy {
@@ -29,12 +27,6 @@ export interface MergedMemory {
     conflictWarnings: string[];
 }
 export declare const MERGE_STRATEGIES: Record<MemoryType, MergeStrategy>;
-/**
- * Get the appropriate merge strategy for a memory type
- */
 export declare function getMergeStrategy(type: MemoryType): MergeStrategy;
-/**
- * Merge a set of memories using their type-specific strategy
- */
 export declare function mergeMemories(sources: Memory[]): MergedMemory;
 //# sourceMappingURL=merge-strategies.d.ts.map

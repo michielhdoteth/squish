@@ -8,6 +8,10 @@ import { getDb } from '../db/index.js';
 import { getSchema } from '../db/schema.js';
 import { config } from '../config.js';
 import { getEmbedding } from './embeddings.js';
+import { cleanupOldSessionSummaries } from './utils/cleanup-operations.js';
+import { chunkMessages, getRollingWindow, calculateTokensSaved } from './utils/summarization-helpers.js';
+import { extractMessageContent, generateExtractiveSummary } from './utils/content-extraction.js';
+import { logger } from './logger.js';
 const DEFAULT_CONFIG = {
     incrementalThreshold: config.incrementalThreshold || 10,
     rollingWindowSize: 50,
@@ -74,7 +78,7 @@ export async function summarizeSession(conversationId, summaryType, customConfig
         return { summaryId: '', tokensSaved: 0, summary };
     }
     catch (error) {
-        console.error('[squish] Error summarizing session:', error);
+        logger.error('Error summarizing session', error);
         return { summaryId: '', tokensSaved: 0, summary: '' };
     }
 }
@@ -82,27 +86,22 @@ export async function summarizeSession(conversationId, summaryType, customConfig
  * Create incremental summary (summary in chunks)
  */
 async function createIncrementalSummary(messages, config) {
-    const chunks = [];
-    for (let i = 0; i < messages.length; i += config.incrementalThreshold) {
-        const chunk = messages.slice(i, i + config.incrementalThreshold);
-        chunks.push(summarizeChunk(chunk));
-    }
-    return chunks.join('\n---\n');
+    const chunks = chunkMessages(messages, config.incrementalThreshold);
+    const summaries = chunks.map(chunk => generateExtractiveSummary(extractMessageContent(chunk)));
+    return summaries.join('\n---\n');
 }
 /**
  * Create rolling summary (last N messages)
  */
 async function createRollingSummary(messages, config) {
-    // Take the last N messages (rolling window)
-    const window = messages.slice(-config.rollingWindowSize);
-    return summarizeChunk(window);
+    const window = getRollingWindow(messages, config.rollingWindowSize);
+    return generateExtractiveSummary(extractMessageContent(window));
 }
 /**
  * Create final summary (entire conversation)
  */
 async function createFinalSummary(messages, config) {
-    // Summarize entire conversation
-    return summarizeChunk(messages);
+    return generateExtractiveSummary(extractMessageContent(messages));
 }
 /**
  * Generate basic extractive summary of messages
@@ -110,64 +109,13 @@ async function createFinalSummary(messages, config) {
 function summarizeChunk(messages) {
     if (messages.length === 0)
         return '';
-    // Extract key information from messages
-    const userMessages = messages.filter((m) => m.role === 'user');
-    const assistantMessages = messages.filter((m) => m.role === 'assistant');
-    // Extract tool calls
-    const toolCalls = new Set();
-    for (const msg of messages) {
-        if (msg.toolCalls && Array.isArray(msg.toolCalls)) {
-            for (const tc of msg.toolCalls) {
-                toolCalls.add(tc.name);
-            }
-        }
-    }
-    // Build summary
-    const parts = [];
-    if (userMessages.length > 0) {
-        parts.push(`User prompts: ${userMessages.length}`);
-    }
-    if (assistantMessages.length > 0) {
-        parts.push(`Assistant responses: ${assistantMessages.length}`);
-    }
-    if (toolCalls.size > 0) {
-        parts.push(`Tools used: ${Array.from(toolCalls).join(', ')}`);
-    }
-    // Extract topics from first and last user messages
-    const topics = new Set();
-    if (userMessages.length > 0) {
-        const firstUser = userMessages[0].content || '';
-        const lastUser = userMessages[userMessages.length - 1].content || '';
-        // Simple topic extraction (first 10 words)
-        const extractTopics = (text) => {
-            const words = text.split(/\s+/).slice(0, 10);
-            return words.join(' ');
-        };
-        if (firstUser)
-            topics.add(extractTopics(firstUser));
-        if (lastUser && lastUser !== firstUser)
-            topics.add(extractTopics(lastUser));
-    }
-    if (topics.size > 0) {
-        parts.push(`Topics: ${Array.from(topics).join('; ')}`);
-    }
-    const timestamp = messages.length > 0 ? messages[messages.length - 1].createdAt : 'unknown';
-    parts.push(`Last activity: ${timestamp}`);
-    return parts.join('. ');
+    return generateExtractiveSummary(extractMessageContent(messages));
 }
 /**
  * Estimate tokens saved by summarization
  */
 function estimateTokensSaved(messages, summary) {
-    const originalTokens = messages.reduce((sum, m) => sum + estimateTokens(m.content || ''), 0);
-    const summaryTokens = estimateTokens(summary);
-    return Math.max(0, originalTokens - summaryTokens);
-}
-/**
- * Rough token estimation (1 token ≈ 4 characters)
- */
-function estimateTokens(text) {
-    return Math.ceil(text.length / 4);
+    return calculateTokensSaved(messages, summary);
 }
 /**
  * Get recent summaries for a conversation
@@ -184,7 +132,7 @@ export async function getRecentSummaries(conversationId, limit = 10) {
             .limit(limit);
     }
     catch (error) {
-        console.error('[squish] Error getting recent summaries:', error);
+        logger.error('Error getting recent summaries', error);
         return [];
     }
 }
@@ -222,7 +170,7 @@ export async function getSummarizationStats(projectId) {
         return stats;
     }
     catch (error) {
-        console.error('[squish] Error getting summarization stats:', error);
+        logger.error('Error getting summarization stats', error);
         return {
             totalSummaries: 0,
             byType: {},
@@ -235,18 +183,6 @@ export async function getSummarizationStats(projectId) {
  * Delete old summaries to save space
  */
 export async function pruneOldSummaries(olderThanDays = 30) {
-    try {
-        const db = await getDb();
-        const schema = await getSchema();
-        const threshold = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000);
-        const result = await db
-            .delete(schema.sessionSummaries)
-            .where(schema.sessionSummaries.createdAt < threshold);
-        return result?.rowCount || 0;
-    }
-    catch (error) {
-        console.error('[squish] Error pruning old summaries:', error);
-        return 0;
-    }
+    return cleanupOldSessionSummaries(olderThanDays);
 }
 //# sourceMappingURL=summarization.js.map

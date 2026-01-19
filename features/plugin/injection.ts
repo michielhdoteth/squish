@@ -6,6 +6,7 @@
 import type { PluginContext } from './types.js';
 import { searchMemories } from '../../features/memory/memories.js';
 import { searchConversations } from '../../features/search/conversations.js';
+import { logger } from '../../core/logger.js';
 
 export interface InjectionBudget {
   maxItems: number;
@@ -68,9 +69,9 @@ export async function injectContextIntoSession(
   const selectedContext = await selectContextToInject(projectPath, budget);
 
   if (selectedContext.totalItems > 0) {
-    console.error(`[squish] Injected ${selectedContext.totalItems} items (${selectedContext.estimatedTokens} tokens)`);
+    logger.info(`Injected ${selectedContext.totalItems} items (${selectedContext.estimatedTokens} tokens)`);
   } else {
-    console.error('[squish] No relevant context to inject');
+    logger.info('No relevant context to inject');
   }
 }
 

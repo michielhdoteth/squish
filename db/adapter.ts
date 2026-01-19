@@ -1,5 +1,6 @@
 import { config, getDataDir } from '../config.js';
 import { ensurePostgresSchema, ensureSqliteSchema } from './bootstrap.js';
+import { logger } from '../core/logger.js';
 
 export async function createDb() {
   if (config.isTeamMode) {
@@ -43,7 +44,7 @@ async function createSqliteDb() {
 
     return drizzle(sqlite, { schema: schemaModule });
   } catch (error) {
-    console.error('[squish] SQLite initialization failed:', error);
+    logger.error('SQLite initialization failed', error);
     throw new Error(`SQLite database unavailable: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }

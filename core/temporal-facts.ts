@@ -10,6 +10,7 @@ import { getSchema } from '../db/schema.js';
 import { traverseSupersededChain } from './utils/history-traversal.js';
 import { createNewFactVersion } from './utils/version-management.js';
 import { buildFactAtTimeQuery } from './utils/temporal-queries.js';
+import { logger } from './logger.js';
 
 /**
  * Store a new fact with temporal validity
@@ -47,7 +48,7 @@ export async function storeFact(
 
     return factId;
   } catch (error) {
-    console.error('[squish] Error storing fact:', error);
+    logger.error('Error storing fact', error);
     throw error;
   }
 }
@@ -98,7 +99,7 @@ export async function queryFactsAtTime(
 
     return results;
   } catch (error) {
-    console.error('[squish] Error querying facts at time:', error);
+    logger.error('Error querying facts at time', error);
     return [];
   }
 }
@@ -137,7 +138,7 @@ export async function applyConfidenceDecay(factId: string, ageDays: number): Pro
       .set({ confidence: newConfidence })
       .where(eq(schema.memories.id, factId));
   } catch (error) {
-    console.error('[squish] Error applying confidence decay:', error);
+    logger.error('Error applying confidence decay', error);
   }
 }
 
@@ -157,7 +158,7 @@ export async function invalidateFact(factId: string, reason: string): Promise<vo
       })
       .where(eq(schema.memories.id, factId));
   } catch (error) {
-    console.error('[squish] Error invalidating fact:', error);
+    logger.error('Error invalidating fact', error);
   }
 }
 
@@ -180,7 +181,7 @@ export async function isFactValid(factId: string, atTime: Date = new Date()): Pr
 
     return fact.length > 0;
   } catch (error) {
-    console.error('[squish] Error checking fact validity:', error);
+    logger.error('Error checking fact validity', error);
     return false;
   }
 }
@@ -231,7 +232,7 @@ export async function getFactStats(projectId?: string): Promise<{
       avgAge: facts.length > 0 ? totalAge / facts.length : 0,
     };
   } catch (error) {
-    console.error('[squish] Error getting fact stats:', error);
+    logger.error('Error getting fact stats', error);
     return {
       totalFacts: 0,
       activeFacts: 0,

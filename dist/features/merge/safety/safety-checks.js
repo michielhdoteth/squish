@@ -1,16 +1,6 @@
 /**
- * Safety checks to prevent bad merges
- *
- * All safety checks run before creating merge proposals. They can either:
- * - BLOCKER: Hard failure, prevents merge entirely
- * - WARNING: Soft alert, merge proceeds but with warnings
- */
-// ============================================================================
-// Safety Checks
-// ============================================================================
-/**
- * Check 1: Immutability
- * Cannot merge memories marked as immutable (isMergeable=false)
+ * Safety checks to prevent bad merges.
+ * Checks run before creating merge proposals and are categorized as BLOCKER or WARNING.
  */
 const immutabilityCheck = {
     name: 'immutability',
@@ -31,10 +21,6 @@ const immutabilityCheck = {
         return { passed: true, warnings: [], blockers: [] };
     },
 };
-/**
- * Check 2: Type Consistency
- * All memories must be the same type
- */
 const typeConsistencyCheck = {
     name: 'type_consistency',
     description: 'Ensure all memories are the same type',
@@ -54,10 +40,6 @@ const typeConsistencyCheck = {
         return { passed: true, warnings: [], blockers: [] };
     },
 };
-/**
- * Check 3: Already Merged
- * Cannot merge memories that have already been merged into other memories
- */
 const alreadyMergedCheck = {
     name: 'already_merged',
     description: 'Prevent re-merging of previously merged memories',
@@ -77,18 +59,14 @@ const alreadyMergedCheck = {
         return { passed: true, warnings: [], blockers: [] };
     },
 };
-/**
- * Check 4: Minimum Similarity
- * Similarity must be above minimum threshold to prevent low-confidence merges
- */
 const minimumSimilarityCheck = {
     name: 'min_similarity',
     description: 'Ensure similarity is above minimum threshold',
     type: 'blocker',
     check: (memories, metadata) => {
-        const minThreshold = 0.70; // Minimum acceptable similarity
+        const minThreshold = 0.70;
         if (!metadata || !('similarityScore' in metadata)) {
-            return { passed: true, warnings: [], blockers: [] }; // No similarity data to check
+            return { passed: true, warnings: [], blockers: [] };
         }
         const similarity = metadata.similarityScore;
         if (similarity < minThreshold) {
@@ -105,11 +83,6 @@ const minimumSimilarityCheck = {
         return { passed: true, warnings: [], blockers: [] };
     },
 };
-/**
- * Check 5: Multi-User Warning
- * Warn if merging memories from multiple different users
- * (Soft warning, doesn't block merge)
- */
 const multiUserCheck = {
     name: 'multi_user',
     description: 'Warn about merging memories from different users',
@@ -129,10 +102,6 @@ const multiUserCheck = {
         return { passed: true, warnings: [], blockers: [] };
     },
 };
-/**
- * Check 6: Privacy Mismatch Warning
- * Warn if merging private and non-private memories
- */
 const privacyCheck = {
     name: 'privacy',
     description: 'Warn about mixing private and non-private memories',
@@ -152,10 +121,6 @@ const privacyCheck = {
         return { passed: true, warnings: [], blockers: [] };
     },
 };
-/**
- * Check 7: Secrets Warning
- * Warn if merging memories containing secrets
- */
 const secretsCheck = {
     name: 'secrets',
     description: 'Warn about merging memories with detected secrets',
@@ -176,10 +141,6 @@ const secretsCheck = {
         return { passed: true, warnings: [], blockers: [] };
     },
 };
-/**
- * Check 8: Active Status Check
- * Cannot merge inactive memories
- */
 const activeStatusCheck = {
     name: 'active_status',
     description: 'Ensure all memories are active',
@@ -199,9 +160,6 @@ const activeStatusCheck = {
         return { passed: true, warnings: [], blockers: [] };
     },
 };
-// ============================================================================
-// Safety Check Registry
-// ============================================================================
 export const SAFETY_CHECKS = [
     immutabilityCheck,
     typeConsistencyCheck,
@@ -212,16 +170,6 @@ export const SAFETY_CHECKS = [
     secretsCheck,
     activeStatusCheck,
 ];
-/**
- * Run all safety checks on a set of memories
- *
- * Returns combined result with:
- * - passed: true only if all blockers pass
- * - warnings: array of warning messages
- * - blockers: array of blocking error messages
- *
- * Recommendation: Always block if blockers are present, but allow merge if only warnings
- */
 export function runSafetyChecks(memories, metadata) {
     const results = SAFETY_CHECKS.map((check) => check.check(memories, metadata));
     const allBlockers = results.flatMap((r) => r.blockers);
@@ -232,10 +180,6 @@ export function runSafetyChecks(memories, metadata) {
         blockers: allBlockers,
     };
 }
-/**
- * Check only blockers (faster, doesn't collect warnings)
- * Use this for pre-filtering candidate pairs before ranking
- */
 export function checkBlockers(memories) {
     const blockerChecks = SAFETY_CHECKS.filter((c) => c.type === 'blocker');
     for (const check of blockerChecks) {
@@ -246,9 +190,6 @@ export function checkBlockers(memories) {
     }
     return true;
 }
-/**
- * Format safety check results for user display
- */
 export function formatSafetyResults(result) {
     if (result.passed && result.warnings.length === 0) {
         return 'All safety checks passed';
@@ -268,9 +209,6 @@ export function formatSafetyResults(result) {
     }
     return lines.join('\n');
 }
-/**
- * Get description of all safety checks
- */
 export function describeSafetyChecks() {
     return SAFETY_CHECKS.map((check) => `${check.name} [${check.type}]: ${check.description}`).join('\n');
 }

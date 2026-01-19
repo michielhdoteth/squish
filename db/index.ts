@@ -1,5 +1,6 @@
 import { createDb } from './adapter.js';
 import { config } from '../config.js';
+import { logger } from '../core/logger.js';
 
 let db: Awaited<ReturnType<typeof createDb>> | null = null;
 let dbError: string | null = null;
@@ -35,7 +36,7 @@ export async function checkDatabaseHealth(): Promise<boolean> {
         error.message?.includes('Database unavailable')) {
       return false; // Graceful degradation - database unavailable but not an error
     }
-    console.error('Database health check failed:', error);
+    logger.error('Database health check failed', error);
     return false;
   }
 }

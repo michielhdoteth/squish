@@ -4,6 +4,7 @@
  */
 
 import { getMemorySnapshot } from './retrieval.js';
+import { logger } from '../logger.js';
 
 export interface MemoryDiff {
   added?: string[];
@@ -45,7 +46,7 @@ export async function compareSnapshots(
       contextAfter: snap2.content.substring(0, 200),
     };
   } catch (error) {
-    console.error('[squish] Error comparing snapshots:', error);
+    logger.error('Error comparing snapshots', error);
     throw error;
   }
 }

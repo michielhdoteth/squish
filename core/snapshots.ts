@@ -4,6 +4,7 @@ import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
 import { getSchema } from '../db/schema.js';
 import { cleanupOldMemorySnapshots } from './utils/cleanup-operations.js';
+import { logger } from './logger.js';
 
 export interface MemoryDiff {
   added?: string[];
@@ -39,7 +40,7 @@ export async function createBeforeSnapshot(memoryId: string): Promise<string> {
 
     return snapshotId;
   } catch (error) {
-    console.error('[squish] Error creating before snapshot:', error);
+    logger.error('Error creating before snapshot', error);
     throw error;
   }
 }
@@ -87,7 +88,7 @@ export async function createAfterSnapshot(
 
     return { snapshotId, diff };
   } catch (error) {
-    console.error('[squish] Error creating after snapshot:', error);
+    logger.error('Error creating after snapshot', error);
     throw error;
   }
 }
@@ -120,7 +121,7 @@ export async function createPeriodicSnapshot(memoryId: string): Promise<string> 
 
     return snapshotId;
   } catch (error) {
-    console.error('[squish] Error creating periodic snapshot:', error);
+    logger.error('Error creating periodic snapshot', error);
     throw error;
   }
 }
@@ -137,7 +138,7 @@ export async function getMemoryHistory(memoryId: string, limit: number = 50): Pr
       .orderBy(desc(schema.memorySnapshots.createdAt))
       .limit(limit);
   } catch (error) {
-    console.error('[squish] Error getting memory history:', error);
+    logger.error('Error getting memory history', error);
     return [];
   }
 }
@@ -155,7 +156,7 @@ export async function getMemorySnapshot(snapshotId: string): Promise<any> {
 
     return snapshot.length > 0 ? snapshot[0] : null;
   } catch (error) {
-    console.error('[squish] Error getting snapshot:', error);
+    logger.error('Error getting snapshot', error);
     return null;
   }
 }
@@ -209,7 +210,7 @@ export async function compareSnapshots(
       contextAfter: snap2.content.substring(0, 200),
     };
   } catch (error) {
-    console.error('[squish] Error comparing snapshots:', error);
+    logger.error('Error comparing snapshots', error);
     throw error;
   }
 }
@@ -258,7 +259,7 @@ export async function getSnapshotStats(memoryId?: string): Promise<{
 
     return stats;
   } catch (error) {
-    console.error('[squish] Error getting snapshot stats:', error);
+    logger.error('Error getting snapshot stats', error);
     return {
       totalSnapshots: 0,
       byType: {},

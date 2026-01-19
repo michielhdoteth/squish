@@ -1,7 +1,5 @@
 /**
- * Hash cache maintenance operations
- *
- * Updates and maintains SimHash/MinHash signatures for efficient duplicate detection
+ * Hash cache maintenance - SimHash/MinHash signatures for duplicate detection
  */
 import { getDb } from '../../../db/index.js';
 import { getSchema } from '../../../db/schema.js';
@@ -9,16 +7,11 @@ import { createDatabaseClient } from '../../../core/database.js';
 import { eq } from 'drizzle-orm';
 import { SimHashFilter, MinHashFilter } from '../detection/hash-filters.js';
 import crypto from 'crypto';
-/**
- * Calculate MD5 hash of content for cache invalidation
- */
-function calculateContentHash(content) {
+import { logger } from '../../../core/logger.js';
+function hashContent(content) {
     return crypto.createHash('md5').update(content).digest('hex');
 }
-/**
- * Update or create hash cache entry for a single memory
- */
-export async function updateMemoryHashCache(memoryId) {
+export async function updateCache(memoryId) {
     try {
         const db = createDatabaseClient(await getDb());
         const schema = await getSchema();
@@ -35,7 +28,7 @@ export async function updateMemoryHashCache(memoryId) {
         const minhashFilter = new MinHashFilter();
         const simhash = simhashFilter.generateHash(memory.content);
         const minhash = minhashFilter.generateSignature(memory.content);
-        const contentHash = calculateContentHash(memory.content);
+        const contentHash = hashContent(memory.content);
         // Upsert cache entry
         const now = new Date();
         // Check if entry exists
@@ -69,15 +62,11 @@ export async function updateMemoryHashCache(memoryId) {
         return true;
     }
     catch (error) {
-        console.error(`[squish-merge] Failed to update hash cache for ${memoryId}:`, error);
+        logger.error(`Failed to update hash cache for ${memoryId}`, error);
         return false;
     }
 }
-/**
- * Rebuild hash cache for an entire project
- * Useful for initialization or recovery
- */
-export async function rebuildProjectHashCache(projectId) {
+export async function rebuildCache(projectId) {
     try {
         const db = createDatabaseClient(await getDb());
         const schema = await getSchema();
@@ -89,7 +78,7 @@ export async function rebuildProjectHashCache(projectId) {
         let succeeded = 0;
         let failed = 0;
         for (const memory of memories) {
-            const ok = await updateMemoryHashCache(memory.id);
+            const ok = await updateCache(memory.id);
             if (ok) {
                 succeeded++;
             }
@@ -104,15 +93,11 @@ export async function rebuildProjectHashCache(projectId) {
         };
     }
     catch (error) {
-        console.error(`[squish-merge] Failed to rebuild hash cache for project ${projectId}:`, error);
+        logger.error(`Failed to rebuild hash cache for project ${projectId}`, error);
         return { processed: 0, succeeded: 0, failed: 0 };
     }
 }
-/**
- * Check if hash cache entry is stale and needs refresh
- * Entry is stale if content hash doesn't match
- */
-export async function isHashCacheStale(memoryId) {
+export async function isStale(memoryId) {
     try {
         const db = createDatabaseClient(await getDb());
         const schema = await getSchema();
@@ -130,18 +115,15 @@ export async function isHashCacheStale(memoryId) {
         if (!cacheEntry) {
             return true; // No cache entry = stale
         }
-        const currentContentHash = calculateContentHash(memory.content);
+        const currentContentHash = hashContent(memory.content);
         return currentContentHash !== cacheEntry.contentHash;
     }
     catch (error) {
-        console.error(`[squish-merge] Failed to check hash cache staleness:`, error);
+        logger.error('Failed to check hash cache staleness', error);
         return true; // Assume stale on error
     }
 }
-/**
- * Clean up hash cache for non-existent memories
- */
-export async function cleanupOrphanedHashCache(projectId) {
+export async function cleanupOrphaned(projectId) {
     try {
         const db = createDatabaseClient(await getDb());
         const schema = await getSchema();
@@ -168,7 +150,7 @@ export async function cleanupOrphanedHashCache(projectId) {
         return deleted;
     }
     catch (error) {
-        console.error(`[squish-merge] Failed to cleanup orphaned hash cache:`, error);
+        logger.error('Failed to cleanup orphaned hash cache', error);
         return 0;
     }
 }

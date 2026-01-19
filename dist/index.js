@@ -23,6 +23,7 @@ import 'dotenv/config';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError, } from '@modelcontextprotocol/sdk/types.js';
+import { logger } from './core/logger.js';
 import { checkDatabaseHealth, config } from './db/index.js';
 import { checkRedisHealth, closeCache } from './core/cache.js';
 import { rememberMemory, getMemoryById, searchMemories } from './features/memory/memories.js';
@@ -449,11 +450,11 @@ class Squish {
             catch (error) {
                 if (error instanceof McpError)
                     throw error;
-                console.error('[squish] Tool error:', error);
+                logger.error('Tool error', error);
                 throw new McpError(ErrorCode.InternalError, `Tool '${name}' failed`);
             }
         });
-        this.server.onerror = (e) => console.error('[squish]', e);
+        this.server.onerror = (e) => logger.error('MCP Server error', e);
         process.on('SIGINT', () => this.shutdown());
         process.on('SIGTERM', () => this.shutdown());
     }
@@ -502,13 +503,13 @@ class Squish {
     async run() {
         const transport = new StdioServerTransport();
         await this.server.connect(transport);
-        console.error(`[squish] v${VERSION}`);
+        logger.info(`v${VERSION}`);
         // Start web UI server in background
         startWebServer();
     }
 }
 new Squish().run().catch((e) => {
-    console.error('[squish] Fatal:', e);
+    logger.error('Fatal error', e);
     process.exit(1);
 });
 //# sourceMappingURL=index.js.map

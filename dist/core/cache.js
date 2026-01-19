@@ -1,4 +1,5 @@
 import { config } from '../config.js';
+import { logger } from './logger.js';
 let redis = null;
 const memoryCache = new Map();
 async function initRedis() {
@@ -10,11 +11,11 @@ async function initRedis() {
         const { createClient } = await import('redis');
         redis = createClient({ url: process.env.REDIS_URL });
         await redis.connect();
-        console.log('Redis connected');
+        logger.info('Redis connected');
         return redis;
     }
     catch (error) {
-        console.error('Failed to connect to Redis, using memory cache:', error);
+        logger.error('Failed to connect to Redis, using memory cache', error);
         redis = null;
         return null;
     }
@@ -28,7 +29,7 @@ export async function cacheGet(key) {
         }
     }
     catch (error) {
-        console.error('Redis GET failed, falling back to memory:', error);
+        logger.error('Redis GET failed, falling back to memory', error);
     }
     // Memory cache fallback
     const item = memoryCache.get(key);
@@ -47,38 +48,10 @@ export async function cacheSet(key, value, ttlMs = 3600000) {
         }
     }
     catch (error) {
-        console.error('Redis SET failed, falling back to memory:', error);
+        logger.error('Redis SET failed, falling back to memory', error);
     }
     // Memory cache fallback
     memoryCache.set(key, { value, expires: Date.now() + ttlMs });
-}
-export async function cacheDel(key) {
-    try {
-        const r = await initRedis();
-        if (r) {
-            await r.del(key);
-            return;
-        }
-    }
-    catch (error) {
-        console.error('Redis DEL failed, falling back to memory:', error);
-    }
-    // Memory cache fallback
-    memoryCache.delete(key);
-}
-export async function cacheFlush() {
-    try {
-        const r = await initRedis();
-        if (r) {
-            await r.flushDb();
-            return;
-        }
-    }
-    catch (error) {
-        console.error('Redis FLUSH failed, falling back to memory:', error);
-    }
-    // Memory cache fallback
-    memoryCache.clear();
 }
 export async function checkRedisHealth() {
     if (!config.redisEnabled)
@@ -91,7 +64,7 @@ export async function checkRedisHealth() {
         return pong === 'PONG';
     }
     catch (error) {
-        console.error('Redis health check failed:', error);
+        logger.error('Redis health check failed', error);
         return false;
     }
 }

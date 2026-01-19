@@ -740,7 +740,7 @@ export declare const observations: import("drizzle-orm/pg-core").PgTableWithColu
             tableName: "observations";
             dataType: "string";
             columnType: "PgText";
-            data: "tool_use" | "file_change" | "error" | "pattern" | "insight" | "user_prompt";
+            data: "error" | "tool_use" | "file_change" | "pattern" | "insight" | "user_prompt";
             driverParam: string;
             notNull: true;
             hasDefault: false;
@@ -752,7 +752,7 @@ export declare const observations: import("drizzle-orm/pg-core").PgTableWithColu
             identity: undefined;
             generated: undefined;
         }, {}, {
-            $type: "tool_use" | "file_change" | "error" | "pattern" | "insight" | "user_prompt";
+            $type: "error" | "tool_use" | "file_change" | "pattern" | "insight" | "user_prompt";
         }>;
         action: import("drizzle-orm/pg-core").PgColumn<{
             name: "action";

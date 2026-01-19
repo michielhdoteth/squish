@@ -8,6 +8,7 @@ import { ensureProject, getProjectByPath } from './projects.js';
 import { fromSqliteJson, toSqliteJson } from '../features/memory/serialization.js';
 import { createDatabaseClient } from './database.js';
 import { normalizeTimestamp, isDatabaseUnavailableError, prepareEmbedding } from './utils.js';
+import { logger } from './logger.js';
 export async function createObservation(input) {
     const db = createDatabaseClient(await getDb());
     const schema = await getSchema();
@@ -77,7 +78,7 @@ export async function getRecentObservations(projectPath, limit = 10) {
         if (isDatabaseUnavailableError(error)) {
             return [];
         }
-        console.error('[squish] Error getting recent observations:', error);
+        logger.error('Error getting recent observations', error);
         return [];
     }
 }
@@ -96,7 +97,7 @@ export async function getObservationById(observationId) {
         if (isDatabaseUnavailableError(error)) {
             return null;
         }
-        console.error('[squish] Error getting observation:', error);
+        logger.error('Error getting observation', error);
         return null;
     }
 }
