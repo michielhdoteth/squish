@@ -5,7 +5,7 @@
  */
 
 import type { Memory, MemoryType } from '../../../drizzle/schema.js';
-import { getEmbedding } from '../../../core/embeddings.js';
+import { getEmbedding, getBatchEmbeddings } from '../../../core/embeddings.js';
 import { SimHashFilter, MinHashFilter, findCandidatePairs } from './hash-filters.js';
 import { rankCandidates, analyzePair } from './semantic-ranker.js';
 import { getDb } from '../../../db/index.js';
@@ -132,13 +132,25 @@ export async function detectDuplicates(options: DetectionOptions): Promise<Detec
   const stage2Start = Date.now();
 
   const embeddings = new Map<string, number[]>();
-  for (const memory of memories) {
-    if (memory.embedding) {
-      embeddings.set(memory.id, memory.embedding as unknown as number[]);
-    } else {
-      const embedding = await getEmbedding(memory.content);
+
+  // Separate memories that already have embeddings from those that need generation
+  const memoriesWithoutEmbedding = memories.filter((m) => !m.embedding);
+  const memoriesWithEmbedding = memories.filter((m) => m.embedding);
+
+  // Add cached embeddings to map
+  for (const memory of memoriesWithEmbedding) {
+    embeddings.set(memory.id, memory.embedding as unknown as number[]);
+  }
+
+  // Generate embeddings for remaining memories in parallel batches
+  if (memoriesWithoutEmbedding.length > 0) {
+    const contents = memoriesWithoutEmbedding.map((m) => m.content);
+    const generatedEmbeddings = await getBatchEmbeddings(contents, 20);
+
+    for (let i = 0; i < memoriesWithoutEmbedding.length; i++) {
+      const embedding = generatedEmbeddings[i];
       if (embedding) {
-        embeddings.set(memory.id, embedding);
+        embeddings.set(memoriesWithoutEmbedding[i].id, embedding);
       }
     }
   }

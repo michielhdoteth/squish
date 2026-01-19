@@ -3,7 +3,7 @@
  * Implements sector-based decay, tier classification, and eviction policies
  */
 
-import { and, eq, lt, gte, desc } from 'drizzle-orm';
+import { and, eq, lt, gte, desc, inArray } from 'drizzle-orm';
 import { getDb } from '../db/index.js';
 import { getSchema } from '../db/schema.js';
 import { config } from '../config.js';
@@ -105,6 +105,7 @@ async function applyDecay(projectId: string | undefined, stats: LifecycleStats):
 
 /**
  * Update memory tiers based on recency, coactivation, and salience
+ * OPTIMIZED: Uses batched updates instead of individual UPDATE queries
  */
 async function updateTiers(projectId: string | undefined, stats: LifecycleStats): Promise<void> {
   try {
@@ -119,7 +120,11 @@ async function updateTiers(projectId: string | undefined, stats: LifecycleStats)
       .select()
       .from(schema.memories)
       .where(where)
-      .limit(1000); // Process in batches
+      .limit(10000); // Process larger batches now
+
+    // Calculate tiers in memory
+    const tierAssignments = new Map<string, 'hot' | 'warm' | 'cold'>();
+    const tierCounts = { hot: 0, warm: 0, cold: 0 };
 
     for (const memory of memories) {
       const recencyDays = (now.getTime() - new Date(memory.createdAt).getTime()) / (24 * 60 * 60 * 1000);
@@ -143,14 +148,56 @@ async function updateTiers(projectId: string | undefined, stats: LifecycleStats)
       }
 
       if (newTier !== memory.tier) {
-        await (db as any)
-          .update(schema.memories)
-          .set({ tier: newTier })
-          .where(eq(schema.memories.id, memory.id));
-
-        stats.tierChanges[newTier]++;
+        tierAssignments.set(memory.id, newTier);
+        tierCounts[newTier]++;
       }
     }
+
+    if (tierAssignments.size === 0) return;
+
+    // Group by tier for efficient batched updates
+    const hotIds = Array.from(tierAssignments.entries())
+      .filter(([_, tier]) => tier === 'hot')
+      .map(([id]) => id);
+    const warmIds = Array.from(tierAssignments.entries())
+      .filter(([_, tier]) => tier === 'warm')
+      .map(([id]) => id);
+    const coldIds = Array.from(tierAssignments.entries())
+      .filter(([_, tier]) => tier === 'cold')
+      .map(([id]) => id);
+
+    // Execute batched updates instead of individual queries
+    if (hotIds.length > 0) {
+      await (db as any)
+        .update(schema.memories)
+        .set({ tier: 'hot', updatedAt: now })
+        .where(inArray(schema.memories.id, hotIds));
+    }
+
+    if (warmIds.length > 0) {
+      await (db as any)
+        .update(schema.memories)
+        .set({ tier: 'warm', updatedAt: now })
+        .where(inArray(schema.memories.id, warmIds));
+    }
+
+    if (coldIds.length > 0) {
+      await (db as any)
+        .update(schema.memories)
+        .set({ tier: 'cold', updatedAt: now })
+        .where(inArray(schema.memories.id, coldIds));
+    }
+
+    // Update stats
+    stats.tierChanges.hot = tierCounts.hot;
+    stats.tierChanges.warm = tierCounts.warm;
+    stats.tierChanges.cold = tierCounts.cold;
+
+    logger.debug('Tier updates complete', {
+      hot: tierCounts.hot,
+      warm: tierCounts.warm,
+      cold: tierCounts.cold,
+    });
   } catch (error) {
     logger.error('Error updating tiers', error);
   }

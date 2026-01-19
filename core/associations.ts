@@ -3,7 +3,7 @@
  * Tracks co-occurrence and relationships between memories
  */
 
-import { eq, and, or, desc, inArray } from 'drizzle-orm';
+import { eq, and, or, desc, inArray, sql } from 'drizzle-orm';
 import { getDb } from '../db/index.js';
 import { getSchema } from '../db/schema.js';
 import { logger } from './logger.js';
@@ -63,19 +63,141 @@ export async function createAssociation(
 
 /**
  * Track co-activation of multiple memories (they were used together)
+ * OPTIMIZED: Uses bulk upsert instead of N² individual database operations
  */
 export async function trackCoactivation(memoryIds: string[]): Promise<void> {
   if (memoryIds.length < 2) return;
 
   try {
-    // Create co_occurred associations between all pairs
+    const db = await getDb();
+    const schema = await getSchema();
+    const now = new Date();
+
+    // Generate all pairs
+    const pairs: Array<{ from: string; to: string }> = [];
     for (let i = 0; i < memoryIds.length; i++) {
       for (let j = i + 1; j < memoryIds.length; j++) {
-        await createAssociation(memoryIds[i], memoryIds[j], 'co_occurred', 1);
-        // Also create reverse association
-        await createAssociation(memoryIds[j], memoryIds[i], 'co_occurred', 1);
+        pairs.push({ from: memoryIds[i], to: memoryIds[j] });
+        pairs.push({ from: memoryIds[j], to: memoryIds[i] }); // Bidirectional
       }
     }
+
+    if (pairs.length === 0) return;
+
+    // Batch check existing associations with single SELECT
+    const pairIds = pairs.map(p => ({ from: p.from, to: p.to }));
+
+    // Check which pairs already exist
+    const existingPairs = await (db as any)
+      .select({ fromId: schema.memoryAssociations.fromMemoryId, toId: schema.memoryAssociations.toMemoryId })
+      .from(schema.memoryAssociations)
+      .where(
+        or(
+          ...pairIds.map((p: any) =>
+            and(
+              eq(schema.memoryAssociations.fromMemoryId, p.from),
+              eq(schema.memoryAssociations.toMemoryId, p.to)
+            )
+          )
+        )
+      );
+
+    const existingMap = new Set(
+      existingPairs.map((p: any) => `${p.fromId}:${p.toId}`)
+    );
+
+    // Separate into new pairs and existing pairs
+    const newPairs: any[] = [];
+    const existingPairsToUpdate: string[] = [];
+
+    for (const pair of pairs) {
+      const key = `${pair.from}:${pair.to}`;
+      if (existingMap.has(key)) {
+        existingPairsToUpdate.push(key);
+      } else {
+        newPairs.push({
+          fromMemoryId: pair.from,
+          toMemoryId: pair.to,
+          associationType: 'co_occurred',
+          weight: 1,
+          coactivationCount: 1,
+          lastCoactivatedAt: now,
+        });
+      }
+    }
+
+    // Bulk insert new associations
+    if (newPairs.length > 0) {
+      const BATCH_SIZE = 100;
+      for (let i = 0; i < newPairs.length; i += BATCH_SIZE) {
+        const batch = newPairs.slice(i, i + BATCH_SIZE);
+        try {
+          // For PostgreSQL with ON CONFLICT support
+          if ((db as any).insert && (db as any).onConflict) {
+            await (db as any)
+              .insert(schema.memoryAssociations)
+              .values(batch)
+              .onConflict({
+                target: [schema.memoryAssociations.fromMemoryId, schema.memoryAssociations.toMemoryId],
+                set: {
+                  weight: sql`${schema.memoryAssociations.weight} + 1`,
+                  coactivationCount: sql`${schema.memoryAssociations.coactivationCount} + 1`,
+                  lastCoactivatedAt: now,
+                },
+              })
+              .catch(() => {
+                // Fallback for SQLite
+                return (db as any).insert(schema.memoryAssociations).values(batch);
+              });
+          } else {
+            // Direct insert for SQLite
+            await (db as any).insert(schema.memoryAssociations).values(batch);
+          }
+        } catch (error) {
+          logger.error('Error inserting batch of associations', { batchSize: batch.length, error });
+        }
+      }
+    }
+
+    // Bulk update existing associations
+    if (existingPairsToUpdate.length > 0) {
+      const BATCH_SIZE = 100;
+      for (let i = 0; i < existingPairsToUpdate.length; i += BATCH_SIZE) {
+        const batch = existingPairsToUpdate.slice(i, i + BATCH_SIZE);
+
+        // Extract from/to pairs for this batch
+        const batchPairs = batch.map(key => {
+          const [from, to] = key.split(':');
+          return { from, to };
+        });
+
+        try {
+          for (const pair of batchPairs) {
+            await (db as any)
+              .update(schema.memoryAssociations)
+              .set({
+                weight: sql`${schema.memoryAssociations.weight} + 1`,
+                coactivationCount: sql`${schema.memoryAssociations.coactivationCount} + 1`,
+                lastCoactivatedAt: now,
+              })
+              .where(
+                and(
+                  eq(schema.memoryAssociations.fromMemoryId, pair.from),
+                  eq(schema.memoryAssociations.toMemoryId, pair.to)
+                )
+              );
+          }
+        } catch (error) {
+          logger.error('Error updating batch of associations', { batchSize: batch.length, error });
+        }
+      }
+    }
+
+    logger.debug('Coactivation tracked', {
+      totalPairs: pairs.length,
+      newAssociations: newPairs.length,
+      updatedAssociations: existingPairsToUpdate.length,
+    });
   } catch (error) {
     logger.error('Error tracking coactivation', error);
   }

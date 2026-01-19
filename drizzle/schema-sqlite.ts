@@ -132,6 +132,40 @@ export const memories = sqliteTable(
     index('memories_pinned_idx').on(table.isPinned),
     index('memories_valid_from_idx').on(table.validFrom),
     index('memories_valid_to_idx').on(table.validTo),
+
+    // v0.4.2: Composite indexes for performance optimization
+    // Duplicate detection query optimization
+    index('memories_duplicate_detection_idx').on(
+      table.projectId,
+      table.isMerged,
+      table.isMergeable,
+      table.isActive
+    ),
+    // Eviction query optimization
+    index('memories_eviction_idx').on(
+      table.projectId,
+      table.tier,
+      table.relevanceScore,
+      table.createdAt
+    ),
+    // Decay operations optimization
+    index('memories_decay_idx').on(
+      table.sector,
+      table.lastDecayAt,
+      table.isProtected
+    ),
+    // Temporal query optimization
+    index('memories_temporal_idx').on(
+      table.projectId,
+      table.validFrom,
+      table.validTo
+    ),
+    // Agent-aware retrieval optimization
+    index('memories_agent_visibility_idx').on(
+      table.agentId,
+      table.visibilityScope,
+      table.isActive
+    ),
   ],
 ) as any;
 
@@ -367,6 +401,13 @@ export const memoryAssociations = sqliteTable('memory_associations', {
   index('memory_associations_to_idx').on(table.toMemoryId),
   index('memory_associations_type_idx').on(table.associationType),
   index('memory_associations_weight_idx').on(table.weight),
+  // v0.4.2: Composite index for graph traversal optimization
+  index('memory_associations_graph_traversal_idx').on(
+    table.fromMemoryId,
+    table.toMemoryId,
+    table.weight,
+    table.associationType
+  ),
 ]);
 
 /**

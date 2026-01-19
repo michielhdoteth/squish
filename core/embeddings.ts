@@ -10,6 +10,38 @@ export async function getEmbedding(input: string): Promise<number[] | null> {
   return null;
 }
 
+/**
+ * Get embeddings for multiple inputs in parallel batches
+ * Processes inputs in batches to respect rate limits while parallelizing
+ */
+export async function getBatchEmbeddings(
+  inputs: string[],
+  batchSize: number = 20
+): Promise<Array<number[] | null>> {
+  if (inputs.length === 0) return [];
+
+  const results: Array<number[] | null> = new Array(inputs.length).fill(null);
+
+  // Process batches sequentially to respect rate limits
+  for (let i = 0; i < inputs.length; i += batchSize) {
+    const batchEnd = Math.min(i + batchSize, inputs.length);
+    const batch = inputs.slice(i, batchEnd);
+    const indices = Array.from({ length: batch.length }, (_, idx) => i + idx);
+
+    // Parallelize embeddings within batch using Promise.all
+    const batchResults = await Promise.all(
+      batch.map((input) => getEmbedding(input))
+    );
+
+    // Store results in correct positions
+    for (let j = 0; j < batchResults.length; j++) {
+      results[indices[j]] = batchResults[j];
+    }
+  }
+
+  return results;
+}
+
 async function getOpenAiEmbedding(input: string): Promise<number[] | null> {
   if (!config.openAiApiKey) return null;
   const response = await fetch(config.openAiApiUrl, {
