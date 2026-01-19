@@ -184,6 +184,41 @@ CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE ON messages BEGIN
   INSERT INTO messages_fts(rowid, content)
   VALUES (new.rowid, new.content);
 END;
+
+CREATE TABLE IF NOT EXISTS core_memory (
+  id TEXT PRIMARY KEY,
+  project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+  user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+  section TEXT NOT NULL,
+  content TEXT NOT NULL DEFAULT '',
+  size_bytes INTEGER DEFAULT 0 NOT NULL,
+  version INTEGER DEFAULT 1 NOT NULL,
+  created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL,
+  updated_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS core_memory_project_idx ON core_memory(project_id);
+CREATE INDEX IF NOT EXISTS core_memory_user_idx ON core_memory(user_id);
+CREATE INDEX IF NOT EXISTS core_memory_section_idx ON core_memory(section);
+
+CREATE TABLE IF NOT EXISTS context_sessions (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL UNIQUE,
+  project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+  user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+  loaded_memory_ids TEXT,
+  token_budget INTEGER DEFAULT 8000 NOT NULL,
+  tokens_used INTEGER DEFAULT 0 NOT NULL,
+  core_memory_tokens INTEGER DEFAULT 0 NOT NULL,
+  loaded_memories_tokens INTEGER DEFAULT 0 NOT NULL,
+  metadata TEXT,
+  created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL,
+  updated_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS context_sessions_session_idx ON context_sessions(session_id);
+CREATE INDEX IF NOT EXISTS context_sessions_project_idx ON context_sessions(project_id);
+CREATE INDEX IF NOT EXISTS context_sessions_created_idx ON context_sessions(created_at);
 `;
 
 const postgresStatements = [
