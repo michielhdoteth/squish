@@ -6,8 +6,8 @@
   "plugins": [
     {
       "name": "squish",
-      "version": "0.4.1",
-      "description": "Production-ready two-tier memory system for Claude Code: Always-visible core memory (persona, user info, project context, notes) + intelligent context paging. 17 MCP tools with advanced features: bridge discovery, entity extraction, hybrid scoring, temporal analysis. Features: 30-100x performance gains, automatic session hooks, privacy-first encryption, and PostgreSQL team collaboration.",
+      "version": "0.5.0",
+      "description": "Production-ready two-tier memory system for Claude Code with 11 consolidated MCP tools. Always-visible core memory (persona, user info, project context, notes) + intelligent context paging. Advanced features: merge detection, semantic search, lifecycle management, bridge discovery. Features: 30-100x performance gains, automatic session hooks, privacy-first encryption, PostgreSQL team collaboration. Major consolidation: 39% fewer tools with same functionality.",
       "author": {
         "name": "michielhdoteth"
       },
@@ -30,20 +30,19 @@
         "Memory lifecycle management with multi-tier classification"
       ],
       "mcpTools": [
-        "/mcp__squish__core_memory_view - View core memory sections",
-        "/mcp__squish__core_memory_edit - Edit core memory section",
-        "/mcp__squish__core_memory_append - Append to core memory",
-        "/mcp__squish__load_to_context - Load memory to working set",
-        "/mcp__squish__evict_from_context - Remove from working set",
-        "/mcp__squish__view_loaded_memories - View working set",
+        "/mcp__squish__core_memory - Manage core memory (view/edit/append)",
+        "/mcp__squish__context_paging - Manage working set (load/evict/view)",
         "/mcp__squish__context_status - Check memory system status",
         "/mcp__squish__remember - Store new memory",
         "/mcp__squish__recall - Retrieve memory by ID",
         "/mcp__squish__search - Semantic search memories",
         "/mcp__squish__observe - Capture tool/action observations",
-        "/mcp__squish__merge - Merge duplicate memories",
+        "/mcp__squish__merge - Manage memory merges (detect/list/preview/stats/approve/reject/reverse)",
+        "/mcp__squish__context - View project context",
         "/mcp__squish__health - Check system health",
-        "/mcp__squish__context - View context window info"
+        "/mcp__squish__lifecycle - Run memory lifecycle maintenance",
+        "/mcp__squish__summarize_session - Summarize conversation session",
+        "/mcp__squish__protect_memory - Protect memory from eviction"
       ]
     }
   ]

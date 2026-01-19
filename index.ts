@@ -1,15 +1,25 @@
 #!/usr/bin/env node
 
 /**
- * Squish v0.4.0 - Production-ready local-first persistent memory for Claude Code
+ * Squish v0.5.0 - Major tool consolidation milestone
+ *
+ * This is a significant refactor reducing MCP tools from 18 to 11 (39% reduction).
+ * Breaking changes in tool API - migration guide: see docs/MIGRATION-v0.5.0.md
  *
  * Features:
- * - 14 MCP tools (consolidated from 23 for usability)
+ * - 11 consolidated MCP tools (from 18)
  * - Local mode: SQLite with FTS5 + auto-capture + folder context
  * - Team mode: PostgreSQL + pgvector + Redis
  * - Plugin system: Hooks for auto-capture, context injection, privacy filtering, folder context generation
  * - Privacy-first: Secret detection, <private> tag filtering, async worker pipeline
  * - Pluggable embeddings: OpenAI, Ollama, or local TF-IDF
+ *
+ * Consolidated MCP Tools (v0.5.0):
+ * - core_memory: Unified tool for view/edit/append operations (was 3 tools)
+ * - context_paging: Unified tool for load/evict/view operations (was 3 tools)
+ * - merge: Unified tool for detect/list/preview/stats/approve/reject/reverse (was 2 tools)
+ * - context_status, remember, recall, search, observe, context, health (unchanged)
+ * - lifecycle, summarize_session, protect_memory (unchanged)
  *
  * Plugin hooks (registered in plugin.json):
  * - onInstall: Initialize database, create config files
@@ -19,6 +29,7 @@
  * - onSessionStop: Finalize observations, summarize via async worker
  *
  * See src/plugin/plugin-wrapper.ts for hook implementations
+ * See docs/MIGRATION-v0.5.0.md for migration guide
  */
 
 import 'dotenv/config';
@@ -70,94 +81,54 @@ import {
   clearLoadedMemories,
 } from './core/context-paging.js';
 
-const VERSION = '0.4.0';
+const VERSION = '0.5.0';
 
 const TOOLS = [
   // ============================================================================
-  // Core Memory Tools (Tier 1 - Always-In-Context)
+  // Core Memory Tool (Tier 1 - Always-In-Context)
   // ============================================================================
   {
-    name: 'core_memory_view',
-    description: 'View all core memory sections (always-in-context memory)',
+    name: 'core_memory',
+    description: 'Manage core memory: view all sections, edit a section, or append text to a section',
     inputSchema: {
       type: 'object',
       properties: {
-        projectId: { type: 'string', description: 'Project ID' },
-      },
-      required: ['projectId']
-    }
-  },
-  {
-    name: 'core_memory_edit',
-    description: 'Replace entire content of a core memory section',
-    inputSchema: {
-      type: 'object',
-      properties: {
+        action: {
+          type: 'string',
+          enum: ['view', 'edit', 'append'],
+          description: 'Memory action: view all, edit specific section, or append to section'
+        },
         projectId: { type: 'string', description: 'Project ID' },
         section: {
           type: 'string',
           enum: ['persona', 'user_info', 'project_context', 'working_notes'],
-          description: 'Section to edit'
+          description: 'Section name (required for edit/append actions)'
         },
-        content: { type: 'string', description: 'New content (replaces existing)' },
+        content: { type: 'string', description: 'New content for section (edit action)' },
+        text: { type: 'string', description: 'Text to append to section (append action)' },
       },
-      required: ['projectId', 'section', 'content']
-    }
-  },
-  {
-    name: 'core_memory_append',
-    description: 'Append text to a core memory section',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        projectId: { type: 'string', description: 'Project ID' },
-        section: {
-          type: 'string',
-          enum: ['persona', 'user_info', 'project_context', 'working_notes'],
-          description: 'Section to append to'
-        },
-        text: { type: 'string', description: 'Text to append' },
-      },
-      required: ['projectId', 'section', 'text']
+      required: ['action', 'projectId']
     }
   },
   // ============================================================================
-  // Context Paging Tools (Tier 2 - Working Set Management)
+  // Context Paging Tool (Tier 2 - Working Set Management)
   // Note: Claude manages its own context/tokens. These track your working set.
   // ============================================================================
   {
-    name: 'load_to_context',
-    description: 'Add a memory to working set for tracking (Claude manages actual context)',
+    name: 'context_paging',
+    description: 'Manage working set: load memory to context, evict from context, or view loaded memories',
     inputSchema: {
       type: 'object',
       properties: {
+        action: {
+          type: 'string',
+          enum: ['load', 'evict', 'view'],
+          description: 'Paging action: load memory, evict memory, or view all loaded'
+        },
         sessionId: { type: 'string', description: 'Session ID' },
-        memoryId: { type: 'string', description: 'Memory UUID to load' },
+        memoryId: { type: 'string', description: 'Memory UUID (required for load/evict actions)' },
       },
-      required: ['sessionId', 'memoryId']
-    }
-  },
-  {
-    name: 'evict_from_context',
-    description: 'Remove a memory from current context (paging out)',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        sessionId: { type: 'string', description: 'Session ID' },
-        memoryId: { type: 'string', description: 'Memory UUID to evict' },
-      },
-      required: ['sessionId', 'memoryId']
-    }
-  },
-  {
-    name: 'view_loaded_memories',
-    description: 'View all currently loaded memories in context',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        sessionId: { type: 'string', description: 'Session ID' },
-      },
-      required: ['sessionId']
+      required: ['action', 'sessionId']
     }
   },
   {
@@ -269,39 +240,23 @@ const TOOLS = [
   },
   {
     name: 'merge',
-    description: 'Manage memory merge proposals: detect, list, preview, or get statistics',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        mode: {
-          type: 'string',
-          enum: ['detect', 'list', 'preview', 'stats'],
-          description: 'Operation mode'
-        },
-        projectId: { type: 'string', description: 'Project ID' },
-        proposalId: { type: 'string', description: 'Proposal ID (required for preview mode)' },
-        threshold: { type: 'number', description: 'Similarity threshold 0-1 (detect mode)' },
-        memoryType: { type: 'string', enum: ['fact', 'preference', 'decision', 'observation', 'context'], description: 'Memory type filter (detect mode)' },
-        status: { type: 'string', enum: ['pending', 'approved', 'rejected', 'expired'], description: 'Proposal status filter (list mode)' },
-        limit: { type: 'number', description: 'Max results to return' }
-      },
-      required: ['mode', 'projectId']
-    }
-  },
-  {
-    name: 'merge_decide',
-    description: 'Approve, reject, or reverse memory merge proposals',
+    description: 'Manage memory merges: detect duplicates, list proposals, preview merges, get statistics, approve, reject, or reverse merges',
     inputSchema: {
       type: 'object',
       properties: {
         action: {
           type: 'string',
-          enum: ['approve', 'reject', 'reverse'],
-          description: 'Decision action'
+          enum: ['detect', 'list', 'preview', 'stats', 'approve', 'reject', 'reverse'],
+          description: 'Merge action: detect duplicates, list proposals, preview merge, view stats, approve, reject, or reverse'
         },
-        proposalId: { type: 'string', description: 'Proposal ID (for approve/reject)' },
-        mergeHistoryId: { type: 'string', description: 'Merge history ID (for reverse)' },
-        reviewNotes: { type: 'string', description: 'Notes or reason for decision' }
+        projectId: { type: 'string', description: 'Project ID (required for detect, list, stats)' },
+        proposalId: { type: 'string', description: 'Proposal ID (required for preview, approve, reject)' },
+        mergeHistoryId: { type: 'string', description: 'Merge history ID (required for reverse action)' },
+        threshold: { type: 'number', description: 'Similarity threshold 0-1 (detect action only)' },
+        memoryType: { type: 'string', enum: ['fact', 'preference', 'decision', 'observation', 'context'], description: 'Memory type filter (detect action only)' },
+        status: { type: 'string', enum: ['pending', 'approved', 'rejected', 'expired'], description: 'Proposal status filter (list action only)' },
+        reviewNotes: { type: 'string', description: 'Notes or reason for decision (approve/reject only)' },
+        limit: { type: 'number', description: 'Max results to return' }
       },
       required: ['action']
     }
@@ -388,103 +343,98 @@ class Squish {
 
       try {
         switch (name) {
-          // Core Memory Tools
-          case 'core_memory_view': {
+          // Core Memory Tool (consolidated)
+          case 'core_memory': {
+            const { action } = args as { action: string };
             if (!args.projectId) {
               throw new McpError(ErrorCode.InvalidParams, 'projectId is required');
             }
             try {
               await initializeCoreMemory(String(args.projectId));
-              const content = await getCoreMemory(String(args.projectId));
-              const stats = await getCoreMemoryStats(String(args.projectId));
-              return this.jsonResponse({ ok: true, content, stats });
-            } catch (error: any) {
-              throw new McpError(ErrorCode.InternalError, `Core memory view failed: ${error.message}`);
-            }
-          }
-          case 'core_memory_edit': {
-            if (!args.projectId || !args.section || typeof args.content !== 'string') {
-              throw new McpError(ErrorCode.InvalidParams, 'projectId, section, and content are required');
-            }
-            try {
-              await initializeCoreMemory(String(args.projectId));
-              const result = await editCoreMemorySection(
-                String(args.projectId),
-                args.section as any,
-                String(args.content)
-              );
-              if (!result.success) {
-                throw new McpError(ErrorCode.InvalidParams, result.message || 'Edit failed');
+              switch (action) {
+                case 'view': {
+                  const content = await getCoreMemory(String(args.projectId));
+                  const stats = await getCoreMemoryStats(String(args.projectId));
+                  return this.jsonResponse({ ok: true, action: 'view', content, stats });
+                }
+                case 'edit': {
+                  if (!args.section || typeof args.content !== 'string') {
+                    throw new McpError(ErrorCode.InvalidParams, 'section and content are required for edit action');
+                  }
+                  const result = await editCoreMemorySection(
+                    String(args.projectId),
+                    args.section as any,
+                    String(args.content)
+                  );
+                  if (!result.success) {
+                    throw new McpError(ErrorCode.InvalidParams, result.message || 'Edit failed');
+                  }
+                  return this.jsonResponse({ ok: true, action: 'edit', ...result });
+                }
+                case 'append': {
+                  if (!args.section || typeof args.text !== 'string') {
+                    throw new McpError(ErrorCode.InvalidParams, 'section and text are required for append action');
+                  }
+                  const result = await appendCoreMemorySection(
+                    String(args.projectId),
+                    args.section as any,
+                    String(args.text)
+                  );
+                  if (!result.success) {
+                    throw new McpError(ErrorCode.InvalidParams, result.message || 'Append failed');
+                  }
+                  return this.jsonResponse({ ok: true, action: 'append', ...result });
+                }
+                default:
+                  throw new McpError(ErrorCode.InvalidParams, `Unknown core_memory action: ${action}`);
               }
-              return this.jsonResponse({ ok: true, ...result });
             } catch (error: any) {
               if (error instanceof McpError) throw error;
-              throw new McpError(ErrorCode.InternalError, `Core memory edit failed: ${error.message}`);
-            }
-          }
-          case 'core_memory_append': {
-            if (!args.projectId || !args.section || typeof args.text !== 'string') {
-              throw new McpError(ErrorCode.InvalidParams, 'projectId, section, and text are required');
-            }
-            try {
-              await initializeCoreMemory(String(args.projectId));
-              const result = await appendCoreMemorySection(
-                String(args.projectId),
-                args.section as any,
-                String(args.text)
-              );
-              if (!result.success) {
-                throw new McpError(ErrorCode.InvalidParams, result.message || 'Append failed');
-              }
-              return this.jsonResponse({ ok: true, ...result });
-            } catch (error: any) {
-              if (error instanceof McpError) throw error;
-              throw new McpError(ErrorCode.InternalError, `Core memory append failed: ${error.message}`);
+              throw new McpError(ErrorCode.InternalError, `Core memory failed: ${error.message}`);
             }
           }
 
-          // Context Paging Tools
-          case 'load_to_context': {
-            if (!args.sessionId || !args.memoryId) {
-              throw new McpError(ErrorCode.InvalidParams, 'sessionId and memoryId are required');
-            }
-            try {
-              const result = await loadMemoryToContext(String(args.sessionId), String(args.memoryId));
-              if (!result.success) {
-                throw new McpError(ErrorCode.InvalidParams, result.message || 'Load failed');
-              }
-              return this.jsonResponse({ ok: true, ...result });
-            } catch (error: any) {
-              if (error instanceof McpError) throw error;
-              throw new McpError(ErrorCode.InternalError, `Load to context failed: ${error.message}`);
-            }
-          }
-          case 'evict_from_context': {
-            if (!args.sessionId || !args.memoryId) {
-              throw new McpError(ErrorCode.InvalidParams, 'sessionId and memoryId are required');
-            }
-            try {
-              const result = await evictMemoryFromContext(String(args.sessionId), String(args.memoryId));
-              if (!result.success) {
-                throw new McpError(ErrorCode.InvalidParams, result.message || 'Evict failed');
-              }
-              return this.jsonResponse({ ok: true, ...result });
-            } catch (error: any) {
-              if (error instanceof McpError) throw error;
-              throw new McpError(ErrorCode.InternalError, `Evict from context failed: ${error.message}`);
-            }
-          }
-          case 'view_loaded_memories': {
+          // Context Paging Tool (consolidated)
+          case 'context_paging': {
+            const { action } = args as { action: string };
             if (!args.sessionId) {
               throw new McpError(ErrorCode.InvalidParams, 'sessionId is required');
             }
             try {
-              const result = await viewLoadedMemories(String(args.sessionId));
-              return this.jsonResponse({ ok: true, ...result });
+              switch (action) {
+                case 'load': {
+                  if (!args.memoryId) {
+                    throw new McpError(ErrorCode.InvalidParams, 'memoryId is required for load action');
+                  }
+                  const result = await loadMemoryToContext(String(args.sessionId), String(args.memoryId));
+                  if (!result.success) {
+                    throw new McpError(ErrorCode.InvalidParams, result.message || 'Load failed');
+                  }
+                  return this.jsonResponse({ ok: true, action: 'load', ...result });
+                }
+                case 'evict': {
+                  if (!args.memoryId) {
+                    throw new McpError(ErrorCode.InvalidParams, 'memoryId is required for evict action');
+                  }
+                  const result = await evictMemoryFromContext(String(args.sessionId), String(args.memoryId));
+                  if (!result.success) {
+                    throw new McpError(ErrorCode.InvalidParams, result.message || 'Evict failed');
+                  }
+                  return this.jsonResponse({ ok: true, action: 'evict', ...result });
+                }
+                case 'view': {
+                  const result = await viewLoadedMemories(String(args.sessionId));
+                  return this.jsonResponse({ ok: true, action: 'view', ...result });
+                }
+                default:
+                  throw new McpError(ErrorCode.InvalidParams, `Unknown context_paging action: ${action}`);
+              }
             } catch (error: any) {
-              throw new McpError(ErrorCode.InternalError, `View loaded memories failed: ${error.message}`);
+              if (error instanceof McpError) throw error;
+              throw new McpError(ErrorCode.InternalError, `Context paging failed: ${error.message}`);
             }
           }
+
           case 'context_status': {
             if (!args.sessionId || !args.projectId) {
               throw new McpError(ErrorCode.InvalidParams, 'sessionId and projectId are required');
@@ -595,8 +545,8 @@ class Squish {
           case 'health':
             return this.health();
           case 'merge': {
-            const { mode } = args as { mode: string };
-            switch (mode) {
+            const { action } = args as { action: string };
+            switch (action) {
               case 'detect':
                 return this.jsonResponse(await handleDetectDuplicates(args as any));
               case 'list':
@@ -605,13 +555,6 @@ class Squish {
                 return this.jsonResponse(await handlePreviewMerge(args as any));
               case 'stats':
                 return this.jsonResponse(await handleGetMergeStats(args as any));
-              default:
-                throw new McpError(ErrorCode.InvalidParams, `Unknown merge mode: ${mode}`);
-            }
-          }
-          case 'merge_decide': {
-            const { action } = args as { action: string };
-            switch (action) {
               case 'approve':
                 return this.jsonResponse(await handleApproveMerge(args as any));
               case 'reject':
@@ -619,7 +562,7 @@ class Squish {
               case 'reverse':
                 return this.jsonResponse(await handleReverseMerge(args as any));
               default:
-                throw new McpError(ErrorCode.InvalidParams, `Unknown action: ${action}`);
+                throw new McpError(ErrorCode.InvalidParams, `Unknown merge action: ${action}`);
             }
           }
           case 'lifecycle': {
