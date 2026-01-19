@@ -84,14 +84,18 @@ let currentProvider: EmbeddingProvider | null = null;
 
 export async function initializeEmbeddingProvider(): Promise<void> {
   if (config.embeddingsProvider === 'openai' && config.openAiApiKey) {
-    logger.info('Using OpenAI embeddings (stub - not yet implemented)');
+    logger.info('Using OpenAI embeddings (team mode - requires API key)');
     currentProvider = new StubEmbeddingProvider();
   } else if (config.embeddingsProvider === 'ollama') {
-    logger.info('Using Ollama embeddings (stub - not yet implemented)');
+    logger.info('Using Ollama embeddings (team mode - local LLM)');
     currentProvider = new StubEmbeddingProvider();
-  } else {
-    logger.info('Using local TF-IDF embeddings (offline)');
+  } else if (config.embeddingsProvider === 'local') {
+    logger.info('Using local TF-IDF embeddings (SQLite mode - offline, no API key)');
     currentProvider = new LocalTfidfEmbeddingProvider();
+  } else {
+    // 'none' mode
+    logger.info('Embeddings disabled (stub provider)');
+    currentProvider = new StubEmbeddingProvider();
   }
 }
 

@@ -8,14 +8,34 @@ export function getDataDir(): string {
   return dir;
 }
 
+const isTeamMode = !!process.env.DATABASE_URL?.startsWith('postgres');
 const openAiApiKey = process.env.SQUISH_OPENAI_API_KEY || process.env.OPENAI_API_KEY || '';
-const embeddingsProvider = (process.env.SQUISH_EMBEDDINGS_PROVIDER || (openAiApiKey ? 'openai' : 'none')).toLowerCase();
+
+// Embeddings strategy:
+// - SQLite (local): Use local TF-IDF (no API key needed)
+// - PostgreSQL (team): Allow OpenAI or Ollama (requires API key)
+const embeddingsProvider = (() => {
+  const explicit = process.env.SQUISH_EMBEDDINGS_PROVIDER?.toLowerCase();
+
+  // If explicitly set, respect the user's choice
+  if (explicit && ['openai', 'ollama', 'local', 'none'].includes(explicit)) {
+    return explicit;
+  }
+
+  // For team mode (PostgreSQL), default to OpenAI if API key exists, otherwise none
+  if (isTeamMode) {
+    return openAiApiKey ? 'openai' : 'none';
+  }
+
+  // For local mode (SQLite), always use local TF-IDF embeddings (no API key needed)
+  return 'local';
+})();
 
 export const config = {
-  isTeamMode: !!process.env.DATABASE_URL?.startsWith('postgres'),
+  isTeamMode,
   redisEnabled: !!process.env.REDIS_URL,
   dataDir: getDataDir(),
-  embeddingsProvider: (['openai', 'ollama', 'none'].includes(embeddingsProvider) ? embeddingsProvider : 'none') as 'openai' | 'ollama' | 'none',
+  embeddingsProvider: (['openai', 'ollama', 'local', 'none'].includes(embeddingsProvider) ? embeddingsProvider : 'local') as 'openai' | 'ollama' | 'local' | 'none',
   openAiApiKey,
   openAiApiUrl: process.env.SQUISH_OPENAI_API_URL || 'https://api.openai.com/v1/embeddings',
   openAiEmbeddingModel: process.env.SQUISH_OPENAI_EMBEDDING_MODEL || 'text-embedding-3-small',
