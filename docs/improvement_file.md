@@ -33,6 +33,12 @@ Recent research into AI agent memory systems has revealed key insights:
    - Proper error handling and validation
    - Full TypeScript compilation success
 
+4. **Plugin Hook Integration** - Seamless Claude Code integration
+   - Automatic core memory initialization on session start
+   - Context session tracking per Claude session
+   - Core memory auto-injection into sessions
+   - 6 new slash commands: /core-memory-view, /core-memory-edit, /core-memory-append, /load-to-context, /view-loaded, /context-status
+
 ### 🚧 In Progress
 _None currently_
 
