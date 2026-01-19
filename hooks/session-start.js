@@ -57,18 +57,22 @@ const __dirname = dirname(__filename);
           }
         };
 
+        // Ensure data directory exists (.squish folder in project root)
+        const { ensureDataDirectory } = await import(resolve(__dirname, '../dist/db/bootstrap.js'));
+        await ensureDataDirectory();
+
         // Import and execute hook handler
         const modulePath = resolve(__dirname, '../dist/features/plugin/plugin-wrapper.js');
         const { onSessionStart } = await import(`file://${modulePath}`);
 
-        await onSessionStart(context);
+        const coreMemoryContent = await onSessionStart(context);
 
-        // Return success with structured output
+        // Return success with core memory content injected
         const output = {
           continue: true,
           hookSpecificOutput: {
             hookEventName: "SessionStart",
-            additionalContext: "Session memory initialized"
+            additionalContext: coreMemoryContent
           }
         };
         console.log(JSON.stringify(output));

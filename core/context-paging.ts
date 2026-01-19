@@ -12,10 +12,11 @@
  */
 
 import { eq, and, inArray } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
 import { getDb } from '../db/index.js';
 import { getSchema } from '../db/schema.js';
 import { createDatabaseClient } from './database.js';
-import { getMemoryById } from '../features/memory/memories.js';
+import { getMemoryById } from './memory/memories.js';
 
 interface LoadedMemory {
   id: string;
@@ -115,6 +116,14 @@ export async function loadMemoryToContext(
     } as any)
     .where(eq(contextSessions.sessionId, sessionId));
 
+  // Also update memory's contextStatus to 'in-context'
+  await db
+    .update(schema.memories as any)
+    .set({
+      contextStatus: 'in-context' as any,
+    })
+    .where(eq((schema.memories as any).id, memoryId));
+
   return {
     success: true,
     memory: {
@@ -176,6 +185,14 @@ export async function evictMemoryFromContext(
       updatedAt: new Date() as any,
     } as any)
     .where(eq(contextSessions.sessionId, sessionId));
+
+  // Also update memory's contextStatus to 'out-of-context'
+  await db
+    .update(schema.memories as any)
+    .set({
+      contextStatus: 'out-of-context' as any,
+    })
+    .where(eq((schema.memories as any).id, memoryId));
 
   return {
     success: true,
@@ -367,4 +384,81 @@ export async function clearLoadedMemories(sessionId: string): Promise<{
     success: true,
     message: 'All memories cleared from working set',
   };
+}
+
+/**
+ * Get all memories currently marked as in-context for a session
+ */
+export async function getInContextMemories(
+  sessionId: string
+): Promise<LoadedMemory[]> {
+  const db = createDatabaseClient(await getDb());
+  const schema = await getSchema();
+  const { contextSessions } = schema;
+
+  // Get session to find project
+  const session = await db
+    .select()
+    .from(contextSessions)
+    .where(eq(contextSessions.sessionId, sessionId))
+    .limit(1);
+
+  if (session.length === 0) {
+    return [];
+  }
+
+  const { memories } = schema;
+  const projectId = session[0].projectId;
+
+  // Get all in-context memories
+  const inContextMemories = await db
+    .select()
+    .from(memories)
+    .where(
+      and(
+        eq(memories.projectId, projectId as any),
+        eq(memories.contextStatus, 'in-context' as any)
+      )
+    );
+
+  return inContextMemories.map((mem: any) => ({
+    id: mem.id,
+    type: mem.type,
+    content: mem.content,
+    contentPreview: mem.content.substring(0, 200) + (mem.content.length > 200 ? '...' : ''),
+    loadedAt: mem.updatedAt,
+  }));
+}
+
+/**
+ * Get out-of-context (archived) memories for a project
+ */
+export async function getOutOfContextMemories(
+  projectId: string,
+  limit: number = 10
+): Promise<LoadedMemory[]> {
+  const db = createDatabaseClient(await getDb());
+  const schema = await getSchema();
+  const { memories } = schema;
+
+  // Get out-of-context memories, ordered by last accessed
+  const outOfContextMemories = await db
+    .select()
+    .from(memories)
+    .where(
+      and(
+        eq(memories.projectId, projectId as any),
+        eq(memories.contextStatus, 'out-of-context' as any)
+      )
+    )
+    .orderBy(sql`COALESCE(${memories.lastAccessedAt}, ${memories.createdAt}) DESC`)
+    .limit(limit);
+
+  return outOfContextMemories.map((mem: any) => ({
+    id: mem.id,
+    type: mem.type,
+    content: mem.content,
+    contentPreview: mem.content.substring(0, 200) + (mem.content.length > 200 ? '...' : ''),
+    loadedAt: mem.lastAccessedAt || mem.createdAt,
+  }));
 }

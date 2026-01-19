@@ -3,7 +3,7 @@ import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
 import { config } from '../../config.js';
 import { getProjectByPath } from '../../core/projects.js';
-import { fromSqliteJson } from '../../features/memory/serialization.js';
+import { fromSqliteJson } from '../../core/memory/serialization.js';
 import { createDatabaseClient } from '../../core/database.js';
 import { normalizeTimestamp, clampLimit } from '../../core/utils.js';
 

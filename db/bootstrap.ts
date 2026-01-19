@@ -1,5 +1,8 @@
 import type { Database } from 'better-sqlite3';
 import type { Pool } from 'pg';
+import { existsSync, mkdirSync } from 'fs';
+import { logger } from '../core/logger.js';
+import { getDataDir } from '../config.js';
 
 const sqliteSchemaSql = `
 PRAGMA foreign_keys = ON;
@@ -347,6 +350,22 @@ const postgresStatements = [
   `CREATE INDEX IF NOT EXISTS relations_to_idx ON entity_relations(to_entity_id);`,
   `CREATE INDEX IF NOT EXISTS relations_type_idx ON entity_relations(type);`
 ];
+
+/**
+ * Ensure the data directory exists (.squish folder in project root)
+ */
+export async function ensureDataDirectory(): Promise<void> {
+  try {
+    const dataDir = getDataDir();
+    if (!existsSync(dataDir)) {
+      mkdirSync(dataDir, { recursive: true });
+      logger.info(`Created data directory at: ${dataDir}`);
+    }
+  } catch (error) {
+    logger.error('Failed to create data directory', error);
+    throw new Error(`Failed to initialize data directory: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
 
 export async function ensureSqliteSchema(sqlite: Database): Promise<void> {
   sqlite.exec(sqliteSchemaSql);

@@ -6,7 +6,7 @@
       "env": {
         "SQUISH_MODE": "local",
         "NODE_ENV": "production",
-        "SQUISH_DATA_DIR": "${CLAUDE_PLUGIN_ROOT}/.squish"
+        "SQUISH_DATA_DIR": "${CLAUDE_WORKING_DIRECTORY}/.squish"
       }
     }
   }

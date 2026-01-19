@@ -1,6 +1,6 @@
 {
   "name": "squish",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "11 consolidated MCP tools for persistent two-tier memory system: core_memory, context_paging, merge, plus semantic search, lifecycle management, and intelligent context paging",
   "author": {
     "name": "michielhdoteth",

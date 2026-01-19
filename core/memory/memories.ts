@@ -5,7 +5,7 @@ import { getSchema } from '../../db/schema.js';
 import { config } from '../../config.js';
 import { ensureProject, getProjectByPath } from '../../core/projects.js';
 import { getEmbedding } from '../../core/embeddings.js';
-import { fromSqliteJson, fromSqliteTags, normalizeTags, toSqliteJson, toSqliteTags } from '../../features/memory/serialization.js';
+import { fromSqliteJson, fromSqliteTags, normalizeTags, toSqliteJson, toSqliteTags } from '../../core/memory/serialization.js';
 import { createDatabaseClient } from '../../core/database.js';
 import { normalizeTimestamp, isDatabaseUnavailableError, clampLimit, prepareEmbedding } from '../../core/utils.js';
 

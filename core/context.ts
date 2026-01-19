@@ -1,7 +1,7 @@
 import { getProjectByPath } from './projects.js';
-import { getRecentMemories } from '../features/memory/memories.js';
+import { getRecentMemories } from './memory/memories.js';
 import { getObservationsForProject } from './observations.js';
-import { getEntitiesForProject } from '../features/search/entities.js';
+import { getEntitiesForProject } from './search/entities.js';
 
 export interface ContextInput {
   project: string;

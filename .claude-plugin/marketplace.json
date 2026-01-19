@@ -6,7 +6,7 @@
   "plugins": [
     {
       "name": "squish",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "description": "Production-ready two-tier memory system for Claude Code with 11 consolidated MCP tools. Always-visible core memory (persona, user info, project context, notes) + intelligent context paging. Advanced features: merge detection, semantic search, lifecycle management, bridge discovery. Features: 30-100x performance gains, automatic session hooks, privacy-first encryption, PostgreSQL team collaboration. Major consolidation: 39% fewer tools with same functionality.",
       "author": {
         "name": "michielhdoteth"

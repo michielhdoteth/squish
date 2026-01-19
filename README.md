@@ -89,7 +89,7 @@ npm install -g squish-0.5.0.tgz
 - None! Works out-of-the-box with local TF-IDF embeddings
 
 **Optional (SQLite mode):**
-- `SQUISH_DATA_DIR`: Custom data directory (default: `~/.squish`)
+- `SQUISH_DATA_DIR`: Custom data directory (default: `./.squish` in project root)
 - `SQUISH_EMBEDDINGS_PROVIDER`: Force embedding provider (`none`, `local`, `openai`, `ollama`)
 
 **Team Mode (PostgreSQL):**

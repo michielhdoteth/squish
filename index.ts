@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 
 /**
- * Squish v0.5.0 - Major tool consolidation milestone
+ * Squish v0.6.0 - Major tool consolidation milestone
  *
  * This is a significant refactor reducing MCP tools from 18 to 11 (39% reduction).
- * Breaking changes in tool API - migration guide: see docs/MIGRATION-v0.5.0.md
+  * Breaking changes in tool API - migration guide: see docs/MIGRATION-v0.6.0.md
  *
  * Features:
  * - 11 consolidated MCP tools (from 18)
@@ -14,7 +14,7 @@
  * - Privacy-first: Secret detection, <private> tag filtering, async worker pipeline
  * - Pluggable embeddings: OpenAI, Ollama, or local TF-IDF
  *
- * Consolidated MCP Tools (v0.5.0):
+  * Consolidated MCP Tools (v0.6.0):
  * - core_memory: Unified tool for view/edit/append operations (was 3 tools)
  * - context_paging: Unified tool for load/evict/view operations (was 3 tools)
  * - merge: Unified tool for detect/list/preview/stats/approve/reject/reverse (was 2 tools)
@@ -29,7 +29,7 @@
  * - onSessionStop: Finalize observations, summarize via async worker
  *
  * See src/plugin/plugin-wrapper.ts for hook implementations
- * See docs/MIGRATION-v0.5.0.md for migration guide
+  * See docs/MIGRATION-v0.6.0.md for migration guide
  */
 
 import 'dotenv/config';
@@ -44,18 +44,18 @@ import {
 import { logger } from './core/logger.js';
 import { checkDatabaseHealth, config } from './db/index.js';
 import { checkRedisHealth, closeCache } from './core/cache.js';
-import { rememberMemory, getMemoryById, searchMemories } from './features/memory/memories.js';
-import { searchConversations, getRecentConversations } from './features/search/conversations.js';
+import { rememberMemory, getMemoryById, searchMemories } from './core/memory/memories.js';
+import { searchConversations, getRecentConversations } from './core/search/conversations.js';
 import { createObservation } from './core/observations.js';
 import { getProjectContext } from './core/context.js';
-import { startWebServer } from './features/web/web.js';
-import { handleDetectDuplicates } from './features/merge/handlers/detect-duplicates.js';
-import { handleListProposals } from './features/merge/handlers/list-proposals.js';
-import { handlePreviewMerge } from './features/merge/handlers/preview-merge.js';
-import { handleApproveMerge } from './features/merge/handlers/approve-merge.js';
-import { handleRejectMerge } from './features/merge/handlers/reject-merge.js';
-import { handleReverseMerge } from './features/merge/handlers/reverse-merge.js';
-import { handleGetMergeStats } from './features/merge/handlers/get-stats.js';
+import { startWebServer } from './api/web/web.js';
+import { handleDetectDuplicates } from './algorithms/merge/handlers/detect-duplicates.js';
+import { handleListProposals } from './algorithms/merge/handlers/list-proposals.js';
+import { handlePreviewMerge } from './algorithms/merge/handlers/preview-merge.js';
+import { handleApproveMerge } from './algorithms/merge/handlers/approve-merge.js';
+import { handleRejectMerge } from './algorithms/merge/handlers/reject-merge.js';
+import { handleReverseMerge } from './algorithms/merge/handlers/reverse-merge.js';
+import { handleGetMergeStats } from './algorithms/merge/handlers/get-stats.js';
 import { forceLifecycleMaintenance } from './core/worker.js';
 import { summarizeSession } from './core/summarization.js';
 import { storeAgentMemory } from './core/agent-memory.js';
@@ -81,7 +81,7 @@ import {
   clearLoadedMemories,
 } from './core/context-paging.js';
 
-const VERSION = '0.5.0';
+const VERSION = '0.6.0';
 
 const TOOLS = [
   // ============================================================================
@@ -89,7 +89,7 @@ const TOOLS = [
   // ============================================================================
   {
     name: 'core_memory',
-    description: 'Manage core memory: view all sections, edit a section, or append text to a section',
+    description: 'View or edit your core memory (always-visible). Use this to see your persona, user info, project context, and working notes. Update this when you learn something important that should always be visible.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -116,7 +116,7 @@ const TOOLS = [
   // ============================================================================
   {
     name: 'context_paging',
-    description: 'Manage working set: load memory to context, evict from context, or view loaded memories',
+    description: 'Manage your working memory set. Load specific memories you want to keep visible, evict ones you no longer need, or view what is currently loaded.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -148,7 +148,7 @@ const TOOLS = [
   // ============================================================================
   {
     name: 'remember',
-    description: 'Store a memory (with optional agent context)',
+    description: 'Store information for future use. Use this when you learn something important that you might need to recall later. Perfect for facts, decisions, code snippets, configuration details, or user preferences.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -167,7 +167,7 @@ const TOOLS = [
   },
   {
     name: 'recall',
-    description: 'Get memory by ID',
+    description: 'Retrieve a specific stored memory by ID (like reading a file). Use this when you have a memory ID and want to get its full content.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -178,7 +178,7 @@ const TOOLS = [
   },
   {
     name: 'search',
-    description: 'Search memories, conversations, or get recent items',
+    description: 'Search your stored memories for information (like grep). Use this when you need to find memories matching a query, or when the user asks about something you might have remembered. Leave query empty to list recent memories.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -202,7 +202,7 @@ const TOOLS = [
   },
   {
     name: 'observe',
-    description: 'Store an observation',
+    description: 'Record an observation about your work (tool usage, patterns, errors). Use this to document what you\'re learning about the codebase and problems you encounter.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -309,7 +309,7 @@ const TOOLS = [
   },
   {
     name: 'get_related',
-    description: 'Get related memories via association graph',
+    description: 'Find memories related to a specific memory by ID. Use this for iterative search - if a search result is relevant, find similar memories without needing new queries.',
     inputSchema: {
       type: 'object',
       properties: {

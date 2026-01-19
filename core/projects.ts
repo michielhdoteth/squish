@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto';
 import { eq } from 'drizzle-orm';
 import { getDb } from '../db/index.js';
 import { getSchema } from '../db/schema.js';
-import { fromSqliteJson, toSqliteJson } from '../features/memory/serialization.js';
+import { fromSqliteJson, toSqliteJson } from './memory/serialization.js';
 import { config } from '../config.js';
 import { createDatabaseClient } from './database.js';
 

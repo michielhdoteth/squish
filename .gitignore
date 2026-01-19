@@ -40,3 +40,8 @@ coverage/
 tmp/
 temp/
 *.tmp
+
+# Squish runtime data (project-local database and cache)
+.squish/
+*.db
+*.db-journal

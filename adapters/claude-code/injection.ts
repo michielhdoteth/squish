@@ -4,8 +4,8 @@
  */
 
 import type { PluginContext } from './types.js';
-import { searchMemories } from '../../features/memory/memories.js';
-import { searchConversations } from '../../features/search/conversations.js';
+import { searchMemories } from '../../core/memory/memories.js';
+import { searchConversations } from '../../core/search/conversations.js';
 import { logger } from '../../core/logger.js';
 import { formatCoreMemoryForInjection } from '../../core/core-memory.js';
 import { ensureProject } from '../../core/projects.js';

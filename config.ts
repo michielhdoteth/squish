@@ -1,9 +1,10 @@
-import { homedir } from 'os';
 import { join } from 'path';
 import { mkdirSync, existsSync } from 'fs';
 
 export function getDataDir(): string {
-  const dir = process.env.SQUISH_DATA_DIR || join(homedir(), '.squish');
+  // Use project working directory, not user home directory
+  const projectRoot = process.env.CLAUDE_WORKING_DIRECTORY || process.cwd();
+  const dir = process.env.SQUISH_DATA_DIR || join(projectRoot, '.squish');
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   return dir;
 }

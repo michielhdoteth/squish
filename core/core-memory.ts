@@ -296,7 +296,14 @@ export async function formatCoreMemoryForInjection(projectId: string): Promise<s
 
   formatted += `---\n`;
   formatted += `Core Memory Usage: ${stats.totalBytes}/${stats.maxBytes} bytes (${stats.usagePercent.toFixed(1)}%)\n`;
-  formatted += `Estimated Tokens: ~${estimateTokens(formatted)}\n`;
+  formatted += `Estimated Tokens: ~${estimateTokens(formatted)}\n\n`;
+
+  // Add tool usage hints for agent-driven retrieval
+  formatted += `### Memory Tools Available\n`;
+  formatted += `When you need to recall information or store something important, use these tools:\n`;
+  formatted += `- **Search**: Use \`/squish:search\` to find stored memories matching a query\n`;
+  formatted += `- **Store**: Use \`/squish:remember\` to save new information for future use\n`;
+  formatted += `- **Update Core Memory**: Use \`/squish:core-memory\` to edit this always-visible memory\n`;
 
   return formatted;
 }

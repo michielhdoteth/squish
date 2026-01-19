@@ -21,6 +21,7 @@
     "config.ts",
     "core/**/*.ts",
     "features/**/*.ts",
+    "adapters/**/*.ts",
     "db/**/*.ts",
     "tools/**/*.ts",
     "drizzle/**/*.ts"

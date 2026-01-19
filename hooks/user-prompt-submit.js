@@ -64,12 +64,13 @@ const __dirname = dirname(__filename);
         const modulePath = resolve(__dirname, '../dist/features/plugin/plugin-wrapper.js');
         const { onUserPromptSubmit } = await import(`file://${modulePath}`);
 
-        await onUserPromptSubmit(context);
+        const relevantMemories = await onUserPromptSubmit(context);
 
         const output = {
           continue: true,
           hookSpecificOutput: {
-            hookEventName: "UserPromptSubmit"
+            hookEventName: "UserPromptSubmit",
+            ...(relevantMemories && { additionalContext: relevantMemories })
           }
         };
         console.log(JSON.stringify(output));

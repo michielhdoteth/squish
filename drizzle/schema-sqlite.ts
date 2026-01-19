@@ -84,6 +84,10 @@ export const memories = sqliteTable(
     // v0.3.0: Memory Lifecycle Management
     sector: text('sector').$type<'episodic' | 'semantic' | 'procedural' | 'autobiographical' | 'working'>().default('episodic'),
     tier: text('tier').$type<'hot' | 'warm' | 'cold'>().default('hot'),
+
+    // v0.5.0: Context Status - Track whether memory is in active context or archived
+    contextStatus: text('context_status').$type<'in-context' | 'out-of-context' | 'archived'>().default('out-of-context'),
+
     decayRate: integer('decay_rate').default(30),
     coactivationScore: integer('coactivation_score').default(0),
     lastDecayAt: integer('last_decay_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`),
@@ -132,6 +136,14 @@ export const memories = sqliteTable(
     index('memories_pinned_idx').on(table.isPinned),
     index('memories_valid_from_idx').on(table.validFrom),
     index('memories_valid_to_idx').on(table.validTo),
+    index('memories_context_status_idx').on(table.contextStatus),
+
+    // v0.5.0: Context status composite index for efficient filtering
+    index('memories_context_query_idx').on(
+      table.projectId,
+      table.contextStatus,
+      table.tier
+    ),
 
     // v0.4.2: Composite indexes for performance optimization
     // Duplicate detection query optimization

@@ -4,7 +4,7 @@
 
 import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 import { config } from '../config.js';
-import { toSqliteJson } from '../features/memory/serialization.js';
+import { toSqliteJson } from './memory/serialization.js';
 
 export function normalizeTimestamp(value: any): string | null {
   if (!value) return null;
