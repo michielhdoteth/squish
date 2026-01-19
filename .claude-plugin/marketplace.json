@@ -20,7 +20,7 @@
       "features": [
         "Core Memory System (always-in-context, 2KB limit)",
         "Context Paging (agent-controlled memory loading)",
-        "17 MCP Tools (remember, recall, search, observe, merge, detect-duplicates, etc.)",
+        "11 Consolidated MCP Tools (core_memory, context_paging, merge, remember, recall, search, observe, health, lifecycle, summarize_session, protect_memory)",
         "Automatic session hooks (capture, injection, lifecycle)",
         "Privacy-first local SQLite storage with encryption",
         "Optional PostgreSQL for team collaboration",

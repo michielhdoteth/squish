@@ -343,97 +343,10 @@ class Squish {
 
       try {
         switch (name) {
-          // Core Memory Tool (consolidated)
-          case 'core_memory': {
-            const { action } = args as { action: string };
-            if (!args.projectId) {
-              throw new McpError(ErrorCode.InvalidParams, 'projectId is required');
-            }
-            try {
-              await initializeCoreMemory(String(args.projectId));
-              switch (action) {
-                case 'view': {
-                  const content = await getCoreMemory(String(args.projectId));
-                  const stats = await getCoreMemoryStats(String(args.projectId));
-                  return this.jsonResponse({ ok: true, action: 'view', content, stats });
-                }
-                case 'edit': {
-                  if (!args.section || typeof args.content !== 'string') {
-                    throw new McpError(ErrorCode.InvalidParams, 'section and content are required for edit action');
-                  }
-                  const result = await editCoreMemorySection(
-                    String(args.projectId),
-                    args.section as any,
-                    String(args.content)
-                  );
-                  if (!result.success) {
-                    throw new McpError(ErrorCode.InvalidParams, result.message || 'Edit failed');
-                  }
-                  return this.jsonResponse({ ok: true, action: 'edit', ...result });
-                }
-                case 'append': {
-                  if (!args.section || typeof args.text !== 'string') {
-                    throw new McpError(ErrorCode.InvalidParams, 'section and text are required for append action');
-                  }
-                  const result = await appendCoreMemorySection(
-                    String(args.projectId),
-                    args.section as any,
-                    String(args.text)
-                  );
-                  if (!result.success) {
-                    throw new McpError(ErrorCode.InvalidParams, result.message || 'Append failed');
-                  }
-                  return this.jsonResponse({ ok: true, action: 'append', ...result });
-                }
-                default:
-                  throw new McpError(ErrorCode.InvalidParams, `Unknown core_memory action: ${action}`);
-              }
-            } catch (error: any) {
-              if (error instanceof McpError) throw error;
-              throw new McpError(ErrorCode.InternalError, `Core memory failed: ${error.message}`);
-            }
-          }
-
-          // Context Paging Tool (consolidated)
-          case 'context_paging': {
-            const { action } = args as { action: string };
-            if (!args.sessionId) {
-              throw new McpError(ErrorCode.InvalidParams, 'sessionId is required');
-            }
-            try {
-              switch (action) {
-                case 'load': {
-                  if (!args.memoryId) {
-                    throw new McpError(ErrorCode.InvalidParams, 'memoryId is required for load action');
-                  }
-                  const result = await loadMemoryToContext(String(args.sessionId), String(args.memoryId));
-                  if (!result.success) {
-                    throw new McpError(ErrorCode.InvalidParams, result.message || 'Load failed');
-                  }
-                  return this.jsonResponse({ ok: true, action: 'load', ...result });
-                }
-                case 'evict': {
-                  if (!args.memoryId) {
-                    throw new McpError(ErrorCode.InvalidParams, 'memoryId is required for evict action');
-                  }
-                  const result = await evictMemoryFromContext(String(args.sessionId), String(args.memoryId));
-                  if (!result.success) {
-                    throw new McpError(ErrorCode.InvalidParams, result.message || 'Evict failed');
-                  }
-                  return this.jsonResponse({ ok: true, action: 'evict', ...result });
-                }
-                case 'view': {
-                  const result = await viewLoadedMemories(String(args.sessionId));
-                  return this.jsonResponse({ ok: true, action: 'view', ...result });
-                }
-                default:
-                  throw new McpError(ErrorCode.InvalidParams, `Unknown context_paging action: ${action}`);
-              }
-            } catch (error: any) {
-              if (error instanceof McpError) throw error;
-              throw new McpError(ErrorCode.InternalError, `Context paging failed: ${error.message}`);
-            }
-          }
+          case 'core_memory':
+            return await this.handleCoreMemory(args);
+          case 'context_paging':
+            return await this.handleContextPaging(args);
 
           case 'context_status': {
             if (!args.sessionId || !args.projectId) {
@@ -544,27 +457,8 @@ class Squish {
           }
           case 'health':
             return this.health();
-          case 'merge': {
-            const { action } = args as { action: string };
-            switch (action) {
-              case 'detect':
-                return this.jsonResponse(await handleDetectDuplicates(args as any));
-              case 'list':
-                return this.jsonResponse(await handleListProposals(args as any));
-              case 'preview':
-                return this.jsonResponse(await handlePreviewMerge(args as any));
-              case 'stats':
-                return this.jsonResponse(await handleGetMergeStats(args as any));
-              case 'approve':
-                return this.jsonResponse(await handleApproveMerge(args as any));
-              case 'reject':
-                return this.jsonResponse(await handleRejectMerge(args as any));
-              case 'reverse':
-                return this.jsonResponse(await handleReverseMerge(args as any));
-              default:
-                throw new McpError(ErrorCode.InvalidParams, `Unknown merge action: ${action}`);
-            }
-          }
+          case 'merge':
+            return await this.handleMerge(args);
           case 'lifecycle': {
             const { project } = args as { project?: string };
             const result = await forceLifecycleMaintenance(project);
@@ -670,6 +564,128 @@ class Squish {
         text: JSON.stringify(payload, null, 2)
       }]
     };
+  }
+
+  private async handleCoreMemory(args: Record<string, unknown>) {
+    const action = args.action as string;
+    const projectId = String(args.projectId);
+
+    if (!projectId) {
+      throw new McpError(ErrorCode.InvalidParams, 'projectId is required');
+    }
+
+    try {
+      await initializeCoreMemory(projectId);
+
+      if (action === 'view') {
+        const content = await getCoreMemory(projectId);
+        const stats = await getCoreMemoryStats(projectId);
+        return this.jsonResponse({ ok: true, action: 'view', content, stats });
+      }
+
+      if (action === 'edit') {
+        if (!args.section || typeof args.content !== 'string') {
+          throw new McpError(ErrorCode.InvalidParams, 'section and content are required for edit action');
+        }
+        const result = await editCoreMemorySection(projectId, args.section as any, String(args.content));
+        if (!result.success) {
+          throw new McpError(ErrorCode.InvalidParams, result.message || 'Edit failed');
+        }
+        return this.jsonResponse({ ok: true, action: 'edit', ...result });
+      }
+
+      if (action === 'append') {
+        if (!args.section || typeof args.text !== 'string') {
+          throw new McpError(ErrorCode.InvalidParams, 'section and text are required for append action');
+        }
+        const result = await appendCoreMemorySection(projectId, args.section as any, String(args.text));
+        if (!result.success) {
+          throw new McpError(ErrorCode.InvalidParams, result.message || 'Append failed');
+        }
+        return this.jsonResponse({ ok: true, action: 'append', ...result });
+      }
+
+      throw new McpError(ErrorCode.InvalidParams, `Unknown core_memory action: ${action}`);
+    } catch (error: any) {
+      if (error instanceof McpError) throw error;
+      throw new McpError(ErrorCode.InternalError, `Core memory failed: ${error.message}`);
+    }
+  }
+
+  private async handleContextPaging(args: Record<string, unknown>) {
+    const action = args.action as string;
+    const sessionId = String(args.sessionId);
+
+    if (!sessionId) {
+      throw new McpError(ErrorCode.InvalidParams, 'sessionId is required');
+    }
+
+    try {
+      if (action === 'load') {
+        if (!args.memoryId) {
+          throw new McpError(ErrorCode.InvalidParams, 'memoryId is required for load action');
+        }
+        const result = await loadMemoryToContext(sessionId, String(args.memoryId));
+        if (!result.success) {
+          throw new McpError(ErrorCode.InvalidParams, result.message || 'Load failed');
+        }
+        return this.jsonResponse({ ok: true, action: 'load', ...result });
+      }
+
+      if (action === 'evict') {
+        if (!args.memoryId) {
+          throw new McpError(ErrorCode.InvalidParams, 'memoryId is required for evict action');
+        }
+        const result = await evictMemoryFromContext(sessionId, String(args.memoryId));
+        if (!result.success) {
+          throw new McpError(ErrorCode.InvalidParams, result.message || 'Evict failed');
+        }
+        return this.jsonResponse({ ok: true, action: 'evict', ...result });
+      }
+
+      if (action === 'view') {
+        const result = await viewLoadedMemories(sessionId);
+        return this.jsonResponse({ ok: true, action: 'view', ...result });
+      }
+
+      throw new McpError(ErrorCode.InvalidParams, `Unknown context_paging action: ${action}`);
+    } catch (error: any) {
+      if (error instanceof McpError) throw error;
+      throw new McpError(ErrorCode.InternalError, `Context paging failed: ${error.message}`);
+    }
+  }
+
+  private async handleMerge(args: Record<string, unknown>) {
+    const action = args.action as string;
+
+    try {
+      if (action === 'detect') {
+        return this.jsonResponse(await handleDetectDuplicates(args as any));
+      }
+      if (action === 'list') {
+        return this.jsonResponse(await handleListProposals(args as any));
+      }
+      if (action === 'preview') {
+        return this.jsonResponse(await handlePreviewMerge(args as any));
+      }
+      if (action === 'stats') {
+        return this.jsonResponse(await handleGetMergeStats(args as any));
+      }
+      if (action === 'approve') {
+        return this.jsonResponse(await handleApproveMerge(args as any));
+      }
+      if (action === 'reject') {
+        return this.jsonResponse(await handleRejectMerge(args as any));
+      }
+      if (action === 'reverse') {
+        return this.jsonResponse(await handleReverseMerge(args as any));
+      }
+
+      throw new McpError(ErrorCode.InvalidParams, `Unknown merge action: ${action}`);
+    } catch (error: any) {
+      if (error instanceof McpError) throw error;
+      throw new McpError(ErrorCode.InternalError, `Merge operation failed: ${error.message}`);
+    }
   }
 
   private async shutdown() {
