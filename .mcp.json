@@ -2,10 +2,11 @@
   "mcpServers": {
     "squish": {
       "command": "node",
-      "args": ["./dist/index.js"],
+      "args": ["${CLAUDE_PLUGIN_ROOT}/dist/index.js"],
       "env": {
         "SQUISH_MODE": "local",
-        "NODE_ENV": "production"
+        "NODE_ENV": "production",
+        "SQUISH_DATA_DIR": "${CLAUDE_PLUGIN_ROOT}/.squish"
       }
     }
   }
