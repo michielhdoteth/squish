@@ -6,6 +6,7 @@
 import { eq, desc } from 'drizzle-orm';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
+import { logger } from '../logger.js';
 
 /**
  * Get recent summaries for a conversation
@@ -25,7 +26,7 @@ export async function getRecentSummaries(
       .orderBy(desc(schema.sessionSummaries.createdAt))
       .limit(limit);
   } catch (error) {
-    console.error('[squish] Error getting recent summaries:', error);
+    logger.error('Error getting recent summaries', error);
     return [];
   }
 }

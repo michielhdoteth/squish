@@ -6,6 +6,7 @@
 import { eq, and, or, desc, inArray } from 'drizzle-orm';
 import { getDb } from '../db/index.js';
 import { getSchema } from '../db/schema.js';
+import { logger } from './logger.js';
 
 export type AssociationType = 'co_occurred' | 'supersedes' | 'contradicts' | 'supports' | 'relates_to';
 
@@ -56,7 +57,7 @@ export async function createAssociation(
       });
     }
   } catch (error) {
-    console.error('[squish] Error creating association:', error);
+    logger.error('Error creating association', error);
   }
 }
 
@@ -76,7 +77,7 @@ export async function trackCoactivation(memoryIds: string[]): Promise<void> {
       }
     }
   } catch (error) {
-    console.error('[squish] Error tracking coactivation:', error);
+    logger.error('Error tracking coactivation', error);
   }
 }
 
@@ -116,7 +117,7 @@ export async function getRelatedMemories(
       .from(schema.memories)
       .where(inArray(schema.memories.id, relatedIds));
   } catch (error) {
-    console.error('[squish] Error getting related memories:', error);
+    logger.error('Error getting related memories', error);
     return [];
   }
 }
@@ -137,7 +138,7 @@ export async function pruneWeakAssociations(weightThreshold: number = 5): Promis
 
     return result?.rowCount || 0;
   } catch (error) {
-    console.error('[squish] Error pruning weak associations:', error);
+    logger.error('Error pruning weak associations', error);
     return 0;
   }
 }
@@ -178,7 +179,7 @@ export async function getAssociationStats(): Promise<{
 
     return stats;
   } catch (error) {
-    console.error('[squish] Error getting association stats:', error);
+    logger.error('Error getting association stats', error);
     return {
       totalAssociations: 0,
       byType: {},

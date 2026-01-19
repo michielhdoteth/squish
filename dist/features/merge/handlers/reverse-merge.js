@@ -1,26 +1,10 @@
 /**
- * MCP Tool: reverse_merge
- *
- * Reverses/undoes a completed merge and restores original memories
- *
- * This is critical for ensuring merges are reversible
+ * Reverses/undoes a completed merge and restores original memories.
  */
 import { getDb } from '../../../db/index.js';
 import { getSchema } from '../../../db/schema.js';
 import { createDatabaseClient } from '../../../core/database.js';
 import { eq } from 'drizzle-orm';
-/**
- * Handle reverse_merge tool call
- *
- * Reversal workflow:
- * 1. Load merge history record
- * 2. Load canonical memory
- * 3. Restore original memories from sourceMemoriesSnapshot
- * 4. Mark canonical memory as inactive
- * 5. Clear isMerged flags on restored memories
- * 6. Update history record: isReversed=true
- * 7. Return success
- */
 export async function handleReverseMerge(input) {
     try {
         const { mergeHistoryId, reason } = input;

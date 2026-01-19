@@ -1,8 +1,6 @@
 /**
- * Token estimation for calculating context window savings from merges
- *
- * Uses a simple heuristic: 1 token ≈ 4 characters
- * (Can be upgraded to tiktoken library for exact counts)
+ * Token estimation for calculating context window savings from merges.
+ * Uses simple heuristic: 1 token ≈ 4 characters (can be upgraded to tiktoken for accuracy).
  */
 
 import type { Memory } from '../../../drizzle/schema.js';
@@ -12,117 +10,64 @@ import { getSchema } from '../../../db/schema.js';
 import { createDatabaseClient } from '../../../core/database.js';
 import { eq } from 'drizzle-orm';
 
-/**
- * Simple token estimation heuristic
- * Based on OpenAI's approximation: 1 token ≈ 4 characters
- *
- * For more accurate counts, use tiktoken library:
- * const encoding = encoding_for_model("gpt-4");
- * const tokens = encoding.encode(text).length;
- */
 function estimateTokensSimple(text: string): number {
   if (!text) return 0;
-  // Rough heuristic: 1 token per 4 characters
   return Math.ceil(text.length / 4);
 }
 
-/**
- * Estimate metadata overhead per memory (field names, IDs, timestamps, etc.)
- */
 function estimateMetadataOverhead(): number {
-  // Approximate token cost for per-memory metadata:
-  // - id: 2 tokens
-  // - type: 1 token
-  // - timestamps: 3 tokens
-  // - tags: 2-5 tokens (varies)
-  // - other fields: 5-10 tokens
-  // Total: ~20-30 tokens per memory
   return 25;
 }
 
-/**
- * Estimate total tokens for a single memory including metadata
- */
 function estimateMemoryTokens(memory: Memory): number {
   let tokens = 0;
 
-  // Content
   tokens += estimateTokensSimple(memory.content);
 
-  // Summary
   if (memory.summary) {
     tokens += estimateTokensSimple(memory.summary);
   }
 
-  // Tags
   if (memory.tags && memory.tags.length > 0) {
     tokens += estimateTokensSimple(memory.tags.join(' '));
   }
 
-  // Metadata JSON
   if (memory.metadata) {
     tokens += estimateTokensSimple(JSON.stringify(memory.metadata));
   }
 
-  // Add overhead
   tokens += estimateMetadataOverhead();
 
   return tokens;
 }
 
-/**
- * Estimate total tokens for merged memory
- */
 function estimateMergedMemoryTokens(merged: MergedMemory): number {
   let tokens = 0;
 
-  // Content
   tokens += estimateTokensSimple(merged.content);
 
-  // Summary
   if (merged.summary) {
     tokens += estimateTokensSimple(merged.summary);
   }
 
-  // Tags
   if (merged.tags && merged.tags.length > 0) {
     tokens += estimateTokensSimple(merged.tags.join(' '));
   }
 
-  // Metadata (typically larger due to provenance info)
   tokens += estimateTokensSimple(JSON.stringify(merged.metadata));
-
-  // Add overhead
   tokens += estimateMetadataOverhead();
 
   return tokens;
 }
 
-/**
- * Calculate token savings for a specific merge
- *
- * Returns estimated number of tokens saved by merging source memories
- * into a single canonical memory
- */
 export function estimateTokensSaved(sources: Memory[], merged: MergedMemory): number {
-  // Calculate tokens for all sources
   const sourceTokens = sources.reduce((sum, memory) => sum + estimateMemoryTokens(memory), 0);
-
-  // Calculate tokens for merged memory
   const mergedTokens = estimateMergedMemoryTokens(merged);
-
-  // Savings is source - merged
-  // (In practice, merged often includes provenance data, so savings may be modest)
   const savings = sourceTokens - mergedTokens;
 
-  return Math.max(0, savings); // Never negative
+  return Math.max(0, savings);
 }
 
-/**
- * Calculate aggregate token savings for a project
- *
- * Sums up all token savings from completed merges
- */
 export async function calculateProjectTokenSavings(
   projectId: string
 ): Promise<{
@@ -135,16 +80,12 @@ export async function calculateProjectTokenSavings(
   const db = createDatabaseClient(await getDb());
   const schema = await getSchema();
 
-  // Get all memories in project
   const memories: Memory[] = await db
     .select()
     .from(schema.memories)
     .where(eq(schema.memories.projectId, projectId));
 
-  // Calculate total tokens for all memories
   const totalMemoryTokens = memories.reduce((sum, m) => sum + estimateMemoryTokens(m), 0);
-
-  // Get merge history
   if (!schema.memoryMergeHistory) {
     return {
       totalSaved: 0,

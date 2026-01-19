@@ -7,6 +7,7 @@ import { config } from '../config.js';
 import { runLifecycleMaintenance } from './lifecycle.js';
 import { pruneWeakAssociations, getAssociationStats } from './associations.js';
 import { pruneOldSummaries, getSummarizationStats } from './summarization.js';
+import { logger } from './logger.js';
 
 interface WorkerConfig {
   lifecycleInterval: number;
@@ -34,9 +35,9 @@ class SquishWorker {
     lifecycleRuns: 0,
     pruningRuns: 0,
     summarizationRuns: 0,
-    lastLifecycleStats: null as any,
-    lastAssociationStats: null as any,
-    lastSummarizationStats: null as any,
+    lastLifecycle: null as any,
+    lastAssociation: null as any,
+    lastSummarization: null as any,
   };
 
   constructor(customConfig: Partial<WorkerConfig> = {}) {
@@ -45,12 +46,12 @@ class SquishWorker {
 
   async start(): Promise<void> {
     if (this.isRunning) {
-      console.warn('[squish] Worker already running');
+      logger.warn('Worker already running');
       return;
     }
 
     this.isRunning = true;
-    console.log('[squish] Starting background worker...');
+    logger.info('Starting background worker');
 
     if (config.lifecycleEnabled) {
       this.scheduleLifecycleMaintenance();
@@ -62,7 +63,7 @@ class SquishWorker {
       this.scheduleSummarizationCheck();
     }
 
-    console.log('[squish] Background worker started');
+    logger.info('Background worker started');
   }
 
   async stop(): Promise<void> {
@@ -76,17 +77,17 @@ class SquishWorker {
     if (this.pruningTimer) clearInterval(this.pruningTimer);
     if (this.summarizationTimer) clearInterval(this.summarizationTimer);
 
-    console.log('[squish] Background worker stopped');
+    logger.info('Background worker stopped');
   }
 
   private scheduleLifecycleMaintenance(): void {
     this.runLifecycleMaintenance().catch((err) => {
-      console.error('[squish] Initial lifecycle maintenance failed:', err);
+      logger.error('Initial lifecycle maintenance failed:', err);
     });
 
     this.lifecycleTimer = setInterval(() => {
       this.runLifecycleMaintenance().catch((err) => {
-        console.error('[squish] Scheduled lifecycle maintenance failed:', err);
+        logger.error('Scheduled lifecycle maintenance failed:', err);
       });
     }, this.config.lifecycleInterval);
   }
@@ -95,29 +96,29 @@ class SquishWorker {
     try {
       const stats = await runLifecycleMaintenance();
       this.stats.lifecycleRuns++;
-      this.stats.lastLifecycleStats = {
+      this.stats.lastLifecycle = {
         timestamp: new Date().toISOString(),
         ...stats,
       };
 
-      console.log('[squish] Lifecycle maintenance completed:', {
+      logger.info('Lifecycle maintenance completed', {
         decayed: stats.decayed,
         evicted: stats.evicted,
         promoted: stats.promoted,
       });
     } catch (error) {
-      console.error('[squish] Lifecycle maintenance error:', error);
+      logger.error('Lifecycle maintenance error:', error);
     }
   }
 
   private schedulePruning(): void {
     this.runPruning().catch((err) => {
-      console.error('[squish] Initial pruning failed:', err);
+      logger.error('Initial pruning failed:', err);
     });
 
     this.pruningTimer = setInterval(() => {
       this.runPruning().catch((err) => {
-        console.error('[squish] Scheduled pruning failed:', err);
+        logger.error('Scheduled pruning failed:', err);
       });
     }, this.config.pruningInterval);
   }
@@ -131,7 +132,7 @@ class SquishWorker {
       );
 
       const assocStats = await getAssociationStats();
-      this.stats.lastAssociationStats = {
+      this.stats.lastAssociation = {
         timestamp: new Date().toISOString(),
         pruned: prunedAssociations,
         ...assocStats,
@@ -139,19 +140,19 @@ class SquishWorker {
 
       const prunedSummaries = await pruneOldSummaries(this.config.summaryPruningAge);
 
-      console.log('[squish] Pruning completed:', {
+      logger.info('Pruning completed', {
         associationsPruned: prunedAssociations,
         summariesPruned: prunedSummaries,
       });
     } catch (error) {
-      console.error('[squish] Pruning error:', error);
+      logger.error('Pruning error:', error);
     }
   }
 
   private scheduleSummarizationCheck(): void {
     this.summarizationTimer = setInterval(() => {
       this.runSummarizationCheck().catch((err) => {
-        console.error('[squish] Summarization check failed:', err);
+        logger.error('Summarization check failed:', err);
       });
     }, this.config.summarizationCheckInterval);
   }
@@ -160,12 +161,12 @@ class SquishWorker {
     try {
       this.stats.summarizationRuns++;
       const stats = await getSummarizationStats();
-      this.stats.lastSummarizationStats = {
+      this.stats.lastSummarization = {
         timestamp: new Date().toISOString(),
         ...stats,
       };
     } catch (error) {
-      console.error('[squish] Summarization check error:', error);
+      logger.error('Summarization check error:', error);
     }
   }
 

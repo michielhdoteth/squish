@@ -1,8 +1,5 @@
 /**
- * MCP Tool: approve_merge
- *
- * CRITICAL HANDLER: Executes the approved merge
- * This handler must be bulletproof and atomically handle all operations
+ * Executes the approved merge in a single atomic transaction.
  */
 
 import type { Memory, MemoryMergeProposal, MemoryMergeHistory } from '../../../drizzle/schema.js';
@@ -33,18 +30,6 @@ interface ApproveMergeResponse {
   error?: string;
 }
 
-/**
- * Handle approve_merge tool call
- *
- * Merge workflow (all within single transaction):
- * 1. Load proposal and source memories
- * 2. Merge memories using type-specific strategy
- * 3. Create canonical memory with merged content
- * 4. Mark source memories as merged (soft delete)
- * 5. Create merge history record with full snapshot
- * 6. Update proposal status to approved
- * 7. Return result
- */
 export async function handleApproveMerge(input: ApproveMergeInput): Promise<ApproveMergeResponse> {
   try {
     const { proposalId, reviewNotes } = input;
@@ -60,7 +45,6 @@ export async function handleApproveMerge(input: ApproveMergeInput): Promise<Appr
     const db = createDatabaseClient(await getDb());
     const schema = await getSchema();
 
-    // Step 1: Load proposal
     const [proposal] = await db
       .select()
       .from(schema.memoryMergeProposals)

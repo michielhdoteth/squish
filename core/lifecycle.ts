@@ -7,17 +7,16 @@ import { and, eq, lt, gte, desc } from 'drizzle-orm';
 import { getDb } from '../db/index.js';
 import { getSchema } from '../db/schema.js';
 import { config } from '../config.js';
+import { logger } from './logger.js';
 
-// Sector decay rates (days until decay)
 const SECTOR_DECAY_RATES: Record<string, number> = {
-  episodic: 30,      // Recent events, fast decay
-  semantic: 90,      // Facts, slower decay
-  procedural: 180,   // How-to knowledge, very slow decay
-  autobiographical: 365,  // Personal history, slowest decay
-  working: 7,        // Temporary context, very fast decay
+  episodic: 30,
+  semantic: 90,
+  procedural: 180,
+  autobiographical: 365,
+  working: 7,
 };
 
-// Tier thresholds (based on recency, coactivation, salience)
 const TIER_THRESHOLDS = {
   hot: { recency: 7, coactivation: 10, salience: 70 },
   warm: { recency: 30, coactivation: 5, salience: 50 },
@@ -51,7 +50,7 @@ export async function runLifecycleMaintenance(projectId?: string): Promise<Lifec
     await updateTiers(projectId, stats);
     await evictOldMemories(projectId, stats);
   } catch (error) {
-    console.error('[squish] Lifecycle maintenance error:', error);
+    logger.error('Lifecycle maintenance error', error);
   }
 
   return stats;
@@ -100,7 +99,7 @@ async function applyDecay(projectId: string | undefined, stats: LifecycleStats):
       stats.decayed += rowCount;
     }
   } catch (error) {
-    console.error('[squish] Error applying decay:', error);
+    logger.error('Error applying decay', error);
   }
 }
 
@@ -153,7 +152,7 @@ async function updateTiers(projectId: string | undefined, stats: LifecycleStats)
       }
     }
   } catch (error) {
-    console.error('[squish] Error updating tiers:', error);
+    logger.error('Error updating tiers', error);
   }
 }
 
@@ -187,7 +186,7 @@ async function evictOldMemories(projectId: string | undefined, stats: LifecycleS
     const result = await (db as any).delete(schema.memories).where(where);
     stats.evicted = result?.rowCount || 0;
   } catch (error) {
-    console.error('[squish] Error evicting memories:', error);
+    logger.error('Error evicting memories', error);
   }
 }
 

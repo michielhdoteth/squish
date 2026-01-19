@@ -1,5 +1,6 @@
 import { createClient, RedisClientType } from 'redis';
 import { performRedisPublish } from './utils/memory-operations.js';
+import { logger } from './logger.js';
 
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
 
@@ -13,11 +14,11 @@ export async function getRedisClient(): Promise<RedisClientType> {
   client = createClient({ url: REDIS_URL });
 
   client.on('error', (err) => {
-    console.error('Redis client error:', err);
+    logger.error('Redis client error', err);
   });
 
   client.on('connect', () => {
-    console.error('Redis connected');
+    logger.info('Redis connected');
   });
 
   await client.connect();

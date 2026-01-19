@@ -9,6 +9,7 @@ import { shouldStore, stripPrivateTags } from '../../core/privacy.js';
 import { summarizeSession } from '../../core/summarization.js';
 import { trackCoactivation } from '../../core/associations.js';
 import { config } from '../../config.js';
+import { logger } from '../../core/logger.js';
 
 type ObservationType = CapturedObservation['type'];
 
@@ -38,7 +39,7 @@ async function captureObservation(
   context: PluginContext
 ): Promise<CapturedObservation | null> {
   if (!(await shouldStore(summary, projectPath))) {
-    console.error(`[squish] ${type} blocked by privacy filter`);
+    logger.info(`${type} blocked by privacy filter`);
     return null;
   }
 
@@ -52,7 +53,7 @@ async function captureObservation(
     project: projectPath
   });
 
-  console.error(`[squish] Captured ${type}: ${observation.id}`);
+  logger.debug(`Captured ${type}: ${observation.id}`);
   return createObservationResult(observation.id as string, type, action, target, summary, projectPath, details);
 }
 
@@ -107,7 +108,7 @@ export async function captureToolUse(
         await trackCoactivation(observationIds);
       }
     } catch (error) {
-      console.error('[squish] Failed to track co-activation:', error);
+      logger.error('Failed to track co-activation', error);
     }
   }
 
@@ -131,13 +132,13 @@ export async function queueForSummarization(observationId: string, projectPath: 
 
       if (messageCount > 0 && messageCount % config.incrementalThreshold === 0) {
         await summarizeSession(observation.conversationId, 'incremental');
-        console.error(`[squish] Session summarized (incremental) after ${messageCount} observations`);
+        logger.info(`Session summarized (incremental) after ${messageCount} observations`);
       }
     } catch (error) {
-      console.error('[squish] Failed to queue summarization:', error);
+      logger.error('Failed to queue summarization', error);
     }
   } catch (error) {
-    console.error('[squish] Error in queueForSummarization:', error);
+    logger.error('Error in queueForSummarization', error);
   }
 }
 

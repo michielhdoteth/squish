@@ -6,6 +6,7 @@
 import { eq } from 'drizzle-orm';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
+import { logger } from '../logger.js';
 
 export async function getSnapshotStats(memoryId?: string): Promise<{
   totalSnapshots: number;
@@ -51,7 +52,7 @@ export async function getSnapshotStats(memoryId?: string): Promise<{
 
     return stats;
   } catch (error) {
-    console.error('[squish] Error getting snapshot stats:', error);
+    logger.error('Error getting snapshot stats', error);
     return {
       totalSnapshots: 0,
       byType: {},

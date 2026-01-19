@@ -5,6 +5,7 @@
 import { eq, and, or, desc, inArray } from 'drizzle-orm';
 import { getDb } from '../db/index.js';
 import { getSchema } from '../db/schema.js';
+import { logger } from './logger.js';
 /**
  * Create or update an association between two memories
  */
@@ -42,7 +43,7 @@ export async function createAssociation(fromMemoryId, toMemoryId, type, weight =
         }
     }
     catch (error) {
-        console.error('[squish] Error creating association:', error);
+        logger.error('Error creating association', error);
     }
 }
 /**
@@ -62,7 +63,7 @@ export async function trackCoactivation(memoryIds) {
         }
     }
     catch (error) {
-        console.error('[squish] Error tracking coactivation:', error);
+        logger.error('Error tracking coactivation', error);
     }
 }
 /**
@@ -89,27 +90,8 @@ export async function getRelatedMemories(memoryId, limit = 10) {
             .where(inArray(schema.memories.id, relatedIds));
     }
     catch (error) {
-        console.error('[squish] Error getting related memories:', error);
+        logger.error('Error getting related memories', error);
         return [];
-    }
-}
-/**
- * Get association strength between two memories
- */
-export async function getAssociationWeight(fromMemoryId, toMemoryId) {
-    try {
-        const db = await getDb();
-        const schema = await getSchema();
-        const association = await db
-            .select()
-            .from(schema.memoryAssociations)
-            .where(and(eq(schema.memoryAssociations.fromMemoryId, fromMemoryId), eq(schema.memoryAssociations.toMemoryId, toMemoryId)))
-            .limit(1);
-        return association.length > 0 ? association[0].weight : 0;
-    }
-    catch (error) {
-        console.error('[squish] Error getting association weight:', error);
-        return 0;
     }
 }
 /**
@@ -125,7 +107,7 @@ export async function pruneWeakAssociations(weightThreshold = 5) {
         return result?.rowCount || 0;
     }
     catch (error) {
-        console.error('[squish] Error pruning weak associations:', error);
+        logger.error('Error pruning weak associations', error);
         return 0;
     }
 }
@@ -156,24 +138,13 @@ export async function getAssociationStats() {
         return stats;
     }
     catch (error) {
-        console.error('[squish] Error getting association stats:', error);
+        logger.error('Error getting association stats', error);
         return {
             totalAssociations: 0,
             byType: {},
             avgWeight: 0,
             maxWeight: 0,
         };
-    }
-}
-/**
- * Mark a memory as superseding another
- */
-export async function markSupersession(previousMemoryId, newMemoryId) {
-    try {
-        await createAssociation(newMemoryId, previousMemoryId, 'supersedes', 100);
-    }
-    catch (error) {
-        console.error('[squish] Error marking supersession:', error);
     }
 }
 //# sourceMappingURL=associations.js.map

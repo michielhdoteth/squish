@@ -1,8 +1,5 @@
 /**
- * MCP Tool: preview_merge
- *
- * Shows a preview of what the merged result will look like
- * without actually executing the merge
+ * Shows a preview of the merged result without executing the merge.
  */
 import { getDb } from '../../../db/index.js';
 import { getSchema } from '../../../db/schema.js';
@@ -10,11 +7,6 @@ import { createDatabaseClient } from '../../../core/database.js';
 import { eq } from 'drizzle-orm';
 import { estimateMergeSavingsPreview } from '../analytics/token-estimator.js';
 import { mergeMemories } from '../strategies/merge-strategies.js';
-/**
- * Handle preview_merge tool call
- *
- * Shows side-by-side comparison and merged result
- */
 export async function handlePreviewMerge(input) {
     try {
         const { proposalId } = input;

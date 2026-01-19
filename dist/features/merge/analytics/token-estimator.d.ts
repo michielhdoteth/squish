@@ -1,23 +1,10 @@
 /**
- * Token estimation for calculating context window savings from merges
- *
- * Uses a simple heuristic: 1 token ≈ 4 characters
- * (Can be upgraded to tiktoken library for exact counts)
+ * Token estimation for calculating context window savings from merges.
+ * Uses simple heuristic: 1 token ≈ 4 characters (can be upgraded to tiktoken for accuracy).
  */
 import type { Memory } from '../../../drizzle/schema.js';
 import type { MergedMemory } from '../strategies/merge-strategies.js';
-/**
- * Calculate token savings for a specific merge
- *
- * Returns estimated number of tokens saved by merging source memories
- * into a single canonical memory
- */
 export declare function estimateTokensSaved(sources: Memory[], merged: MergedMemory): number;
-/**
- * Calculate aggregate token savings for a project
- *
- * Sums up all token savings from completed merges
- */
 export declare function calculateProjectTokenSavings(projectId: string): Promise<{
     totalSaved: number;
     mergeCount: number;

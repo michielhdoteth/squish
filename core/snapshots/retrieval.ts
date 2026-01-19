@@ -6,6 +6,7 @@
 import { eq, desc } from 'drizzle-orm';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
+import { logger } from '../logger.js';
 
 export async function getMemoryHistory(memoryId: string, limit: number = 50): Promise<any[]> {
   try {
@@ -19,7 +20,7 @@ export async function getMemoryHistory(memoryId: string, limit: number = 50): Pr
       .orderBy(desc(schema.memorySnapshots.createdAt))
       .limit(limit);
   } catch (error) {
-    console.error('[squish] Error getting memory history:', error);
+    logger.error('Error getting memory history', error);
     return [];
   }
 }
@@ -37,7 +38,7 @@ export async function getMemorySnapshot(snapshotId: string): Promise<any> {
 
     return snapshot.length > 0 ? snapshot[0] : null;
   } catch (error) {
-    console.error('[squish] Error getting snapshot:', error);
+    logger.error('Error getting snapshot', error);
     return null;
   }
 }

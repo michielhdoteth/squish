@@ -1,8 +1,5 @@
 /**
- * MCP Tool: preview_merge
- *
- * Shows a preview of what the merged result will look like
- * without actually executing the merge
+ * Shows a preview of the merged result without executing the merge.
  */
 
 import type { Memory, MemoryMergeProposal } from '../../../drizzle/schema.js';
@@ -48,11 +45,6 @@ interface PreviewMergeResponse {
   error?: string;
 }
 
-/**
- * Handle preview_merge tool call
- *
- * Shows side-by-side comparison and merged result
- */
 export async function handlePreviewMerge(input: PreviewMergeInput): Promise<PreviewMergeResponse> {
   try {
     const { proposalId } = input;

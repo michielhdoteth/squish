@@ -4,6 +4,7 @@
  */
 
 import { config } from '../config.js';
+import { logger } from './logger.js';
 
 export type Embedding = number[];
 
@@ -83,13 +84,13 @@ let currentProvider: EmbeddingProvider | null = null;
 
 export async function initializeEmbeddingProvider(): Promise<void> {
   if (config.embeddingsProvider === 'openai' && config.openAiApiKey) {
-    console.error('[squish] Using OpenAI embeddings (stub - not yet implemented)');
+    logger.info('Using OpenAI embeddings (stub - not yet implemented)');
     currentProvider = new StubEmbeddingProvider();
   } else if (config.embeddingsProvider === 'ollama') {
-    console.error('[squish] Using Ollama embeddings (stub - not yet implemented)');
+    logger.info('Using Ollama embeddings (stub - not yet implemented)');
     currentProvider = new StubEmbeddingProvider();
   } else {
-    console.error('[squish] Using local TF-IDF embeddings (offline)');
+    logger.info('Using local TF-IDF embeddings (offline)');
     currentProvider = new LocalTfidfEmbeddingProvider();
   }
 }

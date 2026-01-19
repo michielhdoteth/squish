@@ -1,8 +1,6 @@
 /**
- * Type-specific merge strategies for different memory types
- *
- * Each memory type (fact, preference, decision, observation, context)
- * has different merge semantics to preserve meaning and prevent data loss.
+ * Type-specific merge strategies for different memory types.
+ * Each type has different merge semantics to preserve meaning and prevent data loss.
  */
 
 import type { Memory, MemoryType } from '../../../drizzle/schema.js';
@@ -29,22 +27,9 @@ export interface MergedMemory {
   conflictWarnings: string[];
 }
 
-// ============================================================================
-// FACT Merging Strategy
-// ============================================================================
-
 /**
- * FACTS: Union of information, preserve all unique facts
- *
- * Examples:
- * - "User prefers dark mode" + "User uses VSCode" → Both preserved
- * - "Function takes 3 params" + "Function takes 3 params" → Deduplicate
- *
- * Semantics:
- * - Combine all facts into unified statement
- * - Remove exact duplicate sentences
- * - Add provenance (timestamps, sources)
- * - Union of tags
+ * FACT strategy: Union of information, remove exact duplicates.
+ * Combines all unique facts into a unified statement with provenance tracking.
  */
 class FactMergeStrategy implements MergeStrategy {
   type: MemoryType = 'fact';
@@ -123,22 +108,9 @@ class FactMergeStrategy implements MergeStrategy {
   }
 }
 
-// ============================================================================
-// PREFERENCE Merging Strategy
-// ============================================================================
-
 /**
- * PREFERENCES: Keep latest preference, note evolution
- *
- * Examples:
- * - "Prefers tabs" (2023) + "Prefers spaces" (2024) → Keep 2024 version, note change
- * - "Uses VSCode" + "Uses VSCode" → Deduplicate
- *
- * Semantics:
- * - Latest preference wins (by createdAt timestamp)
- * - Record evolution in metadata (preference history)
- * - Warn if preferences conflict
- * - Can indicate user changed their mind
+ * PREFERENCE strategy: Keep latest by timestamp, track evolution history.
+ * Warns if preferences conflict, indicating user changed their mind.
  */
 class PreferenceMergeStrategy implements MergeStrategy {
   type: MemoryType = 'preference';
@@ -208,22 +180,9 @@ class PreferenceMergeStrategy implements MergeStrategy {
   }
 }
 
-// ============================================================================
-// DECISION Merging Strategy
-// ============================================================================
-
 /**
- * DECISIONS: Latest decision wins, link to previous decisions
- *
- * Examples:
- * - "Use React" (2023) + "Use Vue" (2024) → Keep 2024, link to previous
- * - "Use TypeScript" + "Use TypeScript" → Deduplicate
- *
- * Semantics:
- * - Most recent decision is the current choice
- * - Record all previous decisions (decision timeline)
- * - Warn if decisions contradict
- * - Include rationale changes
+ * DECISION strategy: Keep latest decision, link to previous ones in timeline.
+ * Warns if decisions contradict, preserving rationale history.
  */
 class DecisionMergeStrategy implements MergeStrategy {
   type: MemoryType = 'decision';
@@ -292,21 +251,9 @@ class DecisionMergeStrategy implements MergeStrategy {
   }
 }
 
-// ============================================================================
-// OBSERVATION Merging Strategy
-// ============================================================================
-
 /**
- * OBSERVATIONS: Aggregate observations while preserving temporal order
- *
- * Examples:
- * - "Code review took 2h" + "Code review took 3h" → "Code reviews take 2-3 hours"
- * - "Fixed bug in parser" + "Fixed bug in lexer" → List both fixes
- *
- * Semantics:
- * - Aggregate similar observations (ranges, statistics)
- * - Preserve temporal patterns
- * - Note frequency of observations
+ * OBSERVATION strategy: Aggregate observations in chronological order.
+ * Preserves temporal patterns and frequency information.
  */
 class ObservationMergeStrategy implements MergeStrategy {
   type: MemoryType = 'observation';
@@ -371,21 +318,9 @@ class ObservationMergeStrategy implements MergeStrategy {
   }
 }
 
-// ============================================================================
-// CONTEXT Merging Strategy
-// ============================================================================
-
 /**
- * CONTEXT: Union of context, remove exact duplicates
- *
- * Examples:
- * - "Project uses TypeScript" + "Project uses TypeScript" → Deduplicate
- * - "Uses async/await" + "Uses Promises" → Keep both (different details)
- *
- * Semantics:
- * - Preserve all unique context information
- * - Remove exact duplicates
- * - Combine related context
+ * CONTEXT strategy: Union of unique context, remove exact duplicates.
+ * Preserves all distinct context items.
  */
 class ContextMergeStrategy implements MergeStrategy {
   type: MemoryType = 'context';
@@ -449,10 +384,6 @@ class ContextMergeStrategy implements MergeStrategy {
   }
 }
 
-// ============================================================================
-// Strategy Registry
-// ============================================================================
-
 export const MERGE_STRATEGIES: Record<MemoryType, MergeStrategy> = {
   fact: new FactMergeStrategy(),
   preference: new PreferenceMergeStrategy(),
@@ -461,9 +392,6 @@ export const MERGE_STRATEGIES: Record<MemoryType, MergeStrategy> = {
   context: new ContextMergeStrategy(),
 };
 
-/**
- * Get the appropriate merge strategy for a memory type
- */
 export function getMergeStrategy(type: MemoryType): MergeStrategy {
   const strategy = MERGE_STRATEGIES[type];
   if (!strategy) {
@@ -472,9 +400,6 @@ export function getMergeStrategy(type: MemoryType): MergeStrategy {
   return strategy;
 }
 
-/**
- * Merge a set of memories using their type-specific strategy
- */
 export function mergeMemories(sources: Memory[]): MergedMemory {
   if (sources.length === 0) {
     throw new Error('Cannot merge: no source memories');

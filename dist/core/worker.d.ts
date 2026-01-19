@@ -31,9 +31,9 @@ declare class SquishWorker {
             lifecycleRuns: number;
             pruningRuns: number;
             summarizationRuns: number;
-            lastLifecycleStats: any;
-            lastAssociationStats: any;
-            lastSummarizationStats: any;
+            lastLifecycle: any;
+            lastAssociation: any;
+            lastSummarization: any;
         };
         config: WorkerConfig;
     };
@@ -49,9 +49,9 @@ export declare function getWorkerStats(): {
         lifecycleRuns: number;
         pruningRuns: number;
         summarizationRuns: number;
-        lastLifecycleStats: any;
-        lastAssociationStats: any;
-        lastSummarizationStats: any;
+        lastLifecycle: any;
+        lastAssociation: any;
+        lastSummarization: any;
     };
     config: WorkerConfig;
 } | null;

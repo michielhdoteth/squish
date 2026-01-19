@@ -5,6 +5,7 @@
 import { promises as fs } from 'fs';
 import path from 'path';
 import { getRecentConversations } from './conversations.js';
+import { logger } from '../../core/logger.js';
 function formatDate(dateStr) {
     return new Date(dateStr).toLocaleDateString('en-US', {
         year: 'numeric',
@@ -74,7 +75,7 @@ export async function generateAndInjectFolderContext(projectPath) {
     const newContent = generateClaudeMdContent(contextData);
     const userContent = await preserveUserContent(claudeMdPath);
     await fs.writeFile(claudeMdPath, newContent + userContent, 'utf-8');
-    console.error(`[squish] Updated folder context: ${claudeMdPath}`);
+    logger.info(`Updated folder context: ${claudeMdPath}`);
 }
 export async function readFolderContext(projectPath) {
     try {

@@ -9,6 +9,7 @@ import { getDb } from '../db/index.js';
 import { getSchema } from '../db/schema.js';
 import { config } from '../config.js';
 import { getEmbedding } from './embeddings.js';
+import { logger } from './logger.js';
 
 export type VisibilityScope = 'private' | 'project' | 'team' | 'global';
 
@@ -73,7 +74,7 @@ export async function storeAgentMemory(
 
     return memoryId;
   } catch (error) {
-    console.error('[squish] Error storing agent memory:', error);
+    logger.error('Error storing agent memory', error);
     throw error;
   }
 }

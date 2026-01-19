@@ -6,6 +6,7 @@
 import { eq } from 'drizzle-orm';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
+import { logger } from '../logger.js';
 
 /**
  * Traverse superseded fact chain (specific to memories table)
@@ -56,7 +57,7 @@ export async function traverseSupersededChain(
 
     return history;
   } catch (error) {
-    console.error('[squish] Error traversing superseded chain:', error);
+    logger.error('Error traversing superseded chain', error);
     return [];
   }
 }

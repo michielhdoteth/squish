@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import { logger } from '../../core/logger.js';
 
 const app = express();
 const PORT = process.env.SQUISH_WEB_PORT || 37777;
@@ -281,7 +282,6 @@ app.get('/', (req, res) => {
                     throw new Error('API returned error status');
                 }
             } catch (error) {
-                console.error('Failed to load data:', error);
                 updateStatus('error');
 
                 // Show error alert
@@ -489,7 +489,7 @@ app.get('/', (req, res) => {
 // Start server
 export function startWebServer() {
   app.listen(PORT, () => {
-    console.log('[squish] Web UI available at http://localhost:' + PORT);
+    logger.info('Web UI available at http://localhost:' + PORT);
   });
 }
 
