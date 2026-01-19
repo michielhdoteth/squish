@@ -339,4 +339,49 @@ export const memorySnapshots = sqliteTable('memory_snapshots', {
     index('memory_snapshots_type_idx').on(table.snapshotType),
     index('memory_snapshots_created_idx').on(table.createdAt),
 ]);
+/**
+ * Core Memory - Always-in-context memory (Tier 1)
+ * Small, persistent, always-visible memory block (< 2KB total)
+ */
+export const coreMemory = sqliteTable('core_memory', {
+    id: text('id').primaryKey().$default(() => crypto.randomUUID()),
+    projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }),
+    userId: text('user_id').references(() => users.id, { onDelete: 'set null' }),
+    // Core memory sections
+    section: text('section').notNull().$type(),
+    content: text('content').notNull().default(''),
+    sizeBytes: integer('size_bytes').default(0).notNull(),
+    // Version tracking
+    version: integer('version').default(1).notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp' }).default(sql `CURRENT_TIMESTAMP`).notNull(),
+    updatedAt: integer('updated_at', { mode: 'timestamp' }).default(sql `CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+    index('core_memory_project_idx').on(table.projectId),
+    index('core_memory_user_idx').on(table.userId),
+    index('core_memory_section_idx').on(table.section),
+]);
+/**
+ * Context Sessions - Track loaded memories and context window usage
+ */
+export const contextSessions = sqliteTable('context_sessions', {
+    id: text('id').primaryKey().$default(() => crypto.randomUUID()),
+    sessionId: text('session_id').notNull().unique(),
+    projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }),
+    userId: text('user_id').references(() => users.id, { onDelete: 'set null' }),
+    // Loaded memories (paging system)
+    loadedMemoryIds: text('loaded_memory_ids').$type().default([]),
+    // Token tracking
+    tokenBudget: integer('token_budget').default(8000).notNull(),
+    tokensUsed: integer('tokens_used').default(0).notNull(),
+    coreMemoryTokens: integer('core_memory_tokens').default(0).notNull(),
+    loadedMemoriesTokens: integer('loaded_memories_tokens').default(0).notNull(),
+    // Session metadata
+    metadata: text('metadata').$type(),
+    createdAt: integer('created_at', { mode: 'timestamp' }).default(sql `CURRENT_TIMESTAMP`).notNull(),
+    updatedAt: integer('updated_at', { mode: 'timestamp' }).default(sql `CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+    index('context_sessions_session_idx').on(table.sessionId),
+    index('context_sessions_project_idx').on(table.projectId),
+    index('context_sessions_created_idx').on(table.createdAt),
+]);
 //# sourceMappingURL=schema-sqlite.js.map

@@ -1,6 +1,9 @@
 import { createClient } from 'redis';
 import { performRedisPublish } from './utils/memory-operations.js';
+<<<<<<< HEAD
 import { logger } from './logger.js';
+=======
+>>>>>>> pr-3-branch
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
 let client = null;
 export async function getRedisClient() {

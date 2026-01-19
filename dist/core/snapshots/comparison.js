@@ -3,7 +3,10 @@
  * Functions for comparing and diffing snapshots
  */
 import { getMemorySnapshot } from './retrieval.js';
+<<<<<<< HEAD
 import { logger } from '../logger.js';
+=======
+>>>>>>> pr-3-branch
 export function calculateDiff(before, after) {
     const beforeLines = before.split('\n');
     const afterLines = after.split('\n');
@@ -30,7 +33,11 @@ export async function compareSnapshots(snapshotId1, snapshotId2) {
         };
     }
     catch (error) {
+<<<<<<< HEAD
         logger.error('Error comparing snapshots', error);
+=======
+        console.error('[squish] Error comparing snapshots:', error);
+>>>>>>> pr-3-branch
         throw error;
     }
 }

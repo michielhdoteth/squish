@@ -44,8 +44,112 @@ import { storeAgentMemory } from './core/agent-memory.js';
 import { getRelatedMemories } from './core/associations.js';
 import { protectMemory, pinMemory } from './core/governance.js';
 import { isDatabaseUnavailableError, determineOverallStatus } from './core/utils.js';
+import { initializeCoreMemory, getCoreMemory, editCoreMemorySection, appendCoreMemorySection, getCoreMemoryStats, } from './core/core-memory.js';
+import { loadMemoryToContext, evictMemoryFromContext, viewLoadedMemories, getContextStatus, } from './core/context-paging.js';
 const VERSION = '0.4.0';
 const TOOLS = [
+    // ============================================================================
+    // Core Memory Tools (Tier 1 - Always-In-Context)
+    // ============================================================================
+    {
+        name: 'core_memory_view',
+        description: 'View all core memory sections (always-in-context memory)',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                projectId: { type: 'string', description: 'Project ID' },
+            },
+            required: ['projectId']
+        }
+    },
+    {
+        name: 'core_memory_edit',
+        description: 'Replace entire content of a core memory section',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                projectId: { type: 'string', description: 'Project ID' },
+                section: {
+                    type: 'string',
+                    enum: ['persona', 'user_info', 'project_context', 'working_notes'],
+                    description: 'Section to edit'
+                },
+                content: { type: 'string', description: 'New content (replaces existing)' },
+            },
+            required: ['projectId', 'section', 'content']
+        }
+    },
+    {
+        name: 'core_memory_append',
+        description: 'Append text to a core memory section',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                projectId: { type: 'string', description: 'Project ID' },
+                section: {
+                    type: 'string',
+                    enum: ['persona', 'user_info', 'project_context', 'working_notes'],
+                    description: 'Section to append to'
+                },
+                text: { type: 'string', description: 'Text to append' },
+            },
+            required: ['projectId', 'section', 'text']
+        }
+    },
+    // ============================================================================
+    // Context Paging Tools (Tier 2 - Working Set Management)
+    // Note: Claude manages its own context/tokens. These track your working set.
+    // ============================================================================
+    {
+        name: 'load_to_context',
+        description: 'Add a memory to working set for tracking (Claude manages actual context)',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                sessionId: { type: 'string', description: 'Session ID' },
+                memoryId: { type: 'string', description: 'Memory UUID to load' },
+            },
+            required: ['sessionId', 'memoryId']
+        }
+    },
+    {
+        name: 'evict_from_context',
+        description: 'Remove a memory from current context (paging out)',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                sessionId: { type: 'string', description: 'Session ID' },
+                memoryId: { type: 'string', description: 'Memory UUID to evict' },
+            },
+            required: ['sessionId', 'memoryId']
+        }
+    },
+    {
+        name: 'view_loaded_memories',
+        description: 'View all currently loaded memories in context',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                sessionId: { type: 'string', description: 'Session ID' },
+            },
+            required: ['sessionId']
+        }
+    },
+    {
+        name: 'context_status',
+        description: 'View comprehensive context window status and token usage',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                sessionId: { type: 'string', description: 'Session ID' },
+                projectId: { type: 'string', description: 'Project ID' },
+            },
+            required: ['sessionId', 'projectId']
+        }
+    },
+    // ============================================================================
+    // Memory Tools (Original)
+    // ============================================================================
     {
         name: 'remember',
         description: 'Store a memory (with optional agent context)',
@@ -251,6 +355,117 @@ class Squish {
             const args = (req.params.arguments ?? {});
             try {
                 switch (name) {
+                    // Core Memory Tools
+                    case 'core_memory_view': {
+                        if (!args.projectId) {
+                            throw new McpError(ErrorCode.InvalidParams, 'projectId is required');
+                        }
+                        try {
+                            await initializeCoreMemory(String(args.projectId));
+                            const content = await getCoreMemory(String(args.projectId));
+                            const stats = await getCoreMemoryStats(String(args.projectId));
+                            return this.jsonResponse({ ok: true, content, stats });
+                        }
+                        catch (error) {
+                            throw new McpError(ErrorCode.InternalError, `Core memory view failed: ${error.message}`);
+                        }
+                    }
+                    case 'core_memory_edit': {
+                        if (!args.projectId || !args.section || typeof args.content !== 'string') {
+                            throw new McpError(ErrorCode.InvalidParams, 'projectId, section, and content are required');
+                        }
+                        try {
+                            await initializeCoreMemory(String(args.projectId));
+                            const result = await editCoreMemorySection(String(args.projectId), args.section, String(args.content));
+                            if (!result.success) {
+                                throw new McpError(ErrorCode.InvalidParams, result.message || 'Edit failed');
+                            }
+                            return this.jsonResponse({ ok: true, ...result });
+                        }
+                        catch (error) {
+                            if (error instanceof McpError)
+                                throw error;
+                            throw new McpError(ErrorCode.InternalError, `Core memory edit failed: ${error.message}`);
+                        }
+                    }
+                    case 'core_memory_append': {
+                        if (!args.projectId || !args.section || typeof args.text !== 'string') {
+                            throw new McpError(ErrorCode.InvalidParams, 'projectId, section, and text are required');
+                        }
+                        try {
+                            await initializeCoreMemory(String(args.projectId));
+                            const result = await appendCoreMemorySection(String(args.projectId), args.section, String(args.text));
+                            if (!result.success) {
+                                throw new McpError(ErrorCode.InvalidParams, result.message || 'Append failed');
+                            }
+                            return this.jsonResponse({ ok: true, ...result });
+                        }
+                        catch (error) {
+                            if (error instanceof McpError)
+                                throw error;
+                            throw new McpError(ErrorCode.InternalError, `Core memory append failed: ${error.message}`);
+                        }
+                    }
+                    // Context Paging Tools
+                    case 'load_to_context': {
+                        if (!args.sessionId || !args.memoryId) {
+                            throw new McpError(ErrorCode.InvalidParams, 'sessionId and memoryId are required');
+                        }
+                        try {
+                            const result = await loadMemoryToContext(String(args.sessionId), String(args.memoryId));
+                            if (!result.success) {
+                                throw new McpError(ErrorCode.InvalidParams, result.message || 'Load failed');
+                            }
+                            return this.jsonResponse({ ok: true, ...result });
+                        }
+                        catch (error) {
+                            if (error instanceof McpError)
+                                throw error;
+                            throw new McpError(ErrorCode.InternalError, `Load to context failed: ${error.message}`);
+                        }
+                    }
+                    case 'evict_from_context': {
+                        if (!args.sessionId || !args.memoryId) {
+                            throw new McpError(ErrorCode.InvalidParams, 'sessionId and memoryId are required');
+                        }
+                        try {
+                            const result = await evictMemoryFromContext(String(args.sessionId), String(args.memoryId));
+                            if (!result.success) {
+                                throw new McpError(ErrorCode.InvalidParams, result.message || 'Evict failed');
+                            }
+                            return this.jsonResponse({ ok: true, ...result });
+                        }
+                        catch (error) {
+                            if (error instanceof McpError)
+                                throw error;
+                            throw new McpError(ErrorCode.InternalError, `Evict from context failed: ${error.message}`);
+                        }
+                    }
+                    case 'view_loaded_memories': {
+                        if (!args.sessionId) {
+                            throw new McpError(ErrorCode.InvalidParams, 'sessionId is required');
+                        }
+                        try {
+                            const result = await viewLoadedMemories(String(args.sessionId));
+                            return this.jsonResponse({ ok: true, ...result });
+                        }
+                        catch (error) {
+                            throw new McpError(ErrorCode.InternalError, `View loaded memories failed: ${error.message}`);
+                        }
+                    }
+                    case 'context_status': {
+                        if (!args.sessionId || !args.projectId) {
+                            throw new McpError(ErrorCode.InvalidParams, 'sessionId and projectId are required');
+                        }
+                        try {
+                            const result = await getContextStatus(String(args.sessionId), String(args.projectId));
+                            return this.jsonResponse({ ok: true, ...result });
+                        }
+                        catch (error) {
+                            throw new McpError(ErrorCode.InternalError, `Context status failed: ${error.message}`);
+                        }
+                    }
+                    // Original Memory Tools
                     case 'remember': {
                         if (typeof args.content !== 'string' || !args.content) {
                             throw new McpError(ErrorCode.InvalidParams, 'content is required');

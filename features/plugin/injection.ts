@@ -7,6 +7,8 @@ import type { PluginContext } from './types.js';
 import { searchMemories } from '../../features/memory/memories.js';
 import { searchConversations } from '../../features/search/conversations.js';
 import { logger } from '../../core/logger.js';
+import { formatCoreMemoryForInjection } from '../../core/core-memory.js';
+import { ensureProject } from '../../core/projects.js';
 
 export interface InjectionBudget {
   maxItems: number;
@@ -65,6 +67,20 @@ export async function injectContextIntoSession(
     relevanceThreshold: 0.5,
     maxAge: 30 * 24 * 60 * 60 * 1000
   };
+
+  // Inject core memory (always-in-context) first
+  try {
+    const project = await ensureProject(projectPath);
+    if (project?.id) {
+      const coreMemoryText = await formatCoreMemoryForInjection(project.id);
+      if (coreMemoryText) {
+        console.error('[squish] Core memory injected into session');
+        // Core memory is automatically available - Claude sees it
+      }
+    }
+  } catch (error) {
+    console.error('[squish] Failed to inject core memory:', error);
+  }
 
   const selectedContext = await selectContextToInject(projectPath, budget);
 

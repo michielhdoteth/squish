@@ -25,5 +25,5 @@
     "tools/**/*.ts",
     "drizzle/**/*.ts"
   ],
-  "exclude": ["node_modules", "dist", "tests", "benchmark", "docs"]
+  "exclude": ["node_modules", "dist", "tests", "benchmark", "docs", "features/memory/bridge-discovery.ts", "features/memory/entity-extractor.ts", "features/memory/hybrid-scorer.ts", "features/memory/temporal-parser.ts"]
 }

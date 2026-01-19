@@ -5,7 +5,10 @@
 import { eq } from 'drizzle-orm';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
+<<<<<<< HEAD
 import { logger } from '../logger.js';
+=======
+>>>>>>> pr-3-branch
 /**
  * Traverse superseded fact chain (specific to memories table)
  * Follows the supersededBy chain to build complete version history
@@ -43,7 +46,11 @@ export async function traverseSupersededChain(startFactId, options = {}) {
         return history;
     }
     catch (error) {
+<<<<<<< HEAD
         logger.error('Error traversing superseded chain', error);
+=======
+        console.error('[squish] Error traversing superseded chain:', error);
+>>>>>>> pr-3-branch
         return [];
     }
 }

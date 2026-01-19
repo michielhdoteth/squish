@@ -7,7 +7,10 @@ import { getDb } from '../db/index.js';
 import { getSchema } from '../db/schema.js';
 import { config } from '../config.js';
 import { performMemoryOperation } from './utils/memory-operations.js';
+<<<<<<< HEAD
 import { logger } from './logger.js';
+=======
+>>>>>>> pr-3-branch
 /**
  * Mark a memory as protected (cannot be evicted)
  */

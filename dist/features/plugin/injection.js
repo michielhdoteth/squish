@@ -4,7 +4,12 @@
  */
 import { searchMemories } from '../../features/memory/memories.js';
 import { searchConversations } from '../../features/search/conversations.js';
+<<<<<<< HEAD
 import { logger } from '../../core/logger.js';
+=======
+import { formatCoreMemoryForInjection } from '../../core/core-memory.js';
+import { ensureProject } from '../../core/projects.js';
+>>>>>>> pr-3-branch
 function estimateTokens(text) {
     return Math.ceil(text.split(/\s+/).length * 1.3);
 }
@@ -32,6 +37,20 @@ export async function injectContextIntoSession(context, projectPath) {
         relevanceThreshold: 0.5,
         maxAge: 30 * 24 * 60 * 60 * 1000
     };
+    // Inject core memory (always-in-context) first
+    try {
+        const project = await ensureProject(projectPath);
+        if (project?.id) {
+            const coreMemoryText = await formatCoreMemoryForInjection(project.id);
+            if (coreMemoryText) {
+                console.error('[squish] Core memory injected into session');
+                // Core memory is automatically available - Claude sees it
+            }
+        }
+    }
+    catch (error) {
+        console.error('[squish] Failed to inject core memory:', error);
+    }
     const selectedContext = await selectContextToInject(projectPath, budget);
     if (selectedContext.totalItems > 0) {
         logger.info(`Injected ${selectedContext.totalItems} items (${selectedContext.estimatedTokens} tokens)`);

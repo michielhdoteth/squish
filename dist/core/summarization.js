@@ -11,7 +11,10 @@ import { getEmbedding } from './embeddings.js';
 import { cleanupOldSessionSummaries } from './utils/cleanup-operations.js';
 import { chunkMessages, getRollingWindow, calculateTokensSaved } from './utils/summarization-helpers.js';
 import { extractMessageContent, generateExtractiveSummary } from './utils/content-extraction.js';
+<<<<<<< HEAD
 import { logger } from './logger.js';
+=======
+>>>>>>> pr-3-branch
 const DEFAULT_CONFIG = {
     incrementalThreshold: config.incrementalThreshold || 10,
     rollingWindowSize: 50,

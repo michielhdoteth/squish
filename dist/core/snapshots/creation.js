@@ -6,7 +6,10 @@ import { eq } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
+<<<<<<< HEAD
 import { logger } from '../logger.js';
+=======
+>>>>>>> pr-3-branch
 export async function createBeforeSnapshot(memoryId) {
     try {
         const db = await getDb();
@@ -31,7 +34,11 @@ export async function createBeforeSnapshot(memoryId) {
         return snapshotId;
     }
     catch (error) {
+<<<<<<< HEAD
         logger.error('Error creating before snapshot', error);
+=======
+        console.error('[squish] Error creating before snapshot:', error);
+>>>>>>> pr-3-branch
         throw error;
     }
 }
@@ -69,7 +76,11 @@ export async function createAfterSnapshot(memoryId, beforeSnapshotId) {
         return { snapshotId, diff };
     }
     catch (error) {
+<<<<<<< HEAD
         logger.error('Error creating after snapshot', error);
+=======
+        console.error('[squish] Error creating after snapshot:', error);
+>>>>>>> pr-3-branch
         throw error;
     }
 }
@@ -97,7 +108,11 @@ export async function createPeriodicSnapshot(memoryId) {
         return snapshotId;
     }
     catch (error) {
+<<<<<<< HEAD
         logger.error('Error creating periodic snapshot', error);
+=======
+        console.error('[squish] Error creating periodic snapshot:', error);
+>>>>>>> pr-3-branch
         throw error;
     }
 }

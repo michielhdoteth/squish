@@ -5,7 +5,10 @@
 import { eq, desc } from 'drizzle-orm';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
+<<<<<<< HEAD
 import { logger } from '../logger.js';
+=======
+>>>>>>> pr-3-branch
 /**
  * Get recent summaries for a conversation
  */
@@ -21,7 +24,11 @@ export async function getRecentSummaries(conversationId, limit = 10) {
             .limit(limit);
     }
     catch (error) {
+<<<<<<< HEAD
         logger.error('Error getting recent summaries', error);
+=======
+        console.error('[squish] Error getting recent summaries:', error);
+>>>>>>> pr-3-branch
         return [];
     }
 }

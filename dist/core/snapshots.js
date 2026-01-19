@@ -4,7 +4,10 @@ import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
 import { getSchema } from '../db/schema.js';
 import { cleanupOldMemorySnapshots } from './utils/cleanup-operations.js';
+<<<<<<< HEAD
 import { logger } from './logger.js';
+=======
+>>>>>>> pr-3-branch
 export async function createBeforeSnapshot(memoryId) {
     try {
         const db = await getDb();

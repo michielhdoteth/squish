@@ -6,7 +6,10 @@ import { eq } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
+<<<<<<< HEAD
 import { logger } from '../logger.js';
+=======
+>>>>>>> pr-3-branch
 /**
  * Create a new version of a fact by expiring the old one
  */
@@ -54,7 +57,11 @@ export async function createNewFactVersion(oldFactId, newContent, additionalFiel
         return newFactId;
     }
     catch (error) {
+<<<<<<< HEAD
         logger.error('Error creating new fact version', error);
+=======
+        console.error('[squish] Error creating new fact version:', error);
+>>>>>>> pr-3-branch
         throw error;
     }
 }

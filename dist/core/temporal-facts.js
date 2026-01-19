@@ -9,7 +9,10 @@ import { getSchema } from '../db/schema.js';
 import { traverseSupersededChain } from './utils/history-traversal.js';
 import { createNewFactVersion } from './utils/version-management.js';
 import { buildFactAtTimeQuery } from './utils/temporal-queries.js';
+<<<<<<< HEAD
 import { logger } from './logger.js';
+=======
+>>>>>>> pr-3-branch
 /**
  * Store a new fact with temporal validity
  */

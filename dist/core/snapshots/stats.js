@@ -5,7 +5,10 @@
 import { eq } from 'drizzle-orm';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
+<<<<<<< HEAD
 import { logger } from '../logger.js';
+=======
+>>>>>>> pr-3-branch
 export async function getSnapshotStats(memoryId) {
     try {
         const db = await getDb();
@@ -40,7 +43,11 @@ export async function getSnapshotStats(memoryId) {
         return stats;
     }
     catch (error) {
+<<<<<<< HEAD
         logger.error('Error getting snapshot stats', error);
+=======
+        console.error('[squish] Error getting snapshot stats:', error);
+>>>>>>> pr-3-branch
         return {
             totalSnapshots: 0,
             byType: {},

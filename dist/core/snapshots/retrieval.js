@@ -5,7 +5,10 @@
 import { eq, desc } from 'drizzle-orm';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
+<<<<<<< HEAD
 import { logger } from '../logger.js';
+=======
+>>>>>>> pr-3-branch
 export async function getMemoryHistory(memoryId, limit = 50) {
     try {
         const db = await getDb();
@@ -18,7 +21,11 @@ export async function getMemoryHistory(memoryId, limit = 50) {
             .limit(limit);
     }
     catch (error) {
+<<<<<<< HEAD
         logger.error('Error getting memory history', error);
+=======
+        console.error('[squish] Error getting memory history:', error);
+>>>>>>> pr-3-branch
         return [];
     }
 }
@@ -34,7 +41,11 @@ export async function getMemorySnapshot(snapshotId) {
         return snapshot.length > 0 ? snapshot[0] : null;
     }
     catch (error) {
+<<<<<<< HEAD
         logger.error('Error getting snapshot', error);
+=======
+        console.error('[squish] Error getting snapshot:', error);
+>>>>>>> pr-3-branch
         return null;
     }
 }

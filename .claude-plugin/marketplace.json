@@ -6,8 +6,8 @@
   "plugins": [
     {
       "name": "squish",
-      "version": "0.3.0",
-      "description": "Local-first persistent memory for Claude Code with automatic capture, lifecycle management, and context injection",
+      "version": "0.4.0",
+      "description": "Two-tier memory system for Claude Code: Always-visible core memory (persona, user info, project context, notes) + working set management. MCP server with 14 tools accessible via /mcp__squish__ commands. Features: automatic session tracking, privacy-first local storage, lifecycle management, and PostgreSQL team sync.",
       "author": {
         "name": "michielhdoteth"
       },
@@ -15,7 +15,34 @@
       "homepage": "https://github.com/michielhdoteth/squish",
       "repository": "https://github.com/michielhdoteth/squish.git",
       "source": "./",
-      "commands": "./commands/"
+      "commands": "./commands/",
+      "mcpServer": true,
+      "features": [
+        "Core Memory System (always-in-context, 2KB limit)",
+        "Context Paging (agent-controlled memory loading)",
+        "14 MCP Tools (remember, recall, search, observe, merge, etc.)",
+        "Automatic session hooks (capture, injection, lifecycle)",
+        "Privacy-first local SQLite storage",
+        "Optional PostgreSQL for team collaboration",
+        "Semantic + full-text search",
+        "Memory lifecycle management"
+      ],
+      "mcpTools": [
+        "/mcp__squish__core_memory_view - View core memory sections",
+        "/mcp__squish__core_memory_edit - Edit core memory section",
+        "/mcp__squish__core_memory_append - Append to core memory",
+        "/mcp__squish__load_to_context - Load memory to working set",
+        "/mcp__squish__evict_from_context - Remove from working set",
+        "/mcp__squish__view_loaded_memories - View working set",
+        "/mcp__squish__context_status - Check memory system status",
+        "/mcp__squish__remember - Store new memory",
+        "/mcp__squish__recall - Retrieve memory by ID",
+        "/mcp__squish__search - Semantic search memories",
+        "/mcp__squish__observe - Capture tool/action observations",
+        "/mcp__squish__merge - Merge duplicate memories",
+        "/mcp__squish__health - Check system health",
+        "/mcp__squish__context - View context window info"
+      ]
     }
   ]
 }

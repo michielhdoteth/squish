@@ -6,7 +6,10 @@ import { eq } from 'drizzle-orm';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
 import { config } from '../../config.js';
+<<<<<<< HEAD
 import { logger } from '../logger.js';
+=======
+>>>>>>> pr-3-branch
 /**
  * Generic memory operation with governance checks and error handling
  */
@@ -23,7 +26,11 @@ export async function performMemoryOperation(memoryId, operation) {
             .where(eq(schema.memories.id, memoryId));
     }
     catch (error) {
+<<<<<<< HEAD
         logger.error(`Error ${operation.name.toLowerCase()}`, error);
+=======
+        console.error(`[squish] Error ${operation.name.toLowerCase()}:`, error);
+>>>>>>> pr-3-branch
     }
 }
 /**
@@ -35,7 +42,11 @@ export async function performRedisPublish(getRedisClient, channel, message) {
         await redis.publish(channel, JSON.stringify(message));
     }
     catch (error) {
+<<<<<<< HEAD
         logger.error('Error publishing to Redis', error);
+=======
+        console.error('[squish] Error publishing to Redis:', error);
+>>>>>>> pr-3-branch
     }
 }
 //# sourceMappingURL=memory-operations.js.map

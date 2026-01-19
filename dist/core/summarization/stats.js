@@ -5,7 +5,10 @@
 import { eq } from 'drizzle-orm';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
+<<<<<<< HEAD
 import { logger } from '../logger.js';
+=======
+>>>>>>> pr-3-branch
 /**
  * Get summarization statistics
  */
@@ -40,7 +43,11 @@ export async function getSummarizationStats(projectId) {
         return stats;
     }
     catch (error) {
+<<<<<<< HEAD
         logger.error('Error getting summarization stats', error);
+=======
+        console.error('[squish] Error getting summarization stats:', error);
+>>>>>>> pr-3-branch
         return {
             totalSummaries: 0,
             byType: {},

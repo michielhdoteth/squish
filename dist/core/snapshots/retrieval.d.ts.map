@@ -1,1 +1,5 @@
+<<<<<<< HEAD
 {"version":3,"file":"retrieval.d.ts","sourceRoot":"","sources":["../../../core/snapshots/retrieval.ts"],"names":[],"mappings":"AAAA;;;GAGG;AAOH,wBAAsB,gBAAgB,CAAC,QAAQ,EAAE,MAAM,EAAE,KAAK,GAAE,MAAW,GAAG,OAAO,CAAC,GAAG,EAAE,CAAC,CAe3F;AAED,wBAAsB,iBAAiB,CAAC,UAAU,EAAE,MAAM,GAAG,OAAO,CAAC,GAAG,CAAC,CAgBxE"}
+=======
+{"version":3,"file":"retrieval.d.ts","sourceRoot":"","sources":["../../../core/snapshots/retrieval.ts"],"names":[],"mappings":"AAAA;;;GAGG;AAMH,wBAAsB,gBAAgB,CAAC,QAAQ,EAAE,MAAM,EAAE,KAAK,GAAE,MAAW,GAAG,OAAO,CAAC,GAAG,EAAE,CAAC,CAe3F;AAED,wBAAsB,iBAAiB,CAAC,UAAU,EAAE,MAAM,GAAG,OAAO,CAAC,GAAG,CAAC,CAgBxE"}
+>>>>>>> pr-3-branch

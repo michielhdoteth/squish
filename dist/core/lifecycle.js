@@ -135,7 +135,11 @@ async function evictOldMemories(projectId, stats) {
         stats.evicted = result?.rowCount || 0;
     }
     catch (error) {
+<<<<<<< HEAD
         logger.error('Error evicting memories', error);
+=======
+        console.error('[squish] Error evicting memories:', error);
+>>>>>>> pr-3-branch
     }
 }
 //# sourceMappingURL=lifecycle.js.map
