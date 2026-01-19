@@ -35,14 +35,21 @@
   "keywords": [
     "claude",
     "claude-code",
-    "plugin",
+    "claude-plugin",
+    "mcp-server",
+    "model-context-protocol",
     "memory",
     "persistent-memory",
+    "core-memory",
+    "context-management",
     "semantic-search",
     "full-text-search",
     "local-first",
     "privacy",
-    "ai-assistant"
+    "ai-assistant",
+    "agent-memory",
+    "slash-commands",
+    "two-tier-architecture"
   ],
   "files": [
     "dist",

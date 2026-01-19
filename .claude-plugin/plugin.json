@@ -1,7 +1,7 @@
 {
   "name": "squish",
-  "version": "0.3.0",
-  "description": "Local-first persistent memory for Claude Code with lifecycle management, agent isolation, memory governance, and team sync",
+  "version": "0.4.0",
+  "description": "Two-tier persistent memory system for Claude Code: Always-in-context core memory + agent-controlled working set. Features: Core memory (persona, user context, project notes), context paging, automatic session tracking, privacy-first local storage, lifecycle management, and team sync.",
   "author": {
     "name": "michielhdoteth"
   },
@@ -11,13 +11,20 @@
   "keywords": [
     "claude",
     "claude-code",
-    "plugin",
+    "claude-plugin",
+    "mcp-server",
     "memory",
     "persistent-memory",
+    "core-memory",
+    "context-management",
     "semantic-search",
     "full-text-search",
     "local-first",
-    "privacy"
+    "privacy",
+    "agent-memory",
+    "slash-commands",
+    "two-tier-architecture"
   ],
+  "mcpServer": true,
   "commands": "./commands/"
 }
