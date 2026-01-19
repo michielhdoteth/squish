@@ -9,7 +9,6 @@
   "license": "MIT",
   "homepage": "https://github.com/michielhdoteth/squish#readme",
   "repository": "https://github.com/michielhdoteth/squish.git",
-  "mcpServer": true,
   "commands": "./commands/",
   "hooks": "./hooks/hooks.json",
   "mcpServers": "./.mcp.json",
