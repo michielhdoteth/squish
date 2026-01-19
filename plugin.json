@@ -10,7 +10,6 @@
   "homepage": "https://github.com/michielhdoteth/squish#readme",
   "repository": "https://github.com/michielhdoteth/squish.git",
   "commands": "./commands/",
-  "hooks": "./hooks/hooks.json",
   "mcpServers": "./.mcp.json",
   "keywords": [
     "claude",
