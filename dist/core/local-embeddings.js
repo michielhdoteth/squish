@@ -70,33 +70,6 @@ export async function initializeEmbeddingProvider() {
         currentProvider = new LocalTfidfEmbeddingProvider();
     }
 }
-export async function generateEmbedding(text) {
-    if (!currentProvider)
-        await initializeEmbeddingProvider();
-    return currentProvider?.embed(text) ?? Array(EMBEDDING_DIMENSIONS).fill(0);
-}
-export async function isEmbeddingAvailable() {
-    if (!currentProvider)
-        await initializeEmbeddingProvider();
-    return currentProvider?.isAvailable() ?? false;
-}
-export function getEmbeddingDimensions() {
-    return EMBEDDING_DIMENSIONS;
-}
-export function serializeEmbedding(embedding) {
-    const buffer = Buffer.alloc(embedding.length * 4);
-    for (let i = 0; i < embedding.length; i++) {
-        buffer.writeFloatLE(embedding[i], i * 4);
-    }
-    return buffer;
-}
-export function deserializeEmbedding(buffer) {
-    const embedding = [];
-    for (let i = 0; i < buffer.length; i += 4) {
-        embedding.push(buffer.readFloatLE(i));
-    }
-    return embedding;
-}
 export function cosineSimilarity(a, b) {
     if (a.length !== b.length) {
         throw new Error('Embeddings must have same dimensions');
@@ -111,22 +84,5 @@ export function cosineSimilarity(a, b) {
     }
     const denominator = Math.sqrt(normA) * Math.sqrt(normB);
     return denominator === 0 ? 0 : dotProduct / denominator;
-}
-export function euclideanDistance(a, b) {
-    if (a.length !== b.length) {
-        throw new Error('Embeddings must have same dimensions');
-    }
-    let sum = 0;
-    for (let i = 0; i < a.length; i++) {
-        const diff = a[i] - b[i];
-        sum += diff * diff;
-    }
-    return Math.sqrt(sum);
-}
-export function findNearestNeighbors(query, candidates, k = 5) {
-    return candidates
-        .map(c => ({ id: c.id, similarity: cosineSimilarity(query, c.embedding) }))
-        .sort((a, b) => b.similarity - a.similarity)
-        .slice(0, k);
 }
 //# sourceMappingURL=local-embeddings.js.map

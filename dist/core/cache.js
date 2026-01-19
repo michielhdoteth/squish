@@ -52,34 +52,6 @@ export async function cacheSet(key, value, ttlMs = 3600000) {
     // Memory cache fallback
     memoryCache.set(key, { value, expires: Date.now() + ttlMs });
 }
-export async function cacheDel(key) {
-    try {
-        const r = await initRedis();
-        if (r) {
-            await r.del(key);
-            return;
-        }
-    }
-    catch (error) {
-        console.error('Redis DEL failed, falling back to memory:', error);
-    }
-    // Memory cache fallback
-    memoryCache.delete(key);
-}
-export async function cacheFlush() {
-    try {
-        const r = await initRedis();
-        if (r) {
-            await r.flushDb();
-            return;
-        }
-    }
-    catch (error) {
-        console.error('Redis FLUSH failed, falling back to memory:', error);
-    }
-    // Memory cache fallback
-    memoryCache.clear();
-}
 export async function checkRedisHealth() {
     if (!config.redisEnabled)
         return true;

@@ -1,0 +1,1 @@
+{"version":3,"file":"stats.d.ts","sourceRoot":"","sources":["../../../core/summarization/stats.ts"],"names":[],"mappings":"AAAA;;;GAGG;AAMH;;GAEG;AACH,wBAAsB,qBAAqB,CAAC,SAAS,CAAC,EAAE,MAAM,GAAG,OAAO,CAAC;IACvE,cAAc,EAAE,MAAM,CAAC;IACvB,MAAM,EAAE,MAAM,CAAC,MAAM,EAAE,MAAM,CAAC,CAAC;IAC/B,gBAAgB,EAAE,MAAM,CAAC;IACzB,mBAAmB,EAAE,MAAM,CAAC;CAC7B,CAAC,CA6CD"}

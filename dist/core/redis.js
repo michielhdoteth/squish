@@ -1,4 +1,5 @@
 import { createClient } from 'redis';
+import { performRedisPublish } from './utils/memory-operations.js';
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
 let client = null;
 export async function getRedisClient() {
@@ -44,8 +45,7 @@ export async function cacheClear(pattern) {
 }
 // Pub/Sub for real-time sync
 export async function publish(channel, message) {
-    const redis = await getRedisClient();
-    await redis.publish(channel, JSON.stringify(message));
+    await performRedisPublish(getRedisClient, channel, message);
 }
 export async function subscribe(channel, callback) {
     const subscriber = (await getRedisClient()).duplicate();

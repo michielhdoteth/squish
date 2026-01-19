@@ -2,10 +2,13 @@
  * Temporal Facts System
  * Manages versioned facts with validity windows
  */
-import { and, eq, lte, gte, or, isNull, desc } from 'drizzle-orm';
+import { and, eq, gte, desc } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
 import { getSchema } from '../db/schema.js';
+import { traverseSupersededChain } from './utils/history-traversal.js';
+import { createNewFactVersion } from './utils/version-management.js';
+import { buildFactAtTimeQuery } from './utils/temporal-queries.js';
 /**
  * Store a new fact with temporal validity
  */
@@ -39,53 +42,7 @@ export async function storeFact(content, options = {}) {
  * Update a fact by creating a new version
  */
 export async function updateFact(previousFactId, newContent, reason) {
-    try {
-        const db = await getDb();
-        const schema = await getSchema();
-        // Get previous fact
-        const previous = await db
-            .select()
-            .from(schema.memories)
-            .where(eq(schema.memories.id, previousFactId))
-            .limit(1);
-        if (previous.length === 0) {
-            throw new Error('Previous fact not found');
-        }
-        const prevFact = previous[0];
-        const now = new Date();
-        // Expire previous fact
-        await db
-            .update(schema.memories)
-            .set({ validTo: now })
-            .where(eq(schema.memories.id, previousFactId));
-        // Create new version
-        const newFactId = randomUUID();
-        await db.insert(schema.memories).values({
-            id: newFactId,
-            type: 'fact',
-            sector: 'semantic',
-            content: newContent,
-            confidence: prevFact.confidence,
-            validFrom: now,
-            validTo: null,
-            version: (prevFact.version || 1) + 1,
-            tags: prevFact.tags,
-            projectId: prevFact.projectId,
-            metadata: { supersedes: previousFactId, reason },
-            createdAt: now,
-            updatedAt: now,
-        });
-        // Link as supersedes
-        await db
-            .update(schema.memories)
-            .set({ supersededBy: newFactId })
-            .where(eq(schema.memories.id, previousFactId));
-        return newFactId;
-    }
-    catch (error) {
-        console.error('[squish] Error updating fact:', error);
-        throw error;
-    }
+    return createNewFactVersion(previousFactId, newContent, {}, reason);
 }
 /**
  * Query facts valid at a specific point in time
@@ -96,11 +53,11 @@ export async function queryFactsAtTime(timestamp = new Date(), options = {}) {
         const schema = await getSchema();
         const minConfidence = options.minConfidence || 0;
         const limit = options.limit || 100;
-        // Find facts valid at timestamp
-        let where = and(eq(schema.memories.type, 'fact'), lte(schema.memories.validFrom, timestamp), or(isNull(schema.memories.validTo), gte(schema.memories.validTo, timestamp)), gte(schema.memories.confidence, minConfidence));
+        const additionalFilters = [gte(schema.memories.confidence, minConfidence)];
         if (options.projectId) {
-            where = and(where, eq(schema.memories.projectId, options.projectId));
+            additionalFilters.push(eq(schema.memories.projectId, options.projectId));
         }
+        const where = buildFactAtTimeQuery(schema, timestamp, additionalFilters);
         const results = await db
             .select()
             .from(schema.memories)
@@ -118,38 +75,7 @@ export async function queryFactsAtTime(timestamp = new Date(), options = {}) {
  * Get the complete version history of a fact
  */
 export async function getFactHistory(factId) {
-    try {
-        const db = await getDb();
-        const schema = await getSchema();
-        // Get the starting fact
-        const initial = await db
-            .select()
-            .from(schema.memories)
-            .where(eq(schema.memories.id, factId))
-            .limit(1);
-        if (initial.length === 0) {
-            return [];
-        }
-        const history = [initial[0]];
-        let currentId = initial[0].supersededBy;
-        // Follow the chain of supersessions
-        while (currentId) {
-            const next = await db
-                .select()
-                .from(schema.memories)
-                .where(eq(schema.memories.id, currentId))
-                .limit(1);
-            if (next.length === 0)
-                break;
-            history.push(next[0]);
-            currentId = next[0].supersededBy;
-        }
-        return history;
-    }
-    catch (error) {
-        console.error('[squish] Error getting fact history:', error);
-        return [];
-    }
+    return traverseSupersededChain(factId);
 }
 /**
  * Apply confidence decay based on temporal distance
@@ -204,10 +130,12 @@ export async function isFactValid(factId, atTime = new Date()) {
     try {
         const db = await getDb();
         const schema = await getSchema();
+        const additionalFilters = [eq(schema.memories.id, factId)];
+        const where = buildFactAtTimeQuery(schema, atTime, additionalFilters);
         const fact = await db
             .select()
             .from(schema.memories)
-            .where(and(eq(schema.memories.id, factId), eq(schema.memories.type, 'fact'), lte(schema.memories.validFrom, atTime), or(isNull(schema.memories.validTo), gte(schema.memories.validTo, atTime))))
+            .where(where)
             .limit(1);
         return fact.length > 0;
     }

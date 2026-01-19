@@ -19,33 +19,4 @@ export declare function storeAgentMemory(content: string, context: AgentContext,
     tags?: string[];
     metadata?: Record<string, unknown>;
 }): Promise<string>;
-/**
- * Search memories accessible to an agent
- */
-export declare function searchAgentMemories(query: string, context: AgentContext, options?: {
-    includeShared?: boolean;
-    limit?: number;
-    type?: string;
-}): Promise<any[]>;
-/**
- * Get pinned memories for an agent
- */
-export declare function getPinnedMemories(context: AgentContext, limit?: number): Promise<any[]>;
-/**
- * Check if an agent can access a memory
- */
-export declare function canAgentAccessMemory(memoryId: string, context: AgentContext): Promise<boolean>;
-/**
- * List all agents that have stored memories
- */
-export declare function listAgents(): Promise<any[]>;
-/**
- * Get memory statistics for an agent
- */
-export declare function getAgentStats(context: AgentContext): Promise<{
-    totalMemories: number;
-    byType: Record<string, number>;
-    bySector: Record<string, number>;
-    sharedMemories: number;
-}>;
 //# sourceMappingURL=agent-memory.d.ts.map

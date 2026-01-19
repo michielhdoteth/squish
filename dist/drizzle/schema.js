@@ -357,6 +357,51 @@ export const memoryHashCache = pgTable('memory_hash_cache', {
     index('memory_hash_cache_project_id_idx').on(table.projectId),
     index('memory_hash_cache_simhash_idx').on(table.simhash), // For Hamming distance queries
 ]);
+/**
+ * Core Memory - Always-in-context memory (Tier 1)
+ * Small, persistent, always-visible memory block (< 2KB total)
+ */
+export const coreMemory = pgTable('core_memory', {
+    id: uuid('id').primaryKey().defaultRandom(),
+    projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+    // Core memory sections
+    section: text('section').notNull().$type(),
+    content: text('content').notNull().default(''),
+    sizeBytes: integer('size_bytes').default(0).notNull(),
+    // Version tracking
+    version: integer('version').default(1).notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => [
+    index('core_memory_project_idx').on(table.projectId),
+    index('core_memory_user_idx').on(table.userId),
+    index('core_memory_section_idx').on(table.section),
+]);
+/**
+ * Context Sessions - Track loaded memories and context window usage
+ */
+export const contextSessions = pgTable('context_sessions', {
+    id: uuid('id').primaryKey().defaultRandom(),
+    sessionId: text('session_id').notNull().unique(),
+    projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+    // Loaded memories (paging system)
+    loadedMemoryIds: text('loaded_memory_ids').array().default([]),
+    // Token tracking
+    tokenBudget: integer('token_budget').default(8000).notNull(),
+    tokensUsed: integer('tokens_used').default(0).notNull(),
+    coreMemoryTokens: integer('core_memory_tokens').default(0).notNull(),
+    loadedMemoriesTokens: integer('loaded_memories_tokens').default(0).notNull(),
+    // Session metadata
+    metadata: jsonb('metadata').$type(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => [
+    index('context_sessions_session_idx').on(table.sessionId),
+    index('context_sessions_project_idx').on(table.projectId),
+    index('context_sessions_created_idx').on(table.createdAt),
+]);
 // ============================================================================
 // Relations (Drizzle ORM)
 // ============================================================================

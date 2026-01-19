@@ -94,25 +94,6 @@ export async function getRelatedMemories(memoryId, limit = 10) {
     }
 }
 /**
- * Get association strength between two memories
- */
-export async function getAssociationWeight(fromMemoryId, toMemoryId) {
-    try {
-        const db = await getDb();
-        const schema = await getSchema();
-        const association = await db
-            .select()
-            .from(schema.memoryAssociations)
-            .where(and(eq(schema.memoryAssociations.fromMemoryId, fromMemoryId), eq(schema.memoryAssociations.toMemoryId, toMemoryId)))
-            .limit(1);
-        return association.length > 0 ? association[0].weight : 0;
-    }
-    catch (error) {
-        console.error('[squish] Error getting association weight:', error);
-        return 0;
-    }
-}
-/**
  * Prune weak associations (weight < threshold)
  */
 export async function pruneWeakAssociations(weightThreshold = 5) {
@@ -163,17 +144,6 @@ export async function getAssociationStats() {
             avgWeight: 0,
             maxWeight: 0,
         };
-    }
-}
-/**
- * Mark a memory as superseding another
- */
-export async function markSupersession(previousMemoryId, newMemoryId) {
-    try {
-        await createAssociation(newMemoryId, previousMemoryId, 'supersedes', 100);
-    }
-    catch (error) {
-        console.error('[squish] Error marking supersession:', error);
     }
 }
 //# sourceMappingURL=associations.js.map

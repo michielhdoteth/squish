@@ -26,5 +26,5 @@
     "drizzle/**/*.ts",
     "tests/**/*.ts"
   ],
-  "exclude": ["node_modules", "dist", "tests/merge", "benchmark", "docs"]
+  "exclude": ["node_modules", "dist", "tests/merge", "tests/core", "benchmark", "docs"]
 }

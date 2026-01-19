@@ -3,6 +3,7 @@ import { eq, desc } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
 import { getSchema } from '../db/schema.js';
+import { cleanupOldMemorySnapshots } from './utils/cleanup-operations.js';
 export async function createBeforeSnapshot(memoryId) {
     try {
         const db = await getDb();
@@ -130,19 +131,7 @@ export async function getMemorySnapshot(snapshotId) {
     }
 }
 export async function deleteOldSnapshots(olderThanDays = 90) {
-    try {
-        const db = await getDb();
-        const schema = await getSchema();
-        const threshold = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000);
-        const result = await db
-            .delete(schema.memorySnapshots)
-            .where(schema.memorySnapshots.createdAt < threshold);
-        return result?.rowCount || 0;
-    }
-    catch (error) {
-        console.error('[squish] Error deleting old snapshots:', error);
-        return 0;
-    }
+    return cleanupOldMemorySnapshots(olderThanDays);
 }
 function extractMetadata(memory) {
     return {
