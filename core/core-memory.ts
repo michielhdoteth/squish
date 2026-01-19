@@ -5,7 +5,7 @@
  * This memory is automatically injected into every agent interaction.
  */
 
-import { eq, and } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import { getDb } from '../db/index.js';
 import { getSchema, type SchemaModule } from '../db/schema.js';
 import { createDatabaseClient } from './database.js';
@@ -146,7 +146,7 @@ export async function editCoreMemorySection(
     .set({
       content,
       sizeBytes,
-      version: (db as any).raw?.('version + 1') || 1,
+      version: sql`${coreMemory.version} + 1`,
       updatedAt: new Date() as any,
     } as any)
     .where(
