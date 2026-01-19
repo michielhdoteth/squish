@@ -1,12 +1,12 @@
 {
-  "name": "squish-memory",
-  "version": "0.4.0",
-  "description": "Two-tier persistent memory system for Claude Code: Always-in-context core memory + agent-controlled working set. MCP server with 14 tools accessible via /mcp__squish__ slash commands. Features automatic session tracking, privacy-first local storage, and optional PostgreSQL team sync.",
+  "name": "squish",
+  "version": "0.4.1",
+  "description": "Persistent two-tier memory system for Claude Code with semantic search, lifecycle management, and intelligent context paging",
   "author": {
     "name": "michielhdoteth"
   },
   "license": "MIT",
-  "homepage": "https://github.com/michielhdoteth/squish",
+  "homepage": "https://github.com/michielhdoteth/squish#readme",
   "repository": "https://github.com/michielhdoteth/squish.git",
   "keywords": [
     "claude",

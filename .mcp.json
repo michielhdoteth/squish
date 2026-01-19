@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "squish": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/dist/index.js"],
+      "env": {
+        "SQUISH_MODE": "local",
+        "NODE_ENV": "production"
+      }
+    }
+  }
+}

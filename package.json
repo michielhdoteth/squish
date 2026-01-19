@@ -1,6 +1,6 @@
 {
   "name": "squish",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Local-first persistent memory for Claude Code with lifecycle management, agent isolation, memory governance, and team sync",
   "main": "dist/index.js",
   "type": "module",
@@ -54,8 +54,14 @@
   "files": [
     "dist",
     "plugin.json",
+    ".claude-plugin",
+    "commands",
+    "skills",
+    "hooks",
+    ".mcp.json",
     "LICENSE",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md"
   ],
   "author": "michielhdoteth",
   "license": "MIT",
