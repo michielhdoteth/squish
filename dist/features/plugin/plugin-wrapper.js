@@ -11,6 +11,9 @@ import { getPinnedMemories } from '../../core/governance.js';
 import { summarizeSession } from '../../core/summarization.js';
 import { forceLifecycleMaintenance } from '../../core/worker.js';
 import { config } from '../../config.js';
+import { initializeCoreMemory } from '../../core/core-memory.js';
+import { initializeContextSession } from '../../core/context-paging.js';
+import { ensureProject } from '../../core/projects.js';
 function getProjectPath(context) {
     return context.workingDirectory || process.cwd();
 }
@@ -34,6 +37,23 @@ export async function onInstall(_context) {
 export async function onSessionStart(context) {
     const projectPath = getProjectPath(context);
     console.error(`[squish] Session started in ${projectPath}`);
+    // Initialize core memory and context session for this project
+    try {
+        const project = await ensureProject(projectPath);
+        if (project?.id) {
+            // Initialize core memory (creates sections if they don't exist)
+            await initializeCoreMemory(project.id);
+            console.error('[squish] Core memory initialized');
+            // Initialize context session tracking
+            if (context.sessionId) {
+                await initializeContextSession(context.sessionId, project.id);
+                console.error('[squish] Context session initialized');
+            }
+        }
+    }
+    catch (error) {
+        console.error('[squish] Failed to initialize core memory/session:', error);
+    }
     if (context.config?.autoInject !== false) {
         await injectContextIntoSession(context, projectPath).catch(err => console.error('[squish] Context injection error:', err));
     }
