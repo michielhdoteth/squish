@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "defaults": {
+    "connectionTimeoutMs": 15000,
+    "requestTimeoutMs": 60000,
+    "maxConcurrentToolCalls": 4,
+    "retry": {
+      "enabled": true,
+      "maxAttempts": 3,
+      "backoffMs": 400
+    },
+    "lazyToolDiscovery": true,
+    "resultMaxChars": 12000
+  },
+  "servers": {
+    "filesystem": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "."],
+      "env": {}
+    },
+    "github": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN}"
+      }
+    }
+  }
+}

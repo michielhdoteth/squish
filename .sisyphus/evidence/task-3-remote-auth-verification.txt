@@ -1,0 +1,17 @@
+Task: T3 remote auth contract (token-first, oauth-capable)
+Timestamp: 2026-02-28
+
+Files added/updated:
+- tests/mcp/remote-auth-contract.test.ts
+- config/mcp-remote-auth.json
+- docs/MCP-MODEL.md
+
+Verification executed:
+1) bunx vitest run tests/mcp/universal-contract.test.ts tests/mcp/mode-semantics.test.ts tests/mcp/remote-auth-contract.test.ts
+   Result: PASS (7 tests)
+
+2) lsp_diagnostics tests/mcp/remote-auth-contract.test.ts
+   Result: No diagnostics
+
+3) node -e "JSON.parse(...)" on config/mcp-remote-auth.json
+   Result: PASS (auth-json-ok)

@@ -1,0 +1,12 @@
+{
+  "connectionTimeoutMs": 15000,
+  "lazyToolDiscovery": true,
+  "maxConcurrentToolCalls": 4,
+  "requestTimeoutMs": 60000,
+  "resultMaxChars": 12000,
+  "retry": {
+    "backoffMs": 400,
+    "enabled": true,
+    "maxAttempts": 3
+  }
+}

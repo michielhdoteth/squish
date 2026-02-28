@@ -1,0 +1,24 @@
+# Files to exclude from npm package
+node_modules/
+.github/
+docs/
+infra/
+scripts/
+tests/
+*.test.js
+*.test.ts
+*.log
+.env*
+.vscode/
+.idea/
+*.tmp
+coverage/
+.nyc_output/
+.cache/
+.DS_Store
+Thumbs.db
+
+# Keep source files for development installs
+# (Remove this if you want to publish only dist files)
+!src/
+!features/

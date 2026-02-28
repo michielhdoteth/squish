@@ -1,0 +1,32 @@
+{
+  "name": "squish",
+  "version": "0.6.0",
+  "description": "11 consolidated MCP tools for persistent two-tier memory system: core_memory, context_paging, merge, plus semantic search, lifecycle management, and intelligent context paging",
+  "author": {
+    "name": "michielhdoteth",
+    "url": "https://github.com/michielhdoteth"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/michielhdoteth/squish#readme",
+  "repository": "https://github.com/michielhdoteth/squish.git",
+  "commands": "./commands/",
+  "mcpServers": "./.mcp.json",
+  "keywords": [
+    "claude",
+    "claude-code",
+    "claude-plugin",
+    "mcp-server",
+    "memory",
+    "persistent-memory",
+    "core-memory",
+    "context-management",
+    "semantic-search",
+    "full-text-search",
+    "local-first",
+    "privacy",
+    "agent-memory",
+    "slash-commands",
+    "two-tier-architecture",
+    "model-context-protocol"
+  ]
+}

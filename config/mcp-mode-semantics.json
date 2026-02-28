@@ -1,0 +1,21 @@
+{
+  "canonicalModes": [
+    "local",
+    "remote"
+  ],
+  "defaultMode": "local",
+  "legacyAliases": {
+    "team": "remote"
+  },
+  "legacyPolicy": {
+    "action": "warn-and-map",
+    "untilVersion": "1.0.0"
+  },
+  "remoteAuth": {
+    "supported": [
+      "oauth",
+      "token"
+    ],
+    "defaultForCli": "token"
+  }
+}

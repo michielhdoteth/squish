@@ -1,0 +1,17 @@
+Task: T11 CI workflow hooks for MCP smoke checks
+Timestamp: 2026-02-28
+
+Files added/updated:
+- .github/workflows/mcp-launch-checks.yml
+
+Local equivalence checks executed:
+1) node scripts/generate-mcp.mjs
+2) node scripts/verify-mcp.mjs
+3) node scripts/install-mcp.mjs --client claude-code --dry-run
+4) node scripts/install-mcp.mjs --client opencode --dry-run
+5) node scripts/install-mcp.mjs --client codex --dry-run
+6) node scripts/install-mcp.mjs --client openclaw --dry-run
+7) node scripts/openclaw-bootstrap.mjs --dry-run --skip-tool-check
+8) bunx vitest run tests/mcp/universal-contract.test.ts tests/mcp/mode-semantics.test.ts tests/mcp/remote-auth-contract.test.ts tests/mcp/generate-mcp-universal.test.ts tests/mcp/install-mcp.test.ts tests/mcp/openclaw-bootstrap.test.ts tests/mcp/verify-mcp.test.ts
+
+Result: PASS

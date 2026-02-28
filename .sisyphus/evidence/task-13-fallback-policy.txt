@@ -1,0 +1,13 @@
+Task: T13 MCP-to-CLI fallback policy
+Timestamp: 2026-02-28
+
+Files added/updated:
+- config/mcp-cli-fallback-policy.json
+- scripts/squish-fallback.mjs
+- tests/mcp/squish-fallback.test.ts
+- package.json
+
+Verification:
+- bunx vitest run tests/mcp/squish-fallback.test.ts -> PASS (4 tests)
+- node scripts/squish-fallback.mjs --op health --simulate-mcp-failure --dry-run
+  -> {"success":true,"executionPath":"cli-fallback",...}

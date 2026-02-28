@@ -1,0 +1,11 @@
+Task: T17 launch package artifacts
+Timestamp: 2026-02-28
+
+Files added:
+- docs/RELEASE-NOTES-UNIVERSAL-MCP.md
+- docs/FAQ-LAUNCH.md
+
+Coverage:
+- release highlights and migration summary
+- operator command set
+- launch FAQ for install/fallback

@@ -1,0 +1,10 @@
+Task: T14 launch install UX
+Timestamp: 2026-02-28
+
+Files added:
+- docs/INSTALL-QUICKSTART.md
+
+Coverage:
+- OpenClaw, Claude Code, OpenCode, Codex install commands
+- Expected outputs for self-verification
+- MCP primary + CLI fallback examples

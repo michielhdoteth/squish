@@ -1,0 +1,114 @@
+{
+  "$schema": "https://raw.githubusercontent.com/michielhdoteth/squish/main/skills/squish-memory/mcp-config.schema.json",
+  "name": "squish-memory",
+  "version": "0.9.0",
+  "description": "Persistent memory system for AI agents with semantic search",
+  "mcpServers": {
+    "squish": {
+      "command": "squish",
+      "args": [],
+      "env": {
+        "SQUISH_MODE": "local",
+        "SQUISH_EMBEDDINGS_PROVIDER": "local"
+      },
+      "transport": "stdio"
+    }
+  },
+  "tools": [
+    {
+      "name": "remember",
+      "description": "Store information in persistent memory with semantic indexing",
+      "parameters": ["content", "type", "metadata"]
+    },
+    {
+      "name": "search",
+      "description": "Search memories using semantic similarity",
+      "parameters": ["query", "limit", "type"]
+    },
+    {
+      "name": "recall",
+      "description": "Retrieve a specific memory by ID",
+      "parameters": ["id"]
+    },
+    {
+      "name": "observe",
+      "description": "Store an observation with automatic pattern detection",
+      "parameters": ["content", "context"]
+    },
+    {
+      "name": "context",
+      "description": "Get relevant context for current project or topic",
+      "parameters": ["topic", "limit"]
+    },
+    {
+      "name": "health",
+      "description": "Check service health and configuration",
+      "parameters": []
+    },
+    {
+      "name": "core_memory",
+      "description": "Manage always-visible context sections",
+      "parameters": ["action", "section", "content"]
+    },
+    {
+      "name": "forget",
+      "description": "Delete a memory by ID",
+      "parameters": ["id"]
+    },
+    {
+      "name": "update",
+      "description": "Update an existing memory",
+      "parameters": ["id", "content", "metadata"]
+    },
+    {
+      "name": "list",
+      "description": "List all memories with optional filtering",
+      "parameters": ["type", "limit", "offset"]
+    },
+    {
+      "name": "stats",
+      "description": "Get memory statistics and usage info",
+      "parameters": []
+    },
+    {
+      "name": "consolidate",
+      "description": "Merge similar memories to reduce redundancy",
+      "parameters": ["similarityThreshold"]
+    },
+    {
+      "name": "export",
+      "description": "Export memories to JSON",
+      "parameters": ["type", "outputPath"]
+    },
+    {
+      "name": "import",
+      "description": "Import memories from JSON",
+      "parameters": ["inputPath"]
+    }
+  ],
+  "cli": {
+    "binary": "squish",
+    "commands": {
+      "health": "Check service health",
+      "remember": "Store a memory",
+      "search": "Search memories",
+      "recall": "Get memory by ID",
+      "core_memory": "Manage core memory",
+      "stats": "View statistics",
+      "list": "List all memories"
+    }
+  },
+  "memoryTypes": [
+    "fact",
+    "decision",
+    "preference",
+    "observation",
+    "context",
+    "note"
+  ],
+  "defaults": {
+    "mode": "local",
+    "dataDir": "~/.squish",
+    "embeddingsProvider": "local"
+  }
+}

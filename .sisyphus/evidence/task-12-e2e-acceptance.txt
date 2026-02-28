@@ -1,0 +1,16 @@
+Task: T12 end-to-end acceptance
+Timestamp: 2026-02-28
+
+Command matrix executed:
+- node scripts/generate-mcp.mjs
+- node scripts/verify-mcp.mjs
+- node scripts/install-mcp.mjs --client claude-code --dry-run
+- node scripts/install-mcp.mjs --client opencode --dry-run
+- node scripts/install-mcp.mjs --client codex --dry-run
+- node scripts/install-mcp.mjs --client openclaw --dry-run
+- node scripts/openclaw-bootstrap.mjs --dry-run --skip-tool-check
+- node scripts/squish-fallback.mjs --op search --mcp-enabled --dry-run
+- node scripts/squish-fallback.mjs --op search --simulate-mcp-failure --dry-run
+- bunx vitest run tests/mcp/universal-contract.test.ts tests/mcp/mode-semantics.test.ts tests/mcp/remote-auth-contract.test.ts tests/mcp/generate-mcp-universal.test.ts tests/mcp/install-mcp.test.ts tests/mcp/openclaw-bootstrap.test.ts tests/mcp/verify-mcp.test.ts tests/mcp/squish-fallback.test.ts
+
+Result: PASS (8 files, 19 tests)

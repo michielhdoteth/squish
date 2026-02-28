@@ -1,0 +1,60 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+*.tgz
+
+# Environment
+.env
+.env.local
+.env.production
+
+# Logs
+*.log
+npm-debug.log*
+squish.log
+squish-test.log
+
+# OS files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Windows artifacts
+NUL
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Squish runtime data (project-local database and cache)
+.squish/
+*.db
+*.db-journal
+
+# References and opencode directories
+references/
+opencode/
+
+# Planning/launch docs generated during execution (keep local, do not commit)
+.sisyphus/plans/squish-launch-100-ready.md
+docs/MEMORY-SYSTEM.md
+docs/MEMORY-GOVERNANCE.md
+docs/MEMORY-LIFECYCLE.md
+docs/COMPETITIVE-ANALYSIS.md
+docs/POSITIONING.md
+docs/ROADMAP.md

@@ -1,0 +1,10 @@
+Task: T18 go/no-go and rollback protocol
+Timestamp: 2026-02-28
+
+Files added:
+- docs/GO-NO-GO-ROLLBACK.md
+
+Coverage:
+- go criteria and no-go triggers
+- rollback protocol
+- day-1 monitoring checklist

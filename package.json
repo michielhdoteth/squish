@@ -1,0 +1,113 @@
+{
+  "name": "squish-memory",
+  "version": "0.9.0",
+  "description": "The memory layer for AI agents - give Claude Code, OpenClaw, or any MCP client persistent, intelligent memory",
+  "main": "dist/index.js",
+  "type": "module",
+  "bin": {
+    "squish": "dist/index.js",
+    "squish-install": "npx-installer.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "web": "node dist/features/web/web-server.js",
+    "dev": "bun --hot src/index.ts",
+    "verify:mcp": "node scripts/verify-mcp.mjs",
+    "preflight:remote": "node scripts/remote-preflight.mjs",
+    "fallback:dry": "node scripts/squish-fallback.mjs --op health --simulate-mcp-failure --dry-run",
+    "test": "node --test dist/tests/**/*.test.js",
+    "clean": "rm -rf dist *.log",
+    "bench": "bun benchmark/memory.ts",
+    "bench:db": "bun benchmark/run.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio",
+    "prepublishOnly": "npm run clean && npm run build",
+    "prepare": "npm run build",
+    "postinstall": "node scripts/init-dirs.mjs",
+    "release": "./scripts/build-release.sh && ./scripts/github-release.sh"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/michielhdoteth/squish.git"
+  },
+  "homepage": "https://github.com/michielhdoteth/squish#readme",
+  "funding": {
+    "type": "github",
+    "url": "https://github.com/sponsors/michielhdoteth"
+  },
+  "bugs": {
+    "url": "https://github.com/michielhdoteth/squish/issues"
+  },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "claude-plugin",
+    "mcp-server",
+    "model-context-protocol",
+    "memory",
+    "persistent-memory",
+    "core-memory",
+    "context-management",
+    "semantic-search",
+    "openclaw",
+    "local-first",
+    "privacy",
+    "ai-assistant",
+    "agent-memory"
+  ],
+  "files": [
+    "dist",
+    "scripts",
+    "plugin.json",
+    ".claude-plugin",
+    "commands",
+    "skills",
+    "hooks",
+    ".mcp.json",
+    "LICENSE",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "author": "michielhdoteth",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.27.1",
+    "better-sqlite3": "12.6.2",
+    "bull": "^4.16.0",
+    "commander": "^12.0.0",
+    "cors": "2.8.6",
+    "dotenv": "^16.4.0",
+    "drizzle-orm": "^0.38.0",
+    "express": "^4.21.0",
+    "pg": "8.19.0",
+    "pgvector": "^0.2.0",
+    "redis": "^4.7.0",
+    "tree-sitter": "^0.22.0",
+    "tree-sitter-javascript": "^0.23.0",
+    "tree-sitter-python": "^0.23.0",
+    "tree-sitter-typescript": "^0.23.0",
+    "uuid": "^9.0.1",
+    "ws": "^8.18.0",
+    "zod": "^3.24.0",
+    "node-cron": "^3.0.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.0.0",
+    "@types/pg": "^8.11.10",
+    "@types/node-cron": "^3.0.11",
+    "@types/ws": "^8.5.13",
+    "drizzle-kit": "^0.30.0",
+    "pkg": "^5.8.1",
+    "typescript": "^5.7.0",
+    "vitest": "^4.0.17"
+  }
+}

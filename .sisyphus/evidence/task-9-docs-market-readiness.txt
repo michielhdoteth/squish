@@ -1,0 +1,26 @@
+Task: T9 docs update for market-ready positioning
+Timestamp: 2026-02-28
+
+Files updated:
+- README.md
+- docs/CLAUDE.md
+- docs/map.md
+- skills/squish-memory/SKILL.md
+- skills/squish-memory/install.sh
+- skills/memory-guide/SKILL.md
+
+Key outcomes:
+- Reframed docs to universal MCP + local/remote model
+- Added npm package clarity (`squish-memory`, latest 0.8.2)
+- Kept CLI fallback messaging while preserving MCP-first positioning
+- Removed stale team mode wording in README/docs
+
+Verification:
+1) grep team mode in README/docs
+   Result: no matches
+
+2) bash -n skills/squish-memory/install.sh
+   Result: syntax valid
+
+3) bunx vitest run tests/mcp/universal-contract.test.ts tests/mcp/mode-semantics.test.ts tests/mcp/remote-auth-contract.test.ts tests/mcp/generate-mcp-universal.test.ts tests/mcp/install-mcp.test.ts tests/mcp/openclaw-bootstrap.test.ts
+   Result: PASS (13 tests)

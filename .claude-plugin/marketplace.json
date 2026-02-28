@@ -1,0 +1,20 @@
+{
+  "name": "squish-memory",
+  "owner": {
+    "name": "michielhdoteth"
+  },
+  "plugins": [
+    {
+      "name": "squish",
+      "version": "0.9.0",
+      "description": "The memory layer for AI agents. Give Claude Code persistent, intelligent memory with trigger detection, contradiction resolution, and hybrid search. Works with any MCP client.",
+      "author": {
+        "name": "michielhdoteth"
+      },
+      "license": "MIT",
+      "homepage": "https://github.com/michielhdoteth/squish",
+      "repository": "https://github.com/michielhdoteth/squish.git",
+      "source": "./"
+    }
+  ]
+}

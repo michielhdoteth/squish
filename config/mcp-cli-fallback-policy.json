@@ -1,0 +1,22 @@
+{
+  "allowOperations": [
+    "remember",
+    "search",
+    "recall",
+    "health"
+  ],
+  "denyPatterns": [
+    "docker\\s+",
+    "\\|",
+    "&&",
+    ";",
+    "`",
+    "\\$\\("
+  ],
+  "fallbackTriggers": [
+    "mcp-unreachable",
+    "mcp-timeout",
+    "mcp-schema-error"
+  ],
+  "telemetryField": "executionPath"
+}

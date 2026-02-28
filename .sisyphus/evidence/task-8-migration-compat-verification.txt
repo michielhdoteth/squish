@@ -1,0 +1,18 @@
+Task: T8 legacy profile migration + compatibility messaging
+Timestamp: 2026-02-28
+
+Files added/updated:
+- config/mcp.json (profiles removed; universal-only shape)
+- scripts/generate-mcp.mjs (migration warnings + legacy directory cleanup reporting)
+- tests/mcp/generate-mcp-universal.test.ts
+- docs/MCP-MIGRATION.md
+
+Verification executed:
+1) bunx vitest run tests/mcp/generate-mcp-universal.test.ts
+   Result: PASS (2 tests)
+
+2) node scripts/generate-mcp.mjs
+   Result: PASS (artifacts generated, no legacy profile dirs)
+
+3) node scripts/verify-mcp.mjs
+   Result: PASS (checksum and reproducibility checks)
