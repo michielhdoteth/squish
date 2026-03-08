@@ -72,3 +72,36 @@ function normalizeProject(row: any): ProjectRecord {
     metadata,
   };
 }
+
+
+export async function getAllProjects(): Promise<ProjectRecord[]> {
+  try {
+    const db = createDatabaseClient(await getDb());
+    const schema = await getSchema();
+    const rows = await db.select().from(schema.projects);
+    return rows.map(normalizeProject);
+  } catch (error: any) {
+    if (error.message?.includes('Database unavailable') ||
+        error.message?.includes('not a valid Win32 application')) {
+      return []; // Graceful degradation - database unavailable
+    }
+    throw error;
+  }
+}
+
+export async function getProjectById(id: string): Promise<ProjectRecord | null> {
+  try {
+    const db = createDatabaseClient(await getDb());
+    const schema = await getSchema();
+    const rows = await db.select().from(schema.projects).where(eq(schema.projects.id, id)).limit(1);
+    const row = rows[0];
+    if (!row) return null;
+    return normalizeProject(row);
+  } catch (error: any) {
+    if (error.message?.includes('Database unavailable') ||
+        error.message?.includes('not a valid Win32 application')) {
+      return null; // Graceful degradation - database unavailable
+    }
+    throw error;
+  }
+}

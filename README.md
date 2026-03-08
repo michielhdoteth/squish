@@ -89,6 +89,20 @@ squish search "preferences"
 squish health
 ```
 
+### Universal API Example
+```bash
+# Start the universal HTTP server
+bun run universal:server
+
+# Add memory via HTTP
+curl -X POST http://localhost:3000/api/memories \
+  -H "Content-Type: application/json" \
+  -d '{"content": "User prefers TypeScript", "type": "preference", "container": "my-project"}'
+
+# Search memories via HTTP
+curl "http://localhost:3000/api/memories/search?q=TypeScript"
+```
+
 **That's it.** One install, persistent memory for your agent.
 
 ## MCP Tools for Agents
@@ -108,10 +122,46 @@ squish health
 - **CLI fallback**: When MCP fails, use `squish` command directly
 - **Local-first**: SQLite by default, Postgres for teams
 
+## Universal API
+
+Squish now provides a universal HTTP API that works with any AI agent:
+
+```typescript
+// Add memory via HTTP
+POST /api/memories
+{
+  "content": "User prefers TypeScript",
+  "type": "preference",
+  "container": "my-project",
+  "tags": ["preferences", "coding-style"]
+}
+
+// Search memories via HTTP
+GET /api/memories/search?query=TypeScript&limit=10
+```
+
+**Universal Benefits:**
+- Works with any AI agent (Claude, OpenAI, Anthropic, custom)
+- HTTP RESTful API + WebSocket for real-time sync
+- PostgreSQL + pgvector for scalable memory
+- Docker-ready for easy deployment
+
+### Docker Deployment
+
+```bash
+# Quick start with Docker Compose
+docker-compose -f docker-compose.universal.yml up
+
+# Or deploy to cloud
+docker build -t squish-universal .
+docker run -p 3000:3000 squish-universal
+```
+
 ## Open-Core Model
 
 - **OSS Core (MIT)**: local mode, self-hosted workflows, MCP/CLI tooling
 - **Commercial Remote**: managed remote control plane, enterprise ops, support
+- **Universal API**: HTTP REST + WebSocket for any AI agent
 - **Sponsor development**: https://github.com/sponsors/michielhdoteth
 
 ## Configuration
@@ -120,6 +170,14 @@ squish health
 
 **Required (local mode - default):**
 - None! Works out-of-the-box with local TF-IDF embeddings
+
+**Universal API:**
+```bash
+# For universal HTTP API mode
+DATABASE_URL=postgresql://user:pass@host/db  # Required for universal mode
+REDIS_URL=redis://localhost:6379             # Optional for caching
+PORT=3000                                   # API server port
+```
 
 **Optional:**
 ```bash
@@ -136,6 +194,12 @@ DATABASE_URL=postgresql://user:pass@host/db
 
 ## Architecture
 
+### Universal Interfaces
+- **MCP Server**: Native integration for Claude Code, OpenClaw, and other MCP clients
+- **HTTP REST API**: Universal JSON API for any AI agent
+- **WebSocket**: Real-time memory sync and notifications
+- **CLI**: Standalone command-line tool
+
 ### Memory Tiers
 - **Core Memory (2KB)**: Always-visible, 4 sections (persona, user_info, project_context, working_notes)
 - **Context Paging**: Agent-controlled loading with token budgeting (8KB default)
@@ -145,6 +209,12 @@ DATABASE_URL=postgresql://user:pass@host/db
 - **Sectors**: episodic, semantic, procedural, autobiographical, working
 - **Tiers**: hot (recent), warm (accessible), cold (archived)
 - **Status**: active, merged, superseded, expired
+
+### Deployment Options
+- **Local SQLite**: Perfect for individual agents
+- **PostgreSQL**: For teams and scalable deployments
+- **Docker**: Single-command containerized deployment
+- **Cloud**: AWS/GCP/Azure-ready with cloud-config
 
 ## Development
 

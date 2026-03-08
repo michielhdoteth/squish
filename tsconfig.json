@@ -25,7 +25,8 @@
     "db/**/*.ts",
     "tools/**/*.ts",
     "drizzle/**/*.ts",
-    "types/**/*.d.ts"
+    "types/**/*.d.ts",
+    "universal/**/*.ts"
   ],
   "exclude": ["node_modules", "dist", "tests", "benchmark", "docs"]
 }

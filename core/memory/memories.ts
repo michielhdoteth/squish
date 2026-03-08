@@ -43,6 +43,7 @@ export interface MemoryRecord {
   metadata?: Record<string, unknown> | null;
   createdAt?: string | null;
   similarity?: number; // Vector similarity score (0-1)
+  importance?: number; // Importance score (0-1)
 }
 
 export interface SearchResult extends MemoryRecord {
@@ -149,14 +150,15 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
     });
 
   // Sync to QMD if enabled (async, don't block)
-  const memoryRecord: MemoryRecord = {
-    id,
-    projectId: project?.id ?? null,
-    type,
-    content: input.content,
-    tags,
+const memoryRecord: MemoryRecord = {
+id,
+projectId: project?.id ?? null,
+type,
+content: input.content,
+tags,
     metadata: enrichedMetadata,
-  };
+    importance,
+};
   if (config.qmdEnabled) {
     getQMDMemorySync().then(sync => sync.syncMemory(memoryRecord))
       .catch((error) => {
