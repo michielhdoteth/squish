@@ -24,10 +24,12 @@ export async function getDb() {
 export async function checkDatabaseHealth(): Promise<boolean> {
   try {
     const database = await getDb();
-    // Try a simple query on any table
-    const tables = Object.values(database._.schema || {});
-    if (tables.length > 0) {
-      await (database as any).select().from(tables[0]).limit(1);
+    // Try a simple query - use a raw query that's guaranteed to work
+    const dbClient = (database as any).$client;
+    if (dbClient && typeof dbClient.query === 'function') {
+      await dbClient.query('SELECT 1');
+    } else if (dbClient && typeof dbClient.prepare === 'function') {
+      dbClient.prepare('SELECT 1').get();
     }
     return true;
   } catch (error: any) {
