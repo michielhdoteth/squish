@@ -5,18 +5,28 @@
   "author": "michielhdoteth",
   "repository": "https://github.com/michielhdoteth/squish",
   "homepage": "https://github.com/michielhdoteth/squish",
-  "keywords": ["memory", "persistence", "search", "semantic-search", "ai-assistant", "mcp", "claude-code", "openclaw", "opencode"],
+  "keywords": ["memory", "persistence", "search", "semantic-search", "ai-assistant", "mcp", "cli"],
   "license": "MIT",
   "skills": [
     {
       "name": "squish-memory",
       "path": "skills/squish-memory",
-      "description": "MCP server and CLI for persistent memory with semantic search"
+      "description": "Overview, quick start, and configuration"
+    },
+    {
+      "name": "squish-mcp",
+      "path": "skills/squish-mcp",
+      "description": "MCP tools (16 tools) for Claude Code, OpenCode, Cursor"
+    },
+    {
+      "name": "squish-cli",
+      "path": "skills/squish-cli",
+      "description": "CLI commands for OpenClaw and bash scripting"
     },
     {
       "name": "memory-guide",
       "path": "skills/memory-guide",
-      "description": "Expert guide for using Squish memory system effectively"
+      "description": "Usage guide and best practices"
     }
   ]
 }
