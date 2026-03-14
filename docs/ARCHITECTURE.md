@@ -2,18 +2,20 @@
 
 ## System Overview
 
-Squish is a **local-first memory system** for Claude Code implemented as an MCP (Model Context Protocol) server. It provides semantic search, full-text search, and contextual awareness.
+Squish is a **universal memory system** for AI agents implemented as an MCP (Model Context Protocol) server with HTTP/WebSocket fallbacks. It provides semantic search, full-text search, and contextual awareness through a two-tier architecture.
 
 ```
-Claude Code
-    ↓
-MCP Protocol (stdio)
-    ↓
+Any AI Agent
+     ↓
+MCP (stdio/SSE) / HTTP / WebSocket / CLI
+     ↓
 Squish Server (index.ts)
-    ├─ MCP Handler (8 tools)
-    ├─ Services Layer (15+ services)
-    ├─ Database Layer (Drizzle ORM)
-    └─ Storage (SQLite or PostgreSQL)
+   ├─ MCP Handler (18+ tools)
+   ├─ Services Layer (15+ services)
+   ├─ Two-Tier Storage
+   │   ├─ QMD Search Tier (fast hybrid BM25+vector)
+   │   └─ SQLite/Postgres Tier (durable storage)
+   └─ Database Layer (Drizzle ORM)
 ```
 
 ## Mono-Repo Structure
@@ -50,9 +52,9 @@ squish/
 
 ## Architecture Layers
 
-### 1. MCP Server (8 Tools)
+### 1. MCP Server (18+ Tools)
 
-The main entry point (`packages/server/src/index.ts`) defines 8 MCP tools:
+The main entry point (`src/index.ts`) defines 18+ MCP tools covering memory management, search, observations, context, and system operations.
 
 - **remember** - Store memories with embeddings
 - **recall** - Get specific memory by ID
@@ -99,19 +101,30 @@ Business logic is separated into focused services:
 - Private tag filtering
 - PII filtering
 
-### 3. Database Layer
+### 3. Two-Tier Storage Layer
 
-Uses **Drizzle ORM** for type-safe database access.
+Squish implements a two-tier storage architecture for optimal performance:
+
+**Tier 1: Fast Search (QMD)**
+- Quick Markdown Search provides hybrid BM25 + vector search
+- Automatic indexing of memory files as markdown
+- Sub-second search response times
+- Configurable collections per memory type
+
+**Tier 2: Persistent Storage**
+- **Local Mode**: SQLite database with full durability
+- **Team Mode**: PostgreSQL with pgvector for semantic search
+- Both tiers use Drizzle ORM for type-safe access
+- Async bidirectional sync ensures consistency
 
 **SQLite Schema** (`drizzle/schema-sqlite.ts`)
 - For local mode
-- Uses FTS5 for full-text search
-- JSON embeddings
+- JSON embeddings for vector search fallback
 
 **PostgreSQL Schema** (`drizzle/schema.ts`)
 - For team mode
-- Uses pgvector for semantic search
-- Redis for caching
+- pgvector for semantic search
+- Redis for caching (optional)
 
 ### 4. Storage Modes
 

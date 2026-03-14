@@ -24,8 +24,44 @@ export const users = pgTable('users', {
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
+// ============================================================================
+// Memory Editing Tables
+// ============================================================================
+
 /**
- * Projects - workspaces that memories are scoped to
+ * Memory Edit Proposals - tracks suggested edits before user approval
+ */
+export const memoryEditProposals = pgTable('memory_edit_proposals', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }).notNull(),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+  
+  // Memory to edit
+  memoryId: uuid('memory_id').references(() => memories.id, { onDelete: 'cascade' }).notNull(),
+  
+  // Current content
+  currentContent: text('current_content').notNull(),
+  proposedContent: text('proposed_content').notNull(),
+  
+  // Edit metadata
+  reason: text('reason').notNull(),
+  conflictWarnings: jsonb('conflict_warnings').$type<string[]>(),
+  status: text('status').notNull().$type<'pending' | 'approved' | 'rejected' | 'expired'>().default('pending'),
+  
+  // Versioning
+  version: integer('version').default(1).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  reviewedAt: timestamp('reviewed_at'),
+  reviewNotes: text('review_notes'),
+}, (table) => [
+  index('memory_edit_proposals_memory_idx').on(table.memoryId),
+  index('memory_edit_proposals_status_idx').on(table.status),
+  index('memory_edit_proposals_created_at_idx').on(table.createdAt),
+]);
+
+/**
+ * Core Memory - Always-in-context memory (Tier 1)
+ * Small, persistent, always-visible memory block (< 2KB total)
  */
 export const projects = pgTable('projects', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -96,6 +132,7 @@ export const memories = pgTable(
     // v0.3.0: Temporal Facts
     validFrom: timestamp('valid_from'),
     validTo: timestamp('valid_to'),
+    recordedAt: timestamp('recorded_at').defaultNow().notNull(), // When agent learned/stored the fact
     supersededBy: uuid('superseded_by').references((): any => (memories as any).id),
     version: integer('version').default(1),
 
@@ -389,6 +426,66 @@ export const memorySnapshots = pgTable('memory_snapshots', {
   index('snapshots_memory_idx').on(table.memoryId),
   index('snapshots_type_idx').on(table.snapshotType),
   index('snapshots_created_idx').on(table.createdAt),
+]);
+
+// ============================================================================
+// Progressive Disclosure & Context Paging Tables
+// ============================================================================
+
+/**
+ * Lightweight memory indices for progressive disclosure - previews and metadata
+ * used for quick filtering before loading full memories
+ */
+export const lightweightMemoryIndices = pgTable('lightweight_memory_indices', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  memoryId: uuid('memory_id').references(() => memories.id, { onDelete: 'cascade' }),
+  
+  // Hash for quick comparison
+  contentHash: text('content_hash').notNull(),
+  contentPreview: text('content_preview').notNull(),
+  keyTerms: text('key_terms').array(), // JSON array of keywords
+  
+  // Categorization
+  category: text('category').notNull(),
+  importanceScore: integer('importance_score').notNull(),
+  
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => [
+  index('lightweight_indices_memory_idx').on(table.memoryId),
+  index('lightweight_indices_category_idx').on(table.category),
+  index('lightweight_indices_importance_idx').on(table.importanceScore),
+]);
+
+/**
+ * Context paging sessions for tracking loaded/preloaded memories
+ * Agent-controlled memory loading system
+ */
+export const contextPagingSessions = pgTable('context_paging_sessions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  sessionId: text('session_id').notNull().unique(),
+  projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+  
+  // Loaded memories (actively in context)
+  loadedMemoryIds: text('loaded_memory_ids').array().default([]),
+  
+  // Preload candidates (ready to load if needed)
+  preloadCandidateIds: text('preload_candidate_ids').array().default([]),
+  
+  // Token tracking
+  tokenBudget: integer('token_budget').default(8000).notNull(),
+  tokensUsed: integer('tokens_used').default(0).notNull(),
+  loadedMemoriesTokens: integer('loaded_memories_tokens').default(0).notNull(),
+  
+  // Session metadata
+  metadata: jsonb('metadata').$type<Record<string, unknown>>(),
+  
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => [
+  index('context_paging_session_idx').on(table.sessionId),
+  index('context_paging_project_idx').on(table.projectId),
+  index('context_paging_created_idx').on(table.createdAt),
 ]);
 
 // ============================================================================
@@ -731,8 +828,15 @@ export type NewMemoryAssociation = typeof memoryAssociations.$inferInsert;
 export type SessionSummary = typeof sessionSummaries.$inferSelect;
 export type NewSessionSummary = typeof sessionSummaries.$inferInsert;
 
-export type MemorySnapshot = typeof memorySnapshots.$inferSelect;
-export type NewMemorySnapshot = typeof memorySnapshots.$inferInsert;
+
+
+export type LightweightMemoryIndex = typeof lightweightMemoryIndices.$inferSelect;
+export type NewLightweightMemoryIndex = typeof lightweightMemoryIndices.$inferInsert;
+
+export type ContextPagingSession = typeof contextPagingSessions.$inferSelect;
+export type MemoryEditProposal = typeof memoryEditProposals.$inferSelect;
+export type NewMemoryEditProposal = typeof memoryEditProposals.$inferInsert;
+
 
 export type CoreMemory = typeof coreMemory.$inferSelect;
 export type NewCoreMemory = typeof coreMemory.$inferInsert;

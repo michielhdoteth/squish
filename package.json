@@ -1,18 +1,23 @@
 {
   "name": "squish-memory",
   "version": "0.9.0",
-  "description": "The memory layer for AI agents - give Claude Code, OpenClaw, or any MCP client persistent, intelligent memory",
+  "description": "The universal two-tier memory layer for any AI agent - persistent, intelligent memory with QMD search tier and SQLite/Postgres storage tier that works with Claude Code, OpenClaw, and any agent framework",
   "main": "dist/index.js",
   "type": "module",
   "bin": {
     "squish": "dist/index.js",
+    "squish-mcp": "dist/commands/mcp-server.cjs",
     "squish-install": "npx-installer.js"
   },
   "scripts": {
     "build": "tsc",
+    "mcp:build": "tsc commands/mcp-server.ts --outDir dist/commands --module ES2022 --moduleResolution node --esModuleInterop --target ES2022 --skipLibCheck",
+    "mcp:cjs": "esbuild commands/mcp-server.ts --bundle --platform=node --outfile=dist/commands/mcp-server.cjs --format=cjs --external:bun:* --external:better-sqlite3 --external:pg --external:drizzle-orm/*",
     "start": "node dist/index.js",
+    "mcp": "node dist/commands/mcp-server.cjs",
     "web": "node dist/features/web/web-server.js",
     "dev": "bun --hot src/index.ts",
+    "dev:mcp": "bun --hot src/commands/mcp-server.ts",
     "verify:mcp": "node scripts/verify-mcp.mjs",
     "preflight:remote": "node scripts/remote-preflight.mjs",
     "fallback:dry": "node scripts/squish-fallback.mjs --op health --simulate-mcp-failure --dry-run",
@@ -42,21 +47,24 @@
     "url": "https://github.com/michielhdoteth/squish/issues"
   },
   "keywords": [
-    "claude",
-    "claude-code",
-    "claude-plugin",
-    "mcp-server",
-    "model-context-protocol",
+    "ai-agent",
     "memory",
     "persistent-memory",
-    "core-memory",
+    "universal-memory",
+    "mcp-server",
+    "mcp-client",
+    "model-context-protocol",
+    "claude-code",
+    "openclaw",
+    "qmd",
+    "sqlite",
+    "postgres",
+    "hybrid-search",
     "context-management",
     "semantic-search",
-    "openclaw",
     "local-first",
     "privacy",
-    "ai-assistant",
-    "agent-memory"
+    "agent-framework"
   ],
   "files": [
     "dist",

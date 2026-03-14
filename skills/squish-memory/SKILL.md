@@ -1,9 +1,9 @@
 ---
 name: squish-memory
-description: Persistent memory system with semantic search. Store and retrieve information across sessions. Works with Claude Code (MCP) and OpenClaw (CLI).
+description: Persistent memory system with semantic search. Store and retrieve information across sessions. Works with Claude Code, OpenCode, OpenClaw, and any MCP client.
 version: 0.9.0
 author: michielhdoteth
-tags: [memory, persistence, search, semantic-search, ai-assistant, openclaw, mcp]
+tags: [memory, persistence, search, semantic-search, ai-assistant, claude-code, openclaw, opencode, mcp]
 emoji: brain
 ---
 
@@ -11,99 +11,120 @@ emoji: brain
 
 Persistent memory for AI assistants. Store facts, decisions, and context with semantic search.
 
-**Dual-mode:** MCP-first universal integration, CLI fallback for OpenClaw/bash workflows.
+**Works everywhere:** Claude Code, OpenCode, OpenClaw, or any MCP-compatible client.
 
-## Self-Install (OpenClaw)
+## Quick Install
 
-One-command install for OpenClaw:
-
-```bash
-npx squish-memory install
-```
-
-This will:
-1. Detect your OpenClaw directory (`~/.openclaw/` or `OPENCLAW_HOME`)
-2. Install Squish CLI globally (if not present)
-3. Configure MCP via mcporter in `~/.openclaw/mcporter.json`
-4. Create `.squish` data directory for local storage
-5. Run health check to verify installation
-
-**Manual CLI Install:**
 ```bash
 npm install -g squish-memory
-# or
-bun add -g squish-memory
 ```
 
-## MCP Mode (Recommended)
+That's it! The `squish-mcp` command is now available.
 
-Use MCP tools directly in supported clients:
-- `remember` - Store information
-- `search` - Find memories
-- `recall` - Retrieve by ID
-- `observe` - Store observations
-- `context` - Get project context
-- `health` - Service health
-- `core_memory` - Manage always-visible context
-- `forget` - Delete a memory
-- `update` - Update existing memory
-- `list` - List all memories
-- `stats` - Memory statistics
-- `consolidate` - Merge similar memories
-- `export` - Export memories
-- `import` - Import memories
+## Client Setup
 
-## OpenClaw CLI Fallback
+### OpenCode
 
-Execute via bash when MCP is not available:
+Add to your `opencode.json`:
 
-### Health Check
-```bash
-squish health
+```json
+{
+  "mcp": {
+    "squish": {
+      "type": "local",
+      "command": ["squish-mcp"],
+      "enabled": true,
+      "environment": {
+        "SQUISH_MODE": "local"
+      }
+    }
+  }
+}
 ```
 
-### Remember
-```bash
-squish remember "content to remember" --type fact
-squish remember "User prefers dark mode" --type preference
+Or run: `npx squish-memory install opencode`
+
+### Claude Code
+
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "squish": {
+      "command": "squish-mcp",
+      "args": [],
+      "env": {
+        "SQUISH_MODE": "local"
+      }
+    }
+  }
+}
 ```
 
-### Search
-```bash
-squish search "query terms" --limit 10
-squish search "user preferences" --type preference
+Or run: `npx squish-memory install claude`
+
+### OpenClaw
+
+Add to `~/.openclaw/openclaw.json`:
+
+```json
+{
+  "mcpServers": {
+    "squish": {
+      "command": "squish-mcp",
+      "args": [],
+      "env": {
+        "SQUISH_MODE": "local"
+      },
+      "transport": "stdio"
+    }
+  }
+}
 ```
 
-### Recall
-```bash
-squish recall <memory-id>
-```
+Or run: `npx squish-memory install openclaw`
 
-### Core Memory
-```bash
-squish core_memory view
-squish core_memory edit --section persona --content "text"
-squish core_memory append --section user_info --text "more text"
-```
+## MCP Tools
 
-### Stats
+- `squish_search` - Hybrid search across memories
+- `squish_remember` - Store information
+- `squish_recall` - Retrieve by ID
+- `squish_forget` - Delete a memory
+- `squish_update` - Update existing memory
+- `squish_qmd_search` - Search markdown files
+- `squish_associate` - Link related memories
+- `squish_related` - Find related memories
+- `squish_context` - Get project context
+- `squish_observe` - Store observations
+- `squish_embed` - Generate embeddings
+- `squish_health` - Service health
+- `squish_stats` - Memory statistics
+- `squish_projects` - List projects
+
+## CLI Commands (Fallback)
+
+When MCP is not available:
+
 ```bash
-squish stats
+squish health              - Check service health
+squish remember "text"     - Store a memory
+squish search "query"      - Search memories
+squish recall <id>         - Get memory by ID
+squish stats               - View statistics
 ```
 
 ## Memory Types
+
+- **observation**: Patterns noticed, tool usage
 - **fact**: Technical information, specifications
 - **decision**: Choices made with reasoning
-- **preference**: User likes/dislikes
-- **observation**: Patterns noticed
 - **context**: Project/domain information
-- **note**: General notes
+- **preference**: User likes/dislikes
 
 ## Configuration
 
-Squish runs in **local mode** by default using SQLite. No external database required.
-
-Environment variables (optional):
+Environment variables:
 - `SQUISH_MODE` - "local" (default) or "remote"
 - `SQUISH_DATA_DIR` - Custom data directory (default: `~/.squish`)
 - `SQUISH_EMBEDDINGS_PROVIDER` - "local" (default) or "openai"
@@ -112,10 +133,7 @@ Environment variables (optional):
 
 ```bash
 # Check installation
-squish health
-
-# Verify MCP config
-cat ~/.openclaw/mcporter.json
+squish-mcp --health
 
 # Check data directory
 ls ~/.squish

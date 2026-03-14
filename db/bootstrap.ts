@@ -4,6 +4,12 @@ import { existsSync, mkdirSync } from 'fs';
 import { logger } from '../core/logger.js';
 import { getDataDir } from '../config.js';
 
+/**
+ * Note on boolean columns:
+ * SQLite uses INTEGER 0/1 for boolean values (no native boolean type)
+ * PostgreSQL uses native BOOLEAN type
+ */
+
 const sqliteSchemaSql = `
 PRAGMA foreign_keys = ON;
 
@@ -440,7 +446,85 @@ const postgresStatements = [
   );`,
   `CREATE INDEX IF NOT EXISTS relations_from_idx ON entity_relations(from_entity_id);`,
   `CREATE INDEX IF NOT EXISTS relations_to_idx ON entity_relations(to_entity_id);`,
-  `CREATE INDEX IF NOT EXISTS relations_type_idx ON entity_relations(type);`
+  `CREATE INDEX IF NOT EXISTS relations_type_idx ON entity_relations(type);`,
+  `CREATE TABLE IF NOT EXISTS core_memory (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    section TEXT NOT NULL,
+    content TEXT NOT NULL DEFAULT '',
+    size_bytes INTEGER DEFAULT 0 NOT NULL,
+    version INTEGER DEFAULT 1 NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+  );`,
+  `CREATE INDEX IF NOT EXISTS core_memory_project_idx ON core_memory(project_id);`,
+  `CREATE INDEX IF NOT EXISTS core_memory_user_idx ON core_memory(user_id);`,
+  `CREATE INDEX IF NOT EXISTS core_memory_section_idx ON core_memory(section);`,
+  `CREATE TABLE IF NOT EXISTS context_sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id TEXT NOT NULL UNIQUE,
+    project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    loaded_memory_ids JSONB,
+    token_budget INTEGER DEFAULT 8000 NOT NULL,
+    tokens_used INTEGER DEFAULT 0 NOT NULL,
+    core_memory_tokens INTEGER DEFAULT 0 NOT NULL,
+    loaded_memories_tokens INTEGER DEFAULT 0 NOT NULL,
+    metadata JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+  );`,
+  `CREATE INDEX IF NOT EXISTS context_sessions_session_idx ON context_sessions(session_id);`,
+  `CREATE INDEX IF NOT EXISTS context_sessions_project_idx ON context_sessions(project_id);`,
+  `CREATE INDEX IF NOT EXISTS context_sessions_created_idx ON context_sessions(created_at);`,
+  `CREATE TABLE IF NOT EXISTS memory_merge_proposals (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    source_memory_ids TEXT NOT NULL,
+    proposed_content TEXT NOT NULL,
+    proposed_summary TEXT,
+    proposed_tags TEXT[],
+    proposed_metadata JSONB,
+    detection_method TEXT NOT NULL,
+    similarity_score TEXT NOT NULL,
+    confidence_level TEXT NOT NULL,
+    merge_reason TEXT NOT NULL,
+    conflict_warnings JSONB,
+    status TEXT DEFAULT 'pending' NOT NULL,
+    reviewed_at TIMESTAMPTZ,
+    review_notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+    expires_at TIMESTAMPTZ
+  );`,
+  `CREATE INDEX IF NOT EXISTS memory_merge_proposals_project_status_idx ON memory_merge_proposals(project_id, status);`,
+  `CREATE INDEX IF NOT EXISTS memory_merge_proposals_created_at_idx ON memory_merge_proposals(created_at);`,
+  `CREATE TABLE IF NOT EXISTS memory_merge_history (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    proposal_id UUID REFERENCES memory_merge_proposals(id) ON DELETE SET NULL,
+    source_memory_ids TEXT NOT NULL,
+    canonical_memory_id UUID NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+    source_memories_snapshot JSONB NOT NULL,
+    merge_strategy TEXT NOT NULL,
+    tokens_saved INTEGER,
+    is_reversed BOOLEAN DEFAULT FALSE,
+    reversed_at TIMESTAMPTZ,
+    reversed_by UUID,
+    merged_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+  );`,
+  `CREATE TABLE IF NOT EXISTS memory_hash_cache (
+    memory_id UUID PRIMARY KEY REFERENCES memories(id) ON DELETE CASCADE,
+    project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    simhash TEXT,
+    minhash TEXT,
+    content_hash TEXT NOT NULL,
+    last_updated TIMESTAMPTZ DEFAULT NOW() NOT NULL
+  );`,
+  `CREATE INDEX IF NOT EXISTS memory_hash_cache_project_id_idx ON memory_hash_cache(project_id);`,
+  `CREATE INDEX IF NOT EXISTS memory_hash_cache_simhash_idx ON memory_hash_cache(simhash);`
 ];
 
 /**
@@ -499,6 +583,44 @@ async function runSqliteMigrations(sqlite: Database): Promise<void> {
     { col: 'consolidated_into', sql: 'ALTER TABLE memories ADD COLUMN consolidated_into TEXT' },
     { col: 'consolidated_at', sql: 'ALTER TABLE memories ADD COLUMN consolidated_at INTEGER' },
     { col: 'is_consolidated', sql: 'ALTER TABLE memories ADD COLUMN is_consolidated INTEGER DEFAULT 0' },
+    { col: 'merged_at', sql: 'ALTER TABLE memories ADD COLUMN merged_at INTEGER' },
+    { col: 'sector', sql: 'ALTER TABLE memories ADD COLUMN sector TEXT DEFAULT "episodic"' },
+    { col: 'tier', sql: 'ALTER TABLE memories ADD COLUMN tier TEXT DEFAULT "hot"' },
+    { col: 'context_status', sql: 'ALTER TABLE memories ADD COLUMN context_status TEXT DEFAULT "out-of-context"' },
+    { col: 'decay_rate', sql: 'ALTER TABLE memories ADD COLUMN decay_rate INTEGER DEFAULT 30' },
+    { col: 'coactivation_score', sql: 'ALTER TABLE memories ADD COLUMN coactivation_score INTEGER DEFAULT 0' },
+    { col: 'last_decay_at', sql: 'ALTER TABLE memories ADD COLUMN last_decay_at INTEGER DEFAULT (strftime(\'%s\',\'now\'))' },
+    { col: 'agent_id', sql: 'ALTER TABLE memories ADD COLUMN agent_id TEXT' },
+    { col: 'agent_role', sql: 'ALTER TABLE memories ADD COLUMN agent_role TEXT' },
+    { col: 'visibility_scope', sql: 'ALTER TABLE memories ADD COLUMN visibility_scope TEXT DEFAULT "private"' },
+    { col: 'is_protected', sql: 'ALTER TABLE memories ADD COLUMN is_protected INTEGER DEFAULT 0' },
+    { col: 'is_pinned', sql: 'ALTER TABLE memories ADD COLUMN is_pinned INTEGER DEFAULT 0' },
+    { col: 'is_immutable', sql: 'ALTER TABLE memories ADD COLUMN is_immutable INTEGER DEFAULT 0' },
+    { col: 'write_scope', sql: 'ALTER TABLE memories ADD COLUMN write_scope TEXT' },
+    { col: 'read_scope', sql: 'ALTER TABLE memories ADD COLUMN read_scope TEXT' },
+    { col: 'triggered_by', sql: 'ALTER TABLE memories ADD COLUMN triggered_by TEXT' },
+    { col: 'capture_reason', sql: 'ALTER TABLE memories ADD COLUMN capture_reason TEXT' },
+    { col: 'last_used_at', sql: 'ALTER TABLE memories ADD COLUMN last_used_at INTEGER' },
+    { col: 'usage_count', sql: 'ALTER TABLE memories ADD COLUMN usage_count INTEGER DEFAULT 0' },
+    { col: 'valid_from', sql: 'ALTER TABLE memories ADD COLUMN valid_from INTEGER' },
+    { col: 'valid_to', sql: 'ALTER TABLE memories ADD COLUMN valid_to INTEGER' },
+    { col: 'superseded_by', sql: 'ALTER TABLE memories ADD COLUMN superseded_by TEXT' },
+    { col: 'version', sql: 'ALTER TABLE memories ADD COLUMN version INTEGER DEFAULT 1' },
+    { col: 'merge_source_ids', sql: 'ALTER TABLE memories ADD COLUMN merge_source_ids TEXT' },
+    { col: 'merge_version', sql: 'ALTER TABLE memories ADD COLUMN merge_version INTEGER DEFAULT 1' },
+    { col: 'user_id', sql: 'ALTER TABLE memories ADD COLUMN user_id TEXT' },
+    { col: 'confidence', sql: 'ALTER TABLE memories ADD COLUMN confidence INTEGER DEFAULT 100' },
+    { col: 'is_active', sql: 'ALTER TABLE memories ADD COLUMN is_active INTEGER DEFAULT 1' },
+    { col: 'expires_at', sql: 'ALTER TABLE memories ADD COLUMN expires_at INTEGER' },
+    { col: 'decay_rate', sql: 'ALTER TABLE memories ADD COLUMN decay_rate INTEGER DEFAULT 30' },
+    { col: 'coactivation_score', sql: 'ALTER TABLE memories ADD COLUMN coactivation_score INTEGER DEFAULT 0' },
+    { col: 'last_decay_at', sql: 'ALTER TABLE memories ADD COLUMN last_decay_at INTEGER' },
+    { col: 'agent_id', sql: 'ALTER TABLE memories ADD COLUMN agent_id TEXT' },
+    { col: 'agent_role', sql: 'ALTER TABLE memories ADD COLUMN agent_role TEXT' },
+    { col: 'retrieval_priority', sql: 'ALTER TABLE memories ADD COLUMN retrieval_priority INTEGER DEFAULT 50' },
+    { col: 'importance_score', sql: 'ALTER TABLE memories ADD COLUMN importance_score INTEGER DEFAULT 50' },
+    { col: 'importance_decay_rate', sql: 'ALTER TABLE memories ADD COLUMN importance_decay_rate INTEGER DEFAULT 30' },
+    { col: 'last_importance_recalc', sql: 'ALTER TABLE memories ADD COLUMN last_importance_recalc INTEGER' },
   ];
   
   for (const migration of migrations) {
@@ -507,8 +629,13 @@ async function runSqliteMigrations(sqlite: Database): Promise<void> {
         sqlite.exec(migration.sql);
         logger.info(`Migration: Added column ${migration.col} to memories table`);
       } catch (error) {
-        // Silent fail - column might already exist
-        logger.debug(`Migration skipped for ${migration.col}: ${error}`);
+        // Re-throw real errors - only ignore "duplicate column" errors
+        const msg = error instanceof Error ? error.message : String(error);
+        if (msg.includes('duplicate column name')) {
+          logger.debug(`Migration skipped for ${migration.col}: column already exists`);
+        } else {
+          throw new Error(`Migration failed for column ${migration.col}: ${msg}`);
+        }
       }
     }
   }

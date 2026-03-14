@@ -127,13 +127,64 @@ function calculateSemanticScore(queryEmbedding: number[], memory: any): number {
 }
 
 function calculateRecencyScore(memory: any, now: Date, decayDays: number): number {
-  if (!memory.createdAt) return 50;
+  // Enhanced bi-temporal recency scoring: considers validity period and learning time
+  const validFromDate = memory.validFrom ? new Date(memory.validFrom) : null;
+  const validToDate = memory.validTo ? new Date(memory.validTo) : null;
+  const recordedAtDate = memory.recordedAt ? new Date(memory.recordedAt) : null;
+  const createdDate = memory.createdAt ? new Date(memory.createdAt) : null;
 
-  const createdDate = new Date(memory.createdAt);
-  const daysSinceCreation = (now.getTime() - createdDate.getTime()) / (24 * 60 * 60 * 1000);
-  const score = 100 * Math.pow(0.5, daysSinceCreation / decayDays);
+  // Calculate score based on how relevant the memory is right now
+  let score = 50; // Default neutral score
 
-  return Math.max(0, Math.min(100, score));
+  // If we have a validity period, score based on current time's position within that period
+  if (validFromDate && validToDate) {
+    const timeInPeriod = now.getTime() - validFromDate.getTime();
+    const periodLength = validToDate.getTime() - validFromDate.getTime();
+    
+    if (periodLength > 0) {
+      // If now is within the validity period, high score
+      if (now >= validFromDate && now <= validToDate) {
+        // Full score if right in middle, decreasing toward edges
+        const progress = timeInPeriod / periodLength;
+        const distanceFromCenter = Math.abs(0.5 - progress) * 2; // 0 at center, 1 at edges
+        score = 100 * (1 - distanceFromCenter * 0.8); // 100 at center, 40 at edges
+      } else {
+        // Outside validity period - score based on how recently it expired or how far in future
+        if (now < validFromDate) {
+          // Future validity - score based on how soon it becomes valid
+          const daysUntilValid = (validFromDate.getTime() - now.getTime()) / (24 * 60 * 60 * 1000);
+          score = Math.max(20, 100 - Math.min(80, daysUntilValid / decayDays * 100));
+        } else {
+          // Past validity - score based on how recently it expired
+          const daysSinceExpired = (now.getTime() - validToDate.getTime()) / (24 * 60 * 60 * 1000);
+          score = Math.max(10, 60 - Math.min(50, daysSinceExpired / decayDays * 100));
+        }
+      }
+    }
+  } 
+  // If we only have validFrom (open-ended validity)
+  else if (validFromDate) {
+    const daysSinceValid = (now.getTime() - validFromDate.getTime()) / (24 * 60 * 60 * 1000);
+    if (now >= validFromDate) {
+      // Still valid - decay from full score over time
+      score = Math.max(30, 100 - Math.min(70, daysSinceValid / decayDays * 100));
+    } else {
+      // Becomes valid in future
+      const daysUntilValid = (validFromDate.getTime() - now.getTime()) / (24 * 60 * 60 * 1000);
+      score = Math.max(20, 100 - Math.min(80, daysUntilValid / decayDays * 100));
+    }
+  }
+  // Fallback to learned/recorded time
+  else {
+    const learnedDate = recordedAtDate || createdDate;
+    if (learnedDate) {
+      const daysSinceLearned = (now.getTime() - learnedDate.getTime()) / (24 * 60 * 60 * 1000);
+      score = 100 * Math.pow(0.5, daysSinceLearned / decayDays);
+      score = Math.max(0, Math.min(100, score));
+    }
+  }
+
+  return Math.round(score * 10) / 10; // Return one decimal place
 }
 
 function calculateCoactivationScore(memory: any): number {

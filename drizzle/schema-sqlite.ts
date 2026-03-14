@@ -126,6 +126,7 @@ export const memories = sqliteTable(
     // v0.3.0: Temporal Facts
     validFrom: integer('valid_from', { mode: 'timestamp' }),
     validTo: integer('valid_to', { mode: 'timestamp' }),
+    recordedAt: integer('recorded_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(), // When agent learned/stored the fact
     supersededBy: text('superseded_by').references((): any => (memories as any).id),
     version: integer('version').default(1),
 
@@ -315,6 +316,66 @@ export const entities = sqliteTable('entities', {
   index('entities_project_idx').on(table.projectId),
   index('entities_type_idx').on(table.type),
   index('entities_name_idx').on(table.name),
+]);
+
+// ============================================================================
+// Progressive Disclosure & Context Paging Tables
+// ============================================================================
+
+/**
+ * Lightweight memory indices for progressive disclosure - previews and metadata
+ * used for quick filtering before loading full memories
+ */
+export const lightweightMemoryIndices = sqliteTable('lightweight_memory_indices', {
+  id: text('id').primaryKey().$default(() => crypto.randomUUID()),
+  memoryId: text('memory_id').references(() => memories.id, { onDelete: 'cascade' }),
+  
+  // Hash for quick comparison
+  contentHash: text('content_hash').notNull(),
+  contentPreview: text('content_preview').notNull(),
+  keyTerms: text('key_terms').$type<string[]>(),
+  
+  // Categorization
+  category: text('category').notNull(),
+  importanceScore: integer('importance_score').notNull(),
+  
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('lightweight_indices_memory_idx').on(table.memoryId),
+  index('lightweight_indices_category_idx').on(table.category),
+  index('lightweight_indices_importance_idx').on(table.importanceScore),
+]);
+
+/**
+ * Context paging sessions for tracking loaded/preloaded memories
+ * Agent-controlled memory loading system
+ */
+export const contextPagingSessions = sqliteTable('context_paging_sessions', {
+  id: text('id').primaryKey().$default(() => crypto.randomUUID()),
+  sessionId: text('session_id').notNull().unique(),
+  projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }),
+  userId: text('user_id').references(() => users.id, { onDelete: 'set null' }),
+  
+  // Loaded memories (actively in context)
+  loadedMemoryIds: text('loaded_memory_ids').$type<string[]>().default([]),
+  
+  // Preload candidates (ready to load if needed)
+  preloadCandidateIds: text('preload_candidate_ids').$type<string[]>().default([]),
+  
+  // Token tracking
+  tokenBudget: integer('token_budget').default(8000).notNull(),
+  tokensUsed: integer('tokens_used').default(0).notNull(),
+  loadedMemoriesTokens: integer('loaded_memories_tokens').default(0).notNull(),
+  
+  // Session metadata
+  metadata: text('metadata').$type<Record<string, unknown>>(),
+  
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('context_paging_session_idx').on(table.sessionId),
+  index('context_paging_project_idx').on(table.projectId),
+  index('context_paging_created_idx').on(table.createdAt),
 ]);
 
 // ============================================================================
@@ -659,3 +720,40 @@ export type NewMaintenanceJob = typeof maintenanceJobs.$inferInsert;
 
 export type MaintenanceJobHistory = typeof maintenanceJobHistory.$inferSelect;
 export type NewMaintenanceJobHistory = typeof maintenanceJobHistory.$inferInsert;
+
+export type LightweightMemoryIndex = typeof lightweightMemoryIndices.$inferSelect;
+export type NewLightweightMemoryIndex = typeof lightweightMemoryIndices.$inferInsert;
+
+export type ContextPagingSession = typeof contextPagingSessions.$inferSelect;
+export type NewContextPagingSession = typeof contextPagingSessions.$inferInsert;
+
+// ============================================================================
+// Memory Editing Tables (SQLite)
+// ============================================================================
+
+export const memoryEditProposals = sqliteTable('memory_edit_proposals', {
+  id: text('id').primaryKey().$default(() => crypto.randomUUID()),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  userId: text('user_id').references(() => users.id, { onDelete: 'set null' }),
+  
+  memoryId: text('memory_id').notNull().references(() => memories.id, { onDelete: 'cascade' }),
+  
+  currentContent: text('current_content').notNull(),
+  proposedContent: text('proposed_content').notNull(),
+  
+  reason: text('reason').notNull(),
+  conflictWarnings: text('conflict_warnings').$type<string[]>(),
+  status: text('status').$type<'pending' | 'approved' | 'rejected' | 'expired'>().default('pending').notNull(),
+  
+  version: integer('version').default(1).notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  reviewedAt: integer('reviewed_at', { mode: 'timestamp' }),
+  reviewNotes: text('review_notes'),
+}, (table) => [
+  index('memory_edit_proposals_memory_idx').on(table.memoryId),
+  index('memory_edit_proposals_status_idx').on(table.status),
+  index('memory_edit_proposals_created_at_idx').on(table.createdAt),
+]);
+
+export type MemoryEditProposal = typeof memoryEditProposals.$inferSelect;
+export type NewMemoryEditProposal = typeof memoryEditProposals.$inferInsert;

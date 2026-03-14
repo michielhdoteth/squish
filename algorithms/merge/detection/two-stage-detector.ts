@@ -1,5 +1,6 @@
 /**
- * Two-stage duplicate detection orchestrator.
+ * Three-stage duplicate detection orchestrator.
+ * Stage 0: Exact match (content hash-based)
  * Stage 1: Hash-based prefiltering (SimHash + MinHash)
  * Stage 2: Semantic ranking using embeddings
  */
@@ -12,18 +13,20 @@ import { getDb } from '../../../db/index.js';
 import { getSchema } from '../../../db/schema.js';
 import { createDatabaseClient } from '../../../core/database.js';
 import { eq, and } from 'drizzle-orm';
+import * as crypto from 'crypto';
 
 export interface MemoryPair {
   memory1: Memory;
   memory2: Memory;
   similarityScore: number;
-  detectionMethod: 'simhash' | 'minhash' | 'embedding';
+  detectionMethod: 'exact' | 'simhash' | 'minhash' | 'embedding';
   confidenceLevel: 'high' | 'medium' | 'low';
   mergeReason: string;
 }
 
 export interface DetectionResult {
   candidates: MemoryPair[];
+  stage0Time: number; // Duration in ms for exact matching
   stage1Time: number; // Duration in ms
   stage2Time: number;
   totalCandidates: number; // Number of candidate pairs found
@@ -42,6 +45,7 @@ export interface DetectionOptions {
   simhashThreshold?: number; // (default 4)
   minhashThreshold?: number; // (default 0.7)
   stage1Only?: boolean; // Skip stage 2 for testing
+  stage0Only?: boolean; // Skip stages 1-2 for testing (exact match only)
 }
 
 export async function detectDuplicates(options: DetectionOptions): Promise<DetectionResult> {
@@ -72,6 +76,7 @@ export async function detectDuplicates(options: DetectionOptions): Promise<Detec
   if (memories.length < 2) {
     return {
       candidates: [],
+      stage0Time: 0,
       stage1Time: 0,
       stage2Time: 0,
       totalCandidates: 0,
@@ -85,6 +90,59 @@ export async function detectDuplicates(options: DetectionOptions): Promise<Detec
 
   const memoriesById = new Map(memories.map((m) => [m.id, m]));
   const contentById = new Map(memories.map((m) => [m.id, m.content]));
+
+  // Stage 0: Exact match using content hash
+  const stage0Start = Date.now();
+  const stage0Candidates: { memoryId1: string; memoryId2: string }[] = [];
+  
+  // Group memories by content hash for exact matching
+  const contentHashGroups = new Map<string, string[]>();
+  for (const memory of memories) {
+    const contentHash = crypto.createHash('md5').update(memory.content).digest('hex');
+    if (!contentHashGroups.has(contentHash)) {
+      contentHashGroups.set(contentHash, []);
+    }
+    contentHashGroups.get(contentHash)!.push(memory.id);
+  }
+  
+  // Create pairs from each group with same content
+  for (const [hash, ids] of contentHashGroups.entries()) {
+    if (ids.length >= 2) {
+      // Create all unique pairs within this group
+      for (let i = 0; i < ids.length; i++) {
+        for (let j = i + 1; j < ids.length; j++) {
+          stage0Candidates.push({ memoryId1: ids[i], memoryId2: ids[j] });
+        }
+      }
+    }
+  }
+  
+  const stage0Time = Date.now() - stage0Start;
+  
+  // If we only want exact matches for testing, return early
+  if (options.stage0Only) {
+    const exactMatchCandidates: MemoryPair[] = stage0Candidates.map(pair => ({
+      memory1: memoriesById.get(pair.memoryId1)!,
+      memory2: memoriesById.get(pair.memoryId2)!,
+      similarityScore: 1.0, // Exact match = 1.0 similarity
+      detectionMethod: 'exact',
+      confidenceLevel: 'high',
+      mergeReason: 'Exact content match',
+    }));
+    
+    return {
+      candidates: exactMatchCandidates.slice(0, options.limit ?? 50),
+      stage0Time,
+      stage1Time: 0,
+      stage2Time: 0,
+      totalCandidates: stage0Candidates.length,
+      filteredCandidates: exactMatchCandidates.length,
+      statistics: {
+        totalMemories: memories.length,
+        memoriesByType: countByType(memories),
+      },
+    };
+  }
 
   const simhashFilter = new SimHashFilter();
   const minhashFilter = new MinHashFilter();
@@ -105,23 +163,46 @@ export async function detectDuplicates(options: DetectionOptions): Promise<Detec
 
   const stage1Time = Date.now() - stage1Start;
 
+  // Combine stage 0 and stage 1 candidates for stage 2 processing
+  // We'll prioritize exact matches but also include fuzzy matches for better recall
+  const combinedCandidatesForStage2 = [
+    ...stage0Candidates, // Exact matches first
+    ...stage1Candidates  // Then fuzzy matches
+  ];
+
+  // Remove duplicates while preserving order (exact matches first)
+  const seenPairs = new Set<string>();
+  const uniqueCombinedCandidates = [];
+  for (const pair of combinedCandidatesForStage2) {
+    const pairKey = `${pair.memoryId1}:${pair.memoryId2}`;
+    const reversePairKey = `${pair.memoryId2}:${pair.memoryId1}`;
+    if (!seenPairs.has(pairKey) && !seenPairs.has(reversePairKey)) {
+      seenPairs.add(pairKey);
+      uniqueCombinedCandidates.push(pair);
+    }
+  }
+
   if (options.stage1Only) {
+    // Process only stage 1 candidates (fuzzy matches) for backward compatibility
+    const stage1OnlyCandidates: MemoryPair[] = stage1Candidates.map((pair) => ({
+      memory1: memoriesById.get(pair.memoryId1)!,
+      memory2: memoriesById.get(pair.memoryId2)!,
+      similarityScore: Math.max(
+        1 - pair.simhashDistance / 64,
+        pair.minhashSimilarity
+      ),
+      detectionMethod: pair.matched === 'both' ? 'simhash' : pair.matched,
+      confidenceLevel: 'low',
+      mergeReason: 'Stage 1 candidate (embedding analysis skipped)',
+    }));
+    
     return {
-      candidates: stage1Candidates.map((pair) => ({
-        memory1: memoriesById.get(pair.memoryId1)!,
-        memory2: memoriesById.get(pair.memoryId2)!,
-        similarityScore: Math.max(
-          1 - pair.simhashDistance / 64,
-          pair.minhashSimilarity
-        ),
-        detectionMethod: pair.matched === 'both' ? 'simhash' : pair.matched,
-        confidenceLevel: 'low',
-        mergeReason: 'Stage 1 candidate (embedding analysis skipped)',
-      })),
+      candidates: stage1OnlyCandidates.slice(0, options.limit ?? 50),
+      stage0Time,
       stage1Time,
       stage2Time: 0,
       totalCandidates: stage1Candidates.length,
-      filteredCandidates: stage1Candidates.length,
+      filteredCandidates: stage1OnlyCandidates.length,
       statistics: {
         totalMemories: memories.length,
         memoriesByType: countByType(memories),
@@ -156,7 +237,7 @@ export async function detectDuplicates(options: DetectionOptions): Promise<Detec
   }
 
   const rankedCandidates = await rankCandidates(
-    stage1Candidates.map((pair) => ({
+    uniqueCombinedCandidates.map((pair) => ({
       memoryId1: pair.memoryId1,
       memoryId2: pair.memoryId2,
     })),
@@ -170,23 +251,77 @@ export async function detectDuplicates(options: DetectionOptions): Promise<Detec
 
   const stage2Time = Date.now() - stage2Start;
 
-  const candidates: MemoryPair[] = rankedCandidates.map((ranked) => ({
-    memory1: ranked.memory1,
-    memory2: ranked.memory2,
-    similarityScore: ranked.cosineSimilarity,
-    detectionMethod: 'embedding',
-    confidenceLevel: ranked.confidenceLevel,
-    mergeReason: ranked.mergeReason,
-  }));
+  // Build final candidates list with proper scoring and methods
+  const finalCandidates: MemoryPair[] = [];
+  
+  // Add exact matches first (highest confidence)
+  for (const pair of stage0Candidates) {
+    const memory1 = memoriesById.get(pair.memoryId1);
+    const memory2 = memoriesById.get(pair.memoryId2);
+    if (memory1 && memory2) {
+      finalCandidates.push({
+        memory1,
+        memory2,
+        similarityScore: 1.0, // Exact match
+        detectionMethod: 'exact',
+        confidenceLevel: 'high',
+        mergeReason: 'Exact content match',
+      });
+    }
+  }
+  
+  // Add semantic matches from stage 2
+  for (const ranked of rankedCandidates) {
+    finalCandidates.push({
+      memory1: ranked.memory1,
+      memory2: ranked.memory2,
+      similarityScore: ranked.cosineSimilarity,
+      detectionMethod: 'embedding',
+      confidenceLevel: ranked.confidenceLevel,
+      mergeReason: ranked.mergeReason,
+    });
+  }
+  
+  // Add fuzzy matches (stage 1) that weren't already covered
+  const processedPairs = new Set<string>();
+  for (const candidate of finalCandidates) {
+    const pairKey1 = `${candidate.memory1.id}:${candidate.memory2.id}`;
+    const pairKey2 = `${candidate.memory2.id}:${candidate.memory1.id}`;
+    processedPairs.add(pairKey1);
+    processedPairs.add(pairKey2);
+  }
+  
+  for (const pair of stage1Candidates) {
+    const pairKey = `${pair.memoryId1}:${pair.memoryId2}`;
+    const reversePairKey = `${pair.memoryId2}:${pair.memoryId1}`;
+    if (!processedPairs.has(pairKey) && !processedPairs.has(reversePairKey)) {
+      const memory1 = memoriesById.get(pair.memoryId1);
+      const memory2 = memoriesById.get(pair.memoryId2);
+      if (memory1 && memory2) {
+        finalCandidates.push({
+          memory1,
+          memory2,
+          similarityScore: Math.max(
+            1 - pair.simhashDistance / 64,
+            pair.minhashSimilarity
+          ),
+          detectionMethod: pair.matched === 'both' ? 'simhash' : pair.matched,
+          confidenceLevel: 'low',
+          mergeReason: 'Stage 1 candidate (embedding analysis skipped)',
+        });
+      }
+    }
+  }
 
-  const limited = candidates.slice(0, options.limit ?? 50);
+  const limited = finalCandidates.slice(0, options.limit ?? 50);
 
   return {
     candidates: limited,
+    stage0Time,
     stage1Time,
     stage2Time,
-    totalCandidates: stage1Candidates.length,
-    filteredCandidates: rankedCandidates.length,
+    totalCandidates: stage0Candidates.length + stage1Candidates.length,
+    filteredCandidates: finalCandidates.length,
     statistics: {
       totalMemories: memories.length,
       memoriesByType: countByType(memories),

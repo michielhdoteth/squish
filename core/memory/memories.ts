@@ -42,6 +42,9 @@ export interface MemoryRecord {
   tags: string[];
   metadata?: Record<string, unknown> | null;
   createdAt?: string | null;
+  validFrom?: string | null;
+  validTo?: string | null;
+  recordedAt?: string | null;
   similarity?: number; // Vector similarity score (0-1)
   importance?: number; // Importance score (0-1)
 }
@@ -93,28 +96,17 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
     tagsValue = toSqliteTags(tags);
   }
   
-  let metadataValue;
-  const enrichedMetadata: Record<string, unknown> & {
-    memorySignals: {
-      explicitTriggers: string[];
-      implicit: MemorySignals['implicit'];
-      priority: string;
-      requiresConflictCheck: boolean;
-    };
-    contradictionResolution?: {
-      supersededCount: number;
-      confidence: number;
-      reason: string;
-    };
-  } = {
-    ...(input.metadata ?? {}),
-    memorySignals: {
-      explicitTriggers: signals.explicitTriggers,
-      implicit: signals.implicit,
-      priority: signals.priority,
-      requiresConflictCheck: signals.implicit.correction,
-    },
-  };
+   let metadataValue;
+   // Build enriched metadata with memory signals
+   const enrichedMetadata: Record<string, unknown> = {
+     ...(input.metadata ?? {}),
+     memorySignals: {
+       explicitTriggers: signals.explicitTriggers,
+       implicit: signals.implicit,
+       priority: signals.priority,
+       requiresConflictCheck: signals.implicit.correction,
+     },
+   };
 
   if (config.isTeamMode) {
     metadataValue = enrichedMetadata;
@@ -131,43 +123,43 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
     lastImportanceRecalc: new Date(),
   });
 
-  // Resolve contradictions and supersede old memories (async, non-blocking)
-  resolveContradictions(input.content, type, project?.id)
-    .then(async (result) => {
-      if (result.supersededIds.length > 0) {
-        await applySupersession(id, result.supersededIds, result.confidence);
-        enrichedMetadata.contradictionResolution = {
-          supersededCount: result.supersededIds.length,
-          confidence: result.confidence,
-          reason: result.reason,
-        };
-      }
-    })
-    .catch((error) => {
-      import('../logger.js').then(({ logger }) => {
-        logger?.debug?.(`Contradiction resolution failed: ${error}`);
-      });
-    });
+   // Resolve contradictions and supersede old memories (async, non-blocking)
+   resolveContradictions(input.content, type, project?.id)
+     .then(async (result) => {
+       if (result.supersededIds.length > 0) {
+         await applySupersession(id, result.supersededIds, result.confidence);
+         // Update metadata with contradiction resolution info
+         const updatedMetadata: Record<string, unknown> = {
+           ...enrichedMetadata,
+           contradictionResolution: {
+             supersededCount: result.supersededIds.length,
+             confidence: result.confidence,
+             reason: result.reason,
+           },
+         };
+         if (config.isTeamMode) {
+           metadataValue = updatedMetadata;
+         } else {
+           metadataValue = toSqliteJson(updatedMetadata);
+         }
+       }
+     })
+     .catch((error) => {
+       import('../logger.js').then(({ logger }) => {
+         logger?.debug?.(`Contradiction resolution failed: ${error}`);
+       });
+     });
 
   // Sync to QMD if enabled (async, don't block)
-const memoryRecord: MemoryRecord = {
-id,
-projectId: project?.id ?? null,
-type,
-content: input.content,
-tags,
-    metadata: enrichedMetadata,
-    importance,
+ const memoryRecord: MemoryRecord = {
+  id,
+  projectId: project?.id ?? null,
+  type,
+  content: input.content,
+  tags,
+  metadata: enrichedMetadata,
+  importance: importance.score as number,
 };
-  if (config.qmdEnabled) {
-    getQMDMemorySync().then(sync => sync.syncMemory(memoryRecord))
-      .catch((error) => {
-        // Silently fail - QMD sync is optional
-        import('../logger.js').then(({ logger }) => {
-          logger?.debug?.(`QMD sync failed: ${error}`);
-        });
-      });
-  }
 
   return memoryRecord;
 }
@@ -267,7 +259,11 @@ function parseEmbedding(embeddingData: any): number[] | null {
     } catch {
       // Not JSON, try Float32Array
       try {
-        const floatArray = new Float32Array(embeddingData.buffer || embeddingData);
+        const buffer = embeddingData.buffer;
+        const arrayBuffer = buffer instanceof ArrayBuffer 
+          ? buffer 
+          : (buffer as unknown as ArrayBuffer);
+        const floatArray = new Float32Array(arrayBuffer);
         return Array.from(floatArray);
       } catch {
         return null;
@@ -418,50 +414,55 @@ async function searchMemoriesPostgres(input: SearchInput, tags: string[], limit:
   const embedding = await getEmbedding(input.query);
 
   if (embedding) {
-    const rows = await (db.$client as any).query(
-      `SELECT
-        id,
-        project_id as "projectId",
-        type,
-        content,
-        summary,
-        tags,
-        metadata,
-        created_at as "createdAt",
-        1 - (embedding <-> $${values.length + 1}) as similarity
-      FROM memories
-      ${whereClause}
-      ORDER BY embedding <-> $${values.length + 1}
-      LIMIT $${values.length + 2}`,
-      [...values, embedding, limit]
-    );
+   const rows = await (db.$client as any).query(
+     `SELECT
+       id,
+       project_id as "projectId",
+       type,
+       content,
+       summary,
+       tags,
+       metadata,
+       created_at as "createdAt",
+       valid_from as "validFrom",
+       valid_to as "validTo",
+       recorded_at as "recordedAt"
+     FROM memories
+     ${whereClause}
+     ORDER BY created_at DESC
+     LIMIT $${values.length + 1}`,
+     [...values, limit]
+   );
     return rows.rows.map((row: any): SearchResult => ({
       ...normalizeMemory(row),
       similarity: row.similarity ?? 0,
     }));
   }
 
-  const rows = await (db.$client as any).query(
-    `SELECT
-      id,
-      project_id as "projectId",
-      type,
-      content,
-      summary,
-      tags,
-      metadata,
-      created_at as "createdAt"
-    FROM memories
-    ${whereClause}
-    ORDER BY created_at DESC
-    LIMIT $${values.length + 1}`,
-    [...values, limit]
-  );
+   const rows = await (db.$client as any).query(
+     `SELECT
+       id,
+       project_id as "projectId",
+       type,
+       content,
+       summary,
+       tags,
+       metadata,
+       created_at as "createdAt",
+       valid_from as "validFrom",
+       valid_to as "validTo",
+       recorded_at as "recordedAt"
+     FROM memories
+     ${whereClause}
+     ORDER BY created_at DESC
+     LIMIT $${values.length + 1}`,
+     [...values, limit]
+   );
 
-  return rows.rows.map((row: any): SearchResult => ({
-    ...normalizeMemory(row),
-    similarity: 0,
-  }));
+   return rows.rows.map((row: any): SearchResult => ({
+     ...normalizeMemory(row),
+     similarity: 0,
+   }));
 }
 
 function normalizeMemory(row: any): MemoryRecord {
@@ -479,14 +480,42 @@ function normalizeMemory(row: any): MemoryRecord {
     metadata = fromSqliteJson<Record<string, unknown>>(row.metadata ?? null);
   }
 
-  return {
-    id: row.id,
-    projectId: row.projectId ?? row.project_id ?? null,
-    type: row.type,
-    content: row.content,
-    summary: row.summary ?? null,
-    tags,
-    metadata,
-    createdAt: normalizeTimestamp(row.createdAt ?? row.created_at),
-  };
+  const createdAt = row.createdAt ?? row.created_at;
+  let createdAtStr: string | null = null;
+  if (createdAt) {
+    try {
+      if (createdAt instanceof Date && !isNaN(createdAt.getTime())) {
+        createdAtStr = createdAt.toISOString();
+      } else if (typeof createdAt === 'number' && createdAt > 0) {
+        if (createdAt > 100000000000000) {
+          createdAtStr = new Date(createdAt / 1000000).toISOString();
+        } else if (createdAt > 1000000000000) {
+          createdAtStr = new Date(createdAt).toISOString();
+        } else {
+          createdAtStr = new Date(createdAt * 1000).toISOString();
+        }
+      } else if (typeof createdAt === 'string' && createdAt.trim()) {
+        const parsed = new Date(createdAt);
+        createdAtStr = isNaN(parsed.getTime()) ? new Date().toISOString() : parsed.toISOString();
+      } else {
+        createdAtStr = new Date().toISOString();
+      }
+    } catch {
+      createdAtStr = new Date().toISOString();
+    }
+  }
+
+   return {
+     id: row.id,
+     projectId: row.projectId ?? row.project_id ?? null,
+     type: row.type,
+     content: row.content,
+     summary: row.summary ?? null,
+     tags,
+     metadata,
+     createdAt: createdAtStr,
+     validFrom: row.validFrom ?? row.valid_from ?? null,
+     validTo: row.validTo ?? row.valid_to ?? null,
+     recordedAt: row.recordedAt ?? row.recorded_at ?? null,
+   };
 }

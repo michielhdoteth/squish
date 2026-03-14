@@ -419,7 +419,11 @@ function parseEmbedding(embeddingData: any): number[] | null {
       if (Array.isArray(json)) return json;
     } catch {
       try {
-        const floatArray = new Float32Array(embeddingData.buffer || embeddingData);
+        const buffer = embeddingData.buffer;
+        const arrayBuffer = buffer instanceof ArrayBuffer 
+          ? buffer 
+          : (buffer as unknown as ArrayBuffer);
+        const floatArray = new Float32Array(arrayBuffer);
         return Array.from(floatArray);
       } catch {
         return null;

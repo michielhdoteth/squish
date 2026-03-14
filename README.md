@@ -1,6 +1,6 @@
-# Squish - The Memory Layer for AI Agents
+# Squish - Universal Two-Tier Memory for AI Agents
 
-**Squish gives AI agents persistent, intelligent memory.** Without memory, agents forget everything between sessions. With Squish, they learn, adapt, and get smarter over time.
+**Squish gives any AI agent persistent, intelligent memory through a two-tier architecture.** Without memory, agents forget everything between sessions. With Squish, they learn, adapt, and get smarter over time - regardless of which agent framework you use.
 
 ```bash
 npm install squish-memory
@@ -17,32 +17,40 @@ npm install squish-memory
 
 ## How It Works
 
+Squish uses a two-tier memory architecture for optimal performance:
+- **Fast Search Tier**: QMD (Quick Markdown Search) provides lightning-fast hybrid BM25 + vector search
+- **Persistent Storage Tier**: SQLite (local) or PostgreSQL (team) ensures durable, reliable memory storage
+
 ```
 Agent Action -----> [Squish Memory Layer]
-                           |
-                           v
-                    ┌──────────────┐
-                    │  Trigger     │ <-- "remember this", "important"
-                    │  Detection   │
-                    └──────────────┘
-                           |
-                           v
-                    ┌──────────────┐
-                    │  Write Gate  │ <-- Validate, sanitize, score
-                    └──────────────┘
-                           |
-                           v
-                    ┌──────────────┐
-                    │  Storage     │ <-- SQLite (local) / Postgres (team)
-                    └──────────────┘
-                           |
-                           v
-                    ┌──────────────┐
-                    │  Retrieval   │ <-- Hybrid search + ranking
-                    └──────────────┘
-                           |
-                           v
-                    Agent Context
+                            |
+                            v
+                     ┌──────────────┐
+                     │  Trigger     │ <-- "remember this", "important"
+                     │  Detection   │
+                     └──────────────┘
+                            |
+                            v
+                     ┌──────────────┐
+                     │  Write Gate  │ <-- Validate, sanitize, score
+                     └──────────────┘
+                            |
+                            v
+          ┌─────────────────────┐
+          │  Dual Storage Write │
+          │  ──→ QMD Index      │  (fast search)
+          │  ──→ SQLite/Postgres│  (durable storage)
+          └─────────────────────┘
+                            |
+                            v
+          ┌─────────────────────┐
+          │  Hybrid Retrieval   │
+          │  QMD Search +       │
+          │  Vector Ranking     │
+          └─────────────────────┘
+                            |
+                            v
+                     Agent Context
 ```
 
 ## Key Features
@@ -72,38 +80,36 @@ Agent Action -----> [Squish Memory Layer]
 /plugin install squish@michielhdoteth-squish
 ```
 
-Done. Your Claude Code now has memory.
-
 ### For OpenClaw (npm)
 ```bash
 npm install -g squish-memory
 ```
 
-Add to your OpenClaw MCP config - done. Your OpenClaw now has memory.
+Add to your OpenClaw MCP config - done.
 
-### CLI (Fallback)
+### Universal CLI
 ```bash
-# Works when MCP is unavailable
+# Works with any agent framework
 squish remember "User prefers TypeScript"
 squish search "preferences"
 squish health
 ```
 
-### Universal API Example
+### Universal API
 ```bash
 # Start the universal HTTP server
 bun run universal:server
 
-# Add memory via HTTP
+# Add memory via HTTP (stored in both QMD index and SQLite)
 curl -X POST http://localhost:3000/api/memories \
   -H "Content-Type: application/json" \
   -d '{"content": "User prefers TypeScript", "type": "preference", "container": "my-project"}'
 
-# Search memories via HTTP
+# Search memories via HTTP (uses QMD for fast hybrid search)
 curl "http://localhost:3000/api/memories/search?q=TypeScript"
 ```
 
-**That's it.** One install, persistent memory for your agent.
+**That's it.** One install, persistent memory for any AI agent.
 
 ## MCP Tools for Agents
 
@@ -118,9 +124,9 @@ curl "http://localhost:3000/api/memories/search?q=TypeScript"
 
 ## Execution Model
 
-- **MCP-first**: Works with Claude Code, OpenClaw, any MCP client
-- **CLI fallback**: When MCP fails, use `squish` command directly
-- **Local-first**: SQLite by default, Postgres for teams
+- **Universal First**: Works with any AI agent via MCP, CLI, or HTTP API
+- **Transport Agnostic**: MCP (stdio/SSE), CLI, or HTTP/WebSocket - choose your preference
+- **Storage Flexible**: SQLite for local, PostgreSQL for team deployments
 
 ## Universal API
 
@@ -194,27 +200,32 @@ DATABASE_URL=postgresql://user:pass@host/db
 
 ## Architecture
 
-### Universal Interfaces
-- **MCP Server**: Native integration for Claude Code, OpenClaw, and other MCP clients
-- **HTTP REST API**: Universal JSON API for any AI agent
-- **WebSocket**: Real-time memory sync and notifications
-- **CLI**: Standalone command-line tool
+### Two-Tier Memory System
+Squish employs a two-tier architecture for optimal performance and reliability:
+- **Fast Search Tier**: QMD (Quick Markdown Search) provides hybrid BM25 + vector search with sub-second response times
+- **Persistent Storage Tier**: SQLite (local mode) or PostgreSQL (team mode) ensures durable, ACID-compliant memory storage
 
-### Memory Tiers
-- **Core Memory (2KB)**: Always-visible, 4 sections (persona, user_info, project_context, working_notes)
-- **Context Paging**: Agent-controlled loading with token budgeting (8KB default)
-- **Background Jobs**: Decay, deduplication, consolidation
+### Universal Interfaces
+- **MCP Server**: Native integration for Claude Code, OpenClaw, and any MCP-compatible agent
+- **HTTP REST API**: Universal JSON API works with any AI agent capable of HTTP requests
+- **WebSocket**: Real-time memory sync and notifications for collaborative agents
+- **CLI**: Standalone command-line tool for shell-based agents and debugging
+
+### Memory Organization
+- **Core Memory (2KB)**: Always-visible sections for persona, user info, project context, and working notes
+- **Context Paging**: Agent-controlled retrieval with token budgeting (8KB default)
+- **Background Jobs**: Automatic memory maintenance including decay, deduplication, and consolidation
 
 ### Memory Lifecycle
-- **Sectors**: episodic, semantic, procedural, autobiographical, working
-- **Tiers**: hot (recent), warm (accessible), cold (archived)
-- **Status**: active, merged, superseded, expired
+- **Sectors**: episodic, semantic, procedural, autobiographical, working memory
+- **Tiers**: hot (recently accessed), warm (accessible), cold (archived but searchable)
+- **Status**: active, merged, superseded, expired (with automatic handling)
 
-### Deployment Options
-- **Local SQLite**: Perfect for individual agents
-- **PostgreSQL**: For teams and scalable deployments
-- **Docker**: Single-command containerized deployment
-- **Cloud**: AWS/GCP/Azure-ready with cloud-config
+### Deployment Flexibility
+- **Local SQLite**: Zero-configuration, perfect for individual agents and edge deployment
+- **PostgreSQL**: Horizontal scaling for teams and enterprise deployments
+- **Docker**: Single-command deployment with docker-compose.universal.yml
+- **Cloud**: Ready for AWS/GCP/Azure with standard PostgreSQL compatibility
 
 ## Development
 

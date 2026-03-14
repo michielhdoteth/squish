@@ -24,6 +24,64 @@ export interface ContradictionCheck {
   entities?: string[];
 }
 
+/**
+ * Calculate temporal relationship between two time periods
+ * Returns: 'existing_is_newer', 'existing_is_older', 'overlapping', or 'unknown'
+ */
+function calculateTemporalRelationship(
+  existingValidFrom: string | null,
+  existingValidTo: string | null,
+  newTime: Date
+): 'existing_is_newer' | 'existing_is_older' | 'overlapping' | 'unknown' {
+  if (!existingValidFrom && !existingValidTo) {
+    return 'unknown';
+  }
+  
+  const existingFrom = existingValidFrom ? new Date(existingValidFrom) : null;
+  const existingTo = existingValidTo ? new Date(existingValidTo) : null;
+  
+  // If existing fact is completely in the future compared to new time
+  if (existingFrom && existingFrom > newTime) {
+    return 'existing_is_newer';
+  }
+  
+  // If existing fact is completely in the past compared to new time
+  if (existingTo && existingTo < newTime) {
+    return 'existing_is_older';
+  }
+  
+  // If time periods overlap or we can't determine
+  return 'overlapping';
+}
+
+/**
+ * Check if two temporal periods conflict (don't overlap reasonably)
+ */
+function checkTemporalPeriodConflict(
+  existingStart: string | null,
+  existingEnd: string | null,
+  newStart: Date,
+  newEnd: Date | null
+): boolean {
+  // If we don't have enough info, assume no conflict
+  if (!existingStart || !existingEnd) {
+    return false;
+  }
+  
+  const existingStartDate = new Date(existingStart);
+  const existingEndDate = new Date(existingEnd);
+  
+  // Normalize newEnd (use distant future if null)
+  const normalizedNewEnd = newEnd || new Date(8640000000000000); // Far future
+  
+  // Check if periods overlap
+  const overlaps = !(existingStartDate > normalizedNewEnd || 
+                    existingEndDate < newStart);
+  
+  // Conflict if they don't overlap
+  return !overlaps;
+}
+
 // Patterns that indicate updated/corrected information
 const UPDATE_PATTERNS = [
   /\b(now|currently|actually|in fact|correct(ed)?|update(d)?)\b/gi,
@@ -31,11 +89,19 @@ const UPDATE_PATTERNS = [
   /\b(formerly|previously|used to be)\b/gi,
   /\binstead of\b/gi,
   /\b(no longer|not anymore)\b/gi,
+  /\b(as of|starting|beginning|from now|effective)\s+(\d{4}|\w+\s+\d{1,2})/gi, // Temporal updates
 ];
 
 // Negation patterns
 const NEGATION_PATTERNS = [
   /\b(not|no|never|don't|doesn't|didn't|won't|wouldn't|shouldn't|can't|cannot)\b/gi,
+];
+
+// Temporal sensitivity patterns - content that is likely time-sensitive
+const TEMPORAL_SENSITIVITY_PATTERNS = [
+  /\b(date|time|version|release|deadline|schedule|timeline)\b/i,
+  /\b(\d{4}|january|february|march|april|may|june|july|august|september|october|november|december)\b/i,
+  /\b(today|tomorrow|yesterday|next\s+week|last\s+week|this\s+week)\b/i,
 ];
 
 // Key entity extraction for contradiction detection
@@ -150,56 +216,119 @@ export async function detectContradictions(check: ContradictionCheck): Promise<C
                                     e.toLowerCase().includes(ee.toLowerCase()))
       );
       
-      // Detect contradiction scenarios
-      
-      // Scenario 1: High similarity with negation in new content
-      if (similarity > 0.5 && newHasNegation && subjectSimilarity > 0.4) {
-        toSupersede.push(existing.id);
-        maxConfidence = Math.max(maxConfidence, similarity * 0.9);
-        reasons.push(`negation of similar content (${(similarity * 100).toFixed(0)}% similar)`);
-        continue;
-      }
-      
-      // Scenario 2: Update indicator with overlapping subject
-      if (newHasUpdate && subjectSimilarity > 0.5) {
-        toSupersede.push(existing.id);
-        maxConfidence = Math.max(maxConfidence, subjectSimilarity * 0.85);
-        reasons.push(`update to existing information`);
-        continue;
-      }
-      
-      // Scenario 3: Same type, high subject similarity, different conclusion
-      if (existing.type === check.newType && subjectSimilarity > 0.6) {
-        // Check if conclusions differ
-        const existingHasNegation = hasNegation(existing.content);
-        
-        // XOR: one has negation, other doesn't
-        if (newHasNegation !== existingHasNegation) {
-          toSupersede.push(existing.id);
-          maxConfidence = Math.max(maxConfidence, subjectSimilarity * 0.8);
-          reasons.push(`contradicting statement about same topic`);
-          continue;
-        }
-      }
-      
-      // Scenario 4: Entity overlap with correction signals
-      if (entityOverlap.length >= 2 && similarity > 0.3) {
-        const correctionSignals = /\b(fixed|changed|updated|replaced|removed|added)\b/i.test(check.newContent);
-        if (correctionSignals) {
-          toSupersede.push(existing.id);
-          maxConfidence = Math.max(maxConfidence, 0.75);
-          reasons.push(`correction involving ${entityOverlap.slice(0, 2).join(', ')}`);
-          continue;
-        }
-      }
-      
-      // Scenario 5: Very high similarity (near-duplicate) - supersede older
-      if (similarity > 0.85) {
-        toSupersede.push(existing.id);
-        maxConfidence = Math.max(maxConfidence, similarity);
-        reasons.push(`near-duplicate replacement`);
-        continue;
-      }
+       // Calculate temporal relationship between memories
+       const temporalRelationship = calculateTemporalRelationship(
+         existing.validFrom, 
+         existing.validTo, 
+         new Date() // current time for new memory
+       );
+       
+       // Detect contradiction scenarios with temporal awareness
+       
+       // Scenario 1: High similarity with negation in new content
+       if (similarity > 0.5 && newHasNegation && subjectSimilarity > 0.4) {
+         // Adjust confidence based on temporal relevance
+         let temporalFactor = 1.0;
+         if (temporalRelationship === 'existing_is_newer') {
+           temporalFactor = 0.7; // Lower confidence if existing is newer
+         } else if (temporalRelationship === 'existing_is_older') {
+           temporalFactor = 1.2; // Higher confidence if existing is older
+         }
+         
+         toSupersede.push(existing.id);
+         maxConfidence = Math.max(maxConfidence, similarity * 0.9 * temporalFactor);
+         reasons.push(`negation of similar content (${(similarity * 100).toFixed(0)}% similar)`);
+         continue;
+       }
+       
+       // Scenario 2: Update indicator with overlapping subject
+       if (newHasUpdate && subjectSimilarity > 0.5) {
+         // Boost confidence for updates when existing is older
+         let temporalFactor = 1.0;
+         if (temporalRelationship === 'existing_is_older') {
+           temporalFactor = 1.3; // Higher confidence for updating older info
+         }
+         
+         toSupersede.push(existing.id);
+         maxConfidence = Math.max(maxConfidence, subjectSimilarity * 0.85 * temporalFactor);
+         reasons.push(`update to existing information`);
+         continue;
+       }
+       
+       // Scenario 3: Same type, high subject similarity, different conclusion
+       if (existing.type === check.newType && subjectSimilarity > 0.6) {
+         // Check if conclusions differ
+         const existingHasNegation = hasNegation(existing.content);
+         
+         // XOR: one has negation, other doesn't
+         if (newHasNegation !== existingHasNegation) {
+           // Adjust confidence based on temporal relationship
+           let temporalFactor = 1.0;
+           if (temporalRelationship === 'existing_is_newer') {
+             temporalFactor = 0.8; // Lower confidence if contradicting newer info
+           } else if (temporalRelationship === 'existing_is_older') {
+             temporalFactor = 1.1; // Higher confidence if contradicting older info
+           }
+           
+           toSupersede.push(existing.id);
+           maxConfidence = Math.max(maxConfidence, subjectSimilarity * 0.8 * temporalFactor);
+           reasons.push(`contradicting statement about same topic`);
+           continue;
+         }
+       }
+       
+       // Scenario 4: Entity overlap with correction signals
+       if (entityOverlap.length >= 2 && similarity > 0.3) {
+         const correctionSignals = /\b(fixed|changed|updated|replaced|removed|added)\b/i.test(check.newContent);
+         if (correctionSignals) {
+           // Consider temporal relevance for corrections
+           let temporalFactor = 1.0;
+           if (temporalRelationship === 'existing_is_older') {
+             temporalFactor = 1.2; // Higher confidence for correcting older info
+           }
+           
+           toSupersede.push(existing.id);
+           maxConfidence = Math.max(maxConfidence, 0.75 * temporalFactor);
+           reasons.push(`correction involving ${entityOverlap.slice(0, 2).join(', ')}`);
+           continue;
+         }
+       }
+       
+       // Scenario 5: Very high similarity (near-duplicate) - supersede older
+       if (similarity > 0.85) {
+         // Prefer to supersede older memories with newer ones
+         let temporalFactor = 1.0;
+         if (temporalRelationship === 'existing_is_older') {
+           temporalFactor = 1.1; // Slight boost for superseding older
+         } else if (temporalRelationship === 'existing_is_newer') {
+           temporalFactor = 0.9; // Slight reduction for superseding newer
+         }
+         
+         toSupersede.push(existing.id);
+         maxConfidence = Math.max(maxConfidence, similarity * temporalFactor);
+         reasons.push(`near-duplicate replacement`);
+         continue;
+       }
+       
+       // Scenario 6: Temporal inconsistency - same subject but different time periods
+       if (subjectSimilarity > 0.7 && similarity > 0.4 && 
+           existing.validFrom && existing.validTo) {
+         // Check if temporal periods don't overlap reasonably
+         const newValidFrom = new Date(); // When we learned this
+         const newValidTo = null; // Open-ended by default
+         
+         const hasTemporalConflict = checkTemporalPeriodConflict(
+           existing.validFrom, existing.validTo,
+           newValidFrom, newValidTo
+         );
+         
+         if (hasTemporalConflict) {
+           toSupersede.push(existing.id);
+           maxConfidence = Math.max(maxConfidence, 0.8);
+           reasons.push(`temporal inconsistency with existing fact`);
+           continue;
+         }
+       }
     }
     
     if (toSupersede.length > 0) {

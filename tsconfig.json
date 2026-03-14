@@ -26,7 +26,7 @@
     "tools/**/*.ts",
     "drizzle/**/*.ts",
     "types/**/*.d.ts",
-    "universal/**/*.ts"
+    "commands/**/*.ts"
   ],
   "exclude": ["node_modules", "dist", "tests", "benchmark", "docs"]
 }

@@ -10,6 +10,7 @@ export function getDataDir(): string {
 }
 
 const isTeamMode = !!process.env.DATABASE_URL?.startsWith('postgres');
+const isManagedMode = process.env.SQUISH_MANAGED_MODE === 'true';
 const openAiApiKey = process.env.SQUISH_OPENAI_API_KEY || process.env.OPENAI_API_KEY || '';
 
 // Embeddings strategy:
@@ -58,11 +59,17 @@ const qmdCollectionMapping = process.env.SQUISH_QMD_COLLECTION_MAPPING
 
 export const config = {
   isTeamMode,
+  isManagedMode,
   redisEnabled: !!process.env.REDIS_URL,
   dataDir: getDataDir(),
-  embeddingsProvider: (['openai', 'ollama', 'local', 'none', 'qmd', 'hybrid'].includes(embeddingsProvider)
-    ? embeddingsProvider as 'openai' | 'ollama' | 'local' | 'none' | 'qmd' | 'hybrid'
-    : 'local') as 'openai' | 'ollama' | 'local' | 'none' | 'qmd' | 'hybrid',
+  
+  // MCP Server
+  mcpServerPort: parseInt(process.env.SQUISH_MCP_PORT || '8767'),
+  mcpServerEnabled: process.env.SQUISH_MCP_SERVER_ENABLED !== 'false',
+  
+  embeddingsProvider: (['openai', 'ollama', 'local', 'none', 'qmd', 'hybrid', 'google-multimodal'].includes(embeddingsProvider)
+    ? embeddingsProvider as 'openai' | 'ollama' | 'local' | 'none' | 'qmd' | 'hybrid' | 'google-multimodal'
+    : 'local') as 'openai' | 'ollama' | 'local' | 'none' | 'qmd' | 'hybrid' | 'google-multimodal',
   openAiApiKey,
   openAiApiUrl: process.env.SQUISH_OPENAI_API_URL || 'https://api.openai.com/v1/embeddings',
   openAiEmbeddingModel: process.env.SQUISH_OPENAI_EMBEDDING_MODEL || 'text-embedding-3-small',
@@ -94,6 +101,17 @@ export const config = {
   qmdCollectionsPath,
   qmdFallbackMode: qmdFallbackMode as 'qmd-only' | 'cloud-first' | 'hybrid' | 'local-only',
   qmdCollectionMapping,
+
+  // v0.9.0: Google Cloud Multimodal Embeddings
+  googleCloudApiKey: process.env.GOOGLE_CLOUD_API_KEY || process.env.SQUISH_GOOGLE_CLOUD_API_KEY || '',
+  googleCloudProject: process.env.GOOGLE_CLOUD_PROJECT || process.env.SQUISH_GOOGLE_CLOUD_PROJECT || '',
+  googleCloudLocation: process.env.GOOGLE_CLOUD_LOCATION || process.env.SQUISH_GOOGLE_CLOUD_LOCATION || 'us-central1',
+  multimodalEmbeddingsEnabled: process.env.SQUISH_MULTIMODAL_EMBEDDINGS_ENABLED === 'true',
+
+  // v0.9.0: Managed Mode (Squish Cloud)
+  managedMode: process.env.SQUISH_MANAGED_MODE === 'true',
+  managedApiUrl: process.env.SQUISH_MANAGED_API_URL || 'https://api.squish.dev',
+  managedApiKey: process.env.SQUISH_MANAGED_API_KEY || '',
 
   // Session Auto-Load
   sessionAutoLoadEnabled: process.env.SQUISH_SESSION_AUTO_LOAD !== 'false',

@@ -1,8 +1,9 @@
 import { config } from '../config.js';
 import { getQMDClient } from './embeddings/qmd-client.js';
+import { getGoogleMultimodalEmbedding, isMultimodalInput, MultimodalInput } from './embeddings/google-multimodal.js';
 import { logger } from './logger.js';
 
-export type EmbeddingProvider = 'openai' | 'ollama' | 'local' | 'none' | 'auto' | 'qmd' | 'hybrid';
+export type EmbeddingProvider = 'openai' | 'ollama' | 'local' | 'none' | 'auto' | 'qmd' | 'hybrid' | 'google-multimodal';
 
 // Simple in-memory cache for embeddings (LRU with 1000 entries)
 const embeddingCache = new Map<string, number[]>();
@@ -35,13 +36,15 @@ function setCachedEmbedding(key: string, embedding: number[]): void {
   embeddingCache.set(key, embedding);
 }
 
-export async function getEmbedding(input: string): Promise<number[] | null> {
-  if (!input || typeof input !== 'string') {
+export async function getEmbedding(input: string | MultimodalInput): Promise<number[] | null> {
+  if (!input || (typeof input !== 'string' && !isMultimodalInput(input))) {
     return null;
   }
 
   const provider = config.embeddingsProvider;
-  const cacheKey = getCacheKey(input, provider);
+  const cacheKey = typeof input === 'string' 
+    ? getCacheKey(input, provider)
+    : getCacheKey(JSON.stringify(input), provider);
   
   // Check cache first
   const cached = getCachedEmbedding(cacheKey);
@@ -51,45 +54,65 @@ export async function getEmbedding(input: string): Promise<number[] | null> {
 
   let result: number[] | null = null;
 
-  if (provider === 'none') {
-    result = null;
-  } else if (provider === 'qmd') {
-    result = await getQMDEmbedding(input);
-    // Fallback if QMD fails (unless qmd-only mode)
-    if (!result && config.qmdFallbackMode !== 'qmd-only') {
-      result = getLocalEmbedding(input);
+  // Handle multimodal input
+  if (isMultimodalInput(input) && (provider === 'google-multimodal' || provider === 'hybrid')) {
+    const multimodalResult = await getGoogleMultimodalEmbedding(input);
+    if (multimodalResult) {
+      result = multimodalResult.embedding;
     }
-  } else if (provider === 'hybrid') {
-    // Hybrid mode: Try QMD first, then cloud providers, then local
-    if (config.qmdEnabled) {
-      result = await getQMDEmbedding(input);
-    }
-    if (!result && config.qmdFallbackMode !== 'qmd-only') {
-      result = await getOllamaEmbedding(input);
-    }
-    if (!result && config.qmdFallbackMode !== 'qmd-only' && config.qmdFallbackMode !== 'local-only') {
-      result = await getOpenAiEmbedding(input);
-    }
-    if (!result) {
-      result = getLocalEmbedding(input);
-    }
-  } else if (provider === 'openai') {
-    result = await getOpenAiEmbedding(input);
-  } else if (provider === 'ollama') {
-    result = await getOllamaEmbedding(input);
-  } else if (provider === 'local') {
-    result = getLocalEmbedding(input);
-  } else {
-    // Auto mode: use local TF-IDF by default (fast, no API needed)
-    // Only try external providers if explicitly configured
-    if (config.openAiApiKey) {
-      result = await getOpenAiEmbedding(input);
-    }
-    if (!result && config.ollamaUrl) {
-      result = await getOllamaEmbedding(input);
-    }
-    if (!result) {
-      result = getLocalEmbedding(input);
+  }
+
+  // Handle text-only input
+  if (!result && typeof input === 'string') {
+    const textInput = input;
+
+    if (provider === 'none') {
+      result = null;
+    } else if (provider === 'google-multimodal') {
+      const multimodalResult = await getGoogleMultimodalEmbedding({ text: textInput });
+      result = multimodalResult?.embedding || null;
+    } else if (provider === 'qmd') {
+      result = await getQMDEmbedding(textInput);
+      // Fallback if QMD fails (unless qmd-only mode)
+      if (!result && config.qmdFallbackMode !== 'qmd-only') {
+        result = getLocalEmbedding(textInput);
+      }
+    } else if (provider === 'hybrid') {
+      // Hybrid mode: Try Google Multimodal first, then QMD, then cloud providers, then local
+      if (config.multimodalEmbeddingsEnabled) {
+        const multimodalResult = await getGoogleMultimodalEmbedding({ text: textInput });
+        result = multimodalResult?.embedding || null;
+      }
+      if (!result && config.qmdEnabled) {
+        result = await getQMDEmbedding(textInput);
+      }
+      if (!result && config.qmdFallbackMode !== 'qmd-only') {
+        result = await getOllamaEmbedding(textInput);
+      }
+      if (!result && config.qmdFallbackMode !== 'qmd-only' && config.qmdFallbackMode !== 'local-only') {
+        result = await getOpenAiEmbedding(textInput);
+      }
+      if (!result) {
+        result = getLocalEmbedding(textInput);
+      }
+    } else if (provider === 'openai') {
+      result = await getOpenAiEmbedding(textInput);
+    } else if (provider === 'ollama') {
+      result = await getOllamaEmbedding(textInput);
+    } else if (provider === 'local') {
+      result = getLocalEmbedding(textInput);
+    } else {
+      // Auto mode: use local TF-IDF by default (fast, no API needed)
+      // Only try external providers if explicitly configured
+      if (config.openAiApiKey) {
+        result = await getOpenAiEmbedding(textInput);
+      }
+      if (!result && config.ollamaUrl) {
+        result = await getOllamaEmbedding(textInput);
+      }
+      if (!result) {
+        result = getLocalEmbedding(textInput);
+      }
     }
   }
 
