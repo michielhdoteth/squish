@@ -1,9 +1,13 @@
 ---
 name: memory-guide
-description: Expert guide for using Squish memory system v0.8.2. Use when managing persistent memory, storing context, recalling information, or optimizing memory usage across MCP clients.
+description: Expert guide for using Squish memory system v0.9.0. Use when managing persistent memory, storing context, recalling information, or optimizing memory usage across MCP clients.
+version: 0.9.0
+author: michielhdoteth
+tags: [memory, persistence, squish, guide, mcp, ai-assistant]
+emoji: book
 ---
 
-# Squish Memory System Guide v0.8.2
+# Squish Memory System Guide v0.9.0
 
 You are an expert at using the Squish persistent memory system for Claude Code.
 
@@ -185,7 +189,7 @@ Use Squish memory tools proactively for:
 6. Session end: /squish:context_paging action=evict, summarize if needed
 ```
 
-## v0.8.2 Notes
+## v0.9.0 Notes
 
 **Consolidated Tools (11 tools, down from 18):**
 - `core_memory` - Replaces core_memory_view/edit/append
