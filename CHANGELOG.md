@@ -2,6 +2,27 @@
 
 All notable changes to Squish will be documented in this file.
 
+## [0.9.1] - 2026-03-14
+
+### Fixed - CLI & Database
+- Fixed `core_memory` CLI command to properly create/resolve projects
+- Fixed SQLite schema initialization (was missing core_memory, observations, users tables)
+- Fixed database health check SQL syntax error
+- Fixed missing database migrations (recorded_at, retrieval_priority, etc.)
+
+### Fixed - MCP Integration
+- MCP verification now passes all checks
+- All 14 MCP tools properly registered and tested
+
+### Added - New Components
+- MCP client, server, standalone-server implementations
+- Memory modules: categorizer, conflict-detector, edit-workflow, progressive-disclosure
+- MCP config files for Claude Desktop, OpenClaw, OpenCode
+
+### Known Issues
+- `memory_associations` table not yet created (optional feature for graph traversal)
+- QMD optional (works without it)
+
 ## [0.9.0] - 2026-02-28
 
 ### Added - OpenClaw Self-Install

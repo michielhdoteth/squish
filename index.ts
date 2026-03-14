@@ -75,7 +75,7 @@ import { initializeScheduler, registerJobHandler } from './core/scheduler/cron-s
 import { startHeartbeatChecking, heartbeat } from './core/scheduler/heartbeat.js';
 import { runNightlyJob, runWeeklyJob } from './core/scheduler/job-runner.js';
 
-const VERSION = '0.9.0';
+const VERSION = '0.9.1';
 
 // ============================================================================
 // CLI MODE DETECTION
