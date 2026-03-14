@@ -186,13 +186,20 @@ async function runCliMode() {
     .option('-p, --project <project>', 'Project path', process.cwd())
     .action(async (action, options) => {
       try {
-        const project = options.project;
+        const projectPath = options.project;
+        const { ensureProject, getProjectByPath } = await import('./core/projects.js');
+        const projectRecord = await ensureProject(projectPath);
+        if (!projectRecord) {
+          console.log(JSON.stringify({ ok: false, error: 'Project not found and could not be created' }, null, 2));
+          process.exit(1);
+        }
+        const projectId = projectRecord.id;
 
         switch (action) {
           case 'view':
-            await initializeCoreMemory(project);
-            const core = await getCoreMemory(project);
-            const stats = await getCoreMemoryStats(project);
+            await initializeCoreMemory(projectId);
+            const core = await getCoreMemory(projectId);
+            const stats = await getCoreMemoryStats(projectId);
             console.log(JSON.stringify({ ok: true, action, content: core, stats }, null, 2));
             break;
 
@@ -201,8 +208,8 @@ async function runCliMode() {
               console.log(JSON.stringify({ ok: false, error: '--section and --content required for edit' }, null, 2));
               process.exit(1);
             }
-            await initializeCoreMemory(project);
-            const editResult = await editCoreMemorySection(project, options.section as any, String(options.content));
+            await initializeCoreMemory(projectId);
+            const editResult = await editCoreMemorySection(projectId, options.section as any, String(options.content));
             console.log(JSON.stringify({ ok: editResult.success, action: 'edit', section: options.section, ...editResult }, null, 2));
             break;
 
@@ -211,8 +218,8 @@ async function runCliMode() {
               console.log(JSON.stringify({ ok: false, error: '--section and --text required for append' }, null, 2));
               process.exit(1);
             }
-            await initializeCoreMemory(project);
-            const appendResult = await appendCoreMemorySection(project, options.section as any, String(options.text));
+            await initializeCoreMemory(projectId);
+            const appendResult = await appendCoreMemorySection(projectId, options.section as any, String(options.text));
             console.log(JSON.stringify({ ok: appendResult.success, action: 'append', section: options.section, ...appendResult }, null, 2));
             break;
 

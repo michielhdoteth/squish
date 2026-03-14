@@ -1,0 +1,14 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "squish": {
+      "type": "local",
+      "command": ["npx", "-y", "squish-memory", "mcp"],
+      "enabled": true,
+      "environment": {
+        "SQUISH_MODE": "local",
+        "SQUISH_DATA_DIR": "~/.squish"
+      }
+    }
+  }
+}

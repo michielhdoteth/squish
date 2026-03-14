@@ -62,8 +62,8 @@ async function createBunSqliteDb(dbPath: string): Promise<any> {
   // Enable foreign keys
   sqlite.run('PRAGMA foreign_keys = ON');
 
-  // Run schema bootstrap
-  ensureSqliteSchemaForBun(sqlite);
+  // Run full schema bootstrap from bootstrap.ts (includes ALL tables)
+  await ensureSqliteSchema(sqlite);
 
   return drizzle(sqlite, { schema: schemaModule });
 }
