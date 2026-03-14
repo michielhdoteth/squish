@@ -1,6 +1,11 @@
 import express from 'express';
 import cors from 'cors';
 import { logger } from '../../core/logger.js';
+import { getRecentMemories } from '../../core/memory/memories.js';
+import { getObservationsForProject } from '../../core/observations.js';
+import { getAllProjects, getProjectByPath } from '../../core/projects.js';
+import { getDb } from '../../db/index.js';
+import { isDatabaseUnavailableError } from '../../core/utils.js';
 
 const app = express();
 const PORT = process.env.SQUISH_WEB_PORT || 37777;
@@ -10,86 +15,175 @@ app.use(express.json());
 
 // Health check endpoint
 app.get('/api/health', async (req, res) => {
+  let dbStatus = 'ok';
+  let projectInfo = null;
+  let allProjects: any[] = [];
+
+  try {
+    const db = await getDb();
+    if (db && typeof db.prepare === 'function') {
+      db.prepare('SELECT 1').get();
+    }
+    
+    // Get all projects from database
+    allProjects = await getAllProjects();
+    
+    // If there are projects, use the first one as default (most recent)
+    if (allProjects.length > 0) {
+      projectInfo = { id: allProjects[0].id, name: allProjects[0].name, path: allProjects[0].path };
+    }
+  } catch (error: any) {
+    dbStatus = 'error';
+    logger.error('Health check failed:', error.message);
+  }
+
   res.json({
-    status: 'ok',
-    version: '0.1.0',
-    database: 'ok',
-    project: { id: 'demo', name: 'Demo Project', path: process.cwd() },
+    status: dbStatus === 'ok' ? 'ok' : 'error',
+    version: '0.9.1',
+    database: dbStatus,
+    project: projectInfo || { id: 'unknown', name: 'No Project', path: '' },
+    projects: allProjects,
     timestamp: new Date().toISOString()
   });
 });
 
 // Get recent memories
 app.get('/api/memories', async (req, res) => {
-  const mockMemories = [
-    {
-      id: '1',
-      type: 'conversation',
-      content: 'User asked about implementing a new feature for the dashboard',
-      tags: ['feature', 'dashboard'],
-      projectId: 'demo',
-      createdAt: new Date().toISOString()
+  try {
+    const projectPath = req.query.projectPath as string || process.cwd();
+    const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 20, 1), 100);
+    
+    const project = await getProjectByPath(projectPath);
+    if (!project) {
+      return res.json({ status: 'ok', data: [], count: 0, message: 'Project not found' });
     }
-  ];
 
-  res.json({
-    status: 'ok',
-    data: mockMemories,
-    count: mockMemories.length
-  });
+    const memories = await getRecentMemories(projectPath, limit);
+    
+    res.json({
+      status: 'ok',
+      data: memories,
+      count: memories.length,
+      project: { id: project.id, name: project.name, path: project.path }
+    });
+  } catch (error: any) {
+    if (isDatabaseUnavailableError(error)) {
+      return res.json({ status: 'ok', data: [], count: 0, message: 'Database unavailable' });
+    }
+    logger.error('Failed to get memories:', error.message);
+    res.status(500).json({ status: 'error', message: error.message });
+  }
 });
 
 // Get observations for project
 app.get('/api/observations', async (req, res) => {
-  const mockObservations = [
-    {
-      id: '1',
-      type: 'tool_usage',
-      summary: 'User ran a build command',
-      action: 'build',
-      target: 'project',
-      createdAt: new Date().toISOString()
+  try {
+    const projectPath = req.query.projectPath as string || process.cwd();
+    const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 20, 1), 100);
+    
+    const project = await getProjectByPath(projectPath);
+    if (!project) {
+      return res.json({ status: 'ok', data: [], count: 0, message: 'Project not found' });
     }
-  ];
 
-  res.json({
-    status: 'ok',
-    data: mockObservations,
-    count: mockObservations.length
-  });
+    const observations = await getObservationsForProject(projectPath, limit);
+    
+    res.json({
+      status: 'ok',
+      data: observations,
+      count: observations.length,
+      project: { id: project.id, name: project.name, path: project.path }
+    });
+  } catch (error: any) {
+    if (isDatabaseUnavailableError(error)) {
+      return res.json({ status: 'ok', data: [], count: 0, message: 'Database unavailable' });
+    }
+    logger.error('Failed to get observations:', error.message);
+    res.status(500).json({ status: 'error', message: error.message });
+  }
 });
 
 // Get project context
 app.get('/api/context', async (req, res) => {
-  const mockMemories = [
-    {
-      id: '1',
-      type: 'conversation',
-      content: 'Enhanced web UI with modern design',
-      tags: ['ui', 'enhancement'],
-      projectId: 'demo',
-      createdAt: new Date().toISOString()
+  try {
+    // Get all projects and use first one as default if no projectPath specified
+    const allProjects = await getAllProjects();
+    let projectPath = req.query.projectPath as string;
+    
+    // If no projectPath provided, use the first project from database
+    if (!projectPath && allProjects.length > 0) {
+      projectPath = allProjects[0].path;
     }
-  ];
-
-  const mockObservations = [
-    {
-      id: '1',
-      type: 'tool_usage',
-      summary: 'Web UI server started successfully',
-      action: 'start',
-      target: 'server',
-      createdAt: new Date().toISOString()
+    
+    if (!projectPath) {
+      return res.json({ 
+        status: 'ok', 
+        project: { id: 'unknown', name: 'No Project', path: '' },
+        projects: allProjects,
+        memories: [], 
+        observations: [], 
+        totalCount: 0,
+        message: 'No projects found in database'
+      });
     }
-  ];
+    
+    const project = await getProjectByPath(projectPath);
+    if (!project) {
+      return res.json({ 
+        status: 'ok', 
+        project: { id: 'unknown', name: 'Project Not Found', path: projectPath },
+        projects: allProjects,
+        memories: [], 
+        observations: [], 
+        totalCount: 0,
+        message: 'Project not found in database'
+      });
+    }
 
-  res.json({
-    status: 'ok',
-    project: { id: 'demo', name: 'Demo Project', path: process.cwd() },
-    memories: mockMemories,
-    observations: mockObservations,
-    totalCount: mockMemories.length + mockObservations.length
-  });
+    const memories = await getRecentMemories(projectPath, 20);
+    const observations = await getObservationsForProject(projectPath, 20);
+
+    res.json({
+      status: 'ok',
+      project: { id: project.id, name: project.name, path: project.path },
+      projects: allProjects,
+      memories: memories,
+      observations: observations,
+      totalCount: memories.length + observations.length
+    });
+  } catch (error: any) {
+    if (isDatabaseUnavailableError(error)) {
+      return res.json({ 
+        status: 'ok', 
+        project: { id: 'unknown', name: 'Error', path: '' },
+        projects: [],
+        memories: [], 
+        observations: [], 
+        totalCount: 0,
+        message: 'Database unavailable'
+      });
+    }
+    logger.error('Failed to get context:', error.message);
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+});
+
+// Get all projects
+app.get('/api/projects', async (req, res) => {
+  try {
+    const projects = await getAllProjects();
+    res.json({
+      status: 'ok',
+      data: projects,
+      count: projects.length
+    });
+  } catch (error: any) {
+    if (isDatabaseUnavailableError(error)) {
+      return res.json({ status: 'ok', data: [], count: 0, message: 'Database unavailable' });
+    }
+    logger.error('Failed to get projects:', error.message);
+    res.status(500).json({ status: 'error', message: error.message });
+  }
 });
 
 // Web UI
@@ -169,6 +263,9 @@ app.get('/', (req, res) => {
 </h1>
 </div>
 <div class="flex items-center gap-4">
+<select id="project-select" onchange="changeProject(this.value)" class="bg-card-bg px-4 py-2 rounded-full border-2 border-slate-700/50 text-text-main text-sm font-medium focus:outline-none focus:border-primary">
+<option value="">Loading projects...</option>
+</select>
 <div class="bg-card-bg px-4 py-2 rounded-full border-2 border-slate-700/50 flex items-center gap-2">
 <div class="size-2 rounded-full bg-primary animate-pulse"></div>
 <span class="text-xs font-bold uppercase tracking-widest text-text-muted">Local Server: Online</span>
@@ -261,23 +358,75 @@ app.get('/', (req, res) => {
 </div>
 </footer>
 <script>
+        let currentProjectPath = null;
+        
+        async function loadProjects() {
+            try {
+                const response = await fetch('/api/projects');
+                const data = await response.json();
+                
+                if (data.status === 'ok' && data.data && data.data.length > 0) {
+                    const select = document.getElementById('project-select');
+                    if (select) {
+                        select.innerHTML = data.data.map(function(p) {
+                            return '<option value="' + escapeHtml(p.path) + '">' + escapeHtml(p.name || p.path) + '</option>';
+                        }).join('');
+                        
+                        // Try to select current directory
+                        const cwd = window.location.pathname === '/' ? '' : window.location.pathname;
+                        const defaultProject = data.data.find(function(p) { return p.path === cwd; }) || data.data[0];
+                        if (defaultProject) {
+                            currentProjectPath = defaultProject.path;
+                            select.value = defaultProject.path;
+                        }
+                    }
+                } else {
+                    // No projects yet, use current directory
+                    currentProjectPath = window.location.pathname === '/' ? '' : window.location.pathname;
+                }
+            } catch (error) {
+                console.error('Failed to load projects:', error);
+                currentProjectPath = '';
+            }
+        }
+        
         async function loadData() {
             try {
-                const response = await fetch('/api/context');
+                const url = currentProjectPath ? '/api/context?projectPath=' + encodeURIComponent(currentProjectPath) : '/api/context';
+                const response = await fetch(url);
                 const data = await response.json();
 
                 if (data.status === 'ok') {
-                    document.getElementById('memories-count').textContent = data.memories.length;
-                    document.getElementById('observations-count').textContent = data.observations.length;
-                    document.getElementById('total-count').textContent = data.totalCount;
-                    updateStatus('ok');
+                    document.getElementById('memories-count').textContent = data.memories ? data.memories.length : 0;
+                    document.getElementById('observations-count').textContent = data.observations ? data.observations.length : 0;
+                    document.getElementById('total-count').textContent = data.totalCount || 0;
+                    updateStatus(data.memories && data.observations ? 'ok' : 'error');
 
-                    renderMemories(data.memories);
-                    renderObservations(data.observations);
+                    renderMemories(data.memories || []);
+                    renderObservations(data.observations || []);
 
-                    // Hide error alert
+                    // Update project info
+                    if (data.project) {
+                        const projectInfo = document.getElementById('project-info');
+                        if (projectInfo) {
+                            projectInfo.textContent = data.project.name || data.project.path || 'Unknown';
+                        }
+                    }
+
+                    // Hide error alert if data loaded
                     const errorAlert = document.querySelector('.blob-alert');
-                    if (errorAlert) errorAlert.style.display = 'none';
+                    if (errorAlert && (data.memories && data.memories.length > 0 || data.observations && data.observations.length > 0)) {
+                        errorAlert.style.display = 'none';
+                    }
+                    
+                    // Show error alert if message present
+                    if (data.message) {
+                        const errorAlert = document.querySelector('.blob-alert');
+                        if (errorAlert) {
+                            errorAlert.querySelector('p').textContent = data.message;
+                            errorAlert.style.display = 'flex';
+                        }
+                    }
                 } else {
                     throw new Error('API returned error status');
                 }
@@ -292,7 +441,7 @@ app.get('/', (req, res) => {
 
         function renderMemories(memories) {
             const container = document.getElementById('memories');
-            if (memories.length === 0) {
+            if (!memories || memories.length === 0) {
                 container.innerHTML = '<div class="bg-card-bg/50 p-6 rounded-3xl border-2 border-slate-700/20 flex flex-col items-center justify-center py-16 opacity-60"><p class="font-black italic text-text-muted">No memories found</p></div>';
                 return;
             }
@@ -300,13 +449,12 @@ app.get('/', (req, res) => {
             container.innerHTML = memories.map(function(memory) {
                 return '<div class="bg-card-bg p-6 rounded-3xl border-2 border-slate-700/20 squishy-hover">' +
                     '<div class="flex items-start justify-between mb-4">' +
-                        '<span class="bg-primary text-black px-3 py-1 rounded-full text-xs font-bold uppercase">' + memory.type + '</span>' +
+                        '<span class="bg-primary text-black px-3 py-1 rounded-full text-xs font-bold uppercase">' + (memory.type || 'memory') + '</span>' +
                         '<span class="text-text-muted text-sm">' + formatTime(memory.createdAt) + '</span>' +
                     '</div>' +
-                    '<div class="text-text-main mb-4">' + escapeHtml(memory.content) + '</div>' +
+                    '<div class="text-text-main mb-4">' + escapeHtml(memory.content || memory.text || '') + '</div>' +
                     '<div class="text-text-muted text-sm">' +
-                        'Tags: ' + (memory.tags ? memory.tags.join(', ') : 'none') + ' | ' +
-                        'Project: ' + (memory.projectId || 'unknown') +
+                        'Tags: ' + (memory.tags ? memory.tags.join(', ') : 'none') +
                     '</div>' +
                 '</div>';
             }).join('');
@@ -314,7 +462,7 @@ app.get('/', (req, res) => {
 
         function renderObservations(observations) {
             const container = document.getElementById('observations');
-            if (observations.length === 0) {
+            if (!observations || observations.length === 0) {
                 container.innerHTML = '<div class="bg-card-bg/50 p-6 rounded-3xl border-2 border-slate-700/20 flex flex-col items-center justify-center py-16 opacity-60"><p class="font-black italic text-text-muted">No observations found</p></div>';
                 return;
             }
@@ -322,12 +470,12 @@ app.get('/', (req, res) => {
             container.innerHTML = observations.map(function(obs) {
                 return '<div class="bg-card-bg p-6 rounded-3xl border-2 border-slate-700/20 squishy-hover">' +
                     '<div class="flex items-start justify-between mb-4">' +
-                        '<span class="bg-secondary text-black px-3 py-1 rounded-full text-xs font-bold uppercase">' + obs.type + '</span>' +
+                        '<span class="bg-secondary text-black px-3 py-1 rounded-full text-xs font-bold uppercase">' + (obs.type || 'observation') + '</span>' +
                         '<span class="text-text-muted text-sm">' + formatTime(obs.createdAt) + '</span>' +
                     '</div>' +
-                    '<div class="text-text-main mb-4">' + escapeHtml(obs.summary) + '</div>' +
+                    '<div class="text-text-main mb-4">' + escapeHtml(obs.summary || obs.content || '') + '</div>' +
                     '<div class="text-text-muted text-sm">' +
-                        'Action: ' + obs.action + ' | ' +
+                        'Action: ' + (obs.action || 'none') + ' | ' +
                         'Target: ' + (obs.target || 'none') +
                     '</div>' +
                 '</div>';
@@ -478,9 +626,17 @@ app.get('/', (req, res) => {
                 modal.remove();
             }
         }
+        
+        function changeProject(path) {
+            currentProjectPath = path;
+            loadData();
+        }
 
-        loadData();
-        window.refreshInterval = setInterval(loadData, 30000);
+        // Initialize: load projects first, then data
+        loadProjects().then(function() {
+            loadData();
+            window.refreshInterval = setInterval(loadData, 30000);
+        });
     </script>
 </body></html>`;
   res.send(html);

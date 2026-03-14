@@ -6,6 +6,7 @@
 import { eq } from 'drizzle-orm';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
+import { createDatabaseClient } from '../database.js';
 import { config } from '../../config.js';
 import { logger } from '../logger.js';
 
@@ -26,9 +27,10 @@ export async function performMemoryOperation(
 
   try {
     const db = await getDb();
+    const client = createDatabaseClient(db);
     const schema = await getSchema();
 
-    await (db as any)
+    await client
       .update(schema.memories)
       .set(operation.updates)
       .where(eq(schema.memories.id, memoryId));

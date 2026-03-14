@@ -121,6 +121,7 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
     ...embeddingValues,
     importanceScore: importance.score,
     lastImportanceRecalc: new Date(),
+    createdAt: new Date(),
   });
 
    // Resolve contradictions and supersede old memories (async, non-blocking)
@@ -482,26 +483,31 @@ function normalizeMemory(row: any): MemoryRecord {
 
   const createdAt = row.createdAt ?? row.created_at;
   let createdAtStr: string | null = null;
-  if (createdAt) {
+  if (createdAt !== undefined && createdAt !== null) {
     try {
       if (createdAt instanceof Date && !isNaN(createdAt.getTime())) {
         createdAtStr = createdAt.toISOString();
-      } else if (typeof createdAt === 'number' && createdAt > 0) {
+      } else if (typeof createdAt === 'number') {
+        // Handle different timestamp formats
+        // Microseconds: > 100000000000000 (e.g., 170000000000000)
+        // Milliseconds: > 1000000000000 (e.g., 1700000000000)
+        // Seconds: <= 1000000000000 (e.g., 1700000000)
         if (createdAt > 100000000000000) {
-          createdAtStr = new Date(createdAt / 1000000).toISOString();
+          createdAtStr = new Date(createdAt / 1000).toISOString();
         } else if (createdAt > 1000000000000) {
           createdAtStr = new Date(createdAt).toISOString();
-        } else {
+        } else if (createdAt >= 0) {
+          // Unix timestamp in seconds - convert to milliseconds
           createdAtStr = new Date(createdAt * 1000).toISOString();
         }
       } else if (typeof createdAt === 'string' && createdAt.trim()) {
         const parsed = new Date(createdAt);
-        createdAtStr = isNaN(parsed.getTime()) ? new Date().toISOString() : parsed.toISOString();
-      } else {
-        createdAtStr = new Date().toISOString();
+        if (!isNaN(parsed.getTime())) {
+          createdAtStr = parsed.toISOString();
+        }
       }
     } catch {
-      createdAtStr = new Date().toISOString();
+      // Keep null on parse error
     }
   }
 

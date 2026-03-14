@@ -382,7 +382,8 @@ function buildFtsQuery(query: unknown): string {
   // Ensure query is a string
   const queryString = typeof query === 'string' ? query : String(query ?? '');
 
-  // Remove special characters that could break FTS5 syntax
+  // Remove special characters that could break FTS5 syntax (except quotes)
+  // Hyphens are problematic in FTS5 - they're treated as exclusion operators
   let cleaned = queryString.replace(/[^\w\s"'-]/g, ' ');
 
   // If query contains quotes, preserve as phrase search
@@ -396,13 +397,21 @@ function buildFtsQuery(query: unknown): string {
     return '*'; // Match all for empty query
   }
 
+  // Wrap terms containing hyphens in quotes (e.g., "trash-cli" prevents hyphen being interpreted as NOT)
+  const processedTerms = terms.map(term => {
+    if (term.includes('-')) {
+      return `"${term}"`;
+    }
+    return term;
+  });
+
   // For multi-word queries, use OR for better recall (any term matches)
   // This is less restrictive than AND and finds more relevant results
-  if (terms.length > 1) {
-    return terms.join(' OR ');
+  if (processedTerms.length > 1) {
+    return processedTerms.join(' OR ');
   }
 
-  return terms[0];
+  return processedTerms[0];
 }
 
 /**

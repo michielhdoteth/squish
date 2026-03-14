@@ -74,7 +74,18 @@ async function createBetterSqliteDb(dbPath: string) {
   const { drizzle } = await import('drizzle-orm/better-sqlite3');
   const schemaModule = await import('../drizzle/schema-sqlite.js');
 
-  const sqlite = new Database(dbPath);
+  let sqlite: any;
+  try {
+    sqlite = new Database(dbPath);
+  } catch (error: any) {
+    // Check if it's a Win32 native module error
+    if (error.message?.includes('not a valid Win32 application')) {
+      logger.error('better-sqlite3 native module not compiled for this platform');
+      logger.error('Solution: Run "npm run web:bun" to use Bun instead, or rebuild with "npm rebuild better-sqlite3"');
+      throw new Error('SQLite native module unavailable. Use "npm run web:bun" or rebuild better-sqlite3 for your platform.');
+    }
+    throw error;
+  }
 
   // Enable foreign keys
   sqlite.pragma('foreign_keys = ON');

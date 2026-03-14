@@ -57,6 +57,7 @@ export async function createObservation(input: ObservationInput): Promise<Observ
     ...baseValues,
     details: detailsValue,
     ...embeddingValues,
+    createdAt: new Date(),
   });
 
   return {
