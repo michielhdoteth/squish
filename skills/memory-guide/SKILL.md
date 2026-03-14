@@ -9,7 +9,7 @@ emoji: book
 
 # Squish Memory System Guide v0.9.0
 
-You are an expert at using the Squish persistent memory system for Claude Code.
+You are an expert at using the Squish persistent memory system for AI coding assistants.
 
 ## When to Use Squish Memory
 
@@ -30,106 +30,189 @@ Use Squish memory tools proactively for:
    - Inject project-specific context
    - Maintain working memory across sessions
 
-## Core Memory (Always In Context)
+## MCP Tools Reference
 
-**Tool:** `core_memory` with `action` parameter
+### Storing Memories
 
-**Sections:**
-- **persona**: Your identity, role, communication style
-- **user_info**: User's name, preferences, coding style, expertise level
-- **project_context**: Current project context, architecture, stack, patterns
-- **working_notes**: Active TODOs, current focus, blockers, next steps
+**Tool:** `squish_remember`
 
-**Actions:**
-- `view` - See all core memory sections
-- `edit` - Replace content in a specific section
-- `append` - Add to existing section content
+Store new memories with automatic embedding.
 
-**When to update:**
-- Beginning of new projects (project_context section)
-- When user shares preferences (user_info section)
-- At end of sessions (working_notes section with TODOs)
-- When identity/role changes (persona section)
+```typescript
+// Store a preference
+squish_remember({
+  content: "User prefers functional components with hooks over class components",
+  type: "preference",
+  tags: ["react", "preferences"]
+})
 
-**Example usage:**
-```
-/squish:core_memory action=append section=project_context text="Stack: TypeScript, React, PostgreSQL, Drizzle ORM"
-/squish:core_memory action=edit section=working_notes content="Authentication complete. Next: implement API rate limiting"
-/squish:core_memory action=view
-```
+// Store a fact
+squish_remember({
+  content: "API uses JWT tokens with 1-hour expiration",
+  type: "fact",
+  tags: ["auth", "api"]
+})
 
-## Context Paging (Working Set)
-
-**Tool:** `context_paging` with `action` parameter
-
-**Purpose:** Agent-controlled working memory for relevant information during tasks
-
-**Actions:**
-- `load` - Load memories into working context
-- `evict` - Remove memories from working context
-- `view` - See what's currently loaded
-
-**When to load memories:**
-- Before starting work: Load relevant past decisions, patterns
-- During debugging: Load related error memories
-- For refactoring: Load architectural notes
-
-**When to evict:**
-- Task completed
-- Context getting full (check context_status)
-- Information no longer relevant
-
-**Example workflow:**
-```
-# Before starting authentication work
-/squish:search query="authentication patterns we discussed"
-/squish:context_paging action=load memoryIds=["id1","id2","id3"]
-
-# Check what's loaded
-/squish:context_paging action=view
-
-# After completing task
-/squish:context_paging action=evict memoryIds=["id1","id2"]
+// Store a decision
+squish_remember({
+  content: "Chose PostgreSQL over MongoDB for better relational data",
+  type: "decision",
+  tags: ["database", "architecture"]
+})
 ```
 
-## Storing Memories
+### Searching Memories
 
-**Tool:** `remember`
+**Tool:** `squish_search`
 
-**What to store:**
-- Decisions made and rationale
-- User preferences discovered
-- Code patterns agreed upon
-- Project-specific conventions
-- Blockers encountered and solutions
-- Technical specifications
+Hybrid search across all memory types.
 
-**Memory types:**
-- observation: Facts observed, patterns noticed
-- fact: Technical facts, specifications
-- decision: Decisions made with rationale
-- context: Project/domain context
-- preference: User preferences
+```typescript
+// Basic search
+squish_search({ query: "authentication patterns", limit: 5 })
 
-**Example:**
-```
-/squish:remember content="User prefers functional components with hooks over class components" type=preference sector=autobiographical
-/squish:remember content="API uses JWT tokens with 1-hour expiration, refresh tokens stored in httpOnly cookies" type=fact sector=semantic
+// Search with project filter
+squish_search({ query: "database schema", project: "/path/to/project", limit: 10 })
+
+// Search specific memory type
+squish_search({ query: "user preferences", type: "preference" })
 ```
 
-## Search and Recall
+### Retrieving Memories
 
-**Tools:** `search`, `recall`
+**Tool:** `squish_recall`
 
-**Search strategies:**
-- Semantic search: Natural language queries
-- Full-text search: Specific keywords, file names
-- Related memories: Find connected information via association graph
+Retrieve a specific memory by ID.
 
-**Example:**
+```typescript
+squish_recall({ memoryId: "uuid-here" })
 ```
-/squish:search query="database schema design decisions" limit=5
-/squish:recall memoryId=abc123
+
+### Deleting Memories
+
+**Tool:** `squish_forget`
+
+Delete a memory by ID.
+
+```typescript
+squish_forget({ memoryId: "uuid-here" })
+```
+
+### Updating Memories
+
+**Tool:** `squish_update`
+
+Update existing memory content, tags, or type.
+
+```typescript
+squish_update({
+  memoryId: "uuid-here",
+  content: "Updated content",
+  tags: ["new", "tags"],
+  type: "fact"
+})
+```
+
+### Graph Associations
+
+**Tool:** `squish_associate`
+
+Link related memories together.
+
+```typescript
+squish_associate({
+  fromMemoryId: "uuid-1",
+  toMemoryId: "uuid-2",
+  type: "relates_to",
+  weight: 0.8
+})
+```
+
+**Tool:** `squish_related`
+
+Find related memories via graph traversal.
+
+```typescript
+squish_related({
+  memoryId: "uuid-here",
+  depth: 2,
+  minWeight: 0.3
+})
+```
+
+### Context & Observations
+
+**Tool:** `squish_context`
+
+Get project context with relevant memories.
+
+```typescript
+squish_context({ project: "/path/to/project", limit: 10 })
+```
+
+**Tool:** `squish_observe`
+
+Record observations about your work.
+
+```typescript
+squish_observe({
+  type: "tool_use",
+  action: "Created new API endpoint",
+  summary: "Implemented POST /users endpoint",
+  target: "api/users.ts"
+})
+
+squish_observe({
+  type: "error",
+  action: "Database connection failed",
+  summary: "PostgreSQL timeout after 30s",
+  target: "db/index.ts"
+})
+```
+
+### QMD Search
+
+**Tool:** `squish_qmd_search`
+
+Search local markdown files using QMD.
+
+```typescript
+squish_qmd_search({ query: "authentication", limit: 10 })
+squish_qmd_search({ query: "react hooks", collection: "docs" })
+```
+
+### Utilities
+
+**Tool:** `squish_embed`
+
+Generate embeddings for text.
+
+```typescript
+squish_embed({ text: "Text to embed" })
+```
+
+**Tool:** `squish_health`
+
+Check system health.
+
+```typescript
+squish_health({})
+```
+
+**Tool:** `squish_stats`
+
+Get memory statistics.
+
+```typescript
+squish_stats({ project: "/path/to/project" })
+```
+
+**Tool:** `squish_projects`
+
+List all projects.
+
+```typescript
+squish_projects({})
 ```
 
 ## Best Practices
@@ -137,65 +220,37 @@ Use Squish memory tools proactively for:
 1. **Store proactively**: Don't wait until end of session
 2. **Be specific**: Include context, timestamps, rationale
 3. **Use appropriate types**: Choose correct memory type and sector
-4. **Load selectively**: Don't load everything, focus on relevant memories
-5. **Maintain core memory**: Keep project/working sections current
-6. **Use associations**: Related memories are powerful for context
+4. **Use associations**: Link related memories for better retrieval
+5. **Record observations**: Use `squish_observe` for tool usage patterns
+6. **Set importance**: Mark critical memories with high importance
 
-## Memory Lifecycle
+## Memory Types
 
-- **Hot memories**: Recent, frequently accessed (auto-retained)
-- **Warm memories**: Older but still relevant
-- **Cold memories**: Old, rarely accessed (may be evicted)
-- **Protected**: Marked important, won't be evicted
-- **Pinned**: Auto-injected into context
+- **observation**: Facts observed, patterns noticed, tool usage
+- **fact**: Technical facts, specifications
+- **decision**: Decisions made with rationale
+- **context**: Project/domain context
+- **preference**: User preferences
 
-**Governance:**
-```
-/squish:protect_memory memoryId=abc123
-/squish:pin_memory memoryId=abc123
-```
+## When to Use Each Tool
 
-## Advanced Features
-
-**Merge duplicates:**
-```
-/squish:merge action=detect
-/squish:merge action=approve mergeId=xyz789
-```
-
-**Session summarization:**
-```
-/squish:summarize_session
-```
-
-**Health check:**
-```
-/squish:health
-```
-
-**Context status:**
-```
-/squish:context_status
-```
-
-## Integration Pattern
-
-```
-1. Session start: /squish:core_memory action=view
-2. Load relevant context: /squish:search + /squish:context_paging action=load
-3. Work on task: Use loaded memories as reference
-4. Store new learnings: /squish:remember key information
-5. Update working memory: /squish:core_memory action=edit section=working_notes
-6. Session end: /squish:context_paging action=evict, summarize if needed
-```
+| Task | Use |
+|------|-----|
+| Remember something important | `squish_remember` |
+| Find relevant past info | `squish_search` |
+| Get specific memory | `squish_recall` |
+| Delete incorrect memory | `squish_forget` |
+| Update stored info | `squish_update` |
+| Link related memories | `squish_associate` |
+| Find connected info | `squish_related` |
+| Get project overview | `squish_context` |
+| Record work observations | `squish_observe` |
+| Search local docs | `squish_qmd_search` |
+| Check system status | `squish_health` |
+| View memory stats | `squish_stats` |
 
 ## v0.9.0 Notes
 
-**Consolidated Tools (11 tools, down from 18):**
-- `core_memory` - Replaces core_memory_view/edit/append
-- `context_paging` - Replaces load_to_context/evict_from_context/view_loaded
-- `merge` - Replaces detect_duplicates + merge operations
-
-**All tools now use `action` parameter for sub-operations.**
+**All tools use consistent input schema patterns.**
 
 Remember: Squish is your persistent memory. Use it actively to maintain continuity across sessions and provide better assistance.

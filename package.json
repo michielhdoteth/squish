@@ -69,15 +69,19 @@
   "files": [
     "dist",
     "scripts",
-    "plugin.json",
-    ".claude-plugin",
     "commands",
     "skills",
     "hooks",
+    "config",
+    "bin",
+    "plugin.json",
+    ".claude-plugin",
     ".mcp.json",
+    ".env.mcp",
     "LICENSE",
     "README.md",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "QUICK-START.md"
   ],
   "author": "michielhdoteth",
   "license": "MIT",

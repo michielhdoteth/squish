@@ -1,0 +1,22 @@
+{
+  "name": "squish-memory",
+  "version": "0.9.0",
+  "description": "Persistent memory system with semantic search for AI assistants",
+  "author": "michielhdoteth",
+  "repository": "https://github.com/michielhdoteth/squish",
+  "homepage": "https://github.com/michielhdoteth/squish",
+  "keywords": ["memory", "persistence", "search", "semantic-search", "ai-assistant", "mcp", "claude-code", "openclaw", "opencode"],
+  "license": "MIT",
+  "skills": [
+    {
+      "name": "squish-memory",
+      "path": "skills/squish-memory",
+      "description": "MCP server and CLI for persistent memory with semantic search"
+    },
+    {
+      "name": "memory-guide",
+      "path": "skills/memory-guide",
+      "description": "Expert guide for using Squish memory system effectively"
+    }
+  ]
+}

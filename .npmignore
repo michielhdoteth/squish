@@ -3,7 +3,6 @@ node_modules/
 .github/
 docs/
 infra/
-scripts/
 tests/
 *.test.js
 *.test.ts
@@ -18,7 +17,13 @@ coverage/
 .DS_Store
 Thumbs.db
 
+# Squish specific
+.squish/
+.sisyphus/
+generated/
+squish-0.7.0.tgz
+nul
+
 # Keep source files for development installs
-# (Remove this if you want to publish only dist files)
 !src/
 !features/
