@@ -99,6 +99,19 @@ CREATE INDEX IF NOT EXISTS memories_type_idx ON memories(type);
 CREATE INDEX IF NOT EXISTS memories_created_idx ON memories(created_at);
 CREATE INDEX IF NOT EXISTS memories_tags_idx ON memories(tags);
 
+CREATE TABLE IF NOT EXISTS memory_associations (
+  id TEXT PRIMARY KEY,
+  from_memory_id TEXT NOT NULL,
+  to_memory_id TEXT NOT NULL,
+  association_type TEXT NOT NULL,
+  weight REAL DEFAULT 1,
+  coactivation_count INTEGER DEFAULT 1,
+  metadata TEXT,
+  last_coactivated_at INTEGER,
+  created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL,
+  UNIQUE(from_memory_id, to_memory_id)
+);
+
 CREATE TABLE IF NOT EXISTS conversations (
   id TEXT PRIMARY KEY,
   project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
