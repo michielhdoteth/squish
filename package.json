@@ -33,7 +33,8 @@
     "prepublishOnly": "npm run clean && npm run build",
     "prepare": "npm run build",
     "postinstall": "node scripts/init-dirs.mjs",
-    "release": "./scripts/build-release.sh && ./scripts/github-release.sh"
+    "release": "./scripts/build-release.sh && ./scripts/github-release.sh",
+    "check:secrets": "node scripts/check-secrets.js"
   },
   "repository": {
     "type": "git",

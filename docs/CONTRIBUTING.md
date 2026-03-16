@@ -145,6 +145,23 @@ git commit -m "fix(search): fix semantic search ranking"
 git commit -m "docs: update installation instructions"
 ```
 
+## Secret Scanning
+
+To prevent accidental commits of API keys and credentials, Squish includes automated secret scanning.
+
+### Local Checks
+- Run `npm run check:secrets` before pushing to scan staged files
+- Install the pre-commit hook: `cp git-hooks/pre-commit .git/hooks/` (manual)
+  Or use Husky: `npx husky add .husky/pre-commit "npm run check:secrets"`
+
+### CI Checks
+GitHub Actions runs TruffleHog on every PR and push to main. If secrets are found, the check fails and must be resolved before merging.
+
+If a secret is exposed:
+1. Immediately rotate/revoke the compromised credential
+2. Remove it from the codebase and commit the change
+3. Do not rewrite history unless absolutely necessary (coordinate with maintainers)
+
 ## Pull Request Process
 
 1. **Create a feature branch**
