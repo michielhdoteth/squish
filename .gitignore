@@ -9,6 +9,7 @@ dist/
 .env
 .env.local
 .env.production
+.env.mcp
 
 # Logs
 *.log

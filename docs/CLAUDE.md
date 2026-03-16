@@ -61,11 +61,20 @@ bun ./dist/index.js search "this"
 
 ```bash
 # Copy and customize
-cp .env.mcp .env
+cp .env.mcp.example .env
 
 # Key settings
-SQUISH_EMBEDDINGS_PROVIDER=local|google-multimodal|hybrid
+SQUISH_EMBEDDINGS_PROVIDER=local|openai|ollama|google-multimodal|hybrid
+SQUISH_MULTIMODAL_EMBEDDINGS_ENABLED=true  # for google-multimodal
 SQUISH_QMD_ENABLED=true|false
+
+# Core memory limits (default: 16KB total, 4KB per section)
+SQUISH_CORE_MEMORY_TOTAL_BYTES=16384
+SQUISH_CORE_MEMORY_SECTION_BYTES=4096
+
+# Embedding reliability (default: 30s timeout, 3 retries)
+SQUISH_EMBEDDINGS_TIMEOUT_MS=30000
+SQUISH_EMBEDDINGS_MAX_RETRIES=3
 ```
 
 ## License

@@ -113,26 +113,39 @@ export const config = {
   managedApiUrl: process.env.SQUISH_MANAGED_API_URL || 'https://api.squish.dev',
   managedApiKey: process.env.SQUISH_MANAGED_API_KEY || '',
 
-  // Session Auto-Load
-  sessionAutoLoadEnabled: process.env.SQUISH_SESSION_AUTO_LOAD !== 'false',
-  sessionAutoLoadRecentCount: parseInt(process.env.SQUISH_SESSION_AUTO_LOAD_RECENT_COUNT || '5'),
-  sessionAutoLoadImportanceThreshold: parseInt(process.env.SQUISH_SESSION_AUTO_LOAD_IMPORTANCE_THRESHOLD || '70'),
+   // Session Auto-Load
+   sessionAutoLoadEnabled: process.env.SQUISH_SESSION_AUTO_LOAD !== 'false',
+   sessionAutoLoadRecentCount: parseInt(process.env.SQUISH_SESSION_AUTO_LOAD_RECENT_COUNT || '5'),
+   sessionAutoLoadImportanceThreshold: parseInt(process.env.SQUISH_SESSION_AUTO_LOAD_IMPORTANCE_THRESHOLD || '70'),
 
-  // Query Rewriting
-  queryRewritingEnabled: process.env.SQUISH_QUERY_REWRITING !== 'false',
-  queryRewritingContextMessages: parseInt(process.env.SQUISH_QUERY_REWRITING_CONTEXT_MESSAGES || '5'),
-  queryRewritingFallbackEnabled: process.env.SQUISH_QUERY_REWRITING_FALLBACK !== 'false',
+   // Query Rewriting
+   queryRewritingEnabled: process.env.SQUISH_QUERY_REWRITING !== 'false',
+   queryRewritingContextMessages: parseInt(process.env.SQUISH_QUERY_REWRITING_CONTEXT_MESSAGES || '5'),
+   queryRewritingFallbackEnabled: process.env.SQUISH_QUERY_REWRITING_FALLBACK !== 'false',
 
-  // Echo/Fizzle Tracking
-  feedbackTrackingEnabled: process.env.SQUISH_FEEDBACK_TRACKING !== 'false',
-  feedbackEchoBonus: parseInt(process.env.SQUISH_FEEDBACK_ECHO_BONUS || '10'),
-  feedbackFizzlePenalty: parseInt(process.env.SQUISH_FEEDBACK_FIZZLE_PENALTY || '5'),
+   // Echo/Fizzle Tracking
+   feedbackTrackingEnabled: process.env.SQUISH_FEEDBACK_TRACKING !== 'false',
+   feedbackEchoBonus: parseInt(process.env.SQUISH_FEEDBACK_ECHO_BONUS || '10'),
+   feedbackFizzlePenalty: parseInt(process.env.SQUISH_FEEDBACK_FIZZLE_PENALTY || '5'),
 
-  // Scheduled Maintenance
-  schedulerMode: (process.env.SQUISH_SCHEDULER_MODE || 'cron') as 'cron' | 'interval' | 'heartbeat',
-  cronEnabled: process.env.SQUISH_CRON_ENABLED !== 'false',
-  heartbeatInterval: parseInt(process.env.SQUISH_HEARTBEAT_INTERVAL || '60000'),
-  jobRetentionDays: parseInt(process.env.SQUISH_JOB_RETENTION_DAYS || '30'),
-};
+   // Scheduled Maintenance
+   schedulerMode: (process.env.SQUISH_SCHEDULER_MODE || 'cron') as 'cron' | 'interval' | 'heartbeat',
+   cronEnabled: process.env.SQUISH_CRON_ENABLED !== 'false',
+   heartbeatInterval: parseInt(process.env.SQUISH_HEARTBEAT_INTERVAL || '60000'),
+   jobRetentionDays: parseInt(process.env.SQUISH_JOB_RETENTION_DAYS || '30'),
+
+   // Core Memory Configuration (v0.9.2+)
+   coreMemoryTotalBytes: parseInt(process.env.SQUISH_CORE_MEMORY_TOTAL_BYTES || '16384'), // 16KB default
+   coreMemorySectionBytes: parseInt(process.env.SQUISH_CORE_MEMORY_SECTION_BYTES || '4096'), // 4KB default per section
+
+   // Embeddings Performance & Reliability
+   embeddingsTimeoutMs: parseInt(process.env.SQUISH_EMBEDDINGS_TIMEOUT_MS || '30000'), // 30s default
+   embeddingsMaxRetries: parseInt(process.env.SQUISH_EMBEDDINGS_MAX_RETRIES || '3'),
+   embeddingsRetryDelayMs: parseInt(process.env.SQUISH_EMBEDDINGS_RETRY_DELAY_MS || '1000'),
+   // Per-provider timeout overrides
+   openAiTimeoutMs: parseInt(process.env.SQUISH_OPENAI_TIMEOUT_MS || process.env.SQUISH_EMBEDDINGS_TIMEOUT_MS || '30000'),
+   ollamaTimeoutMs: parseInt(process.env.SQUISH_OLLAMA_TIMEOUT_MS || process.env.SQUISH_EMBEDDINGS_TIMEOUT_MS || '30000'),
+   googleMultimodalTimeoutMs: parseInt(process.env.SQUISH_GOOGLE_MULTIMODAL_TIMEOUT_MS || process.env.SQUISH_EMBEDDINGS_TIMEOUT_MS || '30000'),
+ };
 
 export default config;

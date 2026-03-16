@@ -2,6 +2,40 @@
 
 All notable changes to Squish will be documented in this file.
 
+## [0.9.3] - 2026-03-14
+
+### Added - Core Memory & Embeddings Improvements (v0.9.2+)
+
+#### Expanded Core Memory
+- Increased default core memory limit from 2KB to 16KB total (4KB per section)
+- Configurable limits via `SQUISH_CORE_MEMORY_TOTAL_BYTES` and `SQUISH_CORE_MEMORY_SECTION_BYTES`
+- Added token estimation for better LLM context budgeting
+- Core memory stats now show both byte and token usage
+
+#### Robust Embeddings System
+- Fixed hybrid fallback order: Google Multimodal → OpenAI → Ollama → Local (removed QMD from embedding chain)
+- Added retry logic with exponential backoff (3 retries default)
+- Added configurable timeouts (default 30s) with per-provider overrides
+- New `checkEmbeddingProviderHealth()` function for monitoring
+- Improved error handling and graceful degradation
+
+#### Enhanced Configuration
+- New environment variables for fine-tuning:
+  - `SQUISH_EMBEDDINGS_TIMEOUT_MS`, `SQUISH_EMBEDDINGS_MAX_RETRIES`, `SQUISH_EMBEDDINGS_RETRY_DELAY_MS`
+  - `SQUISH_OPENAI_TIMEOUT_MS`, `SQUISH_OLLAMA_TIMEOUT_MS`, `SQUISH_GOOGLE_MULTIMODAL_TIMEOUT_MS`
+- Better connection handling for all embedding providers
+
+### Changed - Infrastructure
+- Updated CI/CD workflows (`.github/workflows/ci.yml`, `release.yml`)
+- Removed old `mcp-launch-checks.yml` workflow
+- Updated release scripts (auto-detect version, better binary packaging)
+- Database schema: added `tokens_estimate` column to `core_memory` table (auto-migrated)
+
+### Security & developer experience
+- Renamed `.env.mcp` to `.env.mcp.example` (template) - added to `.gitignore`
+- Updated all documentation with new configuration options
+- Improved TypeScript type safety across codebase
+
 ## [0.9.1] - 2026-03-14
 
 ### Fixed - CLI & Database

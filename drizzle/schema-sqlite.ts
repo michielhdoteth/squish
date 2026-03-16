@@ -551,13 +551,14 @@ export const coreMemory = sqliteTable('core_memory', {
   projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }),
   userId: text('user_id').references(() => users.id, { onDelete: 'set null' }),
 
-  // Core memory sections
-  section: text('section').notNull().$type<'persona' | 'user_info' | 'project_context' | 'working_notes'>(),
-  content: text('content').notNull().default(''),
-  sizeBytes: integer('size_bytes').default(0).notNull(),
+   // Core memory sections
+   section: text('section').notNull().$type<'persona' | 'user_info' | 'project_context' | 'working_notes'>(),
+   content: text('content').notNull().default(''),
+   sizeBytes: integer('size_bytes').default(0).notNull(),
+   tokensEstimate: integer('tokens_estimate').default(0).notNull(),
 
-  // Version tracking
-  version: integer('version').default(1).notNull(),
+   // Version tracking
+   version: integer('version').default(1).notNull(),
 
   createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),

@@ -27,7 +27,7 @@ curl http://localhost:8767/health
 {
   "status": "ok",
   "server": "squish-mcp",
-  "version": "0.9.0",
+   "version": "0.9.2",
   "tools": 6
 }
 ```
@@ -48,17 +48,23 @@ curl -X POST http://localhost:8767/tools/call \
 
 ## Configure
 
-Copy `.env.mcp` to `.env` and customize:
+Copy `.env.mcp.example` to `.env` and customize:
 
 ```bash
-cp .env.mcp .env
+cp .env.mcp.example .env
 ```
 
 Key settings:
 
 - **SQUISH_MCP_PORT**: Server port (default: 8767)
-- **SQUISH_EMBEDDINGS_PROVIDER**: local|google-multimodal|hybrid
+- **SQUISH_MCP_SERVER_ENABLED**: Enable/disable MCP server (default: true)
+- **SQUISH_EMBEDDINGS_PROVIDER**: local|openai|ollama|google-multimodal|hybrid (default: local)
+- **SQUISH_MULTIMODAL_EMBEDDINGS_ENABLED**: Enable Google multimodal (default: false)
 - **SQUISH_QMD_ENABLED**: Enable markdown search (true/false)
+- **SQUISH_CORE_MEMORY_TOTAL_BYTES**: Total core memory limit in bytes (default: 16384)
+- **SQUISH_CORE_MEMORY_SECTION_BYTES**: Per-section limit in bytes (default: 4096)
+- **SQUISH_EMBEDDINGS_TIMEOUT_MS**: Timeout for embedding API calls (default: 30000)
+- **SQUISH_EMBEDDINGS_MAX_RETRIES**: Max retries for failed embedding calls (default: 3)
 
 ## Full Docs
 

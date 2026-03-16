@@ -253,6 +253,7 @@ CREATE TABLE IF NOT EXISTS core_memory (
   section TEXT NOT NULL,
   content TEXT NOT NULL DEFAULT '',
   size_bytes INTEGER DEFAULT 0 NOT NULL,
+  tokens_estimate INTEGER DEFAULT 0 NOT NULL,
   version INTEGER DEFAULT 1 NOT NULL,
   created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL,
   updated_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL
@@ -565,21 +566,17 @@ export async function ensureSqliteSchema(sqlite: Database): Promise<void> {
 }
 
 async function runSqliteMigrations(sqlite: Database): Promise<void> {
-  // Check if memories table exists
-  const tableCheck = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='memories'").get() as {name: string} | undefined;
-  
-  if (!tableCheck) {
-    // Table doesn't exist yet - it will be created by schema SQL with all columns
-    // No migrations needed
-    return;
-  }
-  
-  // Check what columns the table has
-  const tableInfo = sqlite.prepare("PRAGMA table_info(memories)").all() as Array<{name: string}>;
-  const existingColumns = new Set(tableInfo.map(col => col.name));
-  
-  // Add missing columns one by one (SQLite allows only one ALTER at a time)
-  const migrations = [
+   // Check if memories table exists
+   const tableCheck = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='memories'").get() as {name: string} | undefined;
+   
+   if (!tableCheck) {
+     // Table doesn't exist yet - it will be created by schema SQL with all columns
+     // No migrations needed
+     return;
+   }
+   
+   // Migrations for memories table
+   const memoriesMigrations = [
     { col: 'embedding', sql: 'ALTER TABLE memories ADD COLUMN embedding BLOB' },
     { col: 'is_private', sql: 'ALTER TABLE memories ADD COLUMN is_private INTEGER DEFAULT 0' },
     { col: 'has_secrets', sql: 'ALTER TABLE memories ADD COLUMN has_secrets INTEGER DEFAULT 0' },
@@ -669,10 +666,14 @@ async function runSqliteMigrations(sqlite: Database): Promise<void> {
     { col: 'importance_score', sql: 'ALTER TABLE memories ADD COLUMN importance_score INTEGER DEFAULT 50' },
     { col: 'importance_decay_rate', sql: 'ALTER TABLE memories ADD COLUMN importance_decay_rate INTEGER DEFAULT 30' },
     { col: 'last_importance_recalc', sql: 'ALTER TABLE memories ADD COLUMN last_importance_recalc INTEGER' },
-  ];
-  
-  for (const migration of migrations) {
-    if (!existingColumns.has(migration.col)) {
+   ];
+   
+   // Get existing columns for memories table
+   const tableInfo = sqlite.prepare("PRAGMA table_info(memories)").all() as Array<{name: string}>;
+   const existingColumns = new Set(tableInfo.map(col => col.name));
+   
+   for (const migration of memoriesMigrations) {
+     if (!existingColumns.has(migration.col)) {
       try {
         sqlite.exec(migration.sql);
         logger.info(`Migration: Added column ${migration.col} to memories table`);
@@ -683,9 +684,36 @@ async function runSqliteMigrations(sqlite: Database): Promise<void> {
           logger.debug(`Migration skipped for ${migration.col}: column already exists`);
         } else {
           throw new Error(`Migration failed for column ${migration.col}: ${msg}`);
-        }
-      }
-    }
+     }
+   }
+   
+   // v0.9.2: Add tokens_estimate to core_memory
+   const coreMemoryTableCheck = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='core_memory'").get() as {name: string} | undefined;
+   if (coreMemoryTableCheck) {
+     const coreMemoryInfo = sqlite.prepare("PRAGMA table_info(core_memory)").all() as Array<{name: string}>;
+     const existingCoreMemoryColumns = new Set(coreMemoryInfo.map(col => col.name));
+     
+     const coreMemoryMigrations = [
+       { col: 'tokens_estimate', sql: 'ALTER TABLE core_memory ADD COLUMN tokens_estimate INTEGER DEFAULT 0 NOT NULL' },
+     ];
+     
+     for (const migration of coreMemoryMigrations) {
+       if (!existingCoreMemoryColumns.has(migration.col)) {
+         try {
+           sqlite.exec(migration.sql);
+           logger.info(`Migration: Added column ${migration.col} to core_memory table`);
+         } catch (error) {
+           const msg = error instanceof Error ? error.message : String(error);
+           if (msg.includes('duplicate column name')) {
+             logger.debug(`Migration skipped for ${migration.col}: column already exists`);
+           } else {
+             throw new Error(`Migration failed for column ${migration.col}: ${msg}`);
+           }
+         }
+       }
+     }
+   }
+ }
   }
 }
 

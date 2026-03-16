@@ -1,6 +1,6 @@
 {
   "name": "squish-memory",
-  "version": "0.9.2",
+  "version": "0.9.3",
   "description": "The universal two-tier memory layer for any AI agent - persistent, intelligent memory with QMD search tier and SQLite/Postgres storage tier that works with Claude Code, OpenClaw, and any agent framework",
   "main": "dist/index.js",
   "type": "module",
@@ -67,23 +67,23 @@
     "privacy",
     "agent-framework"
   ],
-  "files": [
-    "dist",
-    "scripts",
-    "commands",
-    "skills",
-    "hooks",
-    "config",
-    "bin",
-    "plugin.json",
-    ".claude-plugin",
-    ".mcp.json",
-    ".env.mcp",
-    "LICENSE",
-    "README.md",
-    "CHANGELOG.md",
-    "QUICK-START.md"
-  ],
+   "files": [
+     "dist",
+     "scripts",
+     "commands",
+     "skills",
+     "hooks",
+     "config",
+     "bin",
+     "plugin.json",
+     ".claude-plugin",
+     ".mcp.json",
+     ".env.mcp.example",
+     "LICENSE",
+     "README.md",
+     "CHANGELOG.md",
+     "QUICK-START.md"
+   ],
   "author": "michielhdoteth",
   "license": "MIT",
   "engines": {

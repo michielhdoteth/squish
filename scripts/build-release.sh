@@ -5,29 +5,32 @@
 
 set -e
 
-echo "🔨 Building Squish v0.3.0..."
+# Auto-detect version from package.json
+VERSION=$(node -p "require('./package.json').version")
+echo "Building Squish v$VERSION..."
 
 # Clean previous builds
 npm run clean
 
-# Build the project (core only, merge system disabled)
-echo "Building core functionality..."
-npx tsc index.ts --outDir dist --skipLibCheck --esModuleInterop --module commonjs
-npx tsc features/web/web.ts --outDir dist/features/web --skipLibCheck --esModuleInterop --module commonjs
-npx tsc features/web/web-server.ts --outDir dist/features/web --skipLibCheck --esModuleInterop --module commonjs
+# Build the project using standard build script
+echo "Building project..."
+npm run build
 
-# Rename to .js extension for CommonJS
-mv dist/features/web/web-server.js dist/features/web/web-server.cjs 2>/dev/null || true
+# Verify MCP artifacts are generated
+echo "🔨 Generating MCP artifacts..."
+node scripts/generate-mcp.mjs
 
-echo "✅ Build complete!"
+# Verify MCP artifacts
+echo "🧪 Verifying MCP artifacts..."
+node scripts/verify-mcp.mjs
 
-# Test the build
-echo "🧪 Testing build..."
-timeout 5 node dist/index.js &
-sleep 2
-curl -s http://localhost:37777/api/health | grep -q "ok" && echo "✅ API working" || echo "❌ API failed"
+echo "Build complete!"
 
-# Kill test server
-pkill -f "node dist/index.js" || true
+# Optional: Test the build (uncomment if needed)
+# echo "🧪 Testing build..."
+# timeout 5 node dist/index.js &
+# sleep 2
+# curl -s http://localhost:37777/api/health | grep -q "ok" && echo "✅ API working" || echo "❌ API failed"
+# pkill -f "node dist/index.js" || true
 
-echo "🎉 Ready for release!"
+echo "Ready for release!"

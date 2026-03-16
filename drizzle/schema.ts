@@ -588,13 +588,14 @@ export const coreMemory = pgTable('core_memory', {
   projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }),
   userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
 
-  // Core memory sections
-  section: text('section').notNull().$type<'persona' | 'user_info' | 'project_context' | 'working_notes'>(),
-  content: text('content').notNull().default(''),
-  sizeBytes: integer('size_bytes').default(0).notNull(),
+   // Core memory sections
+   section: text('section').notNull().$type<'persona' | 'user_info' | 'project_context' | 'working_notes'>(),
+   content: text('content').notNull().default(''),
+   sizeBytes: integer('size_bytes').default(0).notNull(),
+   tokensEstimate: integer('tokens_estimate').default(0).notNull(),
 
-  // Version tracking
-  version: integer('version').default(1).notNull(),
+   // Version tracking
+   version: integer('version').default(1).notNull(),
 
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),

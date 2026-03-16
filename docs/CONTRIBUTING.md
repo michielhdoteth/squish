@@ -253,37 +253,28 @@ bun run bench
 
 1. **Update version**
    ```bash
-   # In root package.json and packages/server/package.json
-   "version": "0.3.0"
+   # In root package.json
+   "version": "0.9.2"
    ```
 
-2. **Update RELEASE_NOTES.md**
-   ```markdown
-   ## v0.3.0 - 2024-01-15
-
-   ### Features
-   - New feature description
-
-   ### Fixes
-   - Bug fix description
-   ```
+2. **Update CHANGELOG.md** with notable changes for this release
 
 3. **Create commit**
    ```bash
-   git commit -m "chore: release v0.3.0"
+   git add .
+   git commit -m "chore: release v0.9.2"
    ```
 
 4. **Create git tag**
    ```bash
-   git tag v0.3.0
-   git push origin v0.3.0
+   git tag v0.9.2
+   git push origin v0.9.2
    ```
 
-5. **GitHub Actions** will:
-   - Build packages
-   - Create release
-   - Publish to npm
-   - Deploy installer
+5. **Automated Release**
+   - GitHub Actions will build, test, and publish the release
+   - Monitor the Actions workflow for any failures
+   - Once complete, verify the release on GitHub Releases page
 
 ## Architecture Decisions
 

@@ -188,11 +188,24 @@ PORT=3000                                   # API server port
 **Optional:**
 ```bash
 SQUISH_DATA_DIR=./.squish          # Custom data directory
-SQUISH_EMBEDDINGS_PROVIDER=local   # local, openai, or ollama
+SQUISH_EMBEDDINGS_PROVIDER=local   # local, openai, ollama, google-multimodal, hybrid
 
 # For better embeddings (optional)
 SQUISH_OPENAI_API_KEY=sk-...
+SQUISH_OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 SQUISH_OLLAMA_URL=http://localhost:11434
+SQUISH_OLLAMA_EMBEDDING_MODEL=nomic-embed-text:v1.5
+SQUISH_GOOGLE_CLOUD_PROJECT=your-project
+SQUISH_GOOGLE_CLOUD_API_KEY=your-key
+
+# Embedding performance & reliability
+SQUISH_EMBEDDINGS_TIMEOUT_MS=30000
+SQUISH_EMBEDDINGS_MAX_RETRIES=3
+SQUISH_EMBEDDINGS_RETRY_DELAY_MS=1000
+
+# Core memory size (default: 16KB total, 4KB per section)
+SQUISH_CORE_MEMORY_TOTAL_BYTES=16384
+SQUISH_CORE_MEMORY_SECTION_BYTES=4096
 
 # For team mode
 DATABASE_URL=postgresql://user:pass@host/db
@@ -212,7 +225,7 @@ Squish employs a two-tier architecture for optimal performance and reliability:
 - **CLI**: Standalone command-line tool for shell-based agents and debugging
 
 ### Memory Organization
-- **Core Memory (2KB)**: Always-visible sections for persona, user info, project context, and working notes
+- **Core Memory (configurable, default 16KB total)**: Always-visible sections for persona, user info, project context, and working notes. Each section limited to 4KB by default. Token estimation helps track LLM context usage.
 - **Context Paging**: Agent-controlled retrieval with token budgeting (8KB default)
 - **Background Jobs**: Automatic memory maintenance including decay, deduplication, and consolidation
 

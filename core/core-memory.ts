@@ -9,11 +9,13 @@ import { eq, and, sql } from 'drizzle-orm';
 import { getDb } from '../db/index.js';
 import { getSchema, type SchemaModule } from '../db/schema.js';
 import { createDatabaseClient } from './database.js';
+import config from '../config.js';
 
 type CoreMemorySection = 'persona' | 'user_info' | 'project_context' | 'working_notes';
 
-const MAX_TOTAL_SIZE_BYTES = 2048; // 2KB limit
-const MAX_SECTION_SIZE_BYTES = 1024; // 1KB per section
+// Use configurable limits from environment
+const MAX_TOTAL_SIZE_BYTES = config.coreMemoryTotalBytes;
+const MAX_SECTION_SIZE_BYTES = config.coreMemorySectionBytes;
 
 interface CoreMemoryContent {
   persona: string;
@@ -117,8 +119,9 @@ export async function editCoreMemorySection(
   projectId: string,
   section: CoreMemorySection,
   content: string
-): Promise<{ success: boolean; message?: string; sizeBytes?: number }> {
+): Promise<{ success: boolean; message?: string; sizeBytes?: number; tokensEstimate?: number }> {
   const sizeBytes = Buffer.byteLength(content, 'utf8');
+  const tokensEstimate = estimateTokens(content);
 
   // Check section size limit
   if (sizeBytes > MAX_SECTION_SIZE_BYTES) {
@@ -146,6 +149,7 @@ export async function editCoreMemorySection(
     .set({
       content,
       sizeBytes,
+      tokensEstimate,
       version: sql`${coreMemory.version} + 1`,
       updatedAt: new Date() as any,
     } as any)
@@ -156,7 +160,7 @@ export async function editCoreMemorySection(
       )
     );
 
-  return { success: true, sizeBytes };
+  return { success: true, sizeBytes, tokensEstimate };
 }
 
 /**
@@ -229,11 +233,15 @@ async function getTotalCoreMemorySize(
  */
 export async function getCoreMemoryStats(projectId: string): Promise<{
   totalBytes: number;
+  totalTokens: number;
   maxBytes: number;
+  maxTokens: number;
   usagePercent: number;
+  tokenUsagePercent: number;
   sections: Array<{
     section: string;
     sizeBytes: number;
+    tokensEstimate: number;
     version: number;
     updatedAt: Date;
   }>;
@@ -248,14 +256,22 @@ export async function getCoreMemoryStats(projectId: string): Promise<{
     .where(eq(coreMemory.projectId, projectId as any));
 
   const totalBytes = sections.reduce((sum: number, s: any) => sum + (s.sizeBytes || 0), 0);
+  const totalTokens = sections.reduce((sum: number, s: any) => sum + (s.tokensEstimate || 0), 0);
+
+  // Estimate max tokens from max bytes (rough approximation: 1 token ≈ 4 chars)
+  const maxTokens = Math.floor(MAX_TOTAL_SIZE_BYTES / 4);
 
   return {
     totalBytes,
+    totalTokens,
     maxBytes: MAX_TOTAL_SIZE_BYTES,
+    maxTokens,
     usagePercent: (totalBytes / MAX_TOTAL_SIZE_BYTES) * 100,
+    tokenUsagePercent: (totalTokens / maxTokens) * 100,
     sections: sections.map((s: any) => ({
       section: s.section,
       sizeBytes: s.sizeBytes || 0,
+      tokensEstimate: s.tokensEstimate || 0,
       version: s.version || 1,
       updatedAt: s.updatedAt,
     })),
@@ -295,8 +311,9 @@ export async function formatCoreMemoryForInjection(projectId: string): Promise<s
   }
 
   formatted += `---\n`;
-  formatted += `Core Memory Usage: ${stats.totalBytes}/${stats.maxBytes} bytes (${stats.usagePercent.toFixed(1)}%)\n`;
-  formatted += `Estimated Tokens: ~${estimateTokens(formatted)}\n\n`;
+  formatted += `Core Memory Usage:\n`;
+  formatted += `- Bytes: ${stats.totalBytes}/${stats.maxBytes} (${stats.usagePercent.toFixed(1)}%)\n`;
+  formatted += `- Tokens: ~${stats.totalTokens}/${stats.maxTokens} (${stats.tokenUsagePercent.toFixed(1)}%)\n\n`;
 
   // Add tool usage hints for agent-driven retrieval
   formatted += `### Memory Tools Available\n`;

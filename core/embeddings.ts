@@ -5,6 +5,86 @@ import { logger } from './logger.js';
 
 export type EmbeddingProvider = 'openai' | 'ollama' | 'local' | 'none' | 'auto' | 'qmd' | 'hybrid' | 'google-multimodal';
 
+// Retry utility with exponential backoff
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  maxRetries: number = config.embeddingsMaxRetries,
+  baseDelayMs: number = config.embeddingsRetryDelayMs
+): Promise<T> {
+  let lastError: Error | undefined;
+  
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error as Error;
+      
+      // Only retry on network errors (5xx, ECONNRESET, ETIMEDOUT, etc.)
+      if (error instanceof Error && shouldRetryError(error)) {
+        const delay = baseDelayMs * Math.pow(2, attempt) + Math.random() * baseDelayMs;
+        logger.debug(`Embedding request failed (attempt ${attempt + 1}/${maxRetries}), retrying in ${delay.toFixed(0)}ms`, { error: error as Error });
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      
+      // Don't retry on 4xx errors or non-retryable errors
+      break;
+    }
+  }
+  
+  throw lastError;
+}
+
+function shouldRetryError(error: Error): boolean {
+  const message = error.message.toLowerCase();
+  
+  // Network errors that are typically transient
+  const retryablePatterns = [
+    'econnreset',
+    'etimedout',
+    'econnrefused',
+    'esocket',
+    'network error',
+    'fetch failed',
+    'timeout',
+    'request timed out',
+    'service unavailable',
+    'too many requests',
+    'rate limit',
+    'internal server error',
+    'bad gateway',
+    'gateway timeout',
+  ];
+  
+  return retryablePatterns.some(pattern => message.includes(pattern));
+}
+
+// Timeout wrapper using AbortController
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number
+): Promise<T> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  
+  try {
+    return await promise;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+// Fetch wrapper that combines retry and timeout
+async function fetchWithRetryAndTimeout(
+  url: string,
+  options: RequestInit,
+  timeoutMs: number = config.embeddingsTimeoutMs
+): Promise<Response> {
+  return withRetry(async () => {
+    return withTimeout(fetch(url, options), timeoutMs);
+  });
+}
+
 // Simple in-memory cache for embeddings (LRU with 1000 entries)
 const embeddingCache = new Map<string, number[]>();
 const MAX_CACHE_SIZE = 1000;
@@ -78,19 +158,18 @@ export async function getEmbedding(input: string | MultimodalInput): Promise<num
         result = getLocalEmbedding(textInput);
       }
     } else if (provider === 'hybrid') {
-      // Hybrid mode: Try Google Multimodal first, then QMD, then cloud providers, then local
+      // Hybrid mode: Try cloud providers first (best quality), then local fallback
+      // Order: Google Multimodal → OpenAI → Ollama → Local TF-IDF
+      // Note: QMD is not used for embedding generation (search only)
       if (config.multimodalEmbeddingsEnabled) {
         const multimodalResult = await getGoogleMultimodalEmbedding({ text: textInput });
         result = multimodalResult?.embedding || null;
       }
-      if (!result && config.qmdEnabled) {
-        result = await getQMDEmbedding(textInput);
-      }
-      if (!result && config.qmdFallbackMode !== 'qmd-only') {
-        result = await getOllamaEmbedding(textInput);
-      }
-      if (!result && config.qmdFallbackMode !== 'qmd-only' && config.qmdFallbackMode !== 'local-only') {
+      if (!result && config.openAiApiKey) {
         result = await getOpenAiEmbedding(textInput);
+      }
+      if (!result && config.ollamaUrl) {
+        result = await getOllamaEmbedding(textInput);
       }
       if (!result) {
         result = getLocalEmbedding(textInput);
@@ -287,7 +366,7 @@ async function getQMDEmbedding(input: string): Promise<number[] | null> {
     // QMD's main value is through the qmd_search, qmd_vsearch, qmd_query tools
     return null;
   } catch (error) {
-    logger.debug(`QMD embedding unavailable: ${error}`);
+    logger.debug('QMD embedding unavailable (expected if QMD server not running)');
     return null;
   }
 }
@@ -307,7 +386,7 @@ async function getOpenAiEmbedding(input: string): Promise<number[] | null> {
   if (!config.openAiApiKey) return null;
   
   try {
-    const response = await fetch(config.openAiApiUrl, {
+    const response = await fetchWithRetryAndTimeout(config.openAiApiUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -317,11 +396,11 @@ async function getOpenAiEmbedding(input: string): Promise<number[] | null> {
         model: config.openAiEmbeddingModel,
         input,
       }),
-    });
+    }, config.openAiTimeoutMs);
 
     if (!response.ok) {
       const message = await response.text();
-      console.warn(`OpenAI embeddings failed: ${response.status} ${message}`);
+      logger.warn(`OpenAI embeddings failed: ${response.status} ${message}`);
       return null; // Return null to allow fallback
     }
 
@@ -329,32 +408,123 @@ async function getOpenAiEmbedding(input: string): Promise<number[] | null> {
     const embedding = payload.data?.[0]?.embedding;
     return embedding ?? null;
   } catch (error) {
-    console.warn('OpenAI embeddings error:', error);
+    logger.warn('OpenAI embeddings error:', { error: error as Error });
     return null; // Return null to allow fallback
   }
 }
 
 async function getOllamaEmbedding(input: string): Promise<number[] | null> {
   try {
-    const response = await fetch(`${config.ollamaUrl}/api/embeddings`, {
+    const response = await fetchWithRetryAndTimeout(`${config.ollamaUrl}/api/embeddings`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: config.ollamaEmbeddingModel,
         prompt: input,
       }),
-    });
+    }, config.ollamaTimeoutMs);
 
     if (!response.ok) {
       const message = await response.text();
-      console.warn(`Ollama embeddings failed: ${response.status} ${message}`);
+      logger.warn(`Ollama embeddings failed: ${response.status} ${message}`);
       return null; // Return null to allow fallback
     }
 
     const payload = await response.json() as { embedding?: number[] };
     return payload.embedding ?? null;
   } catch (error) {
-    console.warn('Ollama embeddings error:', error);
+    logger.warn('Ollama embeddings error:', { error: error as Error });
     return null; // Return null to allow fallback
   }
+}
+
+/**
+ * Check health of all configured embedding providers
+ * Returns availability and latency for each provider
+ */
+export async function checkEmbeddingProviderHealth(): Promise<Map<string, { available: boolean; latencyMs?: number; error?: string }>> {
+  const results = new Map<string, { available: boolean; latencyMs?: number; error?: string }>();
+  const providers = ['local', 'openai', 'ollama', 'google-multimodal', 'qmd'] as const;
+  
+  // Test local provider (always available)
+  results.set('local', { available: true, latencyMs: 0 });
+  
+  // Test OpenAI if configured
+  if (config.openAiApiKey) {
+    const start = Date.now();
+    try {
+      const testInput = 'health check';
+      const embedding = await withRetry(
+        () => withTimeout(getOpenAiEmbedding(testInput), config.openAiTimeoutMs),
+        config.embeddingsMaxRetries,
+        config.embeddingsRetryDelayMs
+      );
+      const latency = Date.now() - start;
+      results.set('openai', { 
+        available: embedding !== null && embedding.length > 0, 
+        latencyMs: latency 
+      });
+    } catch (error) {
+      results.set('openai', { 
+        available: false, 
+        error: (error as Error).message 
+      });
+    }
+  } else {
+    results.set('openai', { available: false, error: 'Not configured' });
+  }
+  
+  // Test Ollama if configured
+  if (config.ollamaUrl) {
+    const start = Date.now();
+    try {
+      const testInput = 'health check';
+      const embedding = await withRetry(
+        () => withTimeout(getOllamaEmbedding(testInput), config.ollamaTimeoutMs),
+        config.embeddingsMaxRetries,
+        config.embeddingsRetryDelayMs
+      );
+      const latency = Date.now() - start;
+      results.set('ollama', { 
+        available: embedding !== null && embedding.length > 0, 
+        latencyMs: latency 
+      });
+    } catch (error) {
+      results.set('ollama', { 
+        available: false, 
+        error: (error as Error).message 
+      });
+    }
+  } else {
+    results.set('ollama', { available: false, error: 'Not configured' });
+  }
+  
+  // Test Google Multimodal if configured
+  if (config.multimodalEmbeddingsEnabled && (config.googleCloudApiKey || config.googleCloudProject)) {
+    const start = Date.now();
+    try {
+      const result = await withRetry(
+        () => withTimeout(getGoogleMultimodalEmbedding({ text: 'health check' }), config.googleMultimodalTimeoutMs),
+        config.embeddingsMaxRetries,
+        config.embeddingsRetryDelayMs
+      );
+      const latency = Date.now() - start;
+      results.set('google-multimodal', { 
+        available: result !== null && result.embedding.length > 0, 
+        latencyMs: latency 
+      });
+    } catch (error) {
+      results.set('google-multimodal', { 
+        available: false, 
+        error: (error as Error).message 
+      });
+    }
+  } else {
+    results.set('google-multimodal', { available: false, error: 'Not configured' });
+  }
+  
+  // QMD is not used for embedding generation (search only)
+  results.set('qmd', { available: false, error: 'QMD not used for embeddings (search only)' });
+  
+  return results;
 }
