@@ -18,17 +18,14 @@ const openAiApiKey = process.env.SQUISH_OPENAI_API_KEY || process.env.OPENAI_API
 // - QMD provides hybrid BM25+vector+rerank search for best quality
 // - Nomic provides excellent quality for memory systems with local inference
 // - Local TF-IDF requires zero external dependencies (default for OpenClaw/VPS)
+const VALID_PROVIDERS = new Set(['openai', 'ollama', 'local', 'none', 'qmd', 'hybrid']);
 const embeddingsProvider = (() => {
   const explicit = process.env.SQUISH_EMBEDDINGS_PROVIDER?.toLowerCase();
 
-  // If explicitly set, respect the user's choice
-  if (explicit && ['openai', 'ollama', 'local', 'none', 'qmd', 'hybrid'].includes(explicit)) {
+  if (explicit && VALID_PROVIDERS.has(explicit)) {
     return explicit;
   }
 
-  // Default: Local TF-IDF for zero-dependency operation
-  // Works offline, no API calls, fast on any hardware
-  // Override with SQUISH_EMBEDDINGS_PROVIDER=ollama for better quality
   return 'local';
 })();
 
@@ -36,12 +33,10 @@ const embeddingsProvider = (() => {
 const qmdEnabled = process.env.SQUISH_QMD_ENABLED === 'true';
 const qmdCollectionsPath = process.env.SQUISH_QMD_COLLECTIONS ||
   getDataDir().replace('.squish', 'qmd-collections');
+const VALID_FALLBACK_MODES = new Set(['qmd-only', 'cloud-first', 'hybrid', 'local-only']);
 const qmdFallbackMode = (() => {
   const mode = process.env.SQUISH_QMD_FALLBACK || 'hybrid';
-  if (['qmd-only', 'cloud-first', 'hybrid', 'local-only'].includes(mode)) {
-    return mode;
-  }
-  return 'hybrid';
+  return VALID_FALLBACK_MODES.has(mode) ? mode : 'hybrid';
 })();
 
 // Default collection mapping for memory types
@@ -67,9 +62,7 @@ export const config = {
   mcpServerPort: parseInt(process.env.SQUISH_MCP_PORT || '8767'),
   mcpServerEnabled: process.env.SQUISH_MCP_SERVER_ENABLED !== 'false',
   
-  embeddingsProvider: (['openai', 'ollama', 'local', 'none', 'qmd', 'hybrid', 'google-multimodal'].includes(embeddingsProvider)
-    ? embeddingsProvider as 'openai' | 'ollama' | 'local' | 'none' | 'qmd' | 'hybrid' | 'google-multimodal'
-    : 'local') as 'openai' | 'ollama' | 'local' | 'none' | 'qmd' | 'hybrid' | 'google-multimodal',
+  embeddingsProvider: (VALID_PROVIDERS.has(embeddingsProvider) ? embeddingsProvider : 'local') as 'openai' | 'ollama' | 'local' | 'none' | 'qmd' | 'hybrid' | 'google-multimodal',
   openAiApiKey,
   openAiApiUrl: process.env.SQUISH_OPENAI_API_URL || 'https://api.openai.com/v1/embeddings',
   openAiEmbeddingModel: process.env.SQUISH_OPENAI_EMBEDDING_MODEL || 'text-embedding-3-small',

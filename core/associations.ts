@@ -140,8 +140,8 @@ export async function trackCoactivation(memoryIds: string[]): Promise<void> {
               .onConflict({
                 target: [schema.memoryAssociations.fromMemoryId, schema.memoryAssociations.toMemoryId],
                 set: {
-                  weight: sql`${schema.memoryAssociations.weight} + 1`,
-                  coactivationCount: sql`${schema.memoryAssociations.coactivationCount} + 1`,
+                  weight: sql.placeholder(),
+                  coactivationCount: sql.placeholder,
                   lastCoactivatedAt: now,
                 },
               })
