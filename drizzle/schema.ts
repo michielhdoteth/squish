@@ -151,6 +151,15 @@ export const memories = pgTable(
     isMergeable: boolean('is_mergeable').default(true), // Immutability flag
     mergeVersion: integer('merge_version').default(1), // Incremented on each merge
 
+    // v0.4.2: Namespace support
+    namespaceId: uuid('namespace_id').references(() => namespaces.id, { onDelete: 'set null' }),
+    namespacePath: text('namespace_path'),
+
+    // v0.4.3: Layer support
+    hasL0Abstract: boolean('has_l0_abstract').default(false),
+    hasL1Overview: boolean('has_l1_overview').default(false),
+    lastLayerUpdate: timestamp('last_layer_update'),
+
     createdAt: timestamp('created_at').defaultNow().notNull(),
     updatedAt: timestamp('updated_at').defaultNow().notNull(),
   },
@@ -331,6 +340,45 @@ export const entities = pgTable('entities', {
   index('entities_project_idx').on(table.projectId),
   index('entities_type_idx').on(table.type),
   index('entities_name_idx').on(table.name),
+]);
+
+/**
+ * Namespaces - Hierarchical folder-like namespaces for memory organization
+ */
+export const namespaces = pgTable('namespaces', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }).notNull(),
+
+  name: text('name').notNull(),
+  parentId: uuid('parent_id').references(() => namespaces.id, { onDelete: 'set null' }),
+  type: text('type').notNull().$type<'root' | 'user' | 'agent' | 'project' | 'custom'>(),
+  description: text('description'),
+
+  path: text('path').notNull(), // Full path like 'user/preferences' or 'projectX/docs/api'
+
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => [
+  index('namespaces_project_idx').on(table.projectId),
+  index('namespaces_parent_idx').on(table.parentId),
+]);
+
+/**
+ * Memory Layers - Tiered L0/L1/L2 summaries for token-efficient retrieval
+ */
+export const memoryLayers = pgTable('memory_layers', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  memoryId: uuid('memory_id').references(() => memories.id, { onDelete: 'cascade' }).notNull(),
+
+  layerType: text('layer_type').notNull().$type<'l0_abstract' | 'l1_overview' | 'l2_full'>(),
+  content: text('content').notNull(),
+  tokenCount: integer('token_count').default(0),
+  embedding: vector('embedding', { dimensions: 1536 }),
+
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => [
+  index('memory_layers_memory_idx').on(table.memoryId),
+  index('memory_layers_type_idx').on(table.layerType),
 ]);
 
 /**
@@ -577,6 +625,34 @@ export const memoryHashCache = pgTable('memory_hash_cache', {
 }, (table) => [
   index('memory_hash_cache_project_id_idx').on(table.projectId),
   index('memory_hash_cache_simhash_idx').on(table.simhash), // For Hamming distance queries
+]);
+
+/**
+ * Search Traces - Stores retrieval logs for debugging and performance analysis
+ */
+export const searchTraces = pgTable('search_traces', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  sessionId: text('session_id').notNull(),
+  query: text('query').notNull(),
+  timestamp: timestamp('timestamp_at').defaultNow(),
+
+  // Search pipeline stages (JSONB for flexibility)
+  queryRewrite: jsonb('query_rewrite'), // { original, rewritten, method }
+  candidateRetrieval: jsonb('candidate_retrieval'), // { candidates, timeMs }
+  entityFiltering: jsonb('entity_filtering'), // { entities: string[], results: timeMs }
+  hybridScoring: jsonb('hybrid_scoring'), // { results, timeMs }
+  reranking: jsonb('reranking'), // { results, timeMs }
+
+  // Final results
+  resultCount: integer('result_count').default(0),
+  topResults: jsonb('top_results'),
+
+  // Performance metrics
+  totalDurationMs: integer('total_duration_ms').default(0),
+  metadata: jsonb('metadata'),
+}, (table) => [
+  index('search_traces_session_idx').on(table.sessionId),
+  index('search_traces_timestamp_idx').on(table.timestamp),
 ]);
 
 /**

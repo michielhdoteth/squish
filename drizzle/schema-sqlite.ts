@@ -81,6 +81,15 @@ export const memories = sqliteTable(
     isMergeable: integer('is_mergeable', { mode: 'boolean' }).default(true),
     mergeVersion: integer('merge_version').default(1),
 
+    // v0.4.2: Namespace support
+    namespaceId: text('namespace_id').references(() => namespaces.id, { onDelete: 'set null' }),
+    namespacePath: text('namespace_path'),
+
+    // v0.4.3: Layer support
+    hasL0Abstract: integer('has_l0_abstract', { mode: 'boolean' }).default(false),
+    hasL1Overview: integer('has_l1_overview', { mode: 'boolean' }).default(false),
+    lastLayerUpdate: integer('last_layer_update', { mode: 'timestamp' }),
+
     // v0.8.0: Importance Scoring
     importanceScore: integer('importance_score').default(50), // 0-100
     importanceDecayRate: integer('importance_decay_rate').default(30), // days half-life
@@ -316,6 +325,44 @@ export const entities = sqliteTable('entities', {
   index('entities_project_idx').on(table.projectId),
   index('entities_type_idx').on(table.type),
   index('entities_name_idx').on(table.name),
+]);
+
+/**
+ * Namespaces - Hierarchical folder-like namespaces for memory organization
+ */
+export const namespaces = sqliteTable('namespaces', {
+  id: text('id').primaryKey().$default(() => crypto.randomUUID()),
+  projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }),
+
+  name: text('name').notNull(),
+  parentId: text('parent_id').references(() => namespaces.id, { onDelete: 'set null' }),
+  type: text('type').notNull().$type<'root' | 'user' | 'agent' | 'project' | 'custom'>(),
+  description: text('description'),
+
+  path: text('path').notNull(),
+
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('namespaces_project_idx').on(table.projectId),
+  index('namespaces_parent_idx').on(table.parentId),
+]);
+
+/**
+ * Memory Layers - Tiered L0/L1/L2 summaries for token-efficient retrieval
+ */
+export const memoryLayers = sqliteTable('memory_layers', {
+  id: text('id').primaryKey().$default(() => crypto.randomUUID()),
+  memoryId: text('memory_id').references(() => memories.id, { onDelete: 'cascade' }),
+
+  layerType: text('layer_type').notNull().$type<'l0_abstract' | 'l1_overview' | 'l2_full'>(),
+  content: text('content').notNull(),
+  tokenCount: integer('token_count').default(0),
+
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('memory_layers_memory_idx').on(table.memoryId),
+  index('memory_layers_type_idx').on(table.layerType),
 ]);
 
 // ============================================================================
@@ -758,3 +805,37 @@ export const memoryEditProposals = sqliteTable('memory_edit_proposals', {
 
 export type MemoryEditProposal = typeof memoryEditProposals.$inferSelect;
 export type NewMemoryEditProposal = typeof memoryEditProposals.$inferInsert;
+
+export type SearchTrace = typeof searchTraces.$inferSelect;
+
+// ============================================================================
+// Phase 3: Retrieval Tracing - Search Traces table
+// ============================================================================
+
+/**
+ * Search Traces - Stores retrieval logs for debugging and performance analysis
+ */
+export const searchTraces = sqliteTable('search_traces', {
+  id: text('id').primaryKey().$default(() => crypto.randomUUID()),
+  sessionId: text('session_id').notNull(),
+  query: text('query').notNull(),
+  timestamp: integer('timestamp', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+
+  // Search pipeline stages (JSONB stored as text for SQLite)
+  queryRewrite: text('query_rewrite').$type<string | null>(),
+  candidateRetrieval: text('candidate_retrieval').$type<string | null>(),
+  entityFiltering: text('entity_filtering').$type<string | null>(),
+  hybridScoring: text('hybrid_scoring').$type<string | null>(),
+  reranking: text('reranking').$type<string | null>(),
+
+  // Final results
+  resultCount: integer('result_count').default(0),
+  topResults: text('top_results').$type<string | null>(),
+
+  // Performance metrics
+  totalDurationMs: integer('total_duration_ms').default(0),
+  metadata: text('metadata').$type<string | null>(),
+}, (table) => [
+  index('search_traces_session_idx').on(table.sessionId),
+  index('search_traces_timestamp_idx').on(table.timestamp),
+]);
