@@ -1,0 +1,152 @@
+{
+  "id": "squish-memory",
+  "name": "Squish Memory",
+  "version": "1.0.0",
+  "description": "Universal two-tier memory system for AI agents with hybrid search, core memory, and MCP-first architecture",
+  "capabilities": ["mcp", "cli", "web"],
+  "targets": {
+    "claude-code": {
+      "type": "hooks",
+      "hooks": ["SessionStart", "UserPromptSubmit", "PostToolUse", "SessionEnd"],
+      "install": {
+        "copy": [
+          { "from": ".claude-plugin/plugin.json", "to": "~/.claude/plugin.json" }
+        ]
+      },
+      "verify": {
+        "fileExists": "~/.claude/plugin.json",
+        "toolCheck": "squish_health"
+      }
+    },
+    "openclaw": {
+      "type": "plugin-slot",
+      "slot": "memory",
+      "tools": ["memory_search", "memory_get"],
+      "install": {
+        "command": "node scripts/openclaw-bootstrap.mjs --skip-tool-check"
+      },
+      "verify": {
+        "fileExists": "~/.openclaw/openclaw-memory.json",
+        "toolCheck": "memory_search"
+      }
+    },
+    "opencode": {
+      "type": "mcp",
+      "tools": ["squish_remember", "squish_search", "squish_recall", "squish_context", "squish_health"],
+      "install": {
+        "copy": [
+          { "from": "generated/mcp/mcp-servers.json", "to": "~/.config/opencode/mcp-servers.json" }
+        ]
+      },
+      "verify": {
+        "fileExists": "~/.config/opencode/mcp-servers.json",
+        "toolCheck": "squish_health"
+      }
+    },
+    "codex": {
+      "type": "mcp",
+      "tools": ["squish_remember", "squish_search", "squish_recall", "squish_context", "squish_health"],
+      "install": {
+        "copy": [
+          { "from": "generated/mcp/mcp-servers.json", "to": "~/.codex/mcp-servers.json" }
+        ]
+      },
+      "verify": {
+        "fileExists": "~/.codex/mcp-servers.json",
+        "toolCheck": "squish_health"
+      }
+    },
+    "cursor": {
+      "type": "mcp",
+      "tools": ["squish_remember", "squish_search", "squish_recall", "squish_context", "squish_health"],
+      "install": {
+        "copy": [
+          { "from": "generated/mcp/mcp-servers.json", "to": "~/.cursor/mcp.json" }
+        ]
+      },
+      "verify": {
+        "fileExists": "~/.cursor/mcp.json",
+        "toolCheck": "squish_health"
+      }
+    },
+    "vscode": {
+      "type": "mcp",
+      "tools": ["squish_remember", "squish_search", "squish_recall", "squish_context", "squish_health"],
+      "install": {
+        "copy": [
+          { "from": "generated/mcp/mcp-servers.json", "to": "~/.vscode/mcp/servers.json" }
+        ]
+      },
+      "verify": {
+        "fileExists": "~/.vscode/mcp/servers.json",
+        "toolCheck": "squish_health"
+      }
+    },
+    "windsurf": {
+      "type": "mcp",
+      "tools": ["squish_remember", "squish_search", "squish_recall", "squish_context", "squish_health"],
+      "install": {
+        "copy": [
+          { "from": "generated/mcp/mcp-servers.json", "to": "~/.windsurf/mcp-servers.json" }
+        ]
+      },
+      "verify": {
+        "fileExists": "~/.windsurf/mcp-servers.json",
+        "toolCheck": "squish_health"
+      }
+    }
+  },
+  "dependencies": {
+    "mcporter": {
+      "version": "1.2.0",
+      "autoInstall": true,
+      "optional": false,
+      "provides": ["mcp-bridge", "openclaw-memory"]
+    },
+    "qmd": {
+      "version": "0.15.1",
+      "autoInstall": true,
+      "optional": false,
+      "provides": ["fast-search", "bm25", "vector-search"]
+    }
+  },
+  "auth": {
+    "modes": ["none", "token"],
+    "default": "none",
+    "token": {
+      "envVar": "SQUISH_REMOTE_TOKEN",
+      "help": "Set SQUISH_REMOTE_TOKEN for remote mode authentication"
+    }
+  },
+  "pinning": {
+    "mcporter": "1.2.0",
+    "qmd": "0.15.1",
+    "@modelcontextprotocol/sdk": "1.27.1"
+  },
+  "entry": {
+    "mcp": "dist/commands/mcp-server.cjs",
+    "cli": "dist/index.js",
+    "plugin": "packages/plugin-openclaw/dist/index.js"
+  },
+  "compatibility": {
+    "minNodeVersion": "18.0.0",
+    "clients": [
+      { "id": "claude-code", "minVersion": "0.62.0" },
+      { "id": "openclaw", "minVersion": "2026.2.15" },
+      { "id": "opencode", "minVersion": "0.1.0" },
+      { "id": "codex", "minVersion": "0.1.0" },
+      { "id": "cursor", "minVersion": "0.45.0" },
+      { "id": "vscode-mcp", "minVersion": "1.0.0" },
+      { "id": "windsurf", "minVersion": "0.1.0" }
+    ]
+  },
+  "healthCheck": {
+    "mcpTool": "squish_health",
+    "httpEndpoint": "/health"
+  },
+  "generated": {
+    "from": "config/plugin-manifest.json",
+    "generator": "squish-memory@1.0.0",
+    "timestamp": "2026-01-17T00:00:00.000Z"
+  }
+}

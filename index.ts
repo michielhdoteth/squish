@@ -84,8 +84,8 @@ function loadPluginManifest(): any {
     if (fs.existsSync(manifestPath)) {
       return JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
     }
-  } catch (error) {
-    logger.warn('Could not load plugin manifest:', error.message);
+  } catch (error: any) {
+    logger.warn('Could not load plugin manifest:', error?.message || error);
   }
   return null;
 }
@@ -894,6 +894,15 @@ async function runMcpMode() {
     }
 
     async run() {
+      // Verify plugin manifest (universal plugin self-check)
+      const manifest = loadPluginManifest();
+      const verification = verifyManifest(manifest);
+      if (!verification.ok) {
+        logger.warn('Plugin manifest verification failed:', verification.errors);
+      } else {
+        logger.info(`Squish v${VERSION} - Plugin manifest verified`);
+      }
+    
       const transport = new StdioServerTransport();
       await this.server.connect(transport);
       logger.info(`v${VERSION}`);
