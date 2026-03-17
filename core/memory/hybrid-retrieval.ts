@@ -6,6 +6,15 @@ import { rewriteQuery, wouldBenefitFromRewrite } from './query-rewriter.js';
 import { collectRecentContext } from './context-collector.js';
 import { config } from '../../config.js';
 import { logger } from '../logger.js';
+import {
+  startTrace,
+  addQueryRewriteStage,
+  addCandidateRetrievalStage,
+  addEntityFilteringStage,
+  addHybridScoringStage,
+  addRerankingStage,
+  completeTrace,
+} from '../tracing/collector.js';
 
 export interface HybridSearchOptions extends SearchInput {
   candidateLimit?: number;
@@ -52,10 +61,16 @@ export async function hybridSearch(options: HybridSearchOptions): Promise<Hybrid
   const candidateLimit = options.candidateLimit ?? 50;
   const resultLimit = options.resultLimit ?? options.limit ?? 5;
 
+  // Start trace if sessionId provided
+  const sessionId = options.sessionId || 'unknown';
+  const traceId = await startTrace(sessionId, options.query);
+
   let query = options.query;
   let rewriteInfo: { original: string; rewritten: string; method: string } | null = null;
 
+  // Query rewriting stage
   if (config.queryRewritingEnabled && !options.skipRewrite && options.sessionId) {
+    const rewriteStart = Date.now();
     try {
       const context = await collectRecentContext(options.sessionId, config.queryRewritingContextMessages);
 
@@ -71,27 +86,56 @@ export async function hybridSearch(options: HybridSearchOptions): Promise<Hybrid
           logger.info(`[HybridSearch] Query rewritten: "${result.original}" -> "${result.rewritten}" (${result.method})`);
         }
       }
+
+      // Record query rewrite stage
+      await addQueryRewriteStage(traceId, {
+        original: result.original,
+        rewritten: result.rewritten,
+        method: result.method,
+        timeMs: Date.now() - rewriteStart,
+      });
     } catch (error) {
       logger.warn(`[HybridSearch] Query rewriting failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
+  // Get embedding
   const queryEmbedding = await getEmbedding(query);
 
+  // Candidate retrieval stage
+  const retrievalStart = Date.now();
   const candidates = await searchMemories({
     ...options,
     limit: candidateLimit,
   });
 
-  if (candidates.length === 0) return [];
+  await addCandidateRetrievalStage(traceId, {
+    candidates: candidates.length,
+    timeMs: Date.now() - retrievalStart,
+  });
 
+  if (candidates.length === 0) {
+    await completeTrace(traceId, []);
+    return [];
+  }
+
+  // Entity filtering stage
+  const filteringStart = Date.now();
   const entityScored = filterByEntities(candidates, options.queryEntities || []);
+
+  await addEntityFilteringStage(traceId, {
+    entities: options.queryEntities || [],
+    results: entityScored.length,
+    timeMs: Date.now() - filteringStart,
+  });
 
   const boostedCandidates = entityScored.map(({ memory, entityBoost }) => ({
     ...memory,
     _entityBoost: entityBoost,
   }));
 
+  // Hybrid scoring stage
+  const scoringStart = Date.now();
   const scored = await hybridScore(queryEmbedding, boostedCandidates, {
     ...options.hybridOptions,
     weights: {
@@ -106,8 +150,30 @@ export async function hybridSearch(options: HybridSearchOptions): Promise<Hybrid
     decayDays: 7,
   });
 
+  await addHybridScoringStage(traceId, {
+    results: scored.length,
+    timeMs: Date.now() - scoringStart,
+  });
+
+  // Reranking stage
+  const rerankStart = Date.now();
   const reranked = applyEntityBoostAndRerank(scored);
+
+  await addRerankingStage(traceId, {
+    results: reranked.length,
+    timeMs: Date.now() - rerankStart,
+  });
+
   const topResults = reranked.slice(0, resultLimit);
+
+  // Complete trace with results
+  const traceResults = topResults.map((r) => ({
+    type: r.type,
+    content: r.content,
+    hybridScore: r.hybridScore,
+  }));
+
+  await completeTrace(traceId, traceResults);
 
   return topResults.map((scoredItem, index) => ({
     ...scoredItem.memory,

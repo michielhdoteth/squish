@@ -287,5 +287,83 @@ export function getAllSquishTools(): MCPToolDefinition[] {
     squishEmbedTool,
     squishQMDSearchTool,
     squishHealthTool,
+
+export const squishGetSearchTracesTool: MCPToolDefinition = {
+  tool: {
+    name: 'squish_get_search_traces',
+    description: 'Get recent search traces for debugging and performance analysis',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        limit: {
+          type: 'number',
+          description: 'Maximum traces to return (default: 10)',
+        },
+        sessionId: {
+          type: 'string',
+          description: 'Session ID filter',
+        },
+      },
+      required: [],
+    },
+  },
+  handler: async (args) => {
+    try {
+      const { limit = 10, sessionId } = args;
+      const collectorModule = await import('../tracing/collector.js');
+      const { getTraces } = collectorModule;
+
+      const traces = await getTraces({ limit, sessionId });
+
+      const formatted = traces.map((t, i) =>
+        `${i + 1}. [${t.id.substring(0, 8)}] Query: "${t.query.substring(0, 50)}" Duration: ${t.totalDurationMs}ms`
+      ).join('\n');
+
+      return textResult(`Found ${traces.length} traces:\n\n${formatted}`);
+    } catch (error) {
+      logger.error('Get search traces error:', error);
+      return errorResult(error instanceof Error ? error.message : 'Get traces failed');
+    }
+  },
+};
+
+export const squishGetTraceByIdTool: MCPToolDefinition = {
+  tool: {
+    name: 'squish_get_trace_by_id',
+    description: 'Get a specific search trace by ID with full stage details',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        traceId: {
+          type: 'string',
+          description: 'Trace ID to retrieve',
+        },
+      },
+      required: ['traceId'],
+    },
+  },
+  handler: async (args) => {
+    try {
+      const { traceId } = args;
+      const collectorModule = await import('../tracing/collector.js');
+      const { getTraceById } = collectorModule;
+      const visualizerModule = await import('../tracing/visualizer.js');
+      const { visualizeTrace } = visualizerModule;
+
+      const trace = await getTraceById(traceId);
+
+      if (!trace) {
+        return errorResult('Trace not found');
+      }
+
+      const visualization = visualizeTrace(trace);
+
+      return textResult(`\n${visualization}\n`);
+    } catch (error) {
+      logger.error('Get trace by ID error:', error);
+      return errorResult(error instanceof Error ? error.message : 'Get trace by ID failed');
+    }
+  },
+};
   ];
 }
