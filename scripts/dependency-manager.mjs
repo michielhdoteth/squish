@@ -42,37 +42,18 @@ function checkBinary(binaryName) {
   const path = which(binaryName);
   if (!path) return { available: false, path: null };
   
-  // Try to get version
-  try {
-    const result = spawnSync(binaryName, ["--version"], { 
-      encoding: "utf8", 
-      timeout: 5000 
-    });
-    const version = result.stdout.trim().split("\n")[0] || result.stderr.trim().split("\n")[0];
-    return { available: true, path, version: version || "unknown" };
-  } catch {
-    return { available: true, path, version: "unknown" };
-  }
+  const result = spawnSync(binaryName, ["--version"], { 
+    encoding: "utf8", 
+    timeout: 5000 
+  });
+  const version = result.stdout.trim().split("\n")[0] || result.stderr.trim().split("\n")[0];
+  return { available: true, path, version: version || "unknown" };
 }
 
-function installNpmPackage(packageName, version) {
-  console.log(`[DEP] Installing ${packageName}@${version} via npm...`);
+function installPackage(packageName, version, packageManager = "npm") {
+  console.log(`[DEP] Installing ${packageName}@${version} via ${packageManager}...`);
   const result = spawnSync(
-    "npm",
-    ["install", "-g", `${packageName}@${version}`],
-    { 
-      encoding: "utf8",
-      stdio: "inherit",
-      timeout: 120000 
-    }
-  );
-  return result.status === 0;
-}
-
-function installBunPackage(packageName, version) {
-  console.log(`[DEP] Installing ${packageName}@${version} via bun...`);
-  const result = spawnSync(
-    "bun",
+    packageManager,
     ["install", "-g", `${packageName}@${version}`],
     { 
       encoding: "utf8",
@@ -120,11 +101,13 @@ function installDependency(name, depConfig) {
   
   console.log(`[DEP] Auto-installing ${name}@${version}...`);
   
-  // Try npm first, then bun as fallback
-  let success = installNpmPackage(name, version);
-  if (!success) {
-    console.log(`[DEP] npm install failed, trying bun...`);
-    success = installBunPackage(name, version);
+  const packageManagers = ["npm", "bun"];
+  let success = false;
+  
+  for (const pm of packageManagers) {
+    success = installPackage(name, version, pm);
+    if (success) break;
+    console.log(`[DEP] ${pm} install failed, trying next...`);
   }
   
   if (!success) {
@@ -134,7 +117,6 @@ function installDependency(name, depConfig) {
     };
   }
   
-  // Verify
   const verify = verifyInstallation(name, version);
   if (!verify.ok) {
     return { status: "error", error: verify.error };

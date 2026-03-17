@@ -40,22 +40,36 @@ function parseArgs(argv) {
     skipDeps: false
   };
   
-  for (let i = 2; i < argv.length; i++) {
-    const token = argv[i];
-    if (token === "--dry-run" || token === "-d") {
-      args.dryRun = true;
-    } else if (token === "--verify" || token === "-v") {
-      args.verify = true;
-    } else if (token === "--uninstall" || token === "-u") {
-      args.uninstall = true;
-    } else if (token === "--strict") {
-      args.strict = true;
-    } else if (token === "--skip-deps") {
-      args.skipDeps = true;
-    } else if (token === "--client" || token === "-c") {
+  const argHandlers = {
+    "--dry-run": () => args.dryRun = true,
+    "-d": () => args.dryRun = true,
+    "--verify": () => args.verify = true,
+    "-v": () => args.verify = true,
+    "--uninstall": () => args.uninstall = true,
+    "-u": () => args.uninstall = true,
+    "--strict": () => args.strict = true,
+    "--skip-deps": () => args.skipDeps = true,
+    "--client": (i) => {
       const clientList = argv[i + 1];
       args.client = clientList.split(",").map(c => c.trim());
-      i++;
+    },
+    "-c": (i) => {
+      const clientList = argv[i + 1];
+      args.client = clientList.split(",").map(c => c.trim());
+    },
+  };
+  
+  for (let i = 2; i < argv.length; i++) {
+    const token = argv[i];
+    const handler = argHandlers[token];
+    
+    if (handler) {
+      if (token === "--client" || token === "-c") {
+        handler(i);
+        i++;
+      } else {
+        handler();
+      }
     } else {
       throw new Error(`Unknown argument: ${token}`);
     }
@@ -68,6 +82,13 @@ function ensureDir(dirPath) {
   if (!fs.existsSync(dirPath)) {
     fs.mkdirSync(dirPath, { recursive: true });
   }
+}
+
+function expandHomePath(filePath) {
+  if (filePath.startsWith("~")) {
+    return path.join(os.homedir(), filePath.slice(2));
+  }
+  return filePath;
 }
 
 function backupFile(filePath) {
@@ -97,7 +118,8 @@ function copyFile(sourcePath, targetPath, options = {}) {
 }
 
 function runCommand(command, args = [], options = {}) {
-  console.log(`[INSTALL] ${options.dryRun ? "[DRY_RUN] Would run:" : "Running:"} ${command} ${args.join(" ")}`);
+  const mode = options.dryRun ? "[DRY_RUN] Would run:" : "Running:";
+  console.log(`[INSTALL] ${mode} ${command} ${args.join(" ")}`);
   
   if (options.dryRun) {
     return { status: 0, stdout: "", stderr: "" };
@@ -153,22 +175,14 @@ function installForClient(client, manifest, options) {
   }
   
   try {
-    // Handle copy operations
     if (install.copy) {
       for (const item of install.copy) {
         const sourcePath = path.join(root, item.from);
-        let targetPath = item.to;
-        
-        // Replace ~ with homedir
-        if (targetPath.startsWith("~")) {
-          targetPath = path.join(os.homedir(), targetPath.slice(2));
-        }
-        
+        const targetPath = expandHomePath(item.to);
         copyFile(sourcePath, targetPath, options);
       }
     }
     
-    // Handle custom command
     if (install.command) {
       runCommand(install.command, [], { dryRun: options.dryRun });
     }
@@ -193,19 +207,14 @@ function verifyClient(client, manifest) {
   const verify = targetConfig.verify;
   
   try {
-    // Check file exists
     if (verify.fileExists) {
-      let filePath = verify.fileExists;
-      if (filePath.startsWith("~")) {
-        filePath = path.join(os.homedir(), filePath.slice(2));
-      }
+      const filePath = expandHomePath(verify.fileExists);
       if (!fs.existsSync(filePath)) {
         return { ok: false, error: `File not found: ${filePath}` };
       }
       console.log(`[VERIFY] ✓ File exists: ${filePath}`);
     }
     
-    // Run tool check via MCP health
     if (verify.toolCheck) {
       console.log(`[VERIFY] Testing tool: ${verify.toolCheck}`);
       const result = spawnSync(
@@ -243,18 +252,13 @@ function uninstallClient(client, manifest, options) {
   
   try {
     for (const item of install.copy) {
-      let targetPath = item.to;
-      if (targetPath.startsWith("~")) {
-        targetPath = path.join(os.homedir(), targetPath.slice(2));
-      }
+      const targetPath = expandHomePath(item.to);
       
       if (fs.existsSync(targetPath)) {
         if (!options.dryRun) {
-          // Try to remove, if file is actually a file (not directory)
           try {
             fs.unlinkSync(targetPath);
           } catch (e) {
-            // If it's a directory, skip (we don't want to recursively delete)
             if (fs.statSync(targetPath).isDirectory()) {
               console.log(`[UNINSTALL] Skipping directory: ${targetPath} (manual removal required)`);
               continue;
