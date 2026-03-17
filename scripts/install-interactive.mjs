@@ -2,11 +2,11 @@
 
 /**
  * Squish Interactive Plugin Installer
- * Beautiful terminal UI with Enquirer
+ * Beautiful terminal UI matching skills.sh style
  */
 
-import pkg from 'enquirer';
-const { MultiSelect } = pkg;
+import { intro, outro, confirm, multiselect, isCancel, cancel } from '@clack/prompts';
+import picocolors from 'picocolors';
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -15,18 +15,7 @@ import { spawnSync } from "node:child_process";
 const root = process.cwd();
 const manifestPath = path.join(root, "config", "plugin-manifest.json");
 
-const colors = {
-  red: "\x1b[31m",
-  green: "\x1b[32m",
-  yellow: "\x1b[33m",
-  blue: "\x1b[34m",
-  cyan: "\x1b[36m",
-  white: "\x1b[37m",
-  gray: "\x1b[90m",
-  bright: "\x1b[1m",
-  dim: "\x1b[2m",
-  reset: "\x1b[0m"
-};
+const c = picocolors;
 
 const icons = {
   squish: "🐙",
@@ -35,7 +24,12 @@ const icons = {
   package: "📦",
   arrow: "→",
   dot: "●",
-  circle: "○"
+  circle: "○",
+  diamond: "◆",
+  pointer: "❯",
+  line: "│",
+  corner: "└",
+  section: "─"
 };
 
 const CLIENT_DIRS = {
@@ -49,6 +43,18 @@ const CLIENT_DIRS = {
 };
 
 const PLUGINS_DIR = path.join(root, "packages");
+
+function printLogo() {
+  console.log(c.cyan(`
+███████╗ ██████╗ ██╗   ██╗██╗███████╗██╗  ██╗
+██╔════╝██╔═══██╗██║   ██║██║██╔════╝██║  ██║
+███████╗██║   ██║██║   ██║██║███████╗███████║
+╚════██║██║   ██║██║   ██║██║╚════██║██╔══██║
+███████║╚██████╔╝╚██████╔╝██║███████║██║  ██║
+╚══════╝ ╚═════╝  ╚═════╝ ╚═╝╚══════╝╚═╝  ╚═╝
+`));
+  console.log(c.gray("   Universal Memory System for AI Agents\n"));
+}
 
 function loadManifest() {
   if (!fs.existsSync(manifestPath)) {
@@ -126,8 +132,8 @@ function parseArgs(argv) {
       flags.select = [argv[i + 1]];
       i++;
     } else {
-      console.log(`${colors.red}Unknown flag: ${token}${colors.reset}`);
-      console.log(`Run ${colors.cyan}--help${colors.reset} for usage information`);
+      console.log(c.red(`Unknown flag: ${token}`));
+      console.log(`Run ${c.cyan("--help")} for usage information`);
       process.exit(1);
     }
   }
@@ -135,61 +141,41 @@ function parseArgs(argv) {
   return flags;
 }
 
-function printHeader() {
-  console.log(`
-${colors.bright}${colors.cyan}╔══════════════════════════════════════════════════╗${colors.reset}
-${colors.bright}${colors.cyan}║${colors.reset}  ${icons.squish} ${colors.white}Squish Plugin Installer${colors.reset}                        ${colors.bright}${colors.cyan}║${colors.reset}
-${colors.bright}${colors.cyan}║${colors.reset}  ${colors.gray}Universal memory system for AI agents${colors.reset}        ${colors.bright}${colors.cyan}║${colors.reset}
-${colors.bright}${colors.cyan}╚══════════════════════════════════════════════════╝${colors.reset}
-`);
-}
-
 function printHelp() {
-  printHeader();
-  console.log(`${colors.white}USAGE:${colors.reset}
-  ${colors.cyan}bun run install:interactive${colors.reset} [OPTIONS]
-
-${colors.white}OPTIONS:${colors.reset}
-  ${colors.cyan}--auto${colors.reset}, ${colors.cyan}-a${colors.reset}        Skip menu, install all available plugins
-  ${colors.cyan}--select${colors.reset}=<list>     Pre-select plugins (comma-separated)
-  ${colors.cyan}--all${colors.reset}               Install all available plugins
-  ${colors.cyan}--list${colors.reset}, ${colors.cyan}-l${colors.reset}        List available plugins and exit
-  ${colors.cyan}--dry-run${colors.reset}, ${colors.cyan}-n${colors.reset}      Preview changes without installing
-  ${colors.cyan}--verbose${colors.reset}, ${colors.cyan}-v${colors.reset}     Show detailed output
-  ${colors.cyan}--help${colors.reset}, ${colors.cyan}-h${colors.reset}       Show this help message
-
-${colors.white}ENVIRONMENT VARIABLES:${colors.reset}
-  ${colors.cyan}CI=true${colors.reset}                  Force non-interactive mode
-  ${colors.cyan}NON_INTERACTIVE=1${colors.reset}         Force non-interactive mode
-  ${colors.cyan}AUTOMATION=true${colors.reset}           Force non-interactive mode
-
-${colors.white}EXAMPLES:${colors.reset}
-  # Interactive menu (default)
-  ${colors.gray}$} bun run install:interactive${colors.reset}
-
-  # Non-interactive: install all
-  ${colors.gray}$} bun run install:interactive --auto${colors.reset}
-
-  # Non-interactive: specific plugins
-  ${colors.gray}$} bun run install:interactive --select=claude-code,openclaw${colors.reset}
-
-  # List available plugins
-  ${colors.gray}$} bun run install:interactive --list${colors.reset}
-
-${colors.white}INTERACTIVE CONTROLS:${colors.reset}
-  ${colors.cyan}[SPACE]${colors.reset} Toggle selection     ${colors.cyan}[↑↓]${colors.reset} Navigate
-  ${colors.cyan}[a]${colors.reset} Toggle all           ${colors.cyan}[ENTER]${colors.reset} Install
-  ${colors.cyan}[ESC]${colors.reset} Cancel
-
-${colors.gray}────────────────────────────────────────────────────${colors.reset}
-${colors.gray}Documentation: https://github.com/michielhdoteth/squish${colors.reset}
-`);
+  printLogo();
+  console.log(c.white("USAGE:"));
+  console.log(`  ${c.cyan("bun run install:interactive")} [OPTIONS]\n`);
+  
+  console.log(c.white("OPTIONS:"));
+  console.log(`  ${c.cyan("--auto")}, ${c.cyan("-a")}        Skip menu, install all available plugins`);
+  console.log(`  ${c.cyan("--select")}=<list>     Pre-select plugins (comma-separated)`);
+  console.log(`  ${c.cyan("--all")}               Install all available plugins`);
+  console.log(`  ${c.cyan("--list")}, ${c.cyan("-l")}        List available plugins and exit`);
+  console.log(`  ${c.cyan("--dry-run")}, ${c.cyan("-n")}      Preview changes without installing`);
+  console.log(`  ${c.cyan("--verbose")}, ${c.cyan("-v")}     Show detailed output`);
+  console.log(`  ${c.cyan("--help")}, ${c.cyan("-h")}       Show this help message\n`);
+  
+  console.log(c.white("ENVIRONMENT VARIABLES:"));
+  console.log(`  ${c.cyan("CI=true")}                  Force non-interactive mode`);
+  console.log(`  ${c.cyan("NON_INTERACTIVE=1")}         Force non-interactive mode`);
+  console.log(`  ${c.cyan("AUTOMATION=true")}           Force non-interactive mode\n`);
+  
+  console.log(c.white("EXAMPLES:"));
+  console.log(`  ${c.gray("# Interactive menu (default)")}`);
+  console.log(`  ${c.gray("$")} bun run install:interactive\n`);
+  console.log(`  ${c.gray("# Non-interactive: install all")}`);
+  console.log(`  ${c.gray("$")} bun run install:interactive --auto\n`);
+  console.log(`  ${c.gray("# Non-interactive: specific plugins")}`);
+  console.log(`  ${c.gray("$")} bun run install:interactive --select=claude-code,openclaw\n`);
+  
+  console.log(c.gray("────────────────────────────────────────────────────"));
+  console.log(c.gray("Documentation: https://github.com/michielhdoteth/squish"));
 }
 
 function listPlugins() {
   const manifest = loadManifest();
   if (!manifest || !manifest.targets) {
-    console.log(`${colors.red}Error: Plugin manifest not found${colors.reset}`);
+    console.log(c.red("Error: Plugin manifest not found"));
     process.exit(1);
   }
   
@@ -204,9 +190,9 @@ function listPlugins() {
     "windsurf": "Windsurf"
   };
   
-  printHeader();
-  console.log(`${colors.white}Available Plugins:${colors.reset}`);
-  console.log(`${colors.gray}────────────────────────────────────────────────────${colors.reset}`);
+  printLogo();
+  console.log(c.white("Available Plugins:"));
+  console.log(c.gray("────────────────────────────────────────────────────"));
   console.log();
   
   let i = 1;
@@ -215,22 +201,22 @@ function listPlugins() {
     const hasSource = checkPluginSource(client);
     
     const status = isInstalled 
-      ? `${colors.green}${icons.check}${colors.reset} installed`
-      : `${colors.yellow}${icons.dot}${colors.reset} not installed`;
+      ? `${c.green(icons.check)} installed`
+      : `${c.yellow(icons.dot)} not installed`;
     
     const source = hasSource
-      ? `${colors.cyan}${icons.package}${colors.reset} source`
-      : `${colors.red}${icons.cross}${colors.reset} no source`;
+      ? `${c.cyan(icons.package)} source`
+      : `${c.red(icons.cross)} no source`;
     
-    console.log(`  ${i}. ${colors.white}${clientNames[client] || client}${colors.reset}`);
-    console.log(`     ${colors.gray}Type:${colors.reset} ${config.type || 'unknown'}`);
+    console.log(`  ${i}. ${c.white(clientNames[client] || client)}`);
+    console.log(`     ${c.gray("Type:")} ${config.type || 'unknown'}`);
     console.log(`     ${status}  ${source}`);
     console.log();
     i++;
   }
   
-  console.log(`${colors.gray}────────────────────────────────────────────────────${colors.reset}`);
-  console.log(`${colors.gray}Total: ${i - 1} plugins available${colors.reset}`);
+  console.log(c.gray("────────────────────────────────────────────────────"));
+  console.log(c.gray(`Total: ${i - 1} plugins available`));
 }
 
 function getPluginChoices() {
@@ -263,48 +249,40 @@ function getPluginChoices() {
     const name = clientNames[client] || client;
     const type = typeDescriptions[config.type] || config.type || 'Plugin';
     
+    let label = name;
+    if (isInstalled) label += ` ${c.green(icons.check)}`;
+    if (hasSource) label += ` ${c.cyan(icons.package)}`;
+    
     return {
-      name: `${name}`,
       value: client,
-      hint: `${type}${isInstalled ? ' ✓ installed' : ''}${hasSource ? ' 📦' : ''}`
+      label: label,
+      hint: type
     };
   });
 }
 
 async function interactiveMenu() {
-  printHeader();
-  
   const choices = getPluginChoices();
   
   if (choices.length === 0) {
-    console.log(`${colors.red}No plugins available${colors.reset}`);
+    console.log(c.red("No plugins available"));
     process.exit(1);
   }
   
-  console.log(`${colors.white}Select plugins to install:${colors.reset}`);
-  console.log(`${colors.gray}(SPACE to toggle, ENTER to install)${colors.reset}`);
-  console.log();
+  printLogo();
   
-  const prompt = new MultiSelect({
-    name: 'plugins',
-    message: ' ',
-    hint: ' ',
-    choices: choices,
-    result(names) {
-      return this.map(names);
-    }
+  const plugins = await multiselect({
+    message: 'Which plugins do you want to install?',
+    options: choices,
+    required: true
   });
   
-  try {
-    const result = await prompt.run();
-    return Object.keys(result);
-  } catch (err) {
-    if (err.message === 'canceled') {
-      console.log(`\n${colors.yellow}Installation cancelled.${colors.reset}`);
-      process.exit(0);
-    }
-    throw err;
+  if (isCancel(plugins)) {
+    cancel('Installation cancelled');
+    process.exit(0);
   }
+  
+  return plugins;
 }
 
 async function performInstallation(pluginIds, options = {}) {
@@ -320,8 +298,8 @@ async function performInstallation(pluginIds, options = {}) {
   };
   
   console.log();
-  console.log(`${colors.white}Installing plugins:${colors.reset}`);
-  console.log(`${colors.gray}────────────────────────────────────────────────────${colors.reset}`);
+  console.log(c.white("Installing plugins:"));
+  console.log(c.gray("────────────────────────────────────────────────────"));
   
   pluginIds.forEach((id, i) => {
     console.log(`  ${i + 1}. ${clientNames[id] || id}`);
@@ -329,14 +307,14 @@ async function performInstallation(pluginIds, options = {}) {
   console.log();
   
   if (options.dryRun) {
-    console.log(`${colors.yellow}Dry-run mode - no changes made${colors.reset}`);
+    console.log(c.yellow("Dry-run mode - no changes made"));
     console.log();
-    console.log(`${colors.gray}To perform installation, remove --dry-run flag${colors.reset}`);
+    console.log(c.gray("To perform installation, remove --dry-run flag"));
     return;
   }
   
   // Install dependencies
-  console.log(`${colors.cyan}${icons.dot} Installing dependencies...${colors.reset}`);
+  console.log(`${c.cyan(icons.dot)} Installing dependencies...`);
   const depResult = spawnSync(
     process.execPath,
     [path.join(root, "scripts", "dependency-manager.mjs")],
@@ -344,17 +322,17 @@ async function performInstallation(pluginIds, options = {}) {
   );
   
   if (depResult.status !== 0) {
-    console.log(`${colors.red}${icons.cross} Dependency installation failed${colors.reset}`);
+    console.log(`${c.red(icons.cross)} Dependency installation failed`);
     if (options.verbose && depResult.stderr) {
-      console.log(`${colors.gray}Error: ${depResult.stderr}${colors.reset}`);
+      console.log(c.gray(`Error: ${depResult.stderr}`));
     }
     process.exit(1);
   }
-  console.log(`${colors.green}${icons.check} Dependencies installed${colors.reset}`);
+  console.log(`${c.green(icons.check)} Dependencies installed`);
   
   // Install plugins
   console.log();
-  console.log(`${colors.cyan}${icons.dot} Installing plugins...${colors.reset}`);
+  console.log(`${c.cyan(icons.dot)} Installing plugins...`);
   
   const installResult = spawnSync(
     process.execPath,
@@ -363,30 +341,29 @@ async function performInstallation(pluginIds, options = {}) {
   );
   
   if (installResult.status !== 0) {
-    console.log(`${colors.red}${icons.cross} Installation completed with errors${colors.reset}`);
+    console.log(`${c.red(icons.cross)} Installation completed with errors`);
     if (options.verbose && installResult.stderr) {
-      console.log(`${colors.gray}Error: ${installResult.stderr}${colors.reset}`);
+      console.log(c.gray(`Error: ${installResult.stderr}`));
     }
     process.exit(1);
   }
   
   console.log();
-  console.log(`${colors.green}╔══════════════════════════════════════════╗${colors.reset}`);
-  console.log(`${colors.green}║  ${colors.bright}${icons.check} Installation Complete!${colors.reset}${colors.green}                   ║${colors.reset}`);
-  console.log(`${colors.green}╚══════════════════════════════════════════╝${colors.reset}`);
+  outro(`${c.green(icons.check)} Installation Complete!`);
+  
   console.log();
-  console.log(`${colors.white}Next steps:${colors.reset}`);
-  console.log(`  ${colors.cyan}${icons.arrow}${colors.reset} Restart your AI assistant(s)`);
-  console.log(`  ${colors.cyan}${icons.arrow}${colors.reset} Tools will appear automatically`);
+  console.log(c.white("Next steps:"));
+  console.log(`  ${c.cyan(icons.arrow)} Restart your AI assistant(s)`);
+  console.log(`  ${c.cyan(icons.arrow)} Tools will appear automatically`);
   console.log();
-  console.log(`${colors.gray}Documentation: https://github.com/michielhdoteth/squish${colors.reset}`);
+  console.log(c.gray("Documentation: https://github.com/michielhdoteth/squish"));
 }
 
 async function handleNonInteractive(flags, options) {
   const choices = getPluginChoices();
   
   if (choices.length === 0) {
-    console.log(`${colors.red}No plugins available${colors.reset}`);
+    console.log(c.red("No plugins available"));
     process.exit(1);
   }
   
@@ -395,29 +372,29 @@ async function handleNonInteractive(flags, options) {
   if (flags.all) {
     pluginIds = choices.map(c => c.value);
     if (options.verbose) {
-      printHeader();
-      console.log(`${colors.cyan}[AUTO MODE] Installing all plugins...${colors.reset}\n`);
+      printLogo();
+      console.log(`${c.cyan("[AUTO MODE]")} Installing all plugins...\n`);
     }
   } else if (flags.select.length > 0) {
     const validIds = choices.map(c => c.value);
     const invalid = flags.select.filter(s => !validIds.includes(s));
     
     if (invalid.length > 0) {
-      console.log(`${colors.red}Invalid plugins: ${invalid.join(", ")}${colors.reset}`);
-      console.log(`${colors.gray}Available: ${validIds.join(", ")}${colors.reset}`);
+      console.log(c.red(`Invalid plugins: ${invalid.join(", ")}`));
+      console.log(c.gray(`Available: ${validIds.join(", ")}`));
       process.exit(1);
     }
     
     pluginIds = flags.select;
     if (options.verbose) {
-      printHeader();
-      console.log(`${colors.cyan}[AUTO MODE] Installing: ${pluginIds.join(", ")}...${colors.reset}\n`);
+      printLogo();
+      console.log(`${c.cyan("[AUTO MODE]")} Installing: ${pluginIds.join(", ")}...\n`);
     }
   } else {
-    console.log(`${colors.yellow}Auto mode requires --all or --select flag${colors.reset}`);
+    console.log(c.yellow("Auto mode requires --all or --select flag"));
     const validIds = choices.map(c => c.value);
-    console.log(`${colors.gray}Available plugins: ${validIds.join(", ")}${colors.reset}`);
-    console.log(`Use ${colors.cyan}--list${colors.reset} to see all options`);
+    console.log(c.gray(`Available plugins: ${validIds.join(", ")}`));
+    console.log(`Use ${c.cyan("--list")} to see all options`);
     process.exit(1);
   }
   
@@ -439,8 +416,8 @@ async function main() {
   
   const manifest = loadManifest();
   if (!manifest) {
-    console.log(`${colors.red}Error: Plugin manifest not found${colors.reset}`);
-    console.log(`${colors.gray}Expected: ${manifestPath}${colors.reset}`);
+    console.log(c.red("Error: Plugin manifest not found"));
+    console.log(c.gray(`Expected: ${manifestPath}`));
     process.exit(1);
   }
   
@@ -455,11 +432,11 @@ async function main() {
     return;
   }
   
-  // Interactive mode
+  // Interactive mode with clack
   const selectedPlugins = await interactiveMenu();
   
   if (selectedPlugins.length === 0) {
-    console.log(`${colors.yellow}No plugins selected. Exiting.${colors.reset}`);
+    console.log(c.yellow("No plugins selected. Exiting."));
     process.exit(0);
   }
   
@@ -467,17 +444,17 @@ async function main() {
 }
 
 process.on("SIGINT", () => {
-  console.log(`\n${colors.yellow}Installation cancelled.${colors.reset}`);
+  console.log(`\n${c.yellow("Installation cancelled.")}`);
   process.exit(0);
 });
 
 process.on("SIGTERM", () => {
-  console.log(`\n${colors.yellow}Installation cancelled.${colors.reset}`);
+  console.log(`\n${c.yellow("Installation cancelled.")}`);
   process.exit(0);
 });
 
 main().catch((err) => {
-  console.log(`${colors.red}Fatal error:${colors.reset} ${err.message}`);
+  console.log(c.red(`Fatal error: ${err.message}`));
   console.error(err);
   process.exit(1);
 });
