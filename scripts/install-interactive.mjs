@@ -91,8 +91,7 @@ function checkPluginSource(pluginId) {
   const pluginDirs = {
     "claude-code": path.join(PLUGINS_DIR, "plugin-claude-code"),
     "openclaw": path.join(PLUGINS_DIR, "plugin-openclaw"),
-    "opencode": path.join(PLUGINS_DIR, "plugin-opencode"),
-    "mcp": path.join(PLUGINS_DIR, "plugin-mcp")
+    "opencode": path.join(PLUGINS_DIR, "plugin-opencode")
   };
   
   const pluginDir = pluginDirs[pluginId];
@@ -289,14 +288,9 @@ async function wizardComponentSelection() {
         hint: 'squish command for terminal use'
       },
       {
-        value: 'mcp',
-        label: `${icons.mcp} MCP Server - Model Context Protocol`,
-        hint: 'For remote access and AI integrations'
-      },
-      {
         value: 'plugins',
         label: `${icons.plugin} AI Agent Plugins`,
-        hint: 'Claude Code, OpenClaw, Cursor, etc.'
+        hint: 'Claude Code, OpenClaw, OpenCode, etc.'
       }
     ],
     required: false
@@ -457,32 +451,50 @@ async function performInstallation(installConfig, options = {}) {
     s.stop(c.green(`${icons.check} CLI ready`));
   }
   
-  // Install MCP Server
-  if (components.includes('mcp')) {
-    s.start('Configuring MCP Server...');
-    // MCP server config would go here
-    s.stop(c.green(`${icons.check} MCP Server configured`));
-  }
-  
   // Install plugins
   if (components.includes('plugins') && plugins.length > 0) {
-    s.start(`Installing ${plugins.length} plugin(s)...`);
-    
-    const installResult = spawnSync(
-      process.execPath,
-      [path.join(root, "scripts", "install-plugin.mjs"), "--client=" + plugins.join(",")],
-      { encoding: "utf8", stdio: "pipe", timeout: 300000 }
-    );
-    
-    if (installResult.status !== 0) {
-      s.stop(c.red(`${icons.cross} Plugin installation failed`));
-      if (options.verbose && installResult.stderr) {
-        console.log(c.gray(`Error: ${installResult.stderr}`));
+    // Handle OpenCode specially - use its own installer
+    const opencodeIndex = plugins.indexOf('opencode');
+    if (opencodeIndex > -1) {
+      plugins.splice(opencodeIndex, 1);
+      
+      s.start('Installing OpenCode plugin...');
+      const opencodeResult = spawnSync(
+        process.execPath,
+        [path.join(root, "packages", "plugin-opencode", "install.mjs")],
+        { encoding: "utf8", stdio: "pipe", timeout: 60000 }
+      );
+      
+      if (opencodeResult.status !== 0) {
+        s.stop(c.red(`${icons.cross} OpenCode plugin installation failed`));
+        if (options.verbose && opencodeResult.stderr) {
+          console.log(c.gray(`Error: ${opencodeResult.stderr}`));
+        }
+      } else {
+        s.stop(c.green(`${icons.check} OpenCode plugin installed`));
       }
-      process.exit(1);
     }
     
-    s.stop(c.green(`${icons.check} Plugins installed`));
+    // Install remaining plugins using general installer
+    if (plugins.length > 0) {
+      s.start(`Installing ${plugins.length} plugin(s)...`);
+      
+      const installResult = spawnSync(
+        process.execPath,
+        [path.join(root, "scripts", "install-plugin.mjs"), "--client=" + plugins.join(",")],
+        { encoding: "utf8", stdio: "pipe", timeout: 300000 }
+      );
+      
+      if (installResult.status !== 0) {
+        s.stop(c.red(`${icons.cross} Plugin installation failed`));
+        if (options.verbose && installResult.stderr) {
+          console.log(c.gray(`Error: ${installResult.stderr}`));
+        }
+        process.exit(1);
+      }
+      
+      s.stop(c.green(`${icons.check} Plugins installed`));
+    }
   }
   
   // Save configuration
