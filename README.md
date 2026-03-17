@@ -73,14 +73,26 @@ Agent Action -----> [Squish Memory Layer]
 
 ## Quick Start
 
-### For Claude Code (Plugin)
+### Universal Plugin Installer (Recommended)
+```bash
+# Install for your AI assistant(s)
+npx squish-memory install-plugin --client=claude-code  # Claude Code
+npx squish-memory install-plugin --client=openclaw    # OpenClaw
+npx squish-memory install-plugin --client=opencode    # OpenCode
+npx squish-memory install-plugin --client=all         # All supported clients
+
+# Verify installation
+npx squish-memory install-plugin --client=claude-code --verify
+```
+
+### For Claude Code (Plugin) - Legacy Method
 ```bash
 # Install from marketplace
 /plugin marketplace add https://github.com/michielhdoteth/squish.git
 /plugin install squish@michielhdoteth-squish
 ```
 
-### For OpenClaw (npm)
+### For OpenClaw (npm) - Legacy Method
 ```bash
 npm install -g squish-memory
 ```
@@ -127,6 +139,50 @@ curl "http://localhost:3000/api/memories/search?q=TypeScript"
 - **Universal First**: Works with any AI agent via MCP, CLI, or HTTP API
 - **Transport Agnostic**: MCP (stdio/SSE), CLI, or HTTP/WebSocket - choose your preference
 - **Storage Flexible**: SQLite for local, PostgreSQL for team deployments
+
+## Universal Plugin Architecture
+
+Squish now provides a **universal plugin system** that works as a plugin across all major AI assistant frameworks through a single manifest-driven installer.
+
+### How It Works
+1. Single `plugin-manifest.json` defines the plugin for all clients
+2. `npx squish-memory install-plugin --client=<target>` handles installation
+3. Auto-installs dependencies (mcporter, qmd) with pinned versions
+4. Generates client-specific configurations automatically
+5. Provides unified verification and troubleshooting
+
+### Supported Clients
+| Client | Installation Method | Status |
+|--------|-------------------|---------|
+| Claude Code | Plugin hooks (.claude-plugin/) | ✅ Stable |
+| OpenClaw | Memory slot via MCP bridge | ✅ Stable |
+| OpenCode | MCP server config | ✅ Stable |
+| Codex | MCP server config | ✅ Stable |
+| Cursor | MCP server config | ✅ Beta |
+| VS Code | MCP server config | ✅ Beta |
+| Windsurf | MCP server config | ✅ Beta |
+
+### Quick Installation Examples
+```bash
+# Install for Claude Code (recommended for Claude users)
+npx squish-memory install-plugin --client=claude-code --verify
+
+# Install for OpenClaw (recommended for OpenClaw users)  
+npx squish-memory install-plugin --client=openclaw --verify
+
+# Install for all supported clients
+npx squish-memory install-plugin --client=all --verify
+
+# Install for multiple specific clients
+npx squish-memory install-plugin --client=claude-code,openclaw,opencode --verify
+```
+
+### Benefits
+- **One manifest to rule them all**: Single source of truth
+- **Zero manual configuration**: Automatic dependency installation
+- **Version pinned dependencies**: Stable, reproducible builds
+- **Unified verification**: One command to check all clients
+- **Backward compatible**: Existing integrations still work
 
 ## Universal API
 
