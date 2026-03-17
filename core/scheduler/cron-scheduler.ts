@@ -1,7 +1,7 @@
 /** Cron Scheduler - Persistent cron-based job scheduling with fallback support */
 
 import cron from 'node-cron';
-import { selfIterationHandler } from '../sessions/self-iteration-job.js';
+import { selfIterationHandler } from '../session-hooks/self-iteration-job.js';
 import { logger } from '../logger.js';
 import { config } from '../../config.js';
 import { getDb } from '../../db/index.js';

@@ -34,8 +34,8 @@ All notable changes to Squish will be documented in this file.
 - **Memory Layers (L0/L1/L2)**: Token-efficient retrieval
   - `core/layers/generator.ts` - Generates memory layers
 - **Self-Iteration Job**: Conversation memory extraction
-  - `core/sessions/self-iteration-job.ts` - Extracts memories from conversations
-  - `core/sessions/session-hooks.ts` - Session lifecycle hooks
+  - `core/session-hooks/self-iteration-job.ts` - Extracts memories from conversations
+  - `core/session-hooks/session-hooks.ts` - Session lifecycle hooks
 - **Database Schema Updates**:
   - Added `namespaces` table
   - Added `memory_layers` table
@@ -53,6 +53,9 @@ All notable changes to Squish will be documented in this file.
 - **Response Builder**: Unified response builder for algorithm handlers
 - **Config Validation**: Fixed provider validation logic
 - **Association SQL**: Fixed placeholder issues in SQL queries
+- **Directory Reorganization**: Renamed `core/sessions/` to `core/session-hooks/` for clarity
+  - Session lifecycle hooks now in dedicated directory
+  - Separates session auto-load (`core/session/`) from hooks/jobs (`core/session-hooks/`)
 
 #### Documentation
 - **Interactive Installer Guide**: Complete docs for wizard usage
