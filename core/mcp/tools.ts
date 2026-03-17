@@ -279,16 +279,7 @@ export const squishHealthTool: MCPToolDefinition = {
   },
 };
 
-export function getAllSquishTools(): MCPToolDefinition[] {
-  return [
-    squishSearchTool,
-    squishRememberTool,
-    squishRecallTool,
-    squishEmbedTool,
-    squishQMDSearchTool,
-    squishHealthTool,
-
-export const squishGetSearchTracesTool: MCPToolDefinition = {
+const squishGetSearchTracesTool: MCPToolDefinition = {
   tool: {
     name: 'squish_get_search_traces',
     description: 'Get recent search traces for debugging and performance analysis',
@@ -327,7 +318,7 @@ export const squishGetSearchTracesTool: MCPToolDefinition = {
   },
 };
 
-export const squishGetTraceByIdTool: MCPToolDefinition = {
+const squishGetTraceByIdTool: MCPToolDefinition = {
   tool: {
     name: 'squish_get_trace_by_id',
     description: 'Get a specific search trace by ID with full stage details',
@@ -365,5 +356,16 @@ export const squishGetTraceByIdTool: MCPToolDefinition = {
     }
   },
 };
+
+export function getAllSquishTools(): MCPToolDefinition[] {
+  return [
+    squishSearchTool,
+    squishRememberTool,
+    squishRecallTool,
+    squishEmbedTool,
+    squishQMDSearchTool,
+    squishHealthTool,
+    squishGetSearchTracesTool,
+    squishGetTraceByIdTool,
   ];
 }

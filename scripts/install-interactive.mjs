@@ -1,10 +1,16 @@
 #!/usr/bin/env node
 
+/**
+ * Squish Interactive Plugin Installer
+ * Beautiful terminal UI with Enquirer
+ */
+
+import pkg from 'enquirer';
+const { MultiSelect } = pkg;
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { createInterface } from "node:readline";
 
 const root = process.cwd();
 const manifestPath = path.join(root, "config", "plugin-manifest.json");
@@ -19,10 +25,17 @@ const colors = {
   gray: "\x1b[90m",
   bright: "\x1b[1m",
   dim: "\x1b[2m",
-  reset: "\x1b[0m",
-  cursorUp: (n) => `\x1b[${n}A`,
-  clearLine: "\x1b[2K",
-  clearScreen: "\x1b[2J\x1b[H"
+  reset: "\x1b[0m"
+};
+
+const icons = {
+  squish: "🐙",
+  check: "✓",
+  cross: "✗",
+  package: "📦",
+  arrow: "→",
+  dot: "●",
+  circle: "○"
 };
 
 const CLIENT_DIRS = {
@@ -58,43 +71,6 @@ function detectInstalledClients() {
     }
   }
   return installed;
-}
-
-function getAvailablePlugins() {
-  const plugins = [];
-  const manifest = loadManifest();
-  
-  if (!manifest || !manifest.targets) {
-    return [];
-  }
-  
-  const clientNames = {
-    "claude-code": "Claude Code",
-    "openclaw": "OpenClaw",
-    "opencode": "OpenCode",
-    "codex": "Codex",
-    "cursor": "Cursor",
-    "vscode": "VS Code",
-    "windsurf": "Windsurf"
-  };
-  
-  const typeDescriptions = {
-    "hooks": "Session hooks for automatic memory capture",
-    "plugin-slot": "Memory slot via MCP bridge",
-    "mcp": "MCP server configuration"
-  };
-  
-  for (const [client, config] of Object.entries(manifest.targets)) {
-    plugins.push({
-      id: client,
-      name: config.name || clientNames[client] || client,
-      description: config.description || `${typeDescriptions[config.type] || "Plugin"} - ${clientNames[client] || client}`,
-      type: config.type || "unknown",
-      available: true
-    });
-  }
-  
-  return plugins;
 }
 
 function checkPluginSource(pluginId) {
@@ -146,7 +122,7 @@ function parseArgs(argv) {
       flags.help = true;
     } else if (token.startsWith("--select=")) {
       flags.select = token.slice(9).split(",").map(s => s.trim());
-    } else if (token.startsWith("--select=")) {
+    } else if (token === "--select") {
       flags.select = [argv[i + 1]];
       i++;
     } else {
@@ -159,12 +135,18 @@ function parseArgs(argv) {
   return flags;
 }
 
-function printHelp() {
+function printHeader() {
   console.log(`
-${colors.bright}${colors.cyan}Squish Plugin Installer - Interactive Mode${colors.reset}
-${colors.gray}═════════════════════════════════════════════${colors.reset}
+${colors.bright}${colors.cyan}╔══════════════════════════════════════════════════╗${colors.reset}
+${colors.bright}${colors.cyan}║${colors.reset}  ${icons.squish} ${colors.white}Squish Plugin Installer${colors.reset}                        ${colors.bright}${colors.cyan}║${colors.reset}
+${colors.bright}${colors.cyan}║${colors.reset}  ${colors.gray}Universal memory system for AI agents${colors.reset}        ${colors.bright}${colors.cyan}║${colors.reset}
+${colors.bright}${colors.cyan}╚══════════════════════════════════════════════════╝${colors.reset}
+`);
+}
 
-${colors.white}USAGE:${colors.reset}
+function printHelp() {
+  printHeader();
+  console.log(`${colors.white}USAGE:${colors.reset}
   ${colors.cyan}bun run install:interactive${colors.reset} [OPTIONS]
 
 ${colors.white}OPTIONS:${colors.reset}
@@ -194,14 +176,9 @@ ${colors.white}EXAMPLES:${colors.reset}
   # List available plugins
   ${colors.gray}$} bun run install:interactive --list${colors.reset}
 
-  # Dry-run to test
-  ${colors.gray}$} bun run install:interactive --select=claude-code --dry-run${colors.reset}
-
-${colors.white}MENU CONTROLS (when interactive):${colors.reset}
+${colors.white}INTERACTIVE CONTROLS:${colors.reset}
   ${colors.cyan}[SPACE]${colors.reset} Toggle selection     ${colors.cyan}[↑↓]${colors.reset} Navigate
-  ${colors.cyan}[j/k]${colors.reset} Vim-style navigation
-  ${colors.cyan}[Ctrl+A]${colors.reset} Toggle all
-  ${colors.cyan}[ENTER]${colors.reset} Install
+  ${colors.cyan}[a]${colors.reset} Toggle all           ${colors.cyan}[ENTER]${colors.reset} Install
   ${colors.cyan}[ESC]${colors.reset} Cancel
 
 ${colors.gray}────────────────────────────────────────────────────${colors.reset}
@@ -210,346 +187,241 @@ ${colors.gray}Documentation: https://github.com/michielhdoteth/squish${colors.re
 }
 
 function listPlugins() {
-  const plugins = getAvailablePlugins();
-  const installed = detectInstalledClients();
-  
-  if (plugins.length === 0) {
-    console.log(`${colors.yellow}No plugins available${colors.reset}`);
-    return;
-  }
-  
-  console.log(`${colors.bright}${colors.cyan}Available Plugins:${colors.reset}`);
-  console.log(`${colors.gray}────────────────────────────────────────────────────${colors.reset}`);
-  console.log("");
-  
-  plugins.forEach((plugin, i) => {
-    const status = installed[plugin.id]
-      ? `${colors.green}✓${colors.reset} installed`
-      : `${colors.yellow}○${colors.reset} not installed`;
-    
-    const source = checkPluginSource(plugin.id)
-      ? `${colors.cyan}📦${colors.reset}`
-      : `${colors.red}✗${colors.reset}`;
-    
-    console.log(`  ${i + 1}. ${plugin.name} (${plugin.id})`);
-    console.log(`     ${colors.gray}Type:${colors.reset} ${plugin.type}`);
-    console.log(`     ${colors.gray}Status:${colors.reset} ${status} ${source}`);
-    console.log(`     ${colors.gray}Description:${colors.reset} ${plugin.description}`);
-    console.log("");
-  });
-  
-  console.log(`${colors.gray}────────────────────────────────────────────────────${colors.reset}`);
-  console.log(`Total: ${plugins.length} plugins`);
-}
-
-class Menu {
-  constructor(options) {
-    this.options = options.map((opt, index) => ({
-      ...opt,
-      index,
-      selected: opt.defaultSelected || false,
-      enabled: opt.enabled !== false
-    }));
-    this.currentIndex = this.options.findIndex((o) => o.enabled);
-    this.scrollOffset = 0;
-    this.maxVisible = this.getTerminalHeight();
-  }
-  
-  getTerminalHeight() {
-    try {
-      return Math.max(5, process.stdout.rows - 8);
-    } catch {
-      return 5;
-    }
-  }
-  
-  render() {
-    const visibleOptions = this.getVisibleOptions();
-    const totalHeight = visibleOptions.length + 4;
-    
-    try {
-      console.log(colors.cursorUp(totalHeight));
-    } catch {
-      console.log(colors.clearScreen);
-    }
-    
-    this.renderHeader();
-    this.renderOptions(visibleOptions);
-    this.renderFooter();
-  }
-  
-  renderHeader() {
-    console.log(`${colors.bright}${colors.cyan}╔══════════════════════════════════════════╗${colors.reset}`);
-    console.log(`${colors.bright}${colors.cyan}║${colors.reset}  Squish Plugin Installer - Interactive Mode ${colors.bright}${colors.cyan}         ║${colors.reset}`);
-    console.log(`${colors.bright}${colors.cyan}╚══════════════════════════════════════════╝${colors.reset}`);
-    console.log("");
-  }
-  
-  renderOptions(visibleOptions) {
-    const installedClients = detectInstalledClients();
-    
-    visibleOptions.forEach((option) => {
-      const cursor = option.index === this.currentIndex ? "▶ " : "  ";
-      const checkbox = option.enabled
-        ? (option.selected ? `${colors.green}[x]${colors.reset}` : `[ ]`)
-        : `${colors.gray}[ ]${colors.reset}`;
-      
-      const name = option.index === this.currentIndex
-        ? `${colors.bright}${colors.white}${option.name}${colors.reset}`
-        : option.name;
-      
-      const status = option.enabled
-        ? (installedClients[option.id]
-          ? `${colors.gray}  ${colors.green}✓${colors.reset} installed`
-          : `${colors.gray}  ${colors.yellow}○${colors.reset} not installed`)
-        : `${colors.gray}  N/A${colors.reset}`;
-      
-      const sourceStatus = checkPluginSource(option.id)
-        ? `${colors.gray}  ${colors.cyan}📦${colors.reset} source available`
-        : `${colors.gray}  ${colors.red}✗${colors.reset} no source`;
-      
-      console.log(`${cursor}${checkbox} ${name}${status}${sourceStatus}`);
-      
-      if (option.description && option.index === this.currentIndex) {
-        console.log(`${colors.gray}      ${option.description}${colors.reset}`);
-      }
-    });
-  }
-  
-  renderFooter() {
-    console.log("");
-    const selectedCount = this.options.filter((o) => o.selected && o.enabled).length;
-    const availableCount = this.options.filter((o) => o.enabled).length;
-    
-    console.log(`${colors.gray}────────────────────────────────────────────────────${colors.reset}`);
-    console.log(`${colors.cyan}Selected: ${colors.bright}${selectedCount}${colors.reset} / ${availableCount} available plugins`);
-    console.log(`${colors.gray}────────────────────────────────────────────────────${colors.reset}`);
-    console.log("");
-    console.log(`${colors.cyan}[SPACE]${colors.reset} Toggle selection  ${colors.cyan}[↑↓]${colors.reset} Navigate  ${colors.cyan}[ENTER]${colors.reset} Install  ${colors.cyan}[ESC]${colors.reset} Cancel`);
-  }
-  
-  getVisibleOptions() {
-    const start = this.scrollOffset;
-    const end = Math.min(start + this.maxVisible, this.options.length);
-    return this.options.slice(start, end);
-  }
-  
-  moveUp() {
-    const enabledIndices = this.options
-      .map((o, i) => ({ index: i, enabled: o.enabled }))
-      .filter((o) => o.enabled)
-      .map((o) => o.index);
-    
-    const currentIndex = enabledIndices.indexOf(this.currentIndex);
-    if (currentIndex > 0) {
-      this.currentIndex = enabledIndices[currentIndex - 1];
-      this.adjustScroll();
-      this.render();
-    }
-  }
-  
-  moveDown() {
-    const enabledIndices = this.options
-      .map((o, i) => ({ index: i, enabled: o.enabled }))
-      .filter((o) => o.enabled)
-      .map((o) => o.index);
-    
-    const currentIndex = enabledIndices.indexOf(this.currentIndex);
-    if (currentIndex < enabledIndices.length - 1) {
-      this.currentIndex = enabledIndices[currentIndex + 1];
-      this.adjustScroll();
-      this.render();
-    }
-  }
-  
-  toggleSelection() {
-    const currentOption = this.options[this.currentIndex];
-    if (currentOption && currentOption.enabled) {
-      currentOption.selected = !currentOption.selected;
-      this.render();
-    }
-  }
-  
-  toggleAll() {
-    const enabledOptions = this.options.filter((o) => o.enabled);
-    const allSelected = enabledOptions.every((o) => o.selected);
-    enabledOptions.forEach((o) => {
-      o.selected = !allSelected;
-    });
-    this.render();
-  }
-  
-  adjustScroll() {
-    const visibleOptions = this.getVisibleOptions();
-    const isVisible = visibleOptions.some((o) => o.index === this.currentIndex);
-    
-    if (!isVisible) {
-      if (this.currentIndex < this.scrollOffset) {
-        this.scrollOffset = this.currentIndex;
-      } else {
-        const maxStart = this.options.length - this.maxVisible;
-        this.scrollOffset = Math.min(maxStart, this.currentIndex - this.maxVisible + 1);
-      }
-    }
-  }
-  
-  getSelectedOptions() {
-    return this.options.filter((o) => o.selected && o.enabled);
-  }
-}
-
-function createKeyHandler(menu, rl) {
-  return (key, rl) => {
-    if (key.name === "up" || key.name === "k") {
-      menu.moveUp();
-    } else if (key.name === "down" || key.name === "j") {
-      menu.moveDown();
-    } else if (key.name === "space") {
-      menu.toggleSelection();
-    } else if (key.name === "a" && key.ctrl) {
-      menu.toggleAll();
-    } else if (key.name === "return") {
-      rl.close();
-      const selected = menu.getSelectedOptions();
-      if (selected.length === 0) {
-        console.log(`\n${colors.yellow}No plugins selected. Installation cancelled.${colors.reset}`);
-        process.exit(0);
-      }
-      performInstallation(selected);
-    } else if (key.name === "escape") {
-      rl.close();
-      console.log(`\n${colors.yellow}Installation cancelled.${colors.reset}`);
-      process.exit(0);
-    }
-  };
-}
-
-async function performInstallation(selectedPlugins, options = {}) {
-  console.log("");
-  console.log(colors.clearScreen);
-  console.log(`${colors.bright}${colors.blue}Squish Plugin Installer${colors.reset}`);
-  console.log(`${colors.gray}────────────────────────────────────────────────────────${colors.reset}`);
-  console.log("");
-  
-  console.log(`${colors.green}Selected plugins:${colors.reset}`);
-  selectedPlugins.forEach((plugin, i) => {
-    console.log(`  ${i + 1}. ${plugin.name} (${plugin.id})`);
-  });
-  console.log("");
-  
   const manifest = loadManifest();
-  if (!manifest) {
+  if (!manifest || !manifest.targets) {
     console.log(`${colors.red}Error: Plugin manifest not found${colors.reset}`);
     process.exit(1);
   }
   
-  if (!options.dryRun) {
-    console.log(`${colors.cyan}Installing dependencies...${colors.reset}`);
-    const depResult = spawnSync(
-      process.execPath,
-      [path.join(root, "scripts", "dependency-manager.mjs")],
-      { encoding: "utf8", stdio: options.verbose ? "inherit" : "pipe", timeout: 120000 }
-    );
+  const installed = detectInstalledClients();
+  const clientNames = {
+    "claude-code": "Claude Code",
+    "openclaw": "OpenClaw",
+    "opencode": "OpenCode",
+    "codex": "Codex",
+    "cursor": "Cursor",
+    "vscode": "VS Code",
+    "windsurf": "Windsurf"
+  };
+  
+  printHeader();
+  console.log(`${colors.white}Available Plugins:${colors.reset}`);
+  console.log(`${colors.gray}────────────────────────────────────────────────────${colors.reset}`);
+  console.log();
+  
+  let i = 1;
+  for (const [client, config] of Object.entries(manifest.targets)) {
+    const isInstalled = installed[client];
+    const hasSource = checkPluginSource(client);
     
-    if (depResult.status !== 0) {
-      console.log(`${colors.red}Dependency installation failed${colors.reset}`);
-      if (options.verbose && depResult.stderr) {
-        console.log(`${colors.gray}Error output:${colors.reset}\n${depResult.stderr}`);
-      }
-      process.exit(1);
-    }
+    const status = isInstalled 
+      ? `${colors.green}${icons.check}${colors.reset} installed`
+      : `${colors.yellow}${icons.dot}${colors.reset} not installed`;
     
-    console.log("");
-    console.log(`${colors.cyan}Installing plugins...${colors.reset}`);
+    const source = hasSource
+      ? `${colors.cyan}${icons.package}${colors.reset} source`
+      : `${colors.red}${icons.cross}${colors.reset} no source`;
     
-    const clientList = selectedPlugins.map((p) => p.id).join(",");
-    const installArgs = [path.join(root, "scripts", "install-plugin.mjs"), "--client=" + clientList];
-    
-    if (options.dryRun) {
-      installArgs.push("--dry-run");
-    }
-    
-    const installResult = spawnSync(
-      process.execPath,
-      installArgs,
-      { encoding: "utf8", stdio: options.verbose ? "inherit" : "pipe", timeout: 300000 }
-    );
-    
-    if (installResult.status !== 0) {
-      console.log("");
-      console.log(`${colors.red}Installation completed with errors${colors.reset}`);
-      if (options.verbose && installResult.stderr) {
-        console.log(`${colors.gray}Error output:${colors.reset}\n${installResult.stderr}`);
-      }
-      process.exit(1);
-    } else {
-      console.log("");
-      console.log(`${colors.green}╔══════════════════════════════════════════╗${colors.reset}`);
-      console.log(`${colors.green}║${colors.reset}  ${colors.bright}Installation Complete!${colors.reset}                        ${colors.green}║${colors.reset}`);
-      console.log(`${colors.green}╚══════════════════════════════════════════╝${colors.reset}`);
-      console.log("");
-      console.log(`${colors.cyan}Next steps:${colors.reset}`);
-      console.log(`  ${colors.white}→${colors.reset} Restart your AI assistant(s)`);
-      console.log(`  ${colors.white}→${colors.reset} Tools will appear automatically`);
-      console.log("");
-      console.log(`${colors.gray}Documentation: https://github.com/michielhdoteth/squish${colors.reset}`);
-    }
-  } else {
-    console.log(`${colors.yellow}Dry-run mode - no changes made${colors.reset}`);
-    console.log("");
-    console.log(`${colors.cyan}Would install:${colors.reset}`);
-    selectedPlugins.forEach((plugin, i) => {
-      console.log(`  ${i + 1}. ${plugin.name} (${plugin.id})`);
-    });
-    console.log("");
-    console.log(`To perform installation, remove ${colors.cyan}--dry-run${colors.reset} flag`);
+    console.log(`  ${i}. ${colors.white}${clientNames[client] || client}${colors.reset}`);
+    console.log(`     ${colors.gray}Type:${colors.reset} ${config.type || 'unknown'}`);
+    console.log(`     ${status}  ${source}`);
+    console.log();
+    i++;
   }
+  
+  console.log(`${colors.gray}────────────────────────────────────────────────────${colors.reset}`);
+  console.log(`${colors.gray}Total: ${i - 1} plugins available${colors.reset}`);
 }
 
-function handleNonInteractive(flags, options) {
-  const plugins = getAvailablePlugins();
+function getPluginChoices() {
+  const manifest = loadManifest();
+  if (!manifest || !manifest.targets) {
+    return [];
+  }
   
-  if (plugins.length === 0) {
-    console.log(`${colors.yellow}No plugins available${colors.reset}`);
+  const installed = detectInstalledClients();
+  const clientNames = {
+    "claude-code": "Claude Code",
+    "openclaw": "OpenClaw",
+    "opencode": "OpenCode",
+    "codex": "Codex",
+    "cursor": "Cursor",
+    "vscode": "VS Code",
+    "windsurf": "Windsurf"
+  };
+  
+  const typeDescriptions = {
+    "hooks": "Session hooks for auto-memory",
+    "plugin-slot": "Memory slot via MCP bridge",
+    "mcp": "MCP server configuration"
+  };
+  
+  return Object.entries(manifest.targets).map(([client, config]) => {
+    const isInstalled = installed[client];
+    const hasSource = checkPluginSource(client);
+    
+    const name = clientNames[client] || client;
+    const type = typeDescriptions[config.type] || config.type || 'Plugin';
+    
+    return {
+      name: `${name}`,
+      value: client,
+      hint: `${type}${isInstalled ? ' ✓ installed' : ''}${hasSource ? ' 📦' : ''}`
+    };
+  });
+}
+
+async function interactiveMenu() {
+  printHeader();
+  
+  const choices = getPluginChoices();
+  
+  if (choices.length === 0) {
+    console.log(`${colors.red}No plugins available${colors.reset}`);
     process.exit(1);
   }
   
-  let pluginsToInstall = [];
+  console.log(`${colors.white}Select plugins to install:${colors.reset}`);
+  console.log(`${colors.gray}(SPACE to toggle, ENTER to install)${colors.reset}`);
+  console.log();
+  
+  const prompt = new MultiSelect({
+    name: 'plugins',
+    message: ' ',
+    hint: ' ',
+    choices: choices,
+    result(names) {
+      return this.map(names);
+    }
+  });
+  
+  try {
+    const result = await prompt.run();
+    return Object.keys(result);
+  } catch (err) {
+    if (err.message === 'canceled') {
+      console.log(`\n${colors.yellow}Installation cancelled.${colors.reset}`);
+      process.exit(0);
+    }
+    throw err;
+  }
+}
+
+async function performInstallation(pluginIds, options = {}) {
+  const manifest = loadManifest();
+  const clientNames = {
+    "claude-code": "Claude Code",
+    "openclaw": "OpenClaw",
+    "opencode": "OpenCode",
+    "codex": "Codex",
+    "cursor": "Cursor",
+    "vscode": "VS Code",
+    "windsurf": "Windsurf"
+  };
+  
+  console.log();
+  console.log(`${colors.white}Installing plugins:${colors.reset}`);
+  console.log(`${colors.gray}────────────────────────────────────────────────────${colors.reset}`);
+  
+  pluginIds.forEach((id, i) => {
+    console.log(`  ${i + 1}. ${clientNames[id] || id}`);
+  });
+  console.log();
+  
+  if (options.dryRun) {
+    console.log(`${colors.yellow}Dry-run mode - no changes made${colors.reset}`);
+    console.log();
+    console.log(`${colors.gray}To perform installation, remove --dry-run flag${colors.reset}`);
+    return;
+  }
+  
+  // Install dependencies
+  console.log(`${colors.cyan}${icons.dot} Installing dependencies...${colors.reset}`);
+  const depResult = spawnSync(
+    process.execPath,
+    [path.join(root, "scripts", "dependency-manager.mjs")],
+    { encoding: "utf8", stdio: options.verbose ? "inherit" : "pipe", timeout: 120000 }
+  );
+  
+  if (depResult.status !== 0) {
+    console.log(`${colors.red}${icons.cross} Dependency installation failed${colors.reset}`);
+    if (options.verbose && depResult.stderr) {
+      console.log(`${colors.gray}Error: ${depResult.stderr}${colors.reset}`);
+    }
+    process.exit(1);
+  }
+  console.log(`${colors.green}${icons.check} Dependencies installed${colors.reset}`);
+  
+  // Install plugins
+  console.log();
+  console.log(`${colors.cyan}${icons.dot} Installing plugins...${colors.reset}`);
+  
+  const installResult = spawnSync(
+    process.execPath,
+    [path.join(root, "scripts", "install-plugin.mjs"), "--client=" + pluginIds.join(",")],
+    { encoding: "utf8", stdio: options.verbose ? "inherit" : "pipe", timeout: 300000 }
+  );
+  
+  if (installResult.status !== 0) {
+    console.log(`${colors.red}${icons.cross} Installation completed with errors${colors.reset}`);
+    if (options.verbose && installResult.stderr) {
+      console.log(`${colors.gray}Error: ${installResult.stderr}${colors.reset}`);
+    }
+    process.exit(1);
+  }
+  
+  console.log();
+  console.log(`${colors.green}╔══════════════════════════════════════════╗${colors.reset}`);
+  console.log(`${colors.green}║  ${colors.bright}${icons.check} Installation Complete!${colors.reset}${colors.green}                   ║${colors.reset}`);
+  console.log(`${colors.green}╚══════════════════════════════════════════╝${colors.reset}`);
+  console.log();
+  console.log(`${colors.white}Next steps:${colors.reset}`);
+  console.log(`  ${colors.cyan}${icons.arrow}${colors.reset} Restart your AI assistant(s)`);
+  console.log(`  ${colors.cyan}${icons.arrow}${colors.reset} Tools will appear automatically`);
+  console.log();
+  console.log(`${colors.gray}Documentation: https://github.com/michielhdoteth/squish${colors.reset}`);
+}
+
+async function handleNonInteractive(flags, options) {
+  const choices = getPluginChoices();
+  
+  if (choices.length === 0) {
+    console.log(`${colors.red}No plugins available${colors.reset}`);
+    process.exit(1);
+  }
+  
+  let pluginIds = [];
   
   if (flags.all) {
-    pluginsToInstall = plugins.map((p) => p.id);
+    pluginIds = choices.map(c => c.value);
     if (options.verbose) {
-      console.log(`${colors.cyan}[AUTO MODE]${colors.reset} Installing all available plugins...`);
+      printHeader();
+      console.log(`${colors.cyan}[AUTO MODE] Installing all plugins...${colors.reset}\n`);
     }
   } else if (flags.select.length > 0) {
-    const validPlugins = plugins.map((p) => p.id);
-    const invalid = flags.select.filter((s) => !validPlugins.includes(s));
+    const validIds = choices.map(c => c.value);
+    const invalid = flags.select.filter(s => !validIds.includes(s));
     
     if (invalid.length > 0) {
       console.log(`${colors.red}Invalid plugins: ${invalid.join(", ")}${colors.reset}`);
-      console.log(`${colors.gray}Available: ${validPlugins.join(", ")}${colors.reset}`);
+      console.log(`${colors.gray}Available: ${validIds.join(", ")}${colors.reset}`);
       process.exit(1);
     }
     
-    pluginsToInstall = flags.select;
+    pluginIds = flags.select;
     if (options.verbose) {
-      console.log(`${colors.cyan}[AUTO MODE]${colors.reset} Installing: ${pluginsToInstall.join(", ")}...`);
+      printHeader();
+      console.log(`${colors.cyan}[AUTO MODE] Installing: ${pluginIds.join(", ")}...${colors.reset}\n`);
     }
   } else {
     console.log(`${colors.yellow}Auto mode requires --all or --select flag${colors.reset}`);
-    console.log(`Available plugins: ${plugins.map((p) => p.id).join(", ")}`);
+    const validIds = choices.map(c => c.value);
+    console.log(`${colors.gray}Available plugins: ${validIds.join(", ")}${colors.reset}`);
     console.log(`Use ${colors.cyan}--list${colors.reset} to see all options`);
     process.exit(1);
   }
   
-  const selectedPlugins = plugins.filter((p) => pluginsToInstall.includes(p.id));
-  
-  if (selectedPlugins.length === 0) {
-    console.log(`${colors.yellow}No plugins to install${colors.reset}`);
-    process.exit(0);
-  }
-  
-  performInstallation(selectedPlugins, options);
+  await performInstallation(pluginIds, options);
 }
 
 async function main() {
@@ -566,10 +438,9 @@ async function main() {
   }
   
   const manifest = loadManifest();
-  
   if (!manifest) {
     console.log(`${colors.red}Error: Plugin manifest not found${colors.reset}`);
-    console.log(`${colors.gray}Expected location: ${manifestPath}${colors.reset}`);
+    console.log(`${colors.gray}Expected: ${manifestPath}${colors.reset}`);
     process.exit(1);
   }
   
@@ -578,79 +449,30 @@ async function main() {
     verbose: flags.verbose
   };
   
+  // Non-interactive mode
   if (flags.auto || flags.select.length > 0 || shouldUseNonInteractive()) {
-    handleNonInteractive(flags, options);
+    await handleNonInteractive(flags, options);
     return;
   }
   
-  console.log(`${colors.clearScreen}`);
+  // Interactive mode
+  const selectedPlugins = await interactiveMenu();
   
-  const plugins = getAvailablePlugins();
-  
-  if (plugins.length === 0) {
-    console.log(`${colors.yellow}No plugins available in manifest${colors.reset}`);
-    console.log(`${colors.gray}Check config/plugin-manifest.json${colors.reset}`);
-    process.exit(1);
+  if (selectedPlugins.length === 0) {
+    console.log(`${colors.yellow}No plugins selected. Exiting.${colors.reset}`);
+    process.exit(0);
   }
   
-  const menuOptions = plugins.map((plugin) => ({
-    id: plugin.id,
-    name: plugin.name,
-    description: plugin.description,
-    type: plugin.type,
-    defaultSelected: false,
-    enabled: true
-  }));
-  
-  const menu = new Menu(menuOptions);
-  
-  let rl = null;
-  
-  try {
-    rl = createInterface({
-      input: process.stdin,
-      output: process.stdout
-    });
-  } catch (error) {
-    console.log(`${colors.yellow}Warning: Could not initialize readline interface${colors.reset}`);
-    console.log(`${colors.gray}Falling back to non-interactive mode...${colors.reset}`);
-    console.log(`${colors.gray}Use --auto or --select flags for automation${colors.reset}`);
-    handleNonInteractive({ all: true }, options);
-    return;
-  }
-  
-  try {
-    process.stdin.setRawMode(true);
-    process.stdin.resume();
-  } catch (error) {
-    console.log(`${colors.yellow}Warning: Could not set raw mode${colors.reset}`);
-    console.log(`${colors.gray}Using fallback mode...${colors.reset}`);
-  }
-  
-  rl.on("keypress", (_, key) => {
-    if (key) {
-      createKeyHandler(menu)(key, rl);
-    }
-  });
-  
-  process.stdout.on("resize", () => {
-    menu.maxVisible = menu.getTerminalHeight();
-    menu.render();
-  });
-  
-  console.log(colors.clearScreen);
-  menu.render();
+  await performInstallation(selectedPlugins, options);
 }
 
 process.on("SIGINT", () => {
-  console.log("\n");
-  console.log(`${colors.yellow}Installation cancelled.${colors.reset}`);
+  console.log(`\n${colors.yellow}Installation cancelled.${colors.reset}`);
   process.exit(0);
 });
 
 process.on("SIGTERM", () => {
-  console.log("\n");
-  console.log(`${colors.yellow}Installation cancelled.${colors.reset}`);
+  console.log(`\n${colors.yellow}Installation cancelled.${colors.reset}`);
   process.exit(0);
 });
 
