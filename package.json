@@ -31,6 +31,8 @@
     "deps:install": "node scripts/dependency-manager.mjs",
     "detect:clients": "node scripts/detect-clients.mjs",
     "install:plugin": "node scripts/install-plugin.mjs",
+    "install:interactive": "node scripts/install-interactive.mjs",
+    "test:interactive": "node scripts/test-interactive.mjs",
     "test": "node --test dist/tests/**/*.test.js",
     "clean": "rm -rf dist && rm -f *.log",
     "bench": "bun benchmark/memory.ts",
