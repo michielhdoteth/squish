@@ -2,7 +2,7 @@
  * MCP Tool: detect_duplicate_memories
  *
  * Scans for duplicate or similar memories and creates merge proposals
- * Entry point for the memory merging workflow
+ * Entry point for memory merging workflow
  */
 
 import type { UUID } from 'crypto';
@@ -15,6 +15,7 @@ import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
 import { createDatabaseClient } from '../../core/database.js';
 import { eq } from 'drizzle-orm';
+import { buildSuccessResponse, buildErrorResponse } from '../utils/response-builder.js';
 
 interface DetectDuplicatesInput {
   projectId?: string;
@@ -65,11 +66,7 @@ export async function handleDetectDuplicates(input: DetectDuplicatesInput): Prom
     const autoCreateProposals = input.autoCreateProposals !== false;
 
     if (!projectId) {
-      return {
-        ok: false,
-        message: 'projectId is required',
-        error: 'projectId is required',
-      };
+      return buildErrorResponse('projectId is required', 'projectId is required');
     }
 
     // Run detection
@@ -83,52 +80,43 @@ export async function handleDetectDuplicates(input: DetectDuplicatesInput): Prom
     const detectionTime = Date.now() - startTime;
 
     if (detectionResult.candidates.length === 0) {
-      return {
-        ok: true,
-        message: 'No duplicates found',
-        data: {
-          projectId,
-          duplicateCount: 0,
-          proposalsCreated: 0,
-          proposalIds: [],
-          statistics: {
-            totalMemories: detectionResult.statistics.totalMemories,
-            scannedMemories: detectionResult.statistics.totalMemories,
-            candidatesFound: 0,
-            estimatedTokensSaved: 0,
-          },
-          timing: {
-            stage1Ms: detectionResult.stage1Time,
-            stage2Ms: detectionResult.stage2Time,
-            totalMs: detectionTime,
-          },
+      return buildSuccessResponse('No duplicates found', {
+        projectId,
+        duplicateCount: 0,
+        proposalsCreated: 0,
+        proposalIds: [],
+        statistics: {
+          totalMemories: detectionResult.statistics.totalMemories,
+          scannedMemories: detectionResult.statistics.totalMemories,
+          candidatesFound: 0,
+          estimatedTokensSaved: 0,
         },
-      };
+        timing: {
+          stage1Ms: detectionResult.stage1Time,
+          stage2Ms: detectionResult.stage2Time,
+          totalMs: detectionTime,
+        },
+      });
     }
 
     if (!autoCreateProposals) {
-      // Return detection results without creating proposals
-      return {
-        ok: true,
-        message: `Found ${detectionResult.candidates.length} potential duplicates`,
-        data: {
-          projectId,
-          duplicateCount: detectionResult.candidates.length,
-          proposalsCreated: 0,
-          proposalIds: [],
-          statistics: {
-            totalMemories: detectionResult.statistics.totalMemories,
-            scannedMemories: detectionResult.statistics.totalMemories,
-            candidatesFound: detectionResult.candidates.length,
-            estimatedTokensSaved: 0,
-          },
-          timing: {
-            stage1Ms: detectionResult.stage1Time,
-            stage2Ms: detectionResult.stage2Time,
-            totalMs: detectionTime,
-          },
+      return buildSuccessResponse(`Found ${detectionResult.candidates.length} potential duplicates`, {
+        projectId,
+        duplicateCount: detectionResult.candidates.length,
+        proposalsCreated: 0,
+        proposalIds: [],
+        statistics: {
+          totalMemories: detectionResult.statistics.totalMemories,
+          scannedMemories: detectionResult.statistics.totalMemories,
+          candidatesFound: detectionResult.candidates.length,
+          estimatedTokensSaved: 0,
         },
-      };
+        timing: {
+          stage1Ms: detectionResult.stage1Time,
+          stage2Ms: detectionResult.stage2Time,
+          totalMs: detectionTime,
+        },
+      });
     }
 
     // Create proposals for detected duplicates
@@ -181,32 +169,24 @@ export async function handleDetectDuplicates(input: DetectDuplicatesInput): Prom
       proposalIds.push(proposalId);
     }
 
-    return {
-      ok: true,
-      message: `Created ${proposalIds.length} merge proposals from ${detectionResult.candidates.length} duplicates`,
-      data: {
-        projectId,
-        duplicateCount: detectionResult.candidates.length,
-        proposalsCreated: proposalIds.length,
-        proposalIds,
-        statistics: {
-          totalMemories: detectionResult.statistics.totalMemories,
-          scannedMemories: detectionResult.statistics.totalMemories,
-          candidatesFound: detectionResult.candidates.length,
-          estimatedTokensSaved,
-        },
-        timing: {
-          stage1Ms: detectionResult.stage1Time,
-          stage2Ms: detectionResult.stage2Time,
-          totalMs: detectionTime,
-        },
+    return buildSuccessResponse(`Created ${proposalIds.length} merge proposals from ${detectionResult.candidates.length} duplicates`, {
+      projectId,
+      duplicateCount: detectionResult.candidates.length,
+      proposalsCreated: proposalIds.length,
+      proposalIds,
+      statistics: {
+        totalMemories: detectionResult.statistics.totalMemories,
+        scannedMemories: detectionResult.statistics.totalMemories,
+        candidatesFound: detectionResult.candidates.length,
+        estimatedTokensSaved,
       },
-    };
+      timing: {
+        stage1Ms: detectionResult.stage1Time,
+        stage2Ms: detectionResult.stage2Time,
+        totalMs: detectionTime,
+      },
+    });
   } catch (error) {
-    return {
-      ok: false,
-      message: 'Failed to detect duplicates',
-      error: error instanceof Error ? error.message : 'Unknown error',
-    };
+    return buildErrorResponse('Failed to detect duplicates', error);
   }
 }
