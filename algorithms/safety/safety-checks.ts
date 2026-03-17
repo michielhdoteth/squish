@@ -18,89 +18,109 @@ export interface SafetyCheck {
   check(memories: Memory[], metadata?: Record<string, unknown>): SafetyCheckResult;
 }
 
-const immutabilityCheck: SafetyCheck = {
-  name: 'immutability',
-  description: 'Prevent merging immutable memories',
-  type: 'blocker',
-  check: (memories: Memory[]): SafetyCheckResult => {
-    const immutableMemories = memories.filter((m) => !m.isMergeable);
+const PASSED_RESULT: SafetyCheckResult = { passed: true, warnings: [], blockers: [] };
 
-    if (immutableMemories.length > 0) {
+function createBlockerCheck(
+  name: string,
+  description: string,
+  checkFn: (memories: Memory[], metadata?: Record<string, unknown>) => { passed: boolean; blockers: string[] }
+): SafetyCheck {
+  return {
+    name,
+    description,
+    type: 'blocker',
+    check: (memories, metadata) => {
+      const result = checkFn(memories, metadata);
+      return result.passed ? PASSED_RESULT : { passed: false, warnings: [], blockers: result.blockers };
+    },
+  };
+}
+
+function createWarningCheck(
+  name: string,
+  description: string,
+  checkFn: (memories: Memory[], metadata?: Record<string, unknown>) => { warnings: string[] }
+): SafetyCheck {
+  return {
+    name,
+    description,
+    type: 'warning',
+    check: (memories, metadata) => {
+      const result = checkFn(memories, metadata);
+      return { passed: true, warnings: result.warnings, blockers: [] };
+    },
+  };
+}
+
+export const SAFETY_CHECKS: SafetyCheck[] = [
+  createBlockerCheck(
+    'immutability',
+    'Prevent merging immutable memories',
+    (memories) => {
+      const immutableMemories = memories.filter((m) => !m.isMergeable);
+      if (immutableMemories.length === 0) {
+        return { passed: true, blockers: [] };
+      }
       return {
         passed: false,
-        warnings: [],
         blockers: [
           `Cannot merge: ${immutableMemories.length} memory(ies) marked as immutable`,
           `IDs: ${immutableMemories.map((m) => m.id).join(', ')}`,
         ],
       };
     }
+  ),
 
-    return { passed: true, warnings: [], blockers: [] };
-  },
-};
-
-const typeConsistencyCheck: SafetyCheck = {
-  name: 'type_consistency',
-  description: 'Ensure all memories are the same type',
-  type: 'blocker',
-  check: (memories: Memory[]): SafetyCheckResult => {
-    const types = new Set(memories.map((m) => m.type));
-
-    if (types.size > 1) {
+  createBlockerCheck(
+    'type_consistency',
+    'Ensure all memories are same type',
+    (memories) => {
+      const types = new Set(memories.map((m) => m.type));
+      if (types.size <= 1) {
+        return { passed: true, blockers: [] };
+      }
       return {
         passed: false,
-        warnings: [],
         blockers: [
           `Cannot merge different types: ${Array.from(types).join(', ')}`,
-          'All memories must be the same type (fact, preference, decision, etc.)',
+          'All memories must be same type (fact, preference, decision, etc.)',
         ],
       };
     }
+  ),
 
-    return { passed: true, warnings: [], blockers: [] };
-  },
-};
-
-const alreadyMergedCheck: SafetyCheck = {
-  name: 'already_merged',
-  description: 'Prevent re-merging of previously merged memories',
-  type: 'blocker',
-  check: (memories: Memory[]): SafetyCheckResult => {
-    const alreadyMerged = memories.filter((m) => m.isMerged);
-
-    if (alreadyMerged.length > 0) {
+  createBlockerCheck(
+    'already_merged',
+    'Prevent re-merging of previously merged memories',
+    (memories) => {
+      const alreadyMerged = memories.filter((m) => m.isMerged);
+      if (alreadyMerged.length === 0) {
+        return { passed: true, blockers: [] };
+      }
       return {
         passed: false,
-        warnings: [],
         blockers: [
           `Cannot merge: ${alreadyMerged.length} memory(ies) already merged`,
-          'Already-merged memories should not be re-merged. Undo the previous merge first.',
+          'Already-merged memories should not be re-merged. Undo previous merge first.',
         ],
       };
     }
+  ),
 
-    return { passed: true, warnings: [], blockers: [] };
-  },
-};
-
-const minimumSimilarityCheck: SafetyCheck = {
-  name: 'min_similarity',
-  description: 'Ensure similarity is above minimum threshold',
-  type: 'blocker',
-  check: (memories: Memory[], metadata?: Record<string, unknown>): SafetyCheckResult => {
-    const minThreshold = 0.70;
-
-    if (!metadata || !('similarityScore' in metadata)) {
-      return { passed: true, warnings: [], blockers: [] };
-    }
-
-    const similarity = metadata.similarityScore as number;
-
-    if (similarity < minThreshold) {
+  createBlockerCheck(
+    'min_similarity',
+    'Ensure similarity is above minimum threshold',
+    (memories, metadata) => {
+      const minThreshold = 0.70;
+      if (!metadata || !('similarityScore' in metadata)) {
+        return { passed: true, blockers: [] };
+      }
+      const similarity = metadata.similarityScore as number;
+      if (similarity >= minThreshold) {
+        return { passed: true, blockers: [] };
+      }
       return {
         passed: false,
-        warnings: [],
         blockers: [
           `Similarity too low: ${(similarity * 100).toFixed(1)}%`,
           `Minimum required: ${(minThreshold * 100).toFixed(0)}%`,
@@ -108,109 +128,77 @@ const minimumSimilarityCheck: SafetyCheck = {
         ],
       };
     }
+  ),
 
-    return { passed: true, warnings: [], blockers: [] };
-  },
-};
-
-const multiUserCheck: SafetyCheck = {
-  name: 'multi_user',
-  description: 'Warn about merging memories from different users',
-  type: 'warning',
-  check: (memories: Memory[]): SafetyCheckResult => {
-    const users = new Set(memories.map((m) => m.userId).filter(Boolean));
-
-    if (users.size > 1) {
+  createWarningCheck(
+    'multi_user',
+    'Warn about merging memories from different users',
+    (memories) => {
+      const users = new Set(memories.map((m) => m.userId).filter(Boolean));
+      if (users.size <= 1) {
+        return { warnings: [] };
+      }
       return {
-        passed: true,
         warnings: [
           `Merging memories from ${users.size} different users`,
           'This is usually not recommended. Ensure you want to consolidate user-specific memories.',
         ],
-        blockers: [],
       };
     }
+  ),
 
-    return { passed: true, warnings: [], blockers: [] };
-  },
-};
-
-const privacyCheck: SafetyCheck = {
-  name: 'privacy',
-  description: 'Warn about mixing private and non-private memories',
-  type: 'warning',
-  check: (memories: Memory[]): SafetyCheckResult => {
-    const privacyStates = new Set(memories.map((m) => m.isPrivate));
-
-    if (privacyStates.size > 1) {
+  createWarningCheck(
+    'privacy',
+    'Warn about mixing private and non-private memories',
+    (memories) => {
+      const privacyStates = new Set(memories.map((m) => m.isPrivate));
+      if (privacyStates.size <= 1) {
+        return { warnings: [] };
+      }
       return {
-        passed: true,
         warnings: [
           'Merging private and non-private memories',
           'The merged result will inherit the privacy setting of the canonical memory',
         ],
-        blockers: [],
       };
     }
+  ),
 
-    return { passed: true, warnings: [], blockers: [] };
-  },
-};
-
-const secretsCheck: SafetyCheck = {
-  name: 'secrets',
-  description: 'Warn about merging memories with detected secrets',
-  type: 'warning',
-  check: (memories: Memory[]): SafetyCheckResult => {
-    const withSecrets = memories.filter((m) => m.hasSecrets);
-
-    if (withSecrets.length > 0) {
+  createWarningCheck(
+    'secrets',
+    'Warn about merging memories with detected secrets',
+    (memories) => {
+      const withSecrets = memories.filter((m) => m.hasSecrets);
+      if (withSecrets.length === 0) {
+        return { warnings: [] };
+      }
       return {
-        passed: true,
         warnings: [
           `${withSecrets.length} memory(ies) contain detected secrets`,
-          'Ensure the merged content does not expose sensitive information',
+          'Ensure merged content does not expose sensitive information',
           'Consider redacting secrets before merging',
         ],
-        blockers: [],
       };
     }
+  ),
 
-    return { passed: true, warnings: [], blockers: [] };
-  },
-};
-
-const activeStatusCheck: SafetyCheck = {
-  name: 'active_status',
-  description: 'Ensure all memories are active',
-  type: 'blocker',
-  check: (memories: Memory[]): SafetyCheckResult => {
-    const inactive = memories.filter((m) => !m.isActive);
-
-    if (inactive.length > 0) {
+  createBlockerCheck(
+    'active_status',
+    'Ensure all memories are active',
+    (memories) => {
+      const inactive = memories.filter((m) => !m.isActive);
+      if (inactive.length === 0) {
+        return { passed: true, blockers: [] };
+      }
       return {
         passed: false,
-        warnings: [],
         blockers: [
           `Cannot merge: ${inactive.length} memory(ies) are inactive (archived/expired)`,
           'Only active memories can be merged',
         ],
       };
     }
-
-    return { passed: true, warnings: [], blockers: [] };
-  },
-};
-
-export const SAFETY_CHECKS: SafetyCheck[] = [
-  immutabilityCheck,
-  typeConsistencyCheck,
-  alreadyMergedCheck,
-  minimumSimilarityCheck,
-  multiUserCheck,
-  privacyCheck,
-  secretsCheck,
-  activeStatusCheck,
+  ),
 ];
 
 export function runSafetyChecks(
