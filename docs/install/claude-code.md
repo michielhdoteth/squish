@@ -1,0 +1,126 @@
+# Installing Squish for Claude Code
+
+Squish integrates with Claude Code as a plugin that provides persistent memory capabilities through session hooks.
+
+## Prerequisites
+
+- Claude Code v0.62.0 or later
+- Node.js 18.0.0 or later
+- Squish memory server (installed via npm)
+
+## Installation Methods
+
+### Method 1: Universal Plugin Installer (Recommended)
+```bash
+# Install Squish if not already installed
+npm install -g squish-memory
+
+# Install the Claude Code plugin
+npx squish-memory install-plugin --client=claude-code
+
+# Verify installation
+npx squish-memory install-plugin --client=claude-code --verify
+```
+
+### Method 2: Legacy Marketplace Installation
+```bash
+# Install via Claude Code marketplace
+/plugin marketplace add https://github.com/michielhdoteth/squish.git
+/plugin install squish@michielhdoteth-squish
+```
+
+## What Gets Installed
+
+The installer copies the plugin configuration to your Claude Code directory:
+- Source: `.claude-plugin/plugin.json`
+- Destination: `~/.claude/plugin.json`
+
+This file tells Claude Code to load the Squish memory plugin as a session hook.
+
+## Features Enabled
+
+Once installed, Squish provides:
+
+### Automatic Memory Capture
+- **User prompts**: Automatically stored as memories when you send messages to Claude
+- **Session summaries**: End-of-session summaries stored for long-term retention
+- **Tool usage observations**: (Coming soon) Tool calls and results automatically captured
+
+### Context Injection
+- Relevant past memories are automatically injected into Claude's context
+- Core memory (persona, user info, project context) always available
+- Intelligent retrieval based on semantic similarity and recency
+
+### Memory Lifecycle
+- Automatic importance scoring based on content and usage
+- Temporal decay of less important memories
+- Consolidation of related memories into summaries
+- Governance features (pinning, protection) for critical memories
+
+## Usage
+
+Once installed, Squish works automatically:
+1. Start or restart Claude Code
+2. Begin chatting - your prompts will be automatically remembered
+3. Ask Claude about past conversations - it will retrieve relevant memories
+4. Use explicit memory commands via the Squish CLI:
+   ```bash
+   squish remember "User prefers TypeScript for new projects"
+   squish search "TypeScript preferences"
+   squish core_memory  # View your always-visible core memory
+   ```
+
+## Configuration
+
+### Environment Variables
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `SQUISH_DATA_DIR` | Data directory for Squish | `~/.squish/claude` |
+| `SQUISH_COMMAND` | Command to start Squish MCP | `squish-mcp` |
+
+### Core Memory Sections
+Squish reserves 16KB total for core memory (configurable):
+- **Persona**: Your identity and preferences (4KB)
+- **User Info**: Information about you as the user (4KB)  
+- **Project Context**: Current project details and goals (4KB)
+- **Working Notes**: Temporary working space (4KB)
+
+## Troubleshooting
+
+### Plugin Not Loading
+1. Verify installation: `npx squish-memory install-plugin --client=claude-code --verify`
+2. Check that `~/.claude/plugin.json` exists and contains valid JSON
+3. Restart Claude Code completely
+4. Check Squish logs: `tail -f ~/.squish/squish.log`
+
+### Memory Not Being Saved
+1. Ensure Squish MCP server is running in the background
+2. Verify write permissions to data directory
+3. Check for error logs in `~/.squish/squish.log`
+4. Test manually: `squish remember "test memory"`
+
+### Performance Issues
+- Initial memory search may be slow while indexes build
+- First run after installation may take longer to initialize
+- Consider adjusting `SQUISH_CORE_MEMORY_TOTAL_BYTES` if needed
+
+## Uninstallation
+
+```bash
+npx squish-memory uninstall-plugin --client=claude-code
+```
+
+This removes `~/.claude/plugin.json` but preserves your Squish data and memories.
+
+## Compatibility
+
+- Claude Code: v0.62.0+
+- Node.js: 18.0.0+
+- Squish: v1.0.0+
+- Operating System: Linux, macOS, Windows
+
+## See Also
+- [Universal Plugin Architecture](../PLUGIN-ARCHITECTURE.md)
+- [OpenClaw Installation](./openclaw.md)
+- [OpenCode Installation](./opencode.md)
+- [Squish CLI Reference](../cli-reference.md)
