@@ -1,29 +1,74 @@
 # Files to exclude from npm package
 node_modules/
 .github/
+.vscode/
+.idea/
+
+# Documentation (users can read README/CHANGELOG online)
 docs/
+*.md
+!README.md
+!CHANGELOG.md
+!LICENSE
+!QUICK-START.md
+
+# Infrastructure
 infra/
 tests/
 *.test.js
 *.test.ts
+*.spec.js
+*.spec.ts
+
+# Logs
 *.log
+npm-debug.log*
+squish.log
+squish-test.log
+
+# Environment
 .env*
-.vscode/
-.idea/
+
+# Temporary/cache
 *.tmp
+.cache/
 coverage/
 .nyc_output/
-.cache/
 .DS_Store
 Thumbs.db
 
-# Squish specific
-.squish/
-.sisyphus/
-generated/
-squish-0.7.0.tgz
-nul
+# Package manager lock files (npm handles this)
+bun.lock
+bun.lockb
+package-lock.json
+yarn.lock
 
-# Keep source files for development installs
+# Build artifacts (already included via dist/)
+*.tgz
+*.tar.gz
+
+# Development only
+features/
+benchmark/
+.sisyphus/
+references/
+opencode/
+
+# Squish runtime data
+.squish/
+*.db
+*.db-journal
+
+# Generated files during development
+generated/
+squish-*.tgz
+nul
+NUL
+
+# TypeScript source (only ship dist/)
+src/
+tsconfig.json
+tsconfig.*.json
+
+# Keep these for reference
 !src/
-!features/
