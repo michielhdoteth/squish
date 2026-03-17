@@ -14,7 +14,6 @@ import { createDatabaseClient } from '../../core/database.js';
 import { getEmbedding } from '../../core/embeddings.js';
 import { getProjectByPath, ensureProject } from '../../core/projects.js';
 import { fromSqliteTags, normalizeTags } from './serialization.js';
-import { isDatabaseUnavailableError } from '../../core/utils.js';
 
 /**
  * Reciprocal Rank Fusion (RRF) constant
@@ -164,9 +163,6 @@ async function bm25Search(
       },
     }));
   } catch (error: any) {
-    if (isDatabaseUnavailableError(error)) {
-      return [];
-    }
     throw error;
   }
 }
@@ -316,9 +312,6 @@ async function vectorSearch(
       },
     }));
   } catch (error: any) {
-    if (isDatabaseUnavailableError(error)) {
-      return [];
-    }
     throw error;
   }
 }

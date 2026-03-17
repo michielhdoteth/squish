@@ -7,7 +7,7 @@ import { ensureProject, getProjectByPath } from '../../core/projects.js';
 import { getEmbedding } from '../../core/embeddings.js';
 import { fromSqliteJson, fromSqliteTags, normalizeTags, toSqliteJson, toSqliteTags } from '../../core/memory/serialization.js';
 import { createDatabaseClient } from '../../core/database.js';
-import { normalizeTimestamp, isDatabaseUnavailableError, clampLimit, prepareEmbedding } from '../../core/utils.js';
+import { normalizeTimestamp, clampLimit, prepareEmbedding } from '../../core/utils.js';
 import { getQMDMemorySync } from '../../core/sync/qmd-sync.js';
 import { hybridSearch as hybridSearchImpl } from './hybrid-search.js';
 import { calculateImportance } from './importance.js';
@@ -185,9 +185,6 @@ export async function getMemoryById(id: string, incrementAccess: boolean = true)
 
     return normalizeMemory(row);
   } catch (error: any) {
-    if (isDatabaseUnavailableError(error)) {
-      return null; // Graceful degradation - database unavailable
-    }
     throw error;
   }
 }
@@ -206,9 +203,6 @@ export async function getRecentMemories(projectPath: string, limit: number): Pro
 
     return rows.map((row: any) => normalizeMemory(row));
   } catch (error: any) {
-    if (isDatabaseUnavailableError(error)) {
-      return []; // Graceful degradation - database unavailable
-    }
     throw error;
   }
 }

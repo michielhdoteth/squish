@@ -5,7 +5,6 @@ import { getRecentMemories } from '../../core/memory/memories.js';
 import { getObservationsForProject } from '../../core/observations.js';
 import { getAllProjects, getProjectByPath } from '../../core/projects.js';
 import { getDb } from '../../db/index.js';
-import { isDatabaseUnavailableError } from '../../core/utils.js';
 
 const app = express();
 const PORT = process.env.SQUISH_WEB_PORT || 37777;
@@ -58,21 +57,18 @@ app.get('/api/memories', async (req, res) => {
       return res.json({ status: 'ok', data: [], count: 0, message: 'Project not found' });
     }
 
-    const memories = await getRecentMemories(projectPath, limit);
-    
-    res.json({
-      status: 'ok',
-      data: memories,
-      count: memories.length,
-      project: { id: project.id, name: project.name, path: project.path }
-    });
-  } catch (error: any) {
-    if (isDatabaseUnavailableError(error)) {
-      return res.json({ status: 'ok', data: [], count: 0, message: 'Database unavailable' });
-    }
-    logger.error('Failed to get memories:', error.message);
-    res.status(500).json({ status: 'error', message: error.message });
-  }
+     const memories = await getRecentMemories(projectPath, limit);
+     
+     res.json({
+       status: 'ok',
+       data: memories,
+       count: memories.length,
+       project: { id: project.id, name: project.name, path: project.path }
+     });
+   } catch (error: any) {
+     logger.error('Failed to get memories:', error.message);
+     res.status(500).json({ status: 'error', message: error.message });
+   }
 });
 
 // Get observations for project
@@ -93,14 +89,11 @@ app.get('/api/observations', async (req, res) => {
       data: observations,
       count: observations.length,
       project: { id: project.id, name: project.name, path: project.path }
-    });
-  } catch (error: any) {
-    if (isDatabaseUnavailableError(error)) {
-      return res.json({ status: 'ok', data: [], count: 0, message: 'Database unavailable' });
-    }
-    logger.error('Failed to get observations:', error.message);
-    res.status(500).json({ status: 'error', message: error.message });
-  }
+     });
+   } catch (error: any) {
+     logger.error('Failed to get observations:', error.message);
+     res.status(500).json({ status: 'error', message: error.message });
+   }
 });
 
 // Get project context
@@ -143,29 +136,18 @@ app.get('/api/context', async (req, res) => {
     const memories = await getRecentMemories(projectPath, 20);
     const observations = await getObservationsForProject(projectPath, 20);
 
-    res.json({
-      status: 'ok',
-      project: { id: project.id, name: project.name, path: project.path },
-      projects: allProjects,
-      memories: memories,
-      observations: observations,
-      totalCount: memories.length + observations.length
-    });
-  } catch (error: any) {
-    if (isDatabaseUnavailableError(error)) {
-      return res.json({ 
-        status: 'ok', 
-        project: { id: 'unknown', name: 'Error', path: '' },
-        projects: [],
-        memories: [], 
-        observations: [], 
-        totalCount: 0,
-        message: 'Database unavailable'
-      });
-    }
-    logger.error('Failed to get context:', error.message);
-    res.status(500).json({ status: 'error', message: error.message });
-  }
+     res.json({
+       status: 'ok',
+       project: { id: project.id, name: project.name, path: project.path },
+       projects: allProjects,
+       memories: memories,
+       observations: observations,
+       totalCount: memories.length + observations.length
+     });
+   } catch (error: any) {
+     logger.error('Failed to get context:', error.message);
+     res.status(500).json({ status: 'error', message: error.message });
+   }
 });
 
 // Get all projects
@@ -176,14 +158,11 @@ app.get('/api/projects', async (req, res) => {
       status: 'ok',
       data: projects,
       count: projects.length
-    });
-  } catch (error: any) {
-    if (isDatabaseUnavailableError(error)) {
-      return res.json({ status: 'ok', data: [], count: 0, message: 'Database unavailable' });
-    }
-    logger.error('Failed to get projects:', error.message);
-    res.status(500).json({ status: 'error', message: error.message });
-  }
+     });
+   } catch (error: any) {
+     logger.error('Failed to get projects:', error.message);
+     res.status(500).json({ status: 'error', message: error.message });
+   }
 });
 
 // Web UI

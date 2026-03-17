@@ -3,7 +3,6 @@ import { eq, desc, and, sql } from 'drizzle-orm';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
 import { createDatabaseClient } from '../../core/database.js';
-import { isDatabaseUnavailableError } from '../../core/utils.js';
 
 export interface LightweightIndex {
   id: string;

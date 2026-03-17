@@ -7,7 +7,7 @@ import { getEmbedding } from './embeddings.js';
 import { ensureProject, getProjectByPath } from './projects.js';
 import { fromSqliteJson, toSqliteJson } from './memory/serialization.js';
 import { createDatabaseClient } from './database.js';
-import { normalizeTimestamp, isDatabaseUnavailableError, prepareEmbedding } from './utils.js';
+import { normalizeTimestamp, prepareEmbedding } from './utils.js';
 import { logger } from './logger.js';
 
 export type ObservationType = 'tool_use' | 'file_change' | 'error' | 'pattern' | 'insight';
@@ -86,9 +86,6 @@ export async function getObservationsForProject(projectPath: string, limit: numb
 
     return rows.map((row: any) => normalizeObservation(row));
   } catch (error: any) {
-    if (isDatabaseUnavailableError(error)) {
-      return []; // Graceful degradation - database unavailable
-    }
     throw error;
   }
 }
@@ -107,11 +104,8 @@ export async function getRecentObservations(projectPath: string, limit: number =
 
     return rows.map((row: any) => normalizeObservation(row));
   } catch (error: any) {
-    if (isDatabaseUnavailableError(error)) {
-      return [];
-    }
     logger.error('Error getting recent observations', error);
-    return [];
+    throw error;
   }
 }
 
@@ -127,11 +121,8 @@ export async function getObservationById(observationId: string): Promise<Observa
     if (rows.length === 0) return null;
     return normalizeObservation(rows[0]);
   } catch (error: any) {
-    if (isDatabaseUnavailableError(error)) {
-      return null;
-    }
     logger.error('Error getting observation', error);
-    return null;
+    throw error;
   }
 }
 
