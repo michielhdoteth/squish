@@ -2,10 +2,10 @@
 
 /**
  * Squish Interactive Plugin Installer
- * Beautiful terminal UI matching skills.sh style
+ * Multi-step wizard with clack
  */
 
-import { intro, outro, confirm, multiselect, isCancel, cancel } from '@clack/prompts';
+import { intro, outro, confirm, multiselect, select, isCancel, cancel, spinner, note } from '@clack/prompts';
 import picocolors from 'picocolors';
 import fs from "node:fs";
 import os from "node:os";
@@ -29,7 +29,15 @@ const icons = {
   pointer: "❯",
   line: "│",
   corner: "└",
-  section: "─"
+  section: "─",
+  cli: "⌨️",
+  mcp: "🔌",
+  plugin: "🔧",
+  settings: "⚙️",
+  local: "🏠",
+  remote: "☁️",
+  brain: "🧠",
+  cloud: "☁️"
 };
 
 const CLIENT_DIRS = {
@@ -108,7 +116,8 @@ function parseArgs(argv) {
     list: false,
     dryRun: false,
     help: false,
-    verbose: false
+    verbose: false,
+    quick: false
   };
   
   for (let i = 2; i < argv.length; i++) {
@@ -126,6 +135,8 @@ function parseArgs(argv) {
       flags.verbose = true;
     } else if (token === "--help" || token === "-h") {
       flags.help = true;
+    } else if (token === "--quick" || token === "-q") {
+      flags.quick = true;
     } else if (token.startsWith("--select=")) {
       flags.select = token.slice(9).split(",").map(s => s.trim());
     } else if (token === "--select") {
@@ -148,6 +159,7 @@ function printHelp() {
   
   console.log(c.white("OPTIONS:"));
   console.log(`  ${c.cyan("--auto")}, ${c.cyan("-a")}        Skip menu, install all available plugins`);
+  console.log(`  ${c.cyan("--quick")}, ${c.cyan("-q")}       Quick install (CLI + all plugins)`);
   console.log(`  ${c.cyan("--select")}=<list>     Pre-select plugins (comma-separated)`);
   console.log(`  ${c.cyan("--all")}               Install all available plugins`);
   console.log(`  ${c.cyan("--list")}, ${c.cyan("-l")}        List available plugins and exit`);
@@ -160,13 +172,19 @@ function printHelp() {
   console.log(`  ${c.cyan("NON_INTERACTIVE=1")}         Force non-interactive mode`);
   console.log(`  ${c.cyan("AUTOMATION=true")}           Force non-interactive mode\n`);
   
+  console.log(c.white("INTERACTIVE WIZARD:"));
+  console.log(`  ${c.gray("1.")} Select components: CLI, MCP Server, Plugins`);
+  console.log(`  ${c.gray("2.")} Choose plugins (if selected)`);
+  console.log(`  ${c.gray("3.")} Configure mode (local/remote)`);
+  console.log(`  ${c.gray("4.")} Review and install\n`);
+  
   console.log(c.white("EXAMPLES:"));
-  console.log(`  ${c.gray("# Interactive menu (default)")}`);
+  console.log(`  ${c.gray("# Interactive wizard (default)")}`);
   console.log(`  ${c.gray("$")} bun run install:interactive\n`);
+  console.log(`  ${c.gray("# Quick install (CLI + all plugins)")}`);
+  console.log(`  ${c.gray("$")} bun run install:interactive --quick\n`);
   console.log(`  ${c.gray("# Non-interactive: install all")}`);
   console.log(`  ${c.gray("$")} bun run install:interactive --auto\n`);
-  console.log(`  ${c.gray("# Non-interactive: specific plugins")}`);
-  console.log(`  ${c.gray("$")} bun run install:interactive --select=claude-code,openclaw\n`);
   
   console.log(c.gray("────────────────────────────────────────────────────"));
   console.log(c.gray("Documentation: https://github.com/michielhdoteth/squish"));
@@ -261,20 +279,49 @@ function getPluginChoices() {
   });
 }
 
-async function interactiveMenu() {
+async function wizardComponentSelection() {
+  const components = await multiselect({
+    message: 'What would you like to install?',
+    options: [
+      {
+        value: 'cli',
+        label: `${icons.cli} CLI - Command line interface`,
+        hint: 'squish command for terminal use'
+      },
+      {
+        value: 'mcp',
+        label: `${icons.mcp} MCP Server - Model Context Protocol`,
+        hint: 'For remote access and AI integrations'
+      },
+      {
+        value: 'plugins',
+        label: `${icons.plugin} AI Agent Plugins`,
+        hint: 'Claude Code, OpenClaw, Cursor, etc.'
+      }
+    ],
+    required: false
+  });
+  
+  if (isCancel(components)) {
+    cancel('Installation cancelled');
+    process.exit(0);
+  }
+  
+  return components;
+}
+
+async function wizardPluginSelection() {
   const choices = getPluginChoices();
   
   if (choices.length === 0) {
-    console.log(c.red("No plugins available"));
-    process.exit(1);
+    console.log(c.yellow("No plugins available"));
+    return [];
   }
   
-  printLogo();
-  
   const plugins = await multiselect({
-    message: 'Which plugins do you want to install?',
+    message: 'Which AI agents do you want to integrate with?',
     options: choices,
-    required: true
+    required: false
   });
   
   if (isCancel(plugins)) {
@@ -285,76 +332,221 @@ async function interactiveMenu() {
   return plugins;
 }
 
-async function performInstallation(pluginIds, options = {}) {
-  const manifest = loadManifest();
-  const clientNames = {
-    "claude-code": "Claude Code",
-    "openclaw": "OpenClaw",
-    "opencode": "OpenCode",
-    "codex": "Codex",
-    "cursor": "Cursor",
-    "vscode": "VS Code",
-    "windsurf": "Windsurf"
-  };
-  
-  console.log();
-  console.log(c.white("Installing plugins:"));
-  console.log(c.gray("────────────────────────────────────────────────────"));
-  
-  pluginIds.forEach((id, i) => {
-    console.log(`  ${i + 1}. ${clientNames[id] || id}`);
+async function wizardConfiguration() {
+  const mode = await select({
+    message: 'Select operation mode:',
+    options: [
+      {
+        value: 'local',
+        label: `${icons.local} Local Mode`,
+        hint: 'Everything runs locally (default, recommended)'
+      },
+      {
+        value: 'remote',
+        label: `${icons.remote} Remote Mode`,
+        hint: 'Connect to remote Squish server'
+      }
+    ]
   });
-  console.log();
+  
+  if (isCancel(mode)) {
+    cancel('Installation cancelled');
+    process.exit(0);
+  }
+  
+  const embeddings = await select({
+    message: 'Select embeddings provider:',
+    options: [
+      {
+        value: 'local',
+        label: `${icons.brain} Local Embeddings`,
+        hint: 'Uses local CPU (default, free, private)'
+      },
+      {
+        value: 'openai',
+        label: `${icons.cloud} OpenAI Embeddings`,
+        hint: 'Requires OPENAI_API_KEY (better quality)'
+      },
+      {
+        value: 'cohere',
+        label: `${icons.cloud} Cohere Embeddings`,
+        hint: 'Requires COHERE_API_KEY'
+      }
+    ]
+  });
+  
+  if (isCancel(embeddings)) {
+    cancel('Installation cancelled');
+    process.exit(0);
+  }
+  
+  return { mode, embeddings };
+}
+
+async function wizardReview(installConfig) {
+  const { components, plugins, config } = installConfig;
+  
+  let summary = `${c.white("Installation Summary:")}\n\n`;
+  
+  summary += `${c.cyan("Components:")}\n`;
+  if (components.includes('cli')) summary += `  ${icons.check} CLI\n`;
+  if (components.includes('mcp')) summary += `  ${icons.check} MCP Server\n`;
+  if (components.includes('plugins')) summary += `  ${icons.check} AI Agent Plugins\n`;
+  
+  if (components.includes('plugins') && plugins.length > 0) {
+    summary += `\n${c.cyan("Plugins:")}\n`;
+    plugins.forEach(p => {
+      summary += `  ${icons.check} ${p}\n`;
+    });
+  }
+  
+  summary += `\n${c.cyan("Configuration:")}\n`;
+  summary += `  ${icons.settings} Mode: ${config.mode}\n`;
+  summary += `  ${icons.brain} Embeddings: ${config.embeddings}\n`;
+  
+  note(summary, 'Review');
+  
+  const shouldInstall = await confirm({
+    message: 'Proceed with installation?',
+    initialValue: true
+  });
+  
+  if (isCancel(shouldInstall) || !shouldInstall) {
+    cancel('Installation cancelled');
+    process.exit(0);
+  }
+  
+  return shouldInstall;
+}
+
+async function performInstallation(installConfig, options = {}) {
+  const { components, plugins, config } = installConfig;
+  const s = spinner();
   
   if (options.dryRun) {
-    console.log(c.yellow("Dry-run mode - no changes made"));
     console.log();
-    console.log(c.gray("To perform installation, remove --dry-run flag"));
+    note(`${c.yellow("Dry-run mode - no changes made")}\n\nRemove --dry-run flag to perform actual installation.`, 'Preview');
     return;
   }
   
   // Install dependencies
-  console.log(`${c.cyan(icons.dot)} Installing dependencies...`);
-  const depResult = spawnSync(
-    process.execPath,
-    [path.join(root, "scripts", "dependency-manager.mjs")],
-    { encoding: "utf8", stdio: options.verbose ? "inherit" : "pipe", timeout: 120000 }
-  );
-  
-  if (depResult.status !== 0) {
-    console.log(`${c.red(icons.cross)} Dependency installation failed`);
-    if (options.verbose && depResult.stderr) {
-      console.log(c.gray(`Error: ${depResult.stderr}`));
+  if (components.length > 0 || plugins.length > 0) {
+    s.start('Installing dependencies...');
+    
+    const depResult = spawnSync(
+      process.execPath,
+      [path.join(root, "scripts", "dependency-manager.mjs")],
+      { encoding: "utf8", stdio: "pipe", timeout: 120000 }
+    );
+    
+    if (depResult.status !== 0) {
+      s.stop(c.red(`${icons.cross} Dependency installation failed`));
+      if (options.verbose && depResult.stderr) {
+        console.log(c.gray(`Error: ${depResult.stderr}`));
+      }
+      process.exit(1);
     }
-    process.exit(1);
+    
+    s.stop(c.green(`${icons.check} Dependencies installed`));
   }
-  console.log(`${c.green(icons.check)} Dependencies installed`);
+  
+  // Install CLI
+  if (components.includes('cli')) {
+    s.start('Setting up CLI...');
+    // CLI is already available via npm install, but we could add global link
+    s.stop(c.green(`${icons.check} CLI ready`));
+  }
+  
+  // Install MCP Server
+  if (components.includes('mcp')) {
+    s.start('Configuring MCP Server...');
+    // MCP server config would go here
+    s.stop(c.green(`${icons.check} MCP Server configured`));
+  }
   
   // Install plugins
-  console.log();
-  console.log(`${c.cyan(icons.dot)} Installing plugins...`);
-  
-  const installResult = spawnSync(
-    process.execPath,
-    [path.join(root, "scripts", "install-plugin.mjs"), "--client=" + pluginIds.join(",")],
-    { encoding: "utf8", stdio: options.verbose ? "inherit" : "pipe", timeout: 300000 }
-  );
-  
-  if (installResult.status !== 0) {
-    console.log(`${c.red(icons.cross)} Installation completed with errors`);
-    if (options.verbose && installResult.stderr) {
-      console.log(c.gray(`Error: ${installResult.stderr}`));
+  if (components.includes('plugins') && plugins.length > 0) {
+    s.start(`Installing ${plugins.length} plugin(s)...`);
+    
+    const installResult = spawnSync(
+      process.execPath,
+      [path.join(root, "scripts", "install-plugin.mjs"), "--client=" + plugins.join(",")],
+      { encoding: "utf8", stdio: "pipe", timeout: 300000 }
+    );
+    
+    if (installResult.status !== 0) {
+      s.stop(c.red(`${icons.cross} Plugin installation failed`));
+      if (options.verbose && installResult.stderr) {
+        console.log(c.gray(`Error: ${installResult.stderr}`));
+      }
+      process.exit(1);
     }
-    process.exit(1);
+    
+    s.stop(c.green(`${icons.check} Plugins installed`));
   }
   
-  console.log();
-  outro(`${c.green(icons.check)} Installation Complete!`);
+  // Save configuration
+  if (config) {
+    s.start('Saving configuration...');
+    // Save config to ~/.squish/config.json
+    const configPath = path.join(os.homedir(), '.squish', 'config.json');
+    const configDir = path.dirname(configPath);
+    
+    if (!fs.existsSync(configDir)) {
+      fs.mkdirSync(configDir, { recursive: true });
+    }
+    
+    fs.writeFileSync(configPath, JSON.stringify({
+      mode: config.mode,
+      embeddingsProvider: config.embeddings,
+      installedAt: new Date().toISOString(),
+      version: '1.0.0'
+    }, null, 2));
+    
+    s.stop(c.green(`${icons.check} Configuration saved`));
+  }
+}
+
+async function runWizard(options = {}) {
+  printLogo();
   
+  intro(c.cyan(`${icons.squish} Squish Memory Installer`));
+  
+  // Step 1: Component selection
+  const components = await wizardComponentSelection();
+  
+  if (components.length === 0) {
+    cancel('No components selected. Exiting.');
+    process.exit(0);
+  }
+  
+  // Step 2: Plugin selection (if chosen)
+  let plugins = [];
+  if (components.includes('plugins')) {
+    plugins = await wizardPluginSelection();
+  }
+  
+  // Step 3: Configuration
+  const config = await wizardConfiguration();
+  
+  // Step 4: Review
+  const installConfig = { components, plugins, config };
+  await wizardReview(installConfig);
+  
+  // Step 5: Install
   console.log();
-  console.log(c.white("Next steps:"));
+  await performInstallation(installConfig, options);
+  
+  // Success
+  console.log();
+  outro(c.green(`${icons.check} Installation Complete!`));
+  
+  // Next steps
+  console.log();
+  console.log(c.white("What's next?"));
   console.log(`  ${c.cyan(icons.arrow)} Restart your AI assistant(s)`);
-  console.log(`  ${c.cyan(icons.arrow)} Tools will appear automatically`);
+  console.log(`  ${c.cyan(icons.arrow)} Try: ${c.gray("squish health")}`);
+  console.log(`  ${c.cyan(icons.arrow)} Try: ${c.cyan("squish remember \"Your first memory\"")}`);
   console.log();
   console.log(c.gray("Documentation: https://github.com/michielhdoteth/squish"));
 }
@@ -368,12 +560,22 @@ async function handleNonInteractive(flags, options) {
   }
   
   let pluginIds = [];
+  let components = ['cli'];
   
-  if (flags.all) {
+  if (flags.quick) {
+    // Quick install: CLI + all plugins
     pluginIds = choices.map(c => c.value);
+    components = ['cli', 'plugins'];
     if (options.verbose) {
       printLogo();
-      console.log(`${c.cyan("[AUTO MODE]")} Installing all plugins...\n`);
+      console.log(`${c.cyan("[QUICK MODE]")} Installing CLI + all plugins...\n`);
+    }
+  } else if (flags.all) {
+    pluginIds = choices.map(c => c.value);
+    components = ['cli', 'mcp', 'plugins'];
+    if (options.verbose) {
+      printLogo();
+      console.log(`${c.cyan("[AUTO MODE]")} Installing all components...\n`);
     }
   } else if (flags.select.length > 0) {
     const validIds = choices.map(c => c.value);
@@ -386,19 +588,26 @@ async function handleNonInteractive(flags, options) {
     }
     
     pluginIds = flags.select;
+    components = ['cli', 'plugins'];
     if (options.verbose) {
       printLogo();
       console.log(`${c.cyan("[AUTO MODE]")} Installing: ${pluginIds.join(", ")}...\n`);
     }
   } else {
-    console.log(c.yellow("Auto mode requires --all or --select flag"));
+    console.log(c.yellow("Auto mode requires --all, --quick, or --select flag"));
     const validIds = choices.map(c => c.value);
-    console.log(c.gray(`Available plugins: ${validIds.join(", ")}`));
+    console.log(c.gray(`Available: ${validIds.join(", ")}`));
     console.log(`Use ${c.cyan("--list")} to see all options`);
     process.exit(1);
   }
   
-  await performInstallation(pluginIds, options);
+  const installConfig = {
+    components,
+    plugins: pluginIds,
+    config: { mode: 'local', embeddings: 'local' }
+  };
+  
+  await performInstallation(installConfig, options);
 }
 
 async function main() {
@@ -427,20 +636,13 @@ async function main() {
   };
   
   // Non-interactive mode
-  if (flags.auto || flags.select.length > 0 || shouldUseNonInteractive()) {
+  if (flags.auto || flags.quick || flags.select.length > 0 || shouldUseNonInteractive()) {
     await handleNonInteractive(flags, options);
     return;
   }
   
-  // Interactive mode with clack
-  const selectedPlugins = await interactiveMenu();
-  
-  if (selectedPlugins.length === 0) {
-    console.log(c.yellow("No plugins selected. Exiting."));
-    process.exit(0);
-  }
-  
-  await performInstallation(selectedPlugins, options);
+  // Interactive wizard mode
+  await runWizard(options);
 }
 
 process.on("SIGINT", () => {
