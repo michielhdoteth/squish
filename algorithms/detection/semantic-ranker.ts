@@ -3,8 +3,8 @@
  * Ranks candidates from Stage 1 by semantic similarity using cosine distance.
  */
 
-import type { Memory } from '../../../drizzle/schema.js';
-import { cosineSimilarity } from '../../../core/local-embeddings.js';
+import type { Memory } from '../../drizzle/schema.js';
+import { cosineSimilarity } from '../../core/local-embeddings.js';
 
 export interface RankedCandidate {
   memoryId1: string;

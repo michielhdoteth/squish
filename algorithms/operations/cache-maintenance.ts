@@ -2,13 +2,13 @@
  * Hash cache maintenance - SimHash/MinHash signatures for duplicate detection
  */
 
-import { getDb } from '../../../db/index.js';
-import { getSchema } from '../../../db/schema.js';
-import { createDatabaseClient } from '../../../core/database.js';
+import { getDb } from '../../db/index.js';
+import { getSchema } from '../../db/schema.js';
+import { createDatabaseClient } from '../../core/database.js';
 import { eq } from 'drizzle-orm';
 import { SimHashFilter, MinHashFilter } from '../detection/hash-filters.js';
 import crypto from 'crypto';
-import { logger } from '../../../core/logger.js';
+import { logger } from '../../core/logger.js';
 
 function hashContent(content: string): string {
   return crypto.createHash('md5').update(content).digest('hex');

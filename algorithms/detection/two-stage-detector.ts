@@ -5,13 +5,13 @@
  * Stage 2: Semantic ranking using embeddings
  */
 
-import type { Memory, MemoryType } from '../../../drizzle/schema.js';
-import { getEmbedding, getBatchEmbeddings } from '../../../core/embeddings.js';
+import type { Memory, MemoryType } from '../../drizzle/schema.js';
+import { getEmbedding, getBatchEmbeddings } from '../../core/embeddings.js';
 import { SimHashFilter, MinHashFilter, findCandidatePairs } from './hash-filters.js';
 import { rankCandidates, analyzePair } from './semantic-ranker.js';
-import { getDb } from '../../../db/index.js';
-import { getSchema } from '../../../db/schema.js';
-import { createDatabaseClient } from '../../../core/database.js';
+import { getDb } from '../../db/index.js';
+import { getSchema } from '../../db/schema.js';
+import { createDatabaseClient } from '../../core/database.js';
 import { eq, and } from 'drizzle-orm';
 import * as crypto from 'crypto';
 

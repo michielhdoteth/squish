@@ -3,7 +3,7 @@
  * Checks run before creating merge proposals and are categorized as BLOCKER or WARNING.
  */
 
-import type { Memory } from '../../../drizzle/schema.js';
+import type { Memory } from '../../drizzle/schema.js';
 
 export interface SafetyCheckResult {
   passed: boolean;

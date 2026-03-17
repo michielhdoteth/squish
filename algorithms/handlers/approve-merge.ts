@@ -2,15 +2,15 @@
  * Executes the approved merge in a single atomic transaction.
  */
 
-import type { Memory, MemoryMergeProposal, MemoryMergeHistory } from '../../../drizzle/schema.js';
+import type { Memory, MemoryMergeProposal, MemoryMergeHistory } from '../../drizzle/schema.js';
 import { randomUUID } from 'crypto';
-import { getDb } from '../../../db/index.js';
-import { getSchema } from '../../../db/schema.js';
-import { createDatabaseClient } from '../../../core/database.js';
+import { getDb } from '../../db/index.js';
+import { getSchema } from '../../db/schema.js';
+import { createDatabaseClient } from '../../core/database.js';
 import { eq, inArray } from 'drizzle-orm';
 import { mergeMemories } from '../strategies/merge-strategies.js';
 import { estimateTokensSaved } from '../analytics/token-estimator.js';
-import { getEmbedding } from '../../../core/embeddings.js';
+import { getEmbedding } from '../../core/embeddings.js';
 
 interface ApproveMergeInput {
   proposalId: string;

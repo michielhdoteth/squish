@@ -11,9 +11,9 @@ import { detectDuplicates } from '../detection/two-stage-detector.js';
 import { runSafetyChecks, checkBlockers } from '../safety/safety-checks.js';
 import { mergeMemories } from '../strategies/merge-strategies.js';
 import { estimateTokensSaved } from '../analytics/token-estimator.js';
-import { getDb } from '../../../db/index.js';
-import { getSchema } from '../../../db/schema.js';
-import { createDatabaseClient } from '../../../core/database.js';
+import { getDb } from '../../db/index.js';
+import { getSchema } from '../../db/schema.js';
+import { createDatabaseClient } from '../../core/database.js';
 import { eq } from 'drizzle-orm';
 
 interface DetectDuplicatesInput {

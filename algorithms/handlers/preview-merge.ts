@@ -2,10 +2,10 @@
  * Shows a preview of the merged result without executing the merge.
  */
 
-import type { Memory, MemoryMergeProposal } from '../../../drizzle/schema.js';
-import { getDb } from '../../../db/index.js';
-import { getSchema } from '../../../db/schema.js';
-import { createDatabaseClient } from '../../../core/database.js';
+import type { Memory, MemoryMergeProposal } from '../../drizzle/schema.js';
+import { getDb } from '../../db/index.js';
+import { getSchema } from '../../db/schema.js';
+import { createDatabaseClient } from '../../core/database.js';
 import { eq } from 'drizzle-orm';
 import { estimateMergeSavingsPreview } from '../analytics/token-estimator.js';
 import { mergeMemories } from '../strategies/merge-strategies.js';

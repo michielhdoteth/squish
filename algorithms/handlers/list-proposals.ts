@@ -4,10 +4,10 @@
  * Lists pending merge proposals for user review
  */
 
-import type { MemoryMergeProposal } from '../../../drizzle/schema.js';
-import { getDb } from '../../../db/index.js';
-import { getSchema } from '../../../db/schema.js';
-import { createDatabaseClient } from '../../../core/database.js';
+import type { MemoryMergeProposal } from '../../drizzle/schema.js';
+import { getDb } from '../../db/index.js';
+import { getSchema } from '../../db/schema.js';
+import { createDatabaseClient } from '../../core/database.js';
 import { eq, and, desc } from 'drizzle-orm';
 
 interface ListProposalsInput {

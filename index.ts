@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 
 /**
- * Squish v0.9.0 - Dual-Mode CLI + MCP Server
- *
+ * Squish v1.0.0 - Universal Memory Plugin System
+ * 
  * Modes:
- * - CLI Mode: For OpenClaw bash execution (e.g., `squish remember "text"`)
- * - MCP Mode: For Claude Code (default, no args)
+ * - CLI Mode: For any MCP client bash execution (e.g., `squish remember "text"`)
+ * - MCP Mode: For AI assistants (Claude Code, OpenClaw, OpenCode, Codex, etc.)
  *
  * Features:
  * - Hybrid Search: BM25 + vector search with RRF
@@ -14,7 +14,7 @@
  * - 16 MCP tools
  * - Local mode: SQLite with FTS5
  * - Team mode: PostgreSQL + pgvector
- * - OpenClaw CLI commands: remember, search, recall, core_memory
+ * - Universal Plugin: Works with 7+ AI assistants
  */
 
 import 'dotenv/config';
@@ -42,13 +42,13 @@ import { getProjectContext } from './core/context.js';
 import { setImportanceScore } from './core/memory/importance.js';
 import { consolidateMemories as consolidateMemoriesImpl, getConsolidationStats } from './core/memory/consolidation.js';
 import { startWebServer } from './api/web/web.js';
-import { handleDetectDuplicates } from './algorithms/merge/handlers/detect-duplicates.js';
-import { handleListProposals } from './algorithms/merge/handlers/list-proposals.js';
-import { handlePreviewMerge } from './algorithms/merge/handlers/preview-merge.js';
-import { handleApproveMerge } from './algorithms/merge/handlers/approve-merge.js';
-import { handleRejectMerge } from './algorithms/merge/handlers/reject-merge.js';
-import { handleReverseMerge } from './algorithms/merge/handlers/reverse-merge.js';
-import { handleGetMergeStats } from './algorithms/merge/handlers/get-stats.js';
+import { handleDetectDuplicates } from './algorithms/handlers/detect-duplicates.js';
+import { handleListProposals } from './algorithms/handlers/list-proposals.js';
+import { handlePreviewMerge } from './algorithms/handlers/preview-merge.js';
+import { handleApproveMerge } from './algorithms/handlers/approve-merge.js';
+import { handleRejectMerge } from './algorithms/handlers/reject-merge.js';
+import { handleReverseMerge } from './algorithms/handlers/reverse-merge.js';
+import { handleGetMergeStats } from './algorithms/handlers/get-stats.js';
 import { forceLifecycleMaintenance } from './core/worker.js';
 import { summarizeSession } from './core/summarization.js';
 import { storeAgentMemory } from './core/agent-memory.js';
@@ -75,7 +75,51 @@ import { initializeScheduler, registerJobHandler } from './core/scheduler/cron-s
 import { startHeartbeatChecking, heartbeat } from './core/scheduler/heartbeat.js';
 import { runNightlyJob, runWeeklyJob } from './core/scheduler/job-runner.js';
 
-const VERSION = '0.9.1';
+const VERSION = '1.0.0';
+
+// Load plugin manifest for self-verification
+function loadPluginManifest(): any {
+  try {
+    const manifestPath = path.join(process.cwd(), 'config', 'plugin-manifest.json');
+    if (fs.existsSync(manifestPath)) {
+      return JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    }
+  } catch (error) {
+    logger.warn('Could not load plugin manifest:', error.message);
+  }
+  return null;
+}
+
+function verifyManifest(manifest: any): { ok: boolean; errors: string[] } {
+  const errors: string[] = [];
+  
+  if (!manifest) {
+    return { ok: false, errors: ['Manifest not found'] };
+  }
+  
+  // Check required fields
+  const required = ['id', 'name', 'version', 'capabilities', 'targets', 'dependencies'];
+  for (const field of required) {
+    if (!manifest[field]) {
+      errors.push(`Missing required field: ${field}`);
+    }
+  }
+  
+  // Verify version matches
+  if (manifest.version !== VERSION) {
+    errors.push(`Version mismatch: manifest=${manifest.version}, binary=${VERSION}`);
+  }
+  
+  // Verify targets
+  const expectedTargets = ['claude-code', 'openclaw', 'opencode', 'codex', 'cursor', 'vscode', 'windsurf'];
+  for (const target of expectedTargets) {
+    if (!manifest.targets[target]) {
+      errors.push(`Missing target: ${target}`);
+    }
+  }
+  
+  return { ok: errors.length === 0, errors };
+}
 
 // ============================================================================
 // CLI MODE DETECTION

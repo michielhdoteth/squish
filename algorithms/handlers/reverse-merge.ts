@@ -2,10 +2,10 @@
  * Reverses/undoes a completed merge and restores original memories.
  */
 
-import type { Memory } from '../../../drizzle/schema.js';
-import { getDb } from '../../../db/index.js';
-import { getSchema } from '../../../db/schema.js';
-import { createDatabaseClient } from '../../../core/database.js';
+import type { Memory } from '../../drizzle/schema.js';
+import { getDb } from '../../db/index.js';
+import { getSchema } from '../../db/schema.js';
+import { createDatabaseClient } from '../../core/database.js';
 import { eq } from 'drizzle-orm';
 
 interface ReverseMergeInput {

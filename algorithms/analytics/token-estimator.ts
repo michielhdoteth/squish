@@ -3,11 +3,11 @@
  * Uses simple heuristic: 1 token ≈ 4 characters (can be upgraded to tiktoken for accuracy).
  */
 
-import type { Memory } from '../../../drizzle/schema.js';
+import type { Memory } from '../../drizzle/schema.js';
 import type { MergedMemory } from '../strategies/merge-strategies.js';
-import { getDb } from '../../../db/index.js';
-import { getSchema } from '../../../db/schema.js';
-import { createDatabaseClient } from '../../../core/database.js';
+import { getDb } from '../../db/index.js';
+import { getSchema } from '../../db/schema.js';
+import { createDatabaseClient } from '../../core/database.js';
 import { eq } from 'drizzle-orm';
 
 function estimateTokensSimple(text: string): number {
