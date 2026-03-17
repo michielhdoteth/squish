@@ -69,4 +69,4 @@ NUL
 src/
 tsconfig.json
 tsconfig.*.json
-commands/*.ts
+commands/**/*.ts
