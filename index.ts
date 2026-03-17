@@ -40,6 +40,8 @@ import { searchConversations, getRecentConversations } from './core/search/conve
 import { createObservation } from './core/observations.js';
 import { getProjectContext } from './core/context.js';
 import { setImportanceScore } from './core/memory/importance.js';
+import { getMemoryStats } from './core/memory/stats.js';
+import { ensureProject } from './core/projects.js';
 import { consolidateMemories as consolidateMemoriesImpl, getConsolidationStats } from './core/memory/consolidation.js';
 import { startWebServer } from './api/web/web.js';
 import { handleDetectDuplicates } from './algorithms/handlers/detect-duplicates.js';
@@ -53,7 +55,7 @@ import { forceLifecycleMaintenance } from './core/worker.js';
 import { summarizeSession } from './core/summarization.js';
 import { storeAgentMemory } from './core/agent-memory.js';
 import { getRelatedMemories } from './core/associations.js';
-import { protectMemory, pinMemory } from './core/governance.js';
+import { protectMemory, pinMemory, unpinMemory } from './core/governance.js';
 import { isDatabaseUnavailableError, determineOverallStatus } from './core/utils.js';
 import { searchWithQMD, isQMDAvailable } from './core/search/qmd-search.js';
 import {
@@ -91,32 +93,29 @@ function loadPluginManifest(): any {
 }
 
 function verifyManifest(manifest: any): { ok: boolean; errors: string[] } {
-  const errors: string[] = [];
-  
   if (!manifest) {
     return { ok: false, errors: ['Manifest not found'] };
   }
   
-  // Check required fields
+  const errors: string[] = [];
+  
   const required = ['id', 'name', 'version', 'capabilities', 'targets', 'dependencies'];
-  for (const field of required) {
+  required.forEach((field) => {
     if (!manifest[field]) {
       errors.push(`Missing required field: ${field}`);
     }
-  }
+  });
   
-  // Verify version matches
   if (manifest.version !== VERSION) {
     errors.push(`Version mismatch: manifest=${manifest.version}, binary=${VERSION}`);
   }
   
-  // Verify targets
   const expectedTargets = ['claude-code', 'openclaw', 'opencode', 'codex', 'cursor', 'vscode', 'windsurf'];
-  for (const target of expectedTargets) {
+  expectedTargets.forEach((target) => {
     if (!manifest.targets[target]) {
       errors.push(`Missing target: ${target}`);
     }
-  }
+  });
   
   return { ok: errors.length === 0, errors };
 }
@@ -231,7 +230,6 @@ async function runCliMode() {
     .action(async (action, options) => {
       try {
         const projectPath = options.project;
-        const { ensureProject, getProjectByPath } = await import('./core/projects.js');
         const projectRecord = await ensureProject(projectPath);
         if (!projectRecord) {
           console.log(JSON.stringify({ ok: false, error: 'Project not found and could not be created' }, null, 2));
@@ -284,7 +282,6 @@ async function runCliMode() {
     .option('-i, --importance <number>', 'Importance score (0-100)', '50')
     .action(async (memoryId, options) => {
       try {
-        const { setImportanceScore } = await import('./core/memory/importance.js');
         const score = parseInt(options.importance, 10);
         if (isNaN(score) || score < 0 || score > 100) {
           console.log(JSON.stringify({ ok: false, error: 'Importance must be between 0 and 100' }, null, 2));
@@ -304,7 +301,6 @@ async function runCliMode() {
     .description('Pin a memory to prevent pruning/consolidation')
     .action(async (memoryId) => {
       try {
-        const { pinMemory } = await import('./core/governance.js');
         await pinMemory(String(memoryId));
         console.log(JSON.stringify({ ok: true, memoryId, pinned: true }, null, 2));
       } catch (error: any) {
@@ -319,7 +315,6 @@ async function runCliMode() {
     .description('Unpin a memory')
     .action(async (memoryId) => {
       try {
-        const { unpinMemory } = await import('./core/governance.js');
         await unpinMemory(String(memoryId));
         console.log(JSON.stringify({ ok: true, memoryId, pinned: false }, null, 2));
       } catch (error: any) {
@@ -339,8 +334,7 @@ async function runCliMode() {
     .option('-l, --limit <number>', 'Max memories to process', '100')
     .action(async (options) => {
       try {
-        const { consolidateMemories } = await import('./core/memory/consolidation.js');
-        const results = await consolidateMemories({
+        const results = await consolidateMemoriesImpl({
           projectId: String(options.projectId),
           minAge: parseInt(options.minAge, 10),
           maxImportance: parseInt(options.maxImportance, 10),
@@ -361,7 +355,6 @@ async function runCliMode() {
     .option('-p, --project-id <id>', 'Project ID', process.cwd())
     .action(async (options) => {
       try {
-        const { getConsolidationStats } = await import('./core/memory/consolidation.js');
         const stats = await getConsolidationStats(String(options.projectId));
         console.log(JSON.stringify({ ok: true, ...stats }, null, 2));
       } catch (error: any) {
@@ -420,7 +413,6 @@ async function runCliMode() {
     .option('-p, --project <project>', 'Project path', process.cwd())
     .action(async (options) => {
       try {
-        const { getMemoryStats } = await import('./core/memory/stats.js');
         const stats = await getMemoryStats(options.project);
         console.log(JSON.stringify({ ok: true, ...stats }, null, 2));
       } catch (error: any) {
@@ -752,7 +744,6 @@ async function runMcpMode() {
             case 'context':
               return this.jsonResponse({ ok: true, data: await getProjectContext(args as any) });
             case 'init': {
-              const { ensureProject } = await import('./core/projects.js');
               await ensureDataDirectory();
               const project = await ensureProject(args.projectPath as string || process.cwd());
               return this.jsonResponse({ success: true, project });
@@ -781,7 +772,6 @@ async function runMcpMode() {
               if (pinned) {
                 await pinMemory(String(args.memoryId));
               } else {
-                const { unpinMemory } = await import('./core/governance.js');
                 await unpinMemory(String(args.memoryId));
               }
               return this.jsonResponse({
@@ -834,48 +824,58 @@ async function runMcpMode() {
 
       await initializeCoreMemory(projectId);
 
-      if (action === 'view') {
-        const content = await getCoreMemory(projectId);
-        const stats = await getCoreMemoryStats(projectId);
-        return this.jsonResponse({ ok: true, action: 'view', content, stats });
-      }
-      if (action === 'edit') {
-        const result = await editCoreMemorySection(projectId, args.section as any, String(args.content));
-        return this.jsonResponse({ ok: true, action: 'edit', ...result });
-      }
-      if (action === 'append') {
-        const result = await appendCoreMemorySection(projectId, args.section as any, String(args.text));
-        return this.jsonResponse({ ok: true, action: 'append', ...result });
-      }
-      throw new McpError(ErrorCode.InvalidParams, `Unknown action: ${action}`);
+      const actions = {
+        view: async () => {
+          const content = await getCoreMemory(projectId);
+          const stats = await getCoreMemoryStats(projectId);
+          return this.jsonResponse({ ok: true, action: 'view', content, stats });
+        },
+        edit: async () => {
+          const result = await editCoreMemorySection(projectId, args.section as any, String(args.content));
+          return this.jsonResponse({ ok: true, action: 'edit', ...result });
+        },
+        append: async () => {
+          const result = await appendCoreMemorySection(projectId, args.section as any, String(args.text));
+          return this.jsonResponse({ ok: true, action: 'append', ...result });
+        },
+      };
+
+      const handler = actions[action as keyof typeof actions];
+      if (!handler) throw new McpError(ErrorCode.InvalidParams, `Unknown action: ${action}`);
+      return handler();
     }
 
     private async handleContextPaging(args: Record<string, unknown>) {
       const action = args.action as string;
       const sessionId = String(args.sessionId);
 
-      if (action === 'load') {
-        return this.jsonResponse(await loadMemoryToContext(sessionId, String(args.memoryId)));
-      }
-      if (action === 'evict') {
-        return this.jsonResponse(await evictMemoryFromContext(sessionId, String(args.memoryId)));
-      }
-      if (action === 'view') {
-        return this.jsonResponse(await viewLoadedMemories(sessionId));
-      }
-      throw new McpError(ErrorCode.InvalidParams, `Unknown action: ${action}`);
+      const actions = {
+        load: () => loadMemoryToContext(sessionId, String(args.memoryId)),
+        evict: () => evictMemoryFromContext(sessionId, String(args.memoryId)),
+        view: () => viewLoadedMemories(sessionId),
+      };
+
+      const handler = actions[action as keyof typeof actions];
+      if (!handler) throw new McpError(ErrorCode.InvalidParams, `Unknown action: ${action}`);
+      return this.jsonResponse(await handler());
     }
 
     private async handleMerge(args: Record<string, unknown>) {
       const action = args.action as string;
-      if (action === 'detect') return this.jsonResponse(await handleDetectDuplicates(args as any));
-      if (action === 'list') return this.jsonResponse(await handleListProposals(args as any));
-      if (action === 'preview') return this.jsonResponse(await handlePreviewMerge(args as any));
-      if (action === 'stats') return this.jsonResponse(await handleGetMergeStats(args as any));
-      if (action === 'approve') return this.jsonResponse(await handleApproveMerge(args as any));
-      if (action === 'reject') return this.jsonResponse(await handleRejectMerge(args as any));
-      if (action === 'reverse') return this.jsonResponse(await handleReverseMerge(args as any));
-      throw new McpError(ErrorCode.InvalidParams, `Unknown action: ${action}`);
+
+      const handlers = {
+        detect: () => handleDetectDuplicates(args as any),
+        list: () => handleListProposals(args as any),
+        preview: () => handlePreviewMerge(args as any),
+        stats: () => handleGetMergeStats(args as any),
+        approve: () => handleApproveMerge(args as any),
+        reject: () => handleRejectMerge(args as any),
+        reverse: () => handleReverseMerge(args as any),
+      };
+
+      const handler = handlers[action as keyof typeof handlers];
+      if (!handler) throw new McpError(ErrorCode.InvalidParams, `Unknown action: ${action}`);
+      return this.jsonResponse(await handler());
     }
 
     private async shutdown() {
