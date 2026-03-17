@@ -41,13 +41,14 @@ function logSkip(message) {
   console.log(`  ${colors.yellow}○${colors.reset} ${message}`);
 }
 
-function runTest(description, args) {
+function runTest(description, args, envVars = {}, expectedExitCode = 0) {
   logTest(description);
   
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [testScriptPath, ...args], {
       stdio: ["inherit", "pipe", "pipe"],
-      timeout: 5000
+      timeout: 5000,
+      env: { ...process.env, ...envVars }
     });
     
     let stdout = "";
@@ -62,10 +63,10 @@ function runTest(description, args) {
     });
     
     child.on("close", (code) => {
-      if (code === 0) {
-        logPass("Exit code: 0");
+      if (code === expectedExitCode) {
+        logPass(`Exit code: ${code}`);
       } else {
-        logFail(`Exit code: ${code}`, stderr);
+        logFail(`Expected exit code ${expectedExitCode}, got ${code}`, stderr);
       }
       resolve({ code, stdout, stderr });
     });
@@ -93,29 +94,17 @@ async function runTests() {
   
   await runTest("Auto mode with --select flag", ["--select=claude-code", "--dry-run"]);
   
-  await runTest("Environment detection - CI mode", [
-    ...process.env,
-    "CI=true",
-    "node",
-    testScriptPath,
-    "--list"
-  ]);
+  await runTest("Environment detection - CI mode", ["--list"], { CI: "true" });
   
-  await runTest("Environment detection - NON_INTERACTIVE mode", [
-    ...process.env,
-    "NON_INTERACTIVE=1",
-    "node",
-    testScriptPath,
-    "--list"
-  ]);
+  await runTest("Environment detection - NON_INTERACTIVE mode", ["--list"], { NON_INTERACTIVE: "1" });
   
   await runTest("Dry-run preview mode", ["--list", "--dry-run"]);
   
   await runTest("Multiple flag combination", ["--select=claude-code,openclaw", "--verbose", "--dry-run"]);
   
-  await runTest("Invalid flag handling", ["--invalid-flag"]);
+  await runTest("Invalid flag handling", ["--invalid-flag"], {}, 1);
   
-  await runTest("Invalid plugin in --select", ["--select=nonexistent"]);
+  await runTest("Invalid plugin in --select", ["--select=nonexistent"], {}, 1);
   
   console.log("");
   console.log(`${colors.cyan}═════════════════════════════════════════════${colors.reset}`);
