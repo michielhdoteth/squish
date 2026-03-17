@@ -98,13 +98,13 @@
   },
   "dependencies": {
     "mcporter": {
-      "version": "1.2.0",
+      "version": "0.7.3",
       "autoInstall": true,
       "optional": false,
       "provides": ["mcp-bridge", "openclaw-memory"]
     },
-    "qmd": {
-      "version": "0.15.1",
+    "@tobilu/qmd": {
+      "version": "2.0.1",
       "autoInstall": true,
       "optional": false,
       "provides": ["fast-search", "bm25", "vector-search"]
@@ -119,8 +119,8 @@
     }
   },
   "pinning": {
-    "mcporter": "1.2.0",
-    "qmd": "0.15.1",
+    "mcporter": "0.7.3",
+    "@tobilu/qmd": "2.0.1",
     "@modelcontextprotocol/sdk": "1.27.1"
   },
   "entry": {

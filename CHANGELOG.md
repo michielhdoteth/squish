@@ -2,6 +2,71 @@
 
 All notable changes to Squish will be documented in this file.
 
+## [1.0.0] - 2026-03-17
+
+### 🚀 Major Release - Universal Plugin Architecture
+
+#### Added - Interactive Multi-Step Wizard Installer
+- **Beautiful CLI Wizard** with 5-step installation flow using `@clack/prompts`
+- Step 1: Component Selection (CLI, MCP Server, AI Agent Plugins)
+- Step 2: Plugin Selection (Claude Code, OpenClaw, Cursor, etc.)
+- Step 3: Configuration (Local/Remote mode, Embeddings provider)
+- Step 4: Review Summary with visual confirmation
+- Step 5: Automated installation with progress spinners
+- **Quick Install Mode**: `bun run install:interactive --quick` for CLI + all plugins
+- **Dry-run support**: Preview installations without making changes
+- **Configuration persistence**: Saves settings to `~/.squish/config.json`
+
+#### Added - Universal Plugin Architecture
+- **Multi-client support**: Works with Claude Code, OpenClaw, OpenCode, Codex, Cursor, VS Code, Windsurf
+- **Plugin types**: Hooks (Claude Code), Plugin-slot (OpenClaw), MCP (all others)
+- **Auto-detection**: Detects which AI agents are already installed
+- **Source indicators**: Shows which plugins have source code available (📦)
+
+#### Added - Core Infrastructure
+- **Search Tracing System**: Debug and performance analysis for searches
+  - `core/tracing/collector.ts` - Collects search traces
+  - `core/tracing/visualizer.ts` - Visualizes trace data
+  - New MCP tools: `squish_get_search_traces`, `squish_get_trace_by_id`
+- **Namespace Support**: Hierarchical memory organization
+  - `core/namespaces/index.ts` - Namespace management
+  - `core/namespaces/uri-parser.ts` - URI parsing for namespaces
+- **Memory Layers (L0/L1/L2)**: Token-efficient retrieval
+  - `core/layers/generator.ts` - Generates memory layers
+- **Self-Iteration Job**: Conversation memory extraction
+  - `core/sessions/self-iteration-job.ts` - Extracts memories from conversations
+  - `core/sessions/session-hooks.ts` - Session lifecycle hooks
+- **Database Schema Updates**:
+  - Added `namespaces` table
+  - Added `memory_layers` table
+  - Added `search_traces` table
+
+#### Fixed - Dependencies
+- **qmd package**: Fixed from non-existent `qmd@0.15.1` to `@tobilu/qmd@2.0.1`
+- **mcporter version**: Updated from `1.2.0` to `0.7.3` (matches installed version)
+- **Scoped package support**: Dependency manager now handles `@scope/package` names
+- **Binary detection**: Properly maps scoped packages to their binary names
+
+#### Changed - Code Organization
+- **Refactored CLI**: Improved imports and removed duplicates in `index.ts`
+- **Safety Checks**: Better helper functions for algorithm validation
+- **Response Builder**: Unified response builder for algorithm handlers
+- **Config Validation**: Fixed provider validation logic
+- **Association SQL**: Fixed placeholder issues in SQL queries
+
+#### Documentation
+- **Interactive Installer Guide**: Complete docs for wizard usage
+- **Plugin Architecture**: Documentation for universal plugin system
+- **Installation Guide**: Quick-start for all supported AI agents
+
+### Breaking Changes
+None - fully backward compatible with 0.9.x
+
+### Migration Notes
+- Run `bun run install:interactive` to use the new wizard
+- Existing installations continue to work without changes
+- Configuration automatically migrated on first run
+
 ## [0.9.3] - 2026-03-14
 
 ### Added - Core Memory & Embeddings Improvements (v0.9.2+)

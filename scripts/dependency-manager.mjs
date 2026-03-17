@@ -76,12 +76,21 @@ function verifyInstallation(binaryName, expectedVersion) {
   return { ok: true, path: check.path, version: check.version };
 }
 
+function getBinaryName(packageName) {
+  // For scoped packages like @tobilu/qmd, the binary is just "qmd"
+  if (packageName.startsWith("@")) {
+    return packageName.split("/").pop();
+  }
+  return packageName;
+}
+
 function installDependency(name, depConfig) {
   const { version, autoInstall, optional } = depConfig;
+  const binaryName = getBinaryName(name);
   
-  console.log(`\n[DEP] Checking dependency: ${name}@${version} (autoInstall: ${autoInstall}, optional: ${optional})`);
+  console.log(`\n[DEP] Checking dependency: ${name}@${version} (binary: ${binaryName})`);
   
-  const check = checkBinary(name);
+  const check = checkBinary(binaryName);
   
   if (check.available) {
     console.log(`[DEP] ✓ ${name} already installed`);
@@ -147,7 +156,8 @@ function main() {
     let hasErrors = false;
     
     for (const [name, config] of Object.entries(dependencies)) {
-      const check = checkBinary(name);
+      const binaryName = getBinaryName(name);
+      const check = checkBinary(binaryName);
       
       if (showVersions) {
         console.log(`[VER] ${name}: ${check.available ? check.version : "NOT INSTALLED"}`);
