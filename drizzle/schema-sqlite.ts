@@ -330,7 +330,7 @@ export const entities = sqliteTable('entities', {
 /**
  * Namespaces - Hierarchical folder-like namespaces for memory organization
  */
-export const namespaces = sqliteTable('namespaces', {
+export const namespaces: any = sqliteTable('namespaces', {
   id: text('id').primaryKey().$default(() => crypto.randomUUID()),
   projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }),
 

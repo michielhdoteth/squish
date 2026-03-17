@@ -30,6 +30,7 @@ export interface QueryRewriteStage {
   original?: string;
   rewritten?: string;
   method?: string;
+  timeMs?: number;
 }
 
 export interface RetrievalStage {
@@ -257,7 +258,7 @@ export async function getTraces(options: TraceOptions = {}): Promise<SearchTrace
 
   const traces = await query;
 
-  return traces.map((row): SearchTrace => ({
+  return traces.map((row: any): SearchTrace => ({
     id: row.id,
     sessionId: row.session_id,
     query: row.query,
@@ -323,7 +324,7 @@ export async function getRecentTraces(limit: number = 10): Promise<SearchTrace[]
     .orderBy(desc(schema.searchTraces.timestamp))
     .limit(limit);
 
-  return traces.map((row): SearchTrace => ({
+  return traces.map((row: any): SearchTrace => ({
     id: row.id,
     sessionId: row.session_id,
     query: row.query,
@@ -357,7 +358,7 @@ export async function getSessionTraces(sessionId: string): Promise<SearchTrace[]
 
   if (traces.length === 0) return [];
 
-  return traces.map((row): SearchTrace => ({
+  return traces.map((row: any): SearchTrace => ({
     id: row.id,
     sessionId: row.session_id,
     query: row.query,
@@ -440,10 +441,10 @@ export async function getTraceStats(): Promise<TraceStats> {
     .limit(100);
 
   const totalTraces = traces.length;
-  const totalDurationMs = traces.reduce((sum, t) => sum + (t.total_duration_ms || 0), 0);
+  const totalDurationMs = traces.reduce((sum: number, t: any) => sum + (t.total_duration_ms || 0), 0);
   const avgDurationMs = totalTraces > 0 ? Math.round(totalDurationMs / totalTraces) : 0;
 
-  const uniqueSessions = new Set(traces.map(t => t.session_id).filter(Boolean));
+  const uniqueSessions = new Set(traces.map((t: any) => t.session_id).filter(Boolean));
   const recentSessions = uniqueSessions.size;
 
   return {

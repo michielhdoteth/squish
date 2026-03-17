@@ -40,6 +40,9 @@ export function registerJobHandler(jobName: string, handler: JobHandler): void {
   logger.info(`[Scheduler] Registered handler for job: ${jobName}`);
 }
 
+// Register self-iteration job handler
+registerJobHandler('self_iteration', selfIterationHandler);
+
 export async function initializeScheduler(): Promise<void> {
   if (!config.cronEnabled) {
     logger.info('[Scheduler] Cron scheduling disabled, using heartbeat fallback');

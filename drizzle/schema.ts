@@ -345,7 +345,7 @@ export const entities = pgTable('entities', {
 /**
  * Namespaces - Hierarchical folder-like namespaces for memory organization
  */
-export const namespaces = pgTable('namespaces', {
+export const namespaces: any = pgTable('namespaces', {
   id: uuid('id').primaryKey().defaultRandom(),
   projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }).notNull(),
 

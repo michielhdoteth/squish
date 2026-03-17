@@ -85,15 +85,15 @@ export async function hybridSearch(options: HybridSearchOptions): Promise<Hybrid
           query = result.rewritten;
           logger.info(`[HybridSearch] Query rewritten: "${result.original}" -> "${result.rewritten}" (${result.method})`);
         }
-      }
 
-      // Record query rewrite stage
-      await addQueryRewriteStage(traceId, {
-        original: result.original,
-        rewritten: result.rewritten,
-        method: result.method,
-        timeMs: Date.now() - rewriteStart,
-      });
+        // Record query rewrite stage
+        await addQueryRewriteStage(traceId, {
+          original: result.original,
+          rewritten: result.rewritten,
+          method: result.method,
+          timeMs: Date.now() - rewriteStart,
+        });
+      }
     } catch (error) {
       logger.warn(`[HybridSearch] Query rewriting failed: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -168,9 +168,9 @@ export async function hybridSearch(options: HybridSearchOptions): Promise<Hybrid
 
   // Complete trace with results
   const traceResults = topResults.map((r) => ({
-    type: r.type,
-    content: r.content,
-    hybridScore: r.hybridScore,
+    type: r.memory?.type,
+    content: r.memory?.content,
+    hybridScore: r.totalScore,
   }));
 
   await completeTrace(traceId, traceResults);

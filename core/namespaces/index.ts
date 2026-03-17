@@ -68,7 +68,7 @@ export async function createNamespace(input: NamespaceCreateInput): Promise<Name
   }
 
   // Build namespace path
-  const path = await buildNamespacePath(input.projectId, input.name, input.parentId);
+  const path = await buildNamespacePath(input.projectId, input.name, input.parentId ?? null);
 
   await db.insert(schema.namespaces).values({
     id,
@@ -171,7 +171,7 @@ export async function resolveNamespacePath(
 
   // Traverse path segments
   for (const segment of path) {
-    const [result] = await db.select()
+    const [result]: any[] = await db.select()
       .from(schema.namespaces)
       .where(and(
         eq(schema.namespaces.projectId, projectId),
@@ -355,7 +355,7 @@ export async function listNamespaces(options: {
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(schema.namespaces.name);
 
-  return rows.map((row): Namespace => ({
+  return rows.map((row: any): Namespace => ({
     id: row.id,
     projectId: row.projectId,
     name: row.name,

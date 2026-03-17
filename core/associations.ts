@@ -137,14 +137,14 @@ export async function trackCoactivation(memoryIds: string[]): Promise<void> {
             await (db as any)
               .insert(schema.memoryAssociations)
               .values(batch)
-              .onConflict({
-                target: [schema.memoryAssociations.fromMemoryId, schema.memoryAssociations.toMemoryId],
-                set: {
-                  weight: sql.placeholder(),
-                  coactivationCount: sql.placeholder,
-                  lastCoactivatedAt: now,
-                },
-              })
+                .onConflict({
+                 target: [schema.memoryAssociations.fromMemoryId, schema.memoryAssociations.toMemoryId],
+                    set: {
+                   weight: sql.raw('EXCLUDED.weight'),
+                   coactivationCount: sql.raw('EXCLUDED.coactivation_count'),
+                   lastCoactivatedAt: now,
+                 },
+               })
               .catch(() => {
                 // Fallback for SQLite
                 return (db as any).insert(schema.memoryAssociations).values(batch);

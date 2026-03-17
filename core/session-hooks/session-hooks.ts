@@ -3,9 +3,9 @@
  * Provides functions to be called when sessions start/end
  */
 
+import { sql, eq } from 'drizzle-orm';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
-import { eq } from 'drizzle-orm';
 import { logger } from '../logger.js';
 
 /**
@@ -45,7 +45,7 @@ export async function getActiveSessions(projectId: string): Promise<string[]> {
     .where(eq(schema.conversations.projectId, projectId))
     .where(sql`${schema.conversations.endedAt} IS NULL`);
 
-  return sessions.map(s => s.session_id);
+  return sessions.map((s: any) => s.session_id);
 }
 
 /**

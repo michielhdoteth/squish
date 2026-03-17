@@ -3,6 +3,7 @@
  * Processes conversations to extract memories and generate summaries
  */
 
+import { sql, eq } from 'drizzle-orm';
 import { registerJobHandler, type JobExecutionContext, type JobHandler } from '../scheduler/cron-scheduler.js';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
@@ -154,7 +155,7 @@ async function getConversationMessages(conversationId: string): Promise<MessageR
     .where(eq(schema.messages.conversationId, conversationId))
     .orderBy(schema.messages.createdAt);
 
-  return messages.map(m => ({
+  return messages.map((m: any) => ({
     id: m.id,
     conversationId: m.conversation_id,
     role: m.role,
@@ -351,8 +352,5 @@ const selfIterationHandler: JobHandler = async (
     };
   }
 };
-
-// Register the job handler
-registerJobHandler('self_iteration', selfIterationHandler);
 
 export { selfIterationHandler, DEFAULT_CONFIG };
