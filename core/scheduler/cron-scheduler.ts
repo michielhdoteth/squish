@@ -1,6 +1,7 @@
 /** Cron Scheduler - Persistent cron-based job scheduling with fallback support */
 
 import cron from 'node-cron';
+import { selfIterationHandler } from '../sessions/self-iteration-job.js';
 import { logger } from '../logger.js';
 import { config } from '../../config.js';
 import { getDb } from '../../db/index.js';
@@ -85,6 +86,13 @@ async function ensureDefaultJobs(db: any): Promise<void> {
       enabled: true,
       jobConfig: { regenerateSummaries: true, archiveStale: true, cleanupOrphaned: true },
     },
+    {
+      jobName: 'self_iteration',
+      jobType: 'hourly' as JobType,
+      cronExpression: '30 * * * *',  // Run every hour at :30
+      enabled: true,
+      jobConfig: { minMessageCount: 5, maxMessagesToProcess: 50 },
+    },
   ];
 
   for (const job of defaultJobs) {
@@ -102,6 +110,11 @@ async function ensureDefaultJobs(db: any): Promise<void> {
         failureCount: 0,
       });
       logger.info(`[Scheduler] Created default job: ${job.jobName}`);
+
+      // Register self-iteration handler
+      if (job.jobName === 'self_iteration') {
+        registerJobHandler('self_iteration', selfIterationHandler);
+      }
     }
   }
 }
