@@ -1,119 +1,130 @@
 # Interactive Plugin Installer
 
-Squish provides a **beautiful interactive terminal-based installer** using [Enquirer](https://github.com/enquirer/enquirer) for a professional user experience.
+Squish provides a **beautiful multi-step wizard installer** using [Clack](https://github.com/natemoo-re/clack) for a professional installation experience.
 
 ## Quick Start
 
 ```bash
-# Run interactive installer (beautiful UI)
+# Run interactive wizard
 bun run install:interactive
-# OR
-npx squish-memory install-interactive
 ```
 
-## Features
+## Installation Wizard Flow
 
-- 🎨 **Beautiful UI** - Box-style layout with icons and colors
-- ✅ **Checkbox selection** - SPACE to toggle plugins
-- 🔍 **Auto-detection** - Shows installation status (✓ installed / ● not installed)
-- 📦 **Source indicator** - Shows which plugins have source code available
-- 🤖 **AI-safe** - Auto-detects non-interactive environments (CI, automation)
+The installer guides you through 5 simple steps:
 
-## Interactive Menu
-
-When you run without flags, you'll see a beautiful checkbox menu:
-
+### Step 1: Component Selection
 ```
-╔══════════════════════════════════════════════════╗
-║  🐙 Squish Plugin Installer                        ║
-║  Universal memory system for AI agents           ║
-╚══════════════════════════════════════════════════╝
-
-Select plugins to install:
-(SPACE to toggle, ENTER to install)
-
- ❯◉ Claude Code
-   Session hooks for auto-memory ✓ installed 📦
-
-  ◯ OpenClaw
-   Memory slot via MCP bridge ✓ installed 📦
-
-  ◯ OpenCode
-   MCP server configuration ✓ installed
-
-  ◯ Codex
-   MCP server configuration ✓ installed
-
- [Install] [Cancel]
+◆  What would you like to install?
+│  ◻ ⌨️ CLI - Command line interface
+│  ◻ 🔌 MCP Server - Model Context Protocol
+│  ◻ 🔧 AI Agent Plugins
+└
 ```
 
-## Menu Controls
+**Components:**
+- **CLI** (`⌨️`) - Command line interface (`squish` command)
+- **MCP Server** (`🔌`) - For remote access and AI integrations
+- **AI Agent Plugins** (`🔧`) - Claude Code, OpenClaw, Cursor, etc.
 
-| Key | Action |
-|------|---------|
-| `SPACE` | Toggle selection on current item |
-| `↑` / `↓` | Navigate up/down |
-| `a` | Toggle all selections |
-| `ENTER` | Confirm and install |
-| `ESC` | Cancel installation |
-
-## Installation Flow
-
-### 1. Dependency Check
+### Step 2: Plugin Selection (if chosen)
 ```
-● Installing dependencies...
-✓ Dependencies installed
-```
-
-### 2. Plugin Installation
-```
-Installing plugins:
-────────────────────────────────────────────────────
-  1. Claude Code
-  2. OpenClaw
-
-● Installing plugins...
+◆  Which AI agents do you want to integrate with?
+│  ◻ Claude Code ✓ 📦
+│  ◻ OpenClaw ✓ 📦 (Memory slot via MCP bridge)
+│  ◻ OpenCode ✓
+│  ◻ Codex ✓
+│  ◻ Cursor ✓
+│  ◻ VS Code
+│  ◻ Windsurf ✓
+└
 ```
 
-### 3. Success
+### Step 3: Configuration
 ```
-╔══════════════════════════════════════════╗
-║  ✓ Installation Complete!                ║
-╚══════════════════════════════════════════╝
+◆  Select operation mode:
+│  ● 🏠 Local Mode - Everything runs locally (default, recommended)
+│  ○ ☁️ Remote Mode - Connect to remote Squish server
+└
 
-Next steps:
+◆  Select embeddings provider:
+│  ● 🧠 Local Embeddings - Uses local CPU (default, free, private)
+│  ○ ☁️ OpenAI Embeddings - Requires OPENAI_API_KEY (better quality)
+│  ○ ☁️ Cohere Embeddings - Requires COHERE_API_KEY
+└
+```
+
+### Step 4: Review Summary
+```
+┌──────────────────────────────────────────────────┐
+│  Installation Summary:                           │
+│                                                  │
+│  Components:                                     │
+│    ✓ CLI                                         │
+│    ✓ MCP Server                                  │
+│    ✓ AI Agent Plugins                            │
+│                                                  │
+│  Plugins:                                        │
+│    ✓ claude-code                                 │
+│    ✓ openclaw                                    │
+│    ✓ opencode                                    │
+│                                                  │
+│  Configuration:                                  │
+│    ⚙️ Mode: local                                │
+│    🧠 Embeddings: local                          │
+└──────────────────────────────────────────────────┘
+
+◆  Proceed with installation?
+│  ● Yes / ○ No
+└
+```
+
+### Step 5: Installation
+```
+◒  Installing dependencies...
+✓  Dependencies installed
+
+◒  Setting up CLI...
+✓  CLI ready
+
+◒  Configuring MCP Server...
+✓  MCP Server configured
+
+◒  Installing 3 plugin(s)...
+✓  Plugins installed
+
+◒  Saving configuration...
+✓  Configuration saved
+
+┌──────────────────────────────────────────────────┐
+│  ✓ Installation Complete!                        │
+└──────────────────────────────────────────────────┘
+
+What's next?
   → Restart your AI assistant(s)
-  → Tools will appear automatically
+  → Try: squish health
+  → Try: squish remember "Your first memory"
 ```
 
-## Platform Support
+## Non-Interactive Mode (For AI Agents/Scripts)
 
-| Platform | Status | Notes |
-|----------|--------|-------|
-| macOS | ✅ Full | Terminal colors supported |
-| Linux | ✅ Full | All features working |
-| Windows | ✅ Full | Windows Terminal recommended |
-
-## Non-Interactive Mode (For AI Agents)
-
-### Auto-Install All
+### Quick Install (CLI + All Plugins)
 ```bash
-# Install all available plugins (no menu)
-bun run install:interactive --auto
+bun run install:interactive --quick
 # OR
-bun run install:interactive --all
-
-# Environment variable approach
-CI=true bun run install:interactive
+bun run install:interactive -q
 ```
+Installs CLI and all available plugins with default configuration.
+
+### Install All Components
+```bash
+bun run install:interactive --all
+```
+Installs CLI, MCP Server, and all plugins.
 
 ### Install Specific Plugins
 ```bash
-# Install specific plugins (no menu)
 bun run install:interactive --select=claude-code,openclaw
-
-# Multiple plugins
-bun run install:interactive --select=claude-code,openclaw,opencode
 ```
 
 ### List Available Plugins
@@ -121,126 +132,173 @@ bun run install:interactive --select=claude-code,openclaw,opencode
 bun run install:interactive --list
 ```
 
-Output:
-```
-╔══════════════════════════════════════════════════╗
-║  🐙 Squish Plugin Installer                        ║
-║  Universal memory system for AI agents           ║
-╚══════════════════════════════════════════════════╝
-
-Available Plugins:
-────────────────────────────────────────────────────
-
-  1. Claude Code
-     Type: hooks
-     ✓ installed  📦 source
-
-  2. OpenClaw
-     Type: plugin-slot
-     ✓ installed  📦 source
-
-  ...
-
-────────────────────────────────────────────────────
-Total: 7 plugins available
-```
-
-### Dry-Run Preview
+### Dry-Run (Preview)
 ```bash
-# Test without installing
-bun run install:interactive --select=claude-code,openclaw --dry-run
-
-# Verbose mode for debugging
-bun run install:interactive --all --dry-run --verbose
+bun run install:interactive --all --dry-run
 ```
 
-## Environment Variables
+## Available Plugins
 
-Set these to force non-interactive mode:
-
-```bash
-CI=true                    # CI/CD environments
-NON_INTERACTIVE=1          # Force CLI mode
-AUTOMATION=true            # Automation scripts
-```
-
-## Troubleshooting
-
-### Menu doesn't display correctly
-- **Windows**: Use Windows Terminal instead of CMD
-- **Linux/macOS**: Ensure terminal supports UTF-8
-- Try: `export LANG=en_US.UTF-8`
-
-### Installation fails
-```bash
-# Check manifest exists
-ls config/plugin-manifest.json
-
-# Verify dependencies
-bun run deps:check
-
-# Test with verbose mode
-bun run install:interactive --select=claude-code --verbose --dry-run
-```
-
-### Non-interactive mode not working
-- Check if `CI` or `NON_INTERACTIVE` env vars are set
-- Use `--auto` or `--select` flags explicitly
-- For AI agents: Always use flags, never rely on interactive mode
-
-## Comparison: Interactive vs CLI
-
-| Feature | Interactive | CLI (`install:plugin`) |
-|---------|-------------|------------------------|
-| UI | Beautiful checkbox menu | Command-line flags |
-| Selection | SPACE to toggle | `--client=name` |
-| Multi-select | Yes (SPACE) | Comma-separated |
-| Visual feedback | Real-time status | Text output |
-| Best for | Humans, first-time users | Scripts, CI/CD, automation |
-| AI-safe | With flags | Yes |
+| Plugin | Type | Description |
+|--------|------|-------------|
+| **Claude Code** | hooks | Session hooks for automatic memory capture |
+| **OpenClaw** | plugin-slot | Memory slot via MCP bridge |
+| **OpenCode** | mcp | MCP server configuration |
+| **Codex** | mcp | MCP server configuration |
+| **Cursor** | mcp | MCP server configuration |
+| **VS Code** | mcp | MCP server configuration |
+| **Windsurf** | mcp | MCP server configuration |
 
 ## Icons Reference
 
 | Icon | Meaning |
 |------|---------|
 | 🐙 | Squish logo |
-| ✓ | Installed / Success |
-| ✗ | Not installed / Error |
-| ● | Not installed indicator |
-| ○ | Available |
+| ⌨️ | CLI component |
+| 🔌 | MCP Server |
+| 🔧 | AI Agent Plugins |
+| ⚙️ | Configuration |
+| 🏠 | Local mode |
+| ☁️ | Remote/Cloud mode |
+| 🧠 | Local embeddings |
+| ✓ | Selected/Installed |
+| ✗ | Not installed/Error |
+| ● | Selected option |
+| ○ | Unselected option |
+| ◻ | Checkbox unchecked |
 | 📦 | Source code available |
-| → | Action arrow |
+
+## Configuration
+
+The installer saves your configuration to `~/.squish/config.json`:
+
+```json
+{
+  "mode": "local",
+  "embeddingsProvider": "local",
+  "installedAt": "2026-03-17T10:30:00.000Z",
+  "version": "1.0.0"
+}
+```
+
+## Environment Variables
+
+Force non-interactive mode:
+```bash
+CI=true                    # CI/CD environments
+NON_INTERACTIVE=1          # Force CLI mode
+AUTOMATION=true            # Automation scripts
+```
+
+## Command Reference
+
+```bash
+# Interactive wizard (default)
+bun run install:interactive
+
+# Quick install (CLI + all plugins)
+bun run install:interactive --quick
+
+# Install all components
+bun run install:interactive --all
+
+# Install specific plugins
+bun run install:interactive --select=plugin1,plugin2
+
+# List plugins
+bun run install:interactive --list
+
+# Dry-run preview
+bun run install:interactive --all --dry-run
+
+# Verbose output
+bun run install:interactive --all --verbose
+
+# Show help
+bun run install:interactive --help
+```
+
+## Flags Reference
+
+| Flag | Alias | Description |
+|------|-------|-------------|
+| `--auto` | `-a` | Skip menu, use defaults |
+| `--quick` | `-q` | Quick install (CLI + all plugins) |
+| `--all` | | Install all components |
+| `--select=<list>` | | Install specific plugins |
+| `--list` | `-l` | List plugins and exit |
+| `--dry-run` | `-n` | Preview without installing |
+| `--verbose` | `-v` | Detailed output |
+| `--help` | `-h` | Show help |
+
+## Platform Support
+
+| Platform | Status | Notes |
+|----------|--------|-------|
+| macOS | ✅ Full | All features working |
+| Linux | ✅ Full | All features working |
+| Windows | ✅ Full | Windows Terminal recommended |
+
+## Troubleshooting
+
+### Installation hangs
+- Check if terminal supports interactive prompts
+- Try running in a standard terminal (not IDE console)
+- Use non-interactive flags: `--quick` or `--select`
+
+### Permission errors
+```bash
+# On macOS/Linux, you may need:
+sudo bun run install:interactive
+```
+
+### Configuration not saved
+- Check if `~/.squish` directory exists and is writable
+- Try: `mkdir -p ~/.squish`
+
+### Plugins not detected
+- Ensure `config/plugin-manifest.json` exists
+- Run: `bun run install:interactive --list` to verify
 
 ## Development
 
 ### Testing
 ```bash
-# Run test suite
-bun run test:interactive
+# Test wizard flow
+bun run install:interactive
 
-# Manual testing
-node scripts/install-interactive.mjs --help
-node scripts/install-interactive.mjs --list
-node scripts/install-interactive.mjs --select=claude-code --dry-run
+# Test list
+bun run install:interactive --list
+
+# Test quick install (dry-run)
+bun run install:interactive --quick --dry-run
+
+# Test specific plugins
+bun run install:interactive --select=claude-code --dry-run
 ```
 
 ### Adding New Plugins
-Plugins auto-detect from `config/plugin-manifest.json`:
-1. Add target under `targets`
-2. Specify `name`, `type`, optional `description`
-3. Re-run installer
-
-### Customization
-Edit `scripts/install-interactive.mjs`:
-- `colors` - ANSI color codes
-- `icons` - Unicode symbols
-- `CLIENT_DIRS` - Installation paths
+Edit `config/plugin-manifest.json`:
+```json
+{
+  "targets": {
+    "new-agent": {
+      "type": "mcp",
+      "tools": ["tool1", "tool2"],
+      "install": {
+        "copy": [
+          { "from": "path/to/config", "to": "~/.new-agent/config" }
+        ]
+      }
+    }
+  }
+}
+```
 
 ---
 
-**Related Documentation:**
+**Powered by:** [Clack](https://github.com/natemoo-re/clack) - Modern CLI prompts
+
+**Related:**
 - [Plugin Architecture](./PLUGIN-ARCHITECTURE.md)
 - [Manifest Schema](../config/plugin-manifest.schema.json)
-- [Enquirer Documentation](https://github.com/enquirer/enquirer)
-
-**Powered by:** [Enquirer](https://github.com/enquirer/enquirer) - Stylish CLI prompts
