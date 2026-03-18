@@ -2,9 +2,6 @@ import { config, getDataDir } from '../config.js';
 import { ensurePostgresSchema, ensureSqliteSchema } from './bootstrap.js';
 import { logger } from '../core/logger.js';
 
-// Runtime detection - check if running in Bun
-const isBun = typeof (globalThis as any).Bun !== 'undefined';
-
 export async function createDb() {
   if (config.isTeamMode) {
     return createPostgresDb();
@@ -31,41 +28,35 @@ async function createPostgresDb() {
 async function createSqliteDb() {
   const dbPath = `${getDataDir()}/squish.db`;
 
-  // Try Bun's built-in SQLite first if running in Bun
-  if (isBun) {
-    try {
-      return await createBunSqliteDb(dbPath);
-    } catch (error) {
-      logger.warn('Bun SQLite failed, trying better-sqlite3 fallback', { error: String(error) });
-    }
-  }
-
-  // Fallback to better-sqlite3 for Node.js
+  // Try better-sqlite3 first (best performance)
   try {
     return await createBetterSqliteDb(dbPath);
-  } catch (error) {
-    logger.error('SQLite initialization failed', error);
-    throw new Error(`SQLite database unavailable: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  } catch (betterSqliteError: any) {
+    logger.warn('better-sqlite3 failed, trying sql.js fallback', { 
+      error: betterSqliteError.message 
+    });
+    
+    // Fallback to sql.js (pure JavaScript, no native module)
+    try {
+      return await createSqlJsDb(dbPath);
+    } catch (sqlJsError: any) {
+      // Both failed - this is critical, Squish cannot work without DB
+      logger.error('CRITICAL: SQLite database initialization failed', {
+        betterSqliteError: betterSqliteError.message,
+        sqlJsError: sqlJsError.message
+      });
+      
+      throw new Error(
+        `Squish requires SQLite to function. Database initialization failed.\n` +
+        `Primary error (better-sqlite3): ${betterSqliteError.message}\n` +
+        `Fallback error (sql.js): ${sqlJsError.message}\n\n` +
+        `Solutions:\n` +
+        `1. Rebuild native module: npm rebuild better-sqlite3\n` +
+        `2. Install build tools: npm install -g windows-build-tools (Windows)\n` +
+        `3. Or use PostgreSQL instead by setting DATABASE_URL environment variable`
+      );
+    }
   }
-}
-
-async function createBunSqliteDb(dbPath: string): Promise<any> {
-  // Dynamic import for Bun runtime - wrapped to avoid TS issues
-  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-  // @ts-ignore - bun:sqlite is only available in Bun runtime
-  const { Database } = await import('bun:sqlite');
-  const { drizzle } = await import('drizzle-orm/bun-sqlite');
-  const schemaModule = await import('../drizzle/schema-sqlite.js');
-
-  const sqlite = new Database(dbPath);
-
-  // Enable foreign keys
-  sqlite.run('PRAGMA foreign_keys = ON');
-
-  // Run full schema bootstrap from bootstrap.ts (includes ALL tables)
-  await ensureSqliteSchema(sqlite);
-
-  return drizzle(sqlite, { schema: schemaModule });
 }
 
 async function createBetterSqliteDb(dbPath: string) {
@@ -74,114 +65,54 @@ async function createBetterSqliteDb(dbPath: string) {
   const { drizzle } = await import('drizzle-orm/better-sqlite3');
   const schemaModule = await import('../drizzle/schema-sqlite.js');
 
-  let sqlite: any;
-  try {
-    sqlite = new Database(dbPath);
-  } catch (error: any) {
-    // Check if it's a Win32 native module error
-    if (error.message?.includes('not a valid Win32 application')) {
-      logger.error('better-sqlite3 native module not compiled for this platform');
-      logger.error('Solution: Run "npm run web:bun" to use Bun instead, or rebuild with "npm rebuild better-sqlite3"');
-      throw new Error('SQLite native module unavailable. Use "npm run web:bun" or rebuild better-sqlite3 for your platform.');
-    }
-    throw error;
-  }
+  const sqlite = new Database(dbPath);
 
   // Enable foreign keys
   sqlite.pragma('foreign_keys = ON');
 
   await ensureSqliteSchema(sqlite);
 
+  logger.info('SQLite initialized with better-sqlite3');
   return drizzle(sqlite, { schema: schemaModule });
 }
 
-// Bun-specific schema bootstrap
-function ensureSqliteSchemaForBun(sqlite: any) {
-  const createMemoriesTable = `
-    CREATE TABLE IF NOT EXISTS memories (
-      id TEXT PRIMARY KEY,
-      project_id TEXT,
-      type TEXT NOT NULL DEFAULT 'observation',
-      content TEXT NOT NULL,
-      summary TEXT,
-      tags TEXT,
-      metadata TEXT,
-      embedding BLOB,
-      embedding_json TEXT,
-      source TEXT DEFAULT 'mcp',
-      tier TEXT DEFAULT 'warm',
-      status TEXT DEFAULT 'active',
-      importance_score REAL DEFAULT 50,
-      relevance_score REAL,
-      coactivation_score INTEGER DEFAULT 0,
-      access_count INTEGER DEFAULT 0,
-      retrieval_count INTEGER DEFAULT 0,
-      echo_count INTEGER DEFAULT 0,
-      fizzle_count INTEGER DEFAULT 0,
-      is_pinned INTEGER DEFAULT 0,
-      is_protected INTEGER DEFAULT 0,
-      is_immutable INTEGER DEFAULT 0,
-      is_mergeable INTEGER DEFAULT 0,
-      is_merged INTEGER DEFAULT 0,
-      merged_into TEXT,
-      merged_at TEXT,
-      superseded_by TEXT,
-      superseded_at TEXT,
-      valid_from TEXT,
-      valid_to TEXT,
-      expired_at TEXT,
-      last_accessed_at TEXT,
-      last_retrieved_at TEXT,
-      last_echoed_at TEXT,
-      last_importance_recalc TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-    )
-  `;
+async function createSqlJsDb(dbPath: string) {
+  // @ts-ignore - sql.js has no types but works fine
+  const initSqlJs = await import('sql.js');
+  const { drizzle } = await import('drizzle-orm/sql-js');
+  const schemaModule = await import('../drizzle/schema-sqlite.js');
+  const fs = await import('fs');
+  const path = await import('path');
 
-  const createProjectsTable = `
-    CREATE TABLE IF NOT EXISTS projects (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      path TEXT UNIQUE,
-      description TEXT,
-      metadata TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-    )
-  `;
-
-  const createAssociationsTable = `
-    CREATE TABLE IF NOT EXISTS memory_associations (
-      id TEXT PRIMARY KEY,
-      from_memory_id TEXT NOT NULL,
-      to_memory_id TEXT NOT NULL,
-      association_type TEXT NOT NULL,
-      weight REAL DEFAULT 1,
-      coactivation_count INTEGER DEFAULT 1,
-      last_coactivated_at TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE(from_memory_id, to_memory_id)
-    )
-  `;
-
-  sqlite.run(createMemoriesTable);
-  sqlite.run(createProjectsTable);
-  sqlite.run(createAssociationsTable);
-
-  // FTS is optional - don't fail if it doesn't work
-  try {
-    sqlite.run(`
-      CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
-        content,
-        summary,
-        content='memories',
-        content_rowid='rowid'
-      )
-    `);
-  } catch (e: any) {
-    logger.debug('FTS5 table creation skipped', { error: e?.message || String(e) });
+  const SQL = await initSqlJs.default();
+  
+  let data: Uint8Array | undefined;
+  
+  // Try to load existing database
+  if (fs.existsSync(dbPath)) {
+    data = fs.readFileSync(dbPath);
   }
-
-  logger.info('SQLite schema initialized (Bun runtime)');
+  
+  const sqlite = new SQL.Database(data);
+  
+  // Enable foreign keys
+  sqlite.run('PRAGMA foreign_keys = ON');
+  
+  // Schema bootstrap
+  await ensureSqliteSchema(sqlite);
+  
+  // Persist database on changes (sql.js is in-memory by default)
+  const originalExec = sqlite.exec.bind(sqlite);
+  sqlite.exec = function(...args: any[]) {
+    const result = originalExec(...args);
+    // Save after each exec
+    const data = sqlite.export();
+    fs.writeFileSync(dbPath, Buffer.from(data));
+    return result;
+  };
+  
+  logger.info('SQLite initialized with sql.js (pure JavaScript fallback)');
+  return drizzle(sqlite, { schema: schemaModule });
 }
+
+export default createDb;
