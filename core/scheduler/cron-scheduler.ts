@@ -208,7 +208,7 @@ export async function scheduleJob(job: ScheduledJob): Promise<void> {
       .where(eq(maintenanceJobs.id, job.id));
   }
 
-  logger.info(`[Scheduler] Scheduled ${job.jobName} with cron: ${job.cronExpression}, next run: ${nextRun?.toISOString()}`);
+  logger.info(`[Scheduler] Scheduled ${job.jobName} with cron: ${job.cronExpression}${nextRun ? `, next run: ${nextRun.toISOString()}` : ''}`);
 }
 
 export async function executeJob(job: ScheduledJob): Promise<void> {
@@ -288,13 +288,23 @@ function getNextRunTime(cronExpression: string): Date | null {
     const now = new Date();
     const parts = cronExpression.split(' ');
 
-    if (parts[2] === '*' && parts[3] === '*' && parts[4] === '*') {
+    // Daily jobs: MM HH * * *
+    if (parts[2] === '*' && parts[3] === '*' && parts[4] === '*' && parts[1] !== '*') {
       const next = new Date(now);
       next.setHours(parseInt(parts[1]), parseInt(parts[0]), 0, 0);
       if (next <= now) next.setDate(next.getDate() + 1);
       return next;
     }
 
+    // Hourly jobs: MM * * * *
+    if (parts[1] === '*' && parts[2] === '*' && parts[3] === '*' && parts[4] === '*') {
+      const next = new Date(now);
+      next.setMinutes(parseInt(parts[0]), 0, 0);
+      if (next <= now) next.setHours(next.getHours() + 1);
+      return next;
+    }
+
+    // Weekly jobs: MM HH * * D
     if (parts[4] !== '*') {
       const dayOfWeek = parseInt(parts[4]);
       const next = new Date(now);

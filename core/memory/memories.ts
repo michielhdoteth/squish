@@ -192,14 +192,17 @@ export async function getMemoryById(id: string, incrementAccess: boolean = true)
 export async function getRecentMemories(projectPath: string, limit: number): Promise<MemoryRecord[]> {
   try {
     const db = createDatabaseClient(await getDb());
-    const schema = await getSchema();
+    const sqlite = db.$client as any;
     const project = await getProjectByPath(projectPath);
     if (!project) return [];
 
-    const rows = await db.select().from(schema.memories)
-      .where(eq(schema.memories.projectId, project.id))
-      .orderBy(desc(schema.memories.createdAt))
-      .limit(limit);
+    // Use raw SQL to avoid drizzle column name issues
+    const rows = sqlite.prepare(`
+      SELECT * FROM memories 
+      WHERE project_id = ? 
+      ORDER BY created_at DESC 
+      LIMIT ?
+    `).all(project.id, limit);
 
     return rows.map((row: any) => normalizeMemory(row));
   } catch (error: any) {
