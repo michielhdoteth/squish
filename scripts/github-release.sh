@@ -19,22 +19,22 @@ cd release-assets
 # Linux x64
 echo "Building linux-x64..."
 npx pkg ../dist/index.js --targets node18-linux-x64 --output squish-linux-x64
-tar -czf "../squish-v${VERSION}-linux-x64.tar.gz" squish-linux-x64 ../dist/ ../plugin.json ../README.md ../LICENSE
+tar -czf "../squish-v${VERSION}-linux-x64.tar.gz" squish-linux-x64 ../dist/ ../config/plugin.json ../README.md ../LICENSE
 
 # Linux ARM64
 echo "Building linux-arm64..."
 npx pkg ../dist/index.js --targets node18-linux-arm64 --output squish-linux-arm64
-tar -czf "../squish-v${VERSION}-linux-arm64.tar.gz" squish-linux-arm64 ../dist/ ../plugin.json ../README.md ../LICENSE
+tar -czf "../squish-v${VERSION}-linux-arm64.tar.gz" squish-linux-arm64 ../dist/ ../config/plugin.json ../README.md ../LICENSE
 
 # macOS ARM64 (Apple Silicon)
 echo "Building macos-arm64..."
 npx pkg ../dist/index.js --targets node18-macos-arm64 --output squish-macos-arm64
-tar -czf "../squish-v${VERSION}-macos-arm64.tar.gz" squish-macos-arm64 ../dist/ ../plugin.json ../README.md ../LICENSE
+tar -czf "../squish-v${VERSION}-macos-arm64.tar.gz" squish-macos-arm64 ../dist/ ../config/plugin.json ../README.md ../LICENSE
 
 # Windows x64
 echo "Building windows-x64..."
 npx pkg ../dist/index.js --targets node18-win-x64 --output squish-windows-x64.exe
-zip "../squish-v${VERSION}-windows-x64.zip" squish-windows-x64.exe ../dist/ ../plugin.json ../README.md ../LICENSE
+zip "../squish-v${VERSION}-windows-x64.zip" squish-windows-x64.exe ../dist/ ../config/plugin.json ../README.md ../LICENSE
 
 cd ..
 rm -rf release-assets

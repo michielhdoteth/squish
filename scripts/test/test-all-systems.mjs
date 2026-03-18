@@ -115,7 +115,7 @@ console.log('');
 
 // Test 6: Configuration
 console.log('Test 6: Configuration Files');
-['plugin.json', '.mcp.json', 'hooks/hooks.json'].forEach(file => {
+['config/plugin.json', '.mcp.json', 'hooks/hooks.json'].forEach(file => {
   if (fs.existsSync(file)) {
     try {
       const content = fs.readFileSync(file, 'utf8');

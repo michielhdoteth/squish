@@ -9,7 +9,7 @@
     "squish-mcp": "dist/commands/mcp-server.js",
     "squish-add": "bin/squish-add.mjs",
     "squish-rm": "bin/squish-rm.mjs",
-    "squish-install": "npx-installer.js",
+    "squish-install": "scripts/npx-installer.js",
     "squish-install-plugin": "scripts/install-plugin.mjs"
   },
   "scripts": {
@@ -115,10 +115,10 @@
     "packages/plugin-openclaw/openclaw.plugin.json",
     "packages/plugin-opencode/package.json",
     "packages/plugin-opencode/install.mjs",
-    "plugin.json",
+    "config/plugin.json",
     ".claude-plugin",
     ".mcp.json",
-    ".env.mcp.example",
+    ".env.example",
     "LICENSE",
     "README.md",
     "CHANGELOG.md",

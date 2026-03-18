@@ -154,7 +154,7 @@ try {
   // 4. Test Plugin Configuration
   console.log('\n4. Testing Plugin Configuration...');
 
-  const pluginJsonPath = join(__dirname, 'plugin.json');
+  const pluginJsonPath = join(__dirname, '../config/plugin.json');
   if (fs.existsSync(pluginJsonPath)) {
     const pluginConfig = JSON.parse(fs.readFileSync(pluginJsonPath, 'utf8'));
     console.log('   - Plugin metadata:');
