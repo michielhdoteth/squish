@@ -65,8 +65,8 @@ squish-*.tgz
 nul
 NUL
 
-# TypeScript source (only ship dist/)
-src/
-tsconfig.json
-tsconfig.*.json
-commands/**/*.ts
+# Source maps - not needed for consumers (reduces package size by ~1.3MB)
+*.map
+dist/**/*.map
+*.d.ts.map
+dist/**/*.d.ts.map

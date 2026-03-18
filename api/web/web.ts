@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import rateLimit from 'express-rate-limit';
 import { logger } from '../../core/logger.js';
 import { getRecentMemories } from '../../core/memory/memories.js';
 import { getObservationsForProject } from '../../core/observations.js';
@@ -9,7 +10,33 @@ import { getDb } from '../../db/index.js';
 const app = express();
 const PORT = process.env.SQUISH_WEB_PORT || 37777;
 
-app.use(cors());
+const allowedOrigins = process.env.SQUISH_CORS_ORIGINS?.split(',').map(s => s.trim()) || ['http://localhost:*', 'http://127.0.0.1:*'];
+const appCors = cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.some(allowed => {
+      if (allowed.endsWith(':*')) {
+        const prefix = allowed.slice(0, -1);
+        return origin.startsWith(prefix);
+      }
+      return origin === allowed;
+    })) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  }
+});
+
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  message: { error: 'Too many requests, please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use(appCors);
+app.use(limiter);
 app.use(express.json());
 
 // Health check endpoint
