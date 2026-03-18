@@ -16,70 +16,97 @@ Generated universal MCP artifacts in .../generated/mcp
 MCP verification passed
 ```
 
-## 2) Install for Claude Code
+## 2) Interactive Installation (Recommended)
 
 ```bash
-node scripts/install-mcp.mjs --client claude-code
+squish
 ```
 
-Expected output:
+This launches the interactive wizard. Select option [5] to open the installer wizard, then follow the prompts.
 
-```text
-INSTALLED mcp-servers.json -> <target>/mcp-servers.json
+## 3) Manual Installation for Specific Clients
+
+### Claude Code
+```bash
+squish run mcp
+# Then configure Claude Code to use the MCP server
 ```
 
-## 3) Install for OpenCode
+### OpenCode
+```bash
+squish run mcp
+# Then configure OpenCode to use the MCP server
+```
+
+### Codex
+```bash
+squish run mcp
+# Then configure Codex to use the MCP server
+```
+
+### Cursor
+```bash
+squish run mcp
+# Then configure Cursor to use the MCP server
+```
+
+### VS Code
+```bash
+squish run mcp
+# Then configure VS Code to use the MCP server
+```
+
+### Windsurf
+```bash
+squish run mcp
+# Then configure Windsurf to use the MCP server
+```
+
+### OpenClaw (standalone)
+```bash
+squish install
+# Follow OpenClaw-specific prompts
+```
+
+## 4) CLI Usage (for agents and scripting)
 
 ```bash
-node scripts/install-mcp.mjs --client opencode
+# Store a memory
+squish remember "User prefers TypeScript" --type preference
+
+# Search memories
+squish search "database schema" --limit 10
+
+# Check health
+squish health
+
+# View stats
+squish stats
 ```
 
-Expected output:
-
-```text
-INSTALLED mcp-servers.json -> <target>/mcp-servers.json
-```
-
-## 4) Install for Codex
+## 5) Web UI Access
 
 ```bash
-node scripts/install-mcp.mjs --client codex
+squish run web
+# Then visit http://localhost:37777
 ```
 
-Expected output:
+## Expected outputs for manual installation
 
-```text
-INSTALLED mcp-servers.json -> <target>/mcp-servers.json
+### squish install
 ```
-
-## 5) OpenClaw bootstrap
-
-```bash
-node scripts/openclaw-bootstrap.mjs --skip-tool-check
-```
-
-Expected output:
-
-```text
-BOOTSTRAPPED mcporter config -> <target>/mcporter.json
+INSTALLED mcporter config -> <target>/mcporter.json
 BOOTSTRAPPED memory config merge -> <target>/openclaw-memory.json
 ```
 
-## 6) MCP primary + CLI fallback
-
-Primary MCP path (dry run):
-
-```bash
-node scripts/squish-fallback.mjs --op search --mcp-enabled --dry-run
+### squish run mcp
+```
+[squish:info] v1.0.1
+[squish:info] Web UI available at http://localhost:37777
 ```
 
-Fallback path (dry run):
-
-```bash
-node scripts/squish-fallback.mjs --op search --simulate-mcp-failure --dry-run
+### squish run web
 ```
-
-Expected output contains:
-
-- `"executionPath":"mcp"` for primary
-- `"executionPath":"cli-fallback"` for fallback
+[squish] Starting Web UI only...
+[squish:info] Web UI available at http://localhost:37777
+```

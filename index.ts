@@ -19,6 +19,7 @@
 
 import 'dotenv/config';
 import fs from 'node:fs';
+import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -72,12 +73,13 @@ import {
   getContextStatus,
 } from './core/context-paging.js';
 import { ensureDataDirectory } from './db/bootstrap.js';
+import { getDataDir } from './config.js';
 import { performAutoLoad, shouldAutoLoad, getAutoLoadConfig } from './core/session/auto-load.js';
 import { initializeScheduler, registerJobHandler } from './core/scheduler/cron-scheduler.js';
 import { startHeartbeatChecking, heartbeat } from './core/scheduler/heartbeat.js';
 import { runNightlyJob, runWeeklyJob } from './core/scheduler/job-runner.js';
 
-const VERSION = '1.0.1';
+const VERSION = '1.0.2';
 
 // Load plugin manifest for self-verification
 function loadPluginManifest(): any {
@@ -121,22 +123,210 @@ function verifyManifest(manifest: any): { ok: boolean; errors: string[] } {
 }
 
 // ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
+function showHelp() {
+  console.log(`
+Squish Memory v${VERSION} - Universal Memory Plugin System
+
+Usage:
+  squish                      Start interactive wizard
+  squish run mcp              Start MCP server
+  squish run web              Start Web UI only
+  squish <command> [options]  Run CLI commands for agents
+
+CLI Commands (for agents):
+  squish remember <content>   Store a memory
+  squish search <query>       Search memories
+  squish health               Check system health
+  squish stats                View statistics
+  squish core_memory          Manage core memory
+
+Examples:
+  squish run mcp              # Start MCP server (for Claude Code)
+  squish run web              # Start Web UI only
+  squish remember "Hello"     # Store memory via CLI
+  squish search "query"       # Search memories via CLI
+
+For more info: https://github.com/michielhdoteth/squish
+`);
+}
+
+async function runInteractiveInstaller() {
+  const { select } = await import('@clack/prompts');
+  const { isCancel } = await import('@clack/prompts');
+  const { log } = await import('@clack/prompts');
+  const { intro, outro } = await import('@clack/prompts');
+
+  intro(`Squish Memory v${VERSION}`);
+
+  const options = [
+    { value: 'mcp', label: 'Start MCP Server (for AI Assistants: Claude Code, OpenCode, etc.)' },
+    { value: 'web', label: 'Start Web UI Only' },
+    { value: 'health', label: 'Health & Stats' },
+    { value: 'help', label: 'Show Help' },
+    { value: 'exit', label: 'Exit' }
+  ];
+
+  const selected = await select({
+    message: 'What would you like to do?',
+    options: options,
+  });
+
+  if (isCancel(selected)) {
+    outro('Cancelled');
+    process.exit(0);
+    return;
+  }
+
+  switch (selected) {
+    case 'mcp':
+      log.step('Starting MCP server...');
+      await runMcpMode();
+      break;
+    case 'web':
+      log.step('Starting Web UI...');
+      await runWebOnly();
+      break;
+    case 'health':
+      log.step('Checking health...');
+      await runCliCommand('health');
+      await runCliCommand('stats');
+      break;
+    case 'help':
+      showHelp();
+      process.exit(0);
+      break;
+    case 'exit':
+      outro('Goodbye! 👋');
+      process.exit(0);
+      break;
+  }
+}
+
+async function runCliCommand(command: string) {
+  // Run CLI command programmatically
+  const program = new Command();
+  
+  program.hook('preAction', async () => {
+    await ensureDataDirectory();
+  });
+  
+  if (command === 'health') {
+    const dbHealth = await checkDatabaseHealth();
+    const redisHealth = await checkRedisHealth();
+    const dataDir = process.env.SQUISH_DATA_DIR || path.join(os.homedir(), '.squish');
+    const dirExists = fs.existsSync(dataDir);
+    
+    console.log(`\n  Squish Memory v${VERSION}`);
+    console.log(`  ====================`);
+    console.log(`  Mode:     ${config.isTeamMode ? 'team' : 'local'}`);
+    console.log(`  Database: ${dbHealth ? 'ok' : 'error'}`);
+    console.log(`  Cache:    ${redisHealth ? 'ok' : 'unavailable'}`);
+    console.log(`  Data Dir: ${dataDir}`);
+    console.log(`  Status:   ${dbHealth ? 'HEALTHY' : 'UNHEALTHY'}\n`);
+  } else if (command === 'stats') {
+    const stats = await getMemoryStats(process.cwd());
+    console.log(JSON.stringify({ ok: true, ...stats }, null, 2));
+  }
+}
+
+async function spawnInstallerWizard() {
+  const distDir = path.dirname(fileURLToPath(import.meta.url));
+  const packageDir = path.dirname(distDir);
+  const installScript = path.join(packageDir, 'scripts', 'install-interactive.mjs');
+
+  if (!fs.existsSync(installScript)) {
+    console.error('Installer not found at:', installScript);
+    process.exit(1);
+  }
+
+  console.log('\nLaunching full installer wizard...\n');
+  const result = spawnSync('node', [`"${installScript}"`], {
+    stdio: 'inherit',
+    shell: true,
+    cwd: packageDir
+  });
+
+  process.exit(result.status || 0);
+}
+
+function isDatabaseInitialized(): boolean {
+  try {
+    const dataDir = getDataDir();
+    const dbPath = path.join(dataDir, 'squish.db');
+    return existsSync(dataDir) && existsSync(dbPath);
+  } catch (error) {
+    return false;
+  }
+}
+
+async function runWebOnly() {
+  console.log(`[squish] Starting Web UI only...`);
+  await ensureDataDirectory();
+  startWebServer();
+}
+
+// ============================================================================
 // CLI MODE DETECTION
 // ============================================================================
 
 const args = process.argv.slice(2);
-const hasCliArgs = args.length > 0 && args[0] !== '--mcp';
+const firstArg = args[0];
 
-if (hasCliArgs) {
-  // === CLI MODE (for OpenClaw) ===
+// Detect command type
+const isNoArgs = args.length === 0;
+const isRunCommand = firstArg === 'run';
+const isHelpCommand = firstArg === '--help' || firstArg === '-h' || firstArg === 'help';
+
+if (isNoArgs) {
+  // Check if database exists - if not, run installer automatically
+  if (!isDatabaseInitialized()) {
+    console.log(`[squish] No existing database found. Launching installer wizard...\n`);
+    await spawnInstallerWizard();
+  } else {
+    // === INTERACTIVE WIZARD (default when no args) ===
+    runInteractiveInstaller().catch((e) => {
+      console.error('Installer error:', e.message);
+      process.exit(1);
+    });
+  }
+} else if (isRunCommand) {
+  // === RUN SUBCOMMAND ===
+  const subcommand = args[1];
+  if (subcommand === 'mcp') {
+    runMcpMode().catch((e) => {
+      logger.error('Fatal error', e);
+      process.exit(1);
+    });
+  } else if (subcommand === 'web') {
+    runWebOnly().catch((e) => {
+      logger.error('Web server error', e);
+      process.exit(1);
+    });
+  } else {
+    console.log(`
+Usage: squish run <command>
+
+Commands:
+  mcp    Start MCP server
+  web    Start Web UI only
+
+Examples:
+  squish run mcp   # Start MCP server with web UI
+  squish run web   # Start Web UI only
+`);
+    process.exit(subcommand ? 1 : 0);
+  }
+} else if (isHelpCommand) {
+  // === SHOW HELP ===
+  showHelp();
+  process.exit(0);
+} else {
+  // === CLI MODE (for agents/OpenClaw) ===
   runCliMode().catch((e) => {
     console.error(JSON.stringify({ error: e.message }, null, 2));
-    process.exit(1);
-  });
-} else {
-  // === MCP MODE (for Claude Code) - DEFAULT ===
-  runMcpMode().catch((e) => {
-    logger.error('Fatal error', e);
     process.exit(1);
   });
 }
@@ -406,61 +596,28 @@ async function runCliMode() {
       }
     });
 
-  // squish stats
-  program
-    .command('stats')
-    .description('Get memory statistics')
-    .option('-p, --project <project>', 'Project path', process.cwd())
-    .action(async (options) => {
-      try {
-        const stats = await getMemoryStats(options.project);
-        console.log(JSON.stringify({ ok: true, ...stats }, null, 2));
-      } catch (error: any) {
-        console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
-        process.exit(1);
-      }
-    });
-
-  // squish install (for OpenClaw self-install)
-  program
-    .command('install')
-    .description('Install Squish for OpenClaw (self-configure MCP)')
-    .option('-o, --openclaw-dir <dir>', 'OpenClaw directory')
-    .option('-n, --dry-run', 'Show what would be done without making changes', false)
-    .option('--skip-install', 'Skip global npm install step', false)
-    .action(async (options) => {
-      // Find the install script - it's in scripts/ relative to the package root
-      // When running from dist/index.js, scripts is at ../scripts/
-      const distDir = path.dirname(fileURLToPath(import.meta.url));
-      const packageDir = path.dirname(distDir);
-      const installScript = path.join(packageDir, 'scripts', 'install.mjs');
-
-      // Check if the script exists
-      if (!fs.existsSync(installScript)) {
-        console.log(JSON.stringify({
-          ok: false,
-          error: `Install script not found at: ${installScript}`,
-          hint: 'Please ensure squish-memory is installed correctly'
-        }, null, 2));
-        process.exit(1);
-      }
-
-      // Build command with quoted path for Windows compatibility
-      const args = [`"${installScript}"`];
-      if (options.dryRun) args.push('--dry-run');
-      if (options.openclawDir) args.push('--openclaw-dir', `"${options.openclawDir}"`);
-      if (options.skipInstall) args.push('--skip-install');
-
-      const result = spawnSync('node', args, {
-        stdio: 'inherit',
-        shell: true,
-        cwd: packageDir
+    // squish stats
+    program
+      .command('stats')
+      .description('View statistics')
+      .option('-p, --project <project>', 'Project path', process.cwd())
+      .action(async (options) => {
+        try {
+          const stats = await getMemoryStats(options.project);
+          console.log(JSON.stringify({ ok: true, ...stats }, null, 2));
+        } catch (error: any) {
+          console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
+          process.exit(1);
+        }
       });
 
-      if (result.status !== 0) {
-        process.exit(result.status || 1);
-      }
-    });
+    // squish install
+    program
+      .command('install')
+      .description('Run the interactive installer wizard')
+      .action(async () => {
+        await spawnInstallerWizard();
+      });
 
   await program.parseAsync(process.argv);
 }

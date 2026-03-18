@@ -1,13 +1,13 @@
 ---
 name: squish-memory
 description: Squish - Persistent memory system for AI assistants. Store facts, decisions, and context with semantic search. Works with Claude Code, OpenCode, OpenClaw, and any MCP client.
-version: 0.9.0
+version: 1.0.1
 author: michielhdoteth
 tags: [memory, persistence, search, semantic-search, ai-assistant, mcp, cli]
 emoji: brain
 ---
 
-# Squish Memory v0.9.0
+# Squish Memory v1.0.1
 
 Persistent memory system for AI coding assistants. Store facts, decisions, context, and preferences with semantic search.
 
@@ -20,6 +20,8 @@ Squish provides persistent memory for AI agents with:
 - **Core Memory**: Always-visible context sections
 - **Importance Scoring**: Auto-score memories with temporal decay
 - **Consolidation**: Summarize old, low-importance memories
+- **Namespace Support**: Hierarchical organization of memories
+- **Maintenance Scheduling**: Automated cleanup and optimization tasks
 
 ## Install
 
@@ -31,20 +33,28 @@ bun add -g squish-memory
 
 ## Quick Setup
 
-### Claude Code
+### Interactive Wizard (Recommended)
 ```bash
-npx squish-memory install claude
+squish
+```
+Launches the interactive installer menu.
+
+### Direct Server Start
+```bash
+# MCP server (for Claude Code, etc.)
+squish run mcp
+
+# Web UI only
+squish run web
 ```
 
-### OpenCode
-```bash
-npx squish-memory install opencode
-```
-
-### OpenClaw
-```bash
-npx squish-memory install openclaw
-```
+### MCP Clients
+Configure in your client's MCP settings:
+- **Command**: `squish-mcp`
+- **Args**: (none needed)
+- **Environment**: 
+  - `SQUISH_MODE=local` or `team`
+  - `SQUISH_DATA_DIR=~/.squish`
 
 ## Skills Available
 
@@ -76,15 +86,17 @@ This repo contains 4 skills for different use cases:
 
 ## CLI Commands
 
+- `squish` - Interactive wizard/menu
+- `squish run mcp` - Start MCP server
+- `squish run web` - Start Web UI only
 - `squish remember` - Store memory
 - `squish search` - Find memories
 - `squish recall` - Get by ID
-- `squish core_memory` - Manage context
-- `squish set-importance` - Set score
-- `squish pin/unpin` - Prevent pruning
-- `squish consolidate` - Summarize old
-- `squish health` - Check status
-- `squish stats` - View stats
+- `squish health` - Check service status
+- `squish stats` - View memory statistics
+- `squish core_memory` - Manage always-visible context
+- `squish add` - Interactive installer (alias)
+- `squish rm` - Remove memory
 
 ## Configuration
 
@@ -93,8 +105,10 @@ This repo contains 4 skills for different use cases:
 | SQUISH_MODE | local or team | local |
 | SQUISH_DATA_DIR | Data directory | ~/.squish |
 | SQUISH_EMBEDDINGS_PROVIDER | local or openai | local |
+| SQUISH_QMD_ENABLED | Enable QMD search | true |
 
 ## More Info
 
 - GitHub: https://github.com/michielhdoteth/squish
 - npm: https://www.npmjs.com/package/squish-memory
+- Docs: https://github.com/michielhdoteth/squish/tree/main/docs

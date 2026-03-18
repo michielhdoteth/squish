@@ -116,7 +116,8 @@ function parseArgs(argv) {
     dryRun: false,
     help: false,
     verbose: false,
-    quick: false
+    quick: false,
+    interactive: false
   };
   
   for (let i = 2; i < argv.length; i++) {
@@ -136,6 +137,8 @@ function parseArgs(argv) {
       flags.help = true;
     } else if (token === "--quick" || token === "-q") {
       flags.quick = true;
+    } else if (token === "--interactive" || token === "-i") {
+      flags.interactive = true;
     } else if (token.startsWith("--select=")) {
       flags.select = token.slice(9).split(",").map(s => s.trim());
     } else if (token === "--select") {
@@ -647,13 +650,13 @@ async function main() {
     verbose: flags.verbose
   };
   
-  // Non-interactive mode
-  if (flags.auto || flags.quick || flags.select.length > 0 || shouldUseNonInteractive()) {
+  // Non-interactive mode (only if explicitly requested and not in interactive mode)
+  if (!flags.interactive && (flags.auto || flags.quick || flags.select.length > 0 || shouldUseNonInteractive())) {
     await handleNonInteractive(flags, options);
     return;
   }
   
-  // Interactive wizard mode
+  // Interactive wizard mode (default when no flags, or when --interactive is passed)
   await runWizard(options);
 }
 

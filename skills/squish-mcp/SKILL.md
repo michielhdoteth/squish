@@ -1,7 +1,7 @@
 ---
 name: squish-mcp
 description: Squish MCP tools for Claude Code, OpenCode, Cursor and other MCP clients. 16 tools for persistent memory storage, search, and context management.
-version: 0.9.0
+version: 1.0.1
 author: michielhdoteth
 tags: [mcp, memory, persistence, search, semantic-search, claude-code, opencode, cursor]
 emoji: plug
@@ -17,7 +17,19 @@ Use these MCP tools when working with Claude Code, OpenCode, Cursor, or any MCP-
 npm install -g squish-memory
 ```
 
-Configure in your client's MCP settings.
+Then start the MCP server:
+```bash
+squish run mcp
+```
+
+This will also start the Web UI at http://localhost:37777
+
+Configure in your client's MCP settings:
+- **Command**: `squish-mcp`
+- **Args**: (none needed)
+- **Environment**: 
+  - `SQUISH_MODE=local` or `team`
+  - `SQUISH_DATA_DIR=~/.squish`
 
 ## MCP Tools (16 Tools)
 
@@ -256,6 +268,17 @@ Generate embeddings.
 ### 12. squish_health
 Check system health. No input required.
 
+```typescript
+{
+  name: "squish_health",
+  description: "Check system health",
+  inputSchema: {
+    type: "object",
+    properties: {}
+  }
+}
+```
+
 ### 13. squish_stats
 Get memory statistics.
 
@@ -274,6 +297,16 @@ Get memory statistics.
 
 ### 14. squish_projects
 List all projects. No input required.
+
+```typescript
+{
+  name: "squish_projects",
+  description: "List all projects",
+  inputSchema: {
+    type: "object"
+  }
+}
+```
 
 ## Quick Reference
 
@@ -309,3 +342,14 @@ List all projects. No input required.
   }
 }
 ```
+
+## Migration from v0.9.x
+
+**Breaking Changes:**
+- Added `squish run mcp` and `squish run web` commands to start servers
+- The `squish` command now shows interactive wizard (was MCP server + Web UI)
+
+**What stays the same:**
+- All MCP tool names and schemas
+- Environment variables
+- Configuration format

@@ -1,7 +1,7 @@
 ---
 name: squish-cli
 description: Squish CLI commands for OpenClaw and other CLI-based agents. Use for bash execution, scripting, and automation.
-version: 0.9.0
+version: 1.0.1
 author: michielhdoteth
 tags: [cli, memory, persistence, command-line, openclaw, bash, automation]
 emoji: terminal
@@ -18,6 +18,13 @@ npm install -g squish-memory
 # or
 bun add -g squish-memory
 ```
+
+## Overview
+
+Squish v1.0.1 introduces a new interaction model:
+- **Default (`squish`)**: Interactive wizard/menu
+- **Server modes**: `squish run mcp` and `squish run web`
+- **CLI commands**: For agents and scripting (unchanged)
 
 ## Commands
 
@@ -145,36 +152,57 @@ squish stats
 squish stats --project /path/to/project
 ```
 
-### squish install
+### squish
 
-Self-install for OpenClaw.
+Interactive wizard/menu (default when no args provided).
 
 ```bash
-squish install
-squish install --dry-run
-squish install --skip-install
+squish
 ```
 
-Options:
-- `-o, --openclaw-dir <dir>` - OpenClaw directory
-- `-n, --dry-run` - Show what would be done
-- `--skip-install` - Skip global npm install
+Shows interactive menu:
+```
+[1] Start MCP Server (for Claude Code, etc.)
+[2] Start Web UI Only
+[3] Check Health Status
+[4] View Memory Stats
+[5] Open Installer Wizard
+[6] Show Help
+[0] Exit
+```
+
+### squish run mcp
+
+Start MCP server (also starts Web UI):
+
+```bash
+squish run mcp
+```
+
+### squish run web
+
+Start Web UI only:
+
+```bash
+squish run web
+```
 
 ## Quick Reference
 
 | Command | Purpose | Example |
 |---------|---------|---------|
-| remember | Store memory | `squish remember "text"` |
-| search | Find memories | `squish search "query"` |
-| recall | Get by ID | `squish recall <id>` |
-| core_memory | Manage context | `squish core_memory view` |
-| set-importance | Set score | `squish set-importance <id> 80` |
-| pin/unpin | Prevent pruning | `squish pin <id>` |
-| consolidate | Summarize old | `squish consolidate` |
-| consolidation-stats | View stats | `squish consolidation-stats` |
-| health | Check status | `squish health` |
-| stats | View stats | `squish stats` |
-| install | Setup OpenClaw | `squish install` |
+| `squish` | Interactive wizard/menu | `squish` |
+| `squish run mcp` | Start MCP server | `squish run mcp` |
+| `squish run web` | Start Web UI only | `squish run web` |
+| `squish remember` | Store memory | `squish remember "text"` |
+| `squish search` | Find memories | `squish search "query"` |
+| `squish recall` | Get by ID | `squish recall <id>` |
+| `squish core_memory` | Manage context | `squish core_memory view` |
+| `squish set-importance` | Set score | `squish set-importance <id> 80` |
+| `squish pin/unpin` | Prevent pruning | `squish pin <id>` |
+| `squish consolidate` | Summarize old | `squish consolidate` |
+| `squish health` | Check status | `squish health` |
+| `squish stats` | View stats | `squish stats` |
 
 ## Output Format
 
@@ -198,3 +226,15 @@ export SQUISH_MODE=local        # or team
 export SQUISH_DATA_DIR=~/.squish
 export SQUISH_EMBEDDINGS_PROVIDER=local  # or openai
 ```
+
+## Migration from v0.9.x
+
+**Breaking Changes:**
+- `squish install` removed (replaced by interactive wizard option 5)
+- `squish` now shows interactive menu (was MCP server + Web UI)
+- Added `squish run mcp` and `squish run web` subcommands
+
+**What stays the same:**
+- All CLI command syntax and options
+- Environment variables
+- Configuration files

@@ -100,11 +100,26 @@ async function ensureDefaultJobs(db: any): Promise<void> {
   ];
 
   for (const job of defaultJobs) {
-    const existing = await db
-      .select()
-      .from(maintenanceJobs)
-      .where(eq(maintenanceJobs.jobName, job.jobName))
-      .limit(1);
+    let existing;
+    try {
+      existing = await db
+        .select()
+        .from(maintenanceJobs)
+        .where(eq((maintenanceJobs as any).jobName, job.jobName))
+        .limit(1);
+    } catch (queryError: any) {
+      logger.error(`[Scheduler] Query failed for job ${job.jobName}:`, queryError.message);
+      // Try raw SQL fallback
+      try {
+        const rawDb = (db as any).$client;
+        if (rawDb && typeof rawDb.prepare === 'function') {
+          existing = rawDb.prepare('SELECT * FROM maintenance_jobs WHERE job_name = ?').all(job.jobName);
+        }
+      } catch (fallbackError: any) {
+        logger.error(`[Scheduler] Fallback query also failed:`, fallbackError.message);
+        throw queryError;
+      }
+    }
 
     if (existing.length === 0) {
       await db.insert(maintenanceJobs).values({
@@ -112,6 +127,11 @@ async function ensureDefaultJobs(db: any): Promise<void> {
         totalRuns: 0,
         successCount: 0,
         failureCount: 0,
+        lastRunAt: null,
+        nextRunAt: null,
+        lastRunDuration: null,
+        lastRunStatus: null,
+        lastRunError: null,
       });
       logger.info(`[Scheduler] Created default job: ${job.jobName}`);
 

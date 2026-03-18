@@ -334,6 +334,44 @@ CREATE TABLE IF NOT EXISTS memory_hash_cache (
 
 CREATE INDEX IF NOT EXISTS memory_hash_cache_project_id_idx ON memory_hash_cache(project_id);
 CREATE INDEX IF NOT EXISTS memory_hash_cache_simhash_idx ON memory_hash_cache(simhash);
+
+-- Namespaces table (v1.0.x) - Hierarchical organization
+CREATE TABLE IF NOT EXISTS namespaces (
+  id TEXT PRIMARY KEY,
+  project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  path TEXT,
+  description TEXT,
+  parent_id TEXT REFERENCES namespaces(id) ON DELETE SET NULL,
+  created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL,
+  updated_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL
+);
+CREATE INDEX IF NOT EXISTS namespaces_project_idx ON namespaces(project_id);
+CREATE INDEX IF NOT EXISTS namespaces_parent_idx ON namespaces(parent_id);
+
+-- Maintenance jobs table (v1.0.x) - Cron scheduler
+CREATE TABLE IF NOT EXISTS maintenance_jobs (
+  id TEXT PRIMARY KEY,
+  job_name TEXT NOT NULL UNIQUE,
+  job_type TEXT NOT NULL,
+  cron_expression TEXT,
+  enabled INTEGER DEFAULT 1 NOT NULL,
+  last_run_at INTEGER,
+  last_run_duration INTEGER,
+  last_run_status TEXT,
+  last_run_error TEXT,
+  total_runs INTEGER DEFAULT 0,
+  success_count INTEGER DEFAULT 0,
+  failure_count INTEGER DEFAULT 0,
+  job_config TEXT,
+  next_run_at INTEGER,
+  created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL,
+  updated_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL
+);
+CREATE INDEX IF NOT EXISTS maintenance_jobs_name_idx ON maintenance_jobs(job_name);
+CREATE INDEX IF NOT EXISTS maintenance_jobs_next_run_idx ON maintenance_jobs(next_run_at);
+CREATE INDEX IF NOT EXISTS maintenance_jobs_type_idx ON maintenance_jobs(job_type);
+CREATE INDEX IF NOT EXISTS maintenance_jobs_enabled_idx ON maintenance_jobs(enabled);
 `;
 
 const postgresStatements = [
@@ -575,98 +613,83 @@ async function runSqliteMigrations(sqlite: Database): Promise<void> {
      return;
    }
    
-   // Migrations for memories table
-   const memoriesMigrations = [
-    { col: 'embedding', sql: 'ALTER TABLE memories ADD COLUMN embedding BLOB' },
-    { col: 'is_private', sql: 'ALTER TABLE memories ADD COLUMN is_private INTEGER DEFAULT 0' },
-    { col: 'has_secrets', sql: 'ALTER TABLE memories ADD COLUMN has_secrets INTEGER DEFAULT 0' },
-    { col: 'relevance_score', sql: 'ALTER TABLE memories ADD COLUMN relevance_score INTEGER DEFAULT 50' },
-    { col: 'is_merged', sql: 'ALTER TABLE memories ADD COLUMN is_merged INTEGER DEFAULT 0' },
-    { col: 'merged_into_id', sql: 'ALTER TABLE memories ADD COLUMN merged_into_id TEXT' },
-    { col: 'is_mergeable', sql: 'ALTER TABLE memories ADD COLUMN is_mergeable INTEGER DEFAULT 1' },
-    { col: 'is_canonical', sql: 'ALTER TABLE memories ADD COLUMN is_canonical INTEGER DEFAULT 0' },
-     // v0.8.0: Importance scoring
-     { col: 'importance_score', sql: 'ALTER TABLE memories ADD COLUMN importance_score INTEGER DEFAULT 50' },
-     { col: 'importance_decay_rate', sql: 'ALTER TABLE memories ADD COLUMN importance_decay_rate INTEGER DEFAULT 30' },
-     { col: 'last_importance_recalc', sql: 'ALTER TABLE memories ADD COLUMN last_importance_recalc INTEGER' },
-     // v0.8.0: Consolidation
-     { col: 'consolidated_into', sql: 'ALTER TABLE memories ADD COLUMN consolidated_into TEXT' },
-     { col: 'consolidated_at', sql: 'ALTER TABLE memories ADD COLUMN consolidated_at INTEGER' },
-     { col: 'is_consolidated', sql: 'ALTER TABLE memories ADD COLUMN is_consolidated INTEGER DEFAULT 0' },
-     { col: 'merged_at', sql: 'ALTER TABLE memories ADD COLUMN merged_at INTEGER' },
-     { col: 'sector', sql: 'ALTER TABLE memories ADD COLUMN sector TEXT DEFAULT "episodic"' },
-     { col: 'tier', sql: 'ALTER TABLE memories ADD COLUMN tier TEXT DEFAULT "hot"' },
-     { col: 'context_status', sql: 'ALTER TABLE memories ADD COLUMN context_status TEXT DEFAULT "out-of-context"' },
-     { col: 'decay_rate', sql: 'ALTER TABLE memories ADD COLUMN decay_rate INTEGER DEFAULT 30' },
-     { col: 'coactivation_score', sql: 'ALTER TABLE memories ADD COLUMN coactivation_score INTEGER DEFAULT 0' },
-     { col: 'last_decay_at', sql: 'ALTER TABLE memories ADD COLUMN last_decay_at INTEGER DEFAULT (strftime(\'%s\',\'now\'))' },
-     { col: 'agent_id', sql: 'ALTER TABLE memories ADD COLUMN agent_id TEXT' },
-     { col: 'agent_role', sql: 'ALTER TABLE memories ADD COLUMN agent_role TEXT' },
-     { col: 'retrieval_priority', sql: 'ALTER TABLE memories ADD COLUMN retrieval_priority INTEGER DEFAULT 50' },
-     // v0.9.0: New schema columns
-     { col: 'recorded_at', sql: 'ALTER TABLE memories ADD COLUMN recorded_at INTEGER DEFAULT (strftime(\'%s\',\'now\'))' },
-     { col: 'confidence', sql: 'ALTER TABLE memories ADD COLUMN confidence INTEGER DEFAULT 100' },
-     { col: 'is_private', sql: 'ALTER TABLE memories ADD COLUMN is_private INTEGER DEFAULT 0' },
-     { col: 'has_secrets', sql: 'ALTER TABLE memories ADD COLUMN has_secrets INTEGER DEFAULT 0' },
-     { col: 'valid_from', sql: 'ALTER TABLE memories ADD COLUMN valid_from INTEGER' },
-     { col: 'valid_to', sql: 'ALTER TABLE memories ADD COLUMN valid_to INTEGER' },
-     { col: 'superseded_by', sql: 'ALTER TABLE memories ADD COLUMN superseded_by TEXT' },
-     { col: 'version', sql: 'ALTER TABLE memories ADD COLUMN version INTEGER DEFAULT 1' },
-     { col: 'merge_source_ids', sql: 'ALTER TABLE memories ADD COLUMN merge_source_ids TEXT' },
-     { col: 'merge_version', sql: 'ALTER TABLE memories ADD COLUMN merge_version INTEGER DEFAULT 1' },
-     { col: 'user_id', sql: 'ALTER TABLE memories ADD COLUMN user_id TEXT' },
-     { col: 'confidence', sql: 'ALTER TABLE memories ADD COLUMN confidence INTEGER DEFAULT 100' },
-     { col: 'is_active', sql: 'ALTER TABLE memories ADD COLUMN is_active INTEGER DEFAULT 1' },
-     { col: 'expires_at', sql: 'ALTER TABLE memories ADD COLUMN expires_at INTEGER' },
-     { col: 'decay_rate', sql: 'ALTER TABLE memories ADD COLUMN decay_rate INTEGER DEFAULT 30' },
-     { col: 'coactivation_score', sql: 'ALTER TABLE memories ADD COLUMN coactivation_score INTEGER DEFAULT 0' },
-     { col: 'last_decay_at', sql: 'ALTER TABLE memories ADD COLUMN last_decay_at INTEGER' },
-     { col: 'agent_id', sql: 'ALTER TABLE memories ADD COLUMN agent_id TEXT' },
-     { col: 'agent_role', sql: 'ALTER TABLE memories ADD COLUMN agent_role TEXT' },
-     { col: 'retrieval_priority', sql: 'ALTER TABLE memories ADD COLUMN retrieval_priority INTEGER DEFAULT 50' },
-    // v0.8.0: Consolidation
-    { col: 'consolidated_into', sql: 'ALTER TABLE memories ADD COLUMN consolidated_into TEXT' },
-    { col: 'consolidated_at', sql: 'ALTER TABLE memories ADD COLUMN consolidated_at INTEGER' },
-    { col: 'is_consolidated', sql: 'ALTER TABLE memories ADD COLUMN is_consolidated INTEGER DEFAULT 0' },
-    { col: 'merged_at', sql: 'ALTER TABLE memories ADD COLUMN merged_at INTEGER' },
-    { col: 'sector', sql: 'ALTER TABLE memories ADD COLUMN sector TEXT DEFAULT "episodic"' },
-    { col: 'tier', sql: 'ALTER TABLE memories ADD COLUMN tier TEXT DEFAULT "hot"' },
-    { col: 'context_status', sql: 'ALTER TABLE memories ADD COLUMN context_status TEXT DEFAULT "out-of-context"' },
-    { col: 'decay_rate', sql: 'ALTER TABLE memories ADD COLUMN decay_rate INTEGER DEFAULT 30' },
-    { col: 'coactivation_score', sql: 'ALTER TABLE memories ADD COLUMN coactivation_score INTEGER DEFAULT 0' },
-    { col: 'last_decay_at', sql: 'ALTER TABLE memories ADD COLUMN last_decay_at INTEGER DEFAULT (strftime(\'%s\',\'now\'))' },
-    { col: 'agent_id', sql: 'ALTER TABLE memories ADD COLUMN agent_id TEXT' },
-    { col: 'agent_role', sql: 'ALTER TABLE memories ADD COLUMN agent_role TEXT' },
-    { col: 'visibility_scope', sql: 'ALTER TABLE memories ADD COLUMN visibility_scope TEXT DEFAULT "private"' },
-    { col: 'is_protected', sql: 'ALTER TABLE memories ADD COLUMN is_protected INTEGER DEFAULT 0' },
-    { col: 'is_pinned', sql: 'ALTER TABLE memories ADD COLUMN is_pinned INTEGER DEFAULT 0' },
-    { col: 'is_immutable', sql: 'ALTER TABLE memories ADD COLUMN is_immutable INTEGER DEFAULT 0' },
-    { col: 'write_scope', sql: 'ALTER TABLE memories ADD COLUMN write_scope TEXT' },
-    { col: 'read_scope', sql: 'ALTER TABLE memories ADD COLUMN read_scope TEXT' },
-    { col: 'triggered_by', sql: 'ALTER TABLE memories ADD COLUMN triggered_by TEXT' },
-    { col: 'capture_reason', sql: 'ALTER TABLE memories ADD COLUMN capture_reason TEXT' },
-    { col: 'last_used_at', sql: 'ALTER TABLE memories ADD COLUMN last_used_at INTEGER' },
-    { col: 'usage_count', sql: 'ALTER TABLE memories ADD COLUMN usage_count INTEGER DEFAULT 0' },
-    { col: 'valid_from', sql: 'ALTER TABLE memories ADD COLUMN valid_from INTEGER' },
-    { col: 'valid_to', sql: 'ALTER TABLE memories ADD COLUMN valid_to INTEGER' },
-    { col: 'superseded_by', sql: 'ALTER TABLE memories ADD COLUMN superseded_by TEXT' },
-    { col: 'version', sql: 'ALTER TABLE memories ADD COLUMN version INTEGER DEFAULT 1' },
-    { col: 'merge_source_ids', sql: 'ALTER TABLE memories ADD COLUMN merge_source_ids TEXT' },
-    { col: 'merge_version', sql: 'ALTER TABLE memories ADD COLUMN merge_version INTEGER DEFAULT 1' },
-    { col: 'user_id', sql: 'ALTER TABLE memories ADD COLUMN user_id TEXT' },
-    { col: 'confidence', sql: 'ALTER TABLE memories ADD COLUMN confidence INTEGER DEFAULT 100' },
-    { col: 'is_active', sql: 'ALTER TABLE memories ADD COLUMN is_active INTEGER DEFAULT 1' },
-    { col: 'expires_at', sql: 'ALTER TABLE memories ADD COLUMN expires_at INTEGER' },
-    { col: 'decay_rate', sql: 'ALTER TABLE memories ADD COLUMN decay_rate INTEGER DEFAULT 30' },
-    { col: 'coactivation_score', sql: 'ALTER TABLE memories ADD COLUMN coactivation_score INTEGER DEFAULT 0' },
-    { col: 'last_decay_at', sql: 'ALTER TABLE memories ADD COLUMN last_decay_at INTEGER' },
-    { col: 'agent_id', sql: 'ALTER TABLE memories ADD COLUMN agent_id TEXT' },
-    { col: 'agent_role', sql: 'ALTER TABLE memories ADD COLUMN agent_role TEXT' },
-    { col: 'retrieval_priority', sql: 'ALTER TABLE memories ADD COLUMN retrieval_priority INTEGER DEFAULT 50' },
-    { col: 'importance_score', sql: 'ALTER TABLE memories ADD COLUMN importance_score INTEGER DEFAULT 50' },
-    { col: 'importance_decay_rate', sql: 'ALTER TABLE memories ADD COLUMN importance_decay_rate INTEGER DEFAULT 30' },
-    { col: 'last_importance_recalc', sql: 'ALTER TABLE memories ADD COLUMN last_importance_recalc INTEGER' },
-   ];
+    // Migrations for memories table (deduplicated, ordered by version)
+     const memoriesMigrations = [
+       // Base columns (v0.1.x - v0.5.x)
+       { col: 'embedding', sql: 'ALTER TABLE memories ADD COLUMN embedding BLOB' },
+       { col: 'relevance_score', sql: 'ALTER TABLE memories ADD COLUMN relevance_score INTEGER DEFAULT 50' },
+
+       // Merge tracking (v0.6.x)
+       { col: 'is_merged', sql: 'ALTER TABLE memories ADD COLUMN is_merged INTEGER DEFAULT 0' },
+       { col: 'merged_into_id', sql: 'ALTER TABLE memories ADD COLUMN merged_into_id TEXT' },
+       { col: 'is_mergeable', sql: 'ALTER TABLE memories ADD COLUMN is_mergeable INTEGER DEFAULT 1' },
+       { col: 'is_canonical', sql: 'ALTER TABLE memories ADD COLUMN is_canonical INTEGER DEFAULT 0' },
+       { col: 'merged_at', sql: 'ALTER TABLE memories ADD COLUMN merged_at INTEGER' },
+       { col: 'merge_source_ids', sql: 'ALTER TABLE memories ADD COLUMN merge_source_ids TEXT' },
+       { col: 'merge_version', sql: 'ALTER TABLE memories ADD COLUMN merge_version INTEGER DEFAULT 1' },
+
+       // Importance scoring (v0.8.0)
+       { col: 'importance_score', sql: 'ALTER TABLE memories ADD COLUMN importance_score INTEGER DEFAULT 50' },
+       { col: 'importance_decay_rate', sql: 'ALTER TABLE memories ADD COLUMN importance_decay_rate INTEGER DEFAULT 30' },
+       { col: 'last_importance_recalc', sql: 'ALTER TABLE memories ADD COLUMN last_importance_recalc INTEGER' },
+
+       // Consolidation (v0.8.0)
+       { col: 'consolidated_into', sql: 'ALTER TABLE memories ADD COLUMN consolidated_into TEXT' },
+       { col: 'consolidated_at', sql: 'ALTER TABLE memories ADD COLUMN consolidated_at INTEGER' },
+       { col: 'is_consolidated', sql: 'ALTER TABLE memories ADD COLUMN is_consolidated INTEGER DEFAULT 0' },
+
+       // Memory lifecycle (v0.8.0)
+       { col: 'sector', sql: 'ALTER TABLE memories ADD COLUMN sector TEXT DEFAULT "episodic"' },
+       { col: 'tier', sql: 'ALTER TABLE memories ADD COLUMN tier TEXT DEFAULT "hot"' },
+       { col: 'context_status', sql: 'ALTER TABLE memories ADD COLUMN context_status TEXT DEFAULT "out-of-context"' },
+       { col: 'decay_rate', sql: 'ALTER TABLE memories ADD COLUMN decay_rate INTEGER DEFAULT 30' },
+       { col: 'coactivation_score', sql: 'ALTER TABLE memories ADD COLUMN coactivation_score INTEGER DEFAULT 0' },
+       { col: 'last_decay_at', sql: 'ALTER TABLE memories ADD COLUMN last_decay_at INTEGER DEFAULT (strftime(\'%s\',\'now\'))' },
+
+       // Agent tracking (v0.8.0)
+       { col: 'agent_id', sql: 'ALTER TABLE memories ADD COLUMN agent_id TEXT' },
+       { col: 'agent_role', sql: 'ALTER TABLE memories ADD COLUMN agent_role TEXT' },
+       { col: 'retrieval_priority', sql: 'ALTER TABLE memories ADD COLUMN retrieval_priority INTEGER DEFAULT 50' },
+
+       // Data governance (v0.9.0)
+       { col: 'recorded_at', sql: 'ALTER TABLE memories ADD COLUMN recorded_at INTEGER DEFAULT (strftime(\'%s\',\'now\'))' },
+       { col: 'confidence', sql: 'ALTER TABLE memories ADD COLUMN confidence INTEGER DEFAULT 100' },
+       { col: 'valid_from', sql: 'ALTER TABLE memories ADD COLUMN valid_from INTEGER' },
+       { col: 'valid_to', sql: 'ALTER TABLE memories ADD COLUMN valid_to INTEGER' },
+       { col: 'superseded_by', sql: 'ALTER TABLE memories ADD COLUMN superseded_by TEXT' },
+       { col: 'version', sql: 'ALTER TABLE memories ADD COLUMN version INTEGER DEFAULT 1' },
+       { col: 'is_active', sql: 'ALTER TABLE memories ADD COLUMN is_active INTEGER DEFAULT 1' },
+       { col: 'expires_at', sql: 'ALTER TABLE memories ADD COLUMN expires_at INTEGER' },
+
+       // Privacy & access (v0.9.0)
+       { col: 'is_private', sql: 'ALTER TABLE memories ADD COLUMN is_private INTEGER DEFAULT 0' },
+       { col: 'has_secrets', sql: 'ALTER TABLE memories ADD COLUMN has_secrets INTEGER DEFAULT 0' },
+       { col: 'visibility_scope', sql: 'ALTER TABLE memories ADD COLUMN visibility_scope TEXT DEFAULT "private"' },
+       { col: 'is_protected', sql: 'ALTER TABLE memories ADD COLUMN is_protected INTEGER DEFAULT 0' },
+       { col: 'is_pinned', sql: 'ALTER TABLE memories ADD COLUMN is_pinned INTEGER DEFAULT 0' },
+       { col: 'is_immutable', sql: 'ALTER TABLE memories ADD COLUMN is_immutable INTEGER DEFAULT 0' },
+       { col: 'write_scope', sql: 'ALTER TABLE memories ADD COLUMN write_scope TEXT' },
+       { col: 'read_scope', sql: 'ALTER TABLE memories ADD COLUMN read_scope TEXT' },
+
+       // Usage tracking (v0.9.0)
+       { col: 'triggered_by', sql: 'ALTER TABLE memories ADD COLUMN triggered_by TEXT' },
+       { col: 'capture_reason', sql: 'ALTER TABLE memories ADD COLUMN capture_reason TEXT' },
+       { col: 'last_used_at', sql: 'ALTER TABLE memories ADD COLUMN last_used_at INTEGER' },
+       { col: 'usage_count', sql: 'ALTER TABLE memories ADD COLUMN usage_count INTEGER DEFAULT 0' },
+       { col: 'user_id', sql: 'ALTER TABLE memories ADD COLUMN user_id TEXT' },
+
+       // Layer tracking (v0.9.x)
+       { col: 'has_l0_abstract', sql: 'ALTER TABLE memories ADD COLUMN has_l0_abstract INTEGER DEFAULT 0' },
+       { col: 'has_l1_overview', sql: 'ALTER TABLE memories ADD COLUMN has_l1_overview INTEGER DEFAULT 0' },
+       { col: 'last_layer_update', sql: 'ALTER TABLE memories ADD COLUMN last_layer_update INTEGER' },
+
+       // Namespace support (v1.0.x)
+       { col: 'namespace_id', sql: 'ALTER TABLE memories ADD COLUMN namespace_id TEXT REFERENCES namespaces(id) ON DELETE SET NULL' },
+       { col: 'namespace_path', sql: 'ALTER TABLE memories ADD COLUMN namespace_path TEXT' },
+
+        // Token tracking (v1.0.x)
+        { col: 'tokens_estimate', sql: 'ALTER TABLE memories ADD COLUMN tokens_estimate INTEGER DEFAULT 0' },
+      ];
    
    // Get existing columns for memories table
    const tableInfo = sqlite.prepare("PRAGMA table_info(memories)").all() as Array<{name: string}>;
@@ -684,37 +707,100 @@ async function runSqliteMigrations(sqlite: Database): Promise<void> {
           logger.debug(`Migration skipped for ${migration.col}: column already exists`);
         } else {
           throw new Error(`Migration failed for column ${migration.col}: ${msg}`);
+        }
+      }
      }
    }
    
-   // v0.9.2: Add tokens_estimate to core_memory
-   const coreMemoryTableCheck = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='core_memory'").get() as {name: string} | undefined;
-   if (coreMemoryTableCheck) {
-     const coreMemoryInfo = sqlite.prepare("PRAGMA table_info(core_memory)").all() as Array<{name: string}>;
-     const existingCoreMemoryColumns = new Set(coreMemoryInfo.map(col => col.name));
-     
-     const coreMemoryMigrations = [
-       { col: 'tokens_estimate', sql: 'ALTER TABLE core_memory ADD COLUMN tokens_estimate INTEGER DEFAULT 0 NOT NULL' },
-     ];
-     
-     for (const migration of coreMemoryMigrations) {
-       if (!existingCoreMemoryColumns.has(migration.col)) {
-         try {
-           sqlite.exec(migration.sql);
-           logger.info(`Migration: Added column ${migration.col} to core_memory table`);
-         } catch (error) {
-           const msg = error instanceof Error ? error.message : String(error);
-           if (msg.includes('duplicate column name')) {
-             logger.debug(`Migration skipped for ${migration.col}: column already exists`);
-           } else {
-             throw new Error(`Migration failed for column ${migration.col}: ${msg}`);
-           }
-         }
-       }
-     }
-   }
- }
-  }
+    // v0.9.2: Add tokens_estimate to core_memory
+    const coreMemoryTableCheck = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='core_memory'").get() as {name: string} | undefined;
+    if (coreMemoryTableCheck) {
+      const coreMemoryInfo = sqlite.prepare("PRAGMA table_info(core_memory)").all() as Array<{name: string}>;
+      const existingCoreMemoryColumns = new Set(coreMemoryInfo.map(col => col.name));
+      
+      const coreMemoryMigrations = [
+        { col: 'tokens_estimate', sql: 'ALTER TABLE core_memory ADD COLUMN tokens_estimate INTEGER DEFAULT 0 NOT NULL' },
+      ];
+      
+      for (const migration of coreMemoryMigrations) {
+        if (!existingCoreMemoryColumns.has(migration.col)) {
+          try {
+            sqlite.exec(migration.sql);
+            logger.info(`Migration: Added column ${migration.col} to core_memory table`);
+          } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            if (msg.includes('duplicate column name')) {
+              logger.debug(`Migration skipped for ${migration.col}: column already exists`);
+            } else {
+              throw new Error(`Migration failed for column ${migration.col}: ${msg}`);
+            }
+          }
+        }
+      }
+    }
+    
+    // Migrations for maintenance_jobs table (v1.0.x)
+    const maintenanceJobsTableCheck = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='maintenance_jobs'").get() as {name: string} | undefined;
+    if (maintenanceJobsTableCheck) {
+      const maintenanceJobsInfo = sqlite.prepare("PRAGMA table_info(maintenance_jobs)").all() as Array<{name: string}>;
+      const existingMaintenanceJobsColumns = new Set(maintenanceJobsInfo.map(col => col.name));
+      
+      // Check if table has wrong schema (camelCase columns from bug in earlier version)
+      const hasCamelCaseColumns = existingMaintenanceJobsColumns.has('jobName') || 
+                                  existingMaintenanceJobsColumns.has('jobType') ||
+                                  existingMaintenanceJobsColumns.has('cronExpression');
+      
+      if (hasCamelCaseColumns) {
+        // Table has incorrect camelCase schema - need to recreate it
+        logger.warn('Maintenance jobs table has incorrect schema (camelCase columns). Recreating...');
+        try {
+          // Drop the malformed table
+          sqlite.exec('DROP TABLE IF EXISTS maintenance_jobs');
+          // Recreate with correct schema - it will be created by the schema SQL
+          logger.info('Dropped malformed maintenance_jobs table. It will be recreated with correct schema.');
+        } catch (error) {
+          logger.error('Failed to recreate maintenance_jobs table:', error);
+        }
+      } else {
+        // Normal migrations for correct schema
+        const maintenanceJobsMigrations = [
+          { col: 'schedule', sql: 'ALTER TABLE maintenance_jobs DROP COLUMN schedule' },
+          { col: 'cron_expression', sql: 'ALTER TABLE maintenance_jobs ADD COLUMN cron_expression TEXT' },
+          { col: 'last_run_at', sql: 'ALTER TABLE maintenance_jobs ADD COLUMN last_run_at INTEGER' },
+          { col: 'last_run_duration', sql: 'ALTER TABLE maintenance_jobs ADD COLUMN last_run_duration INTEGER' },
+          { col: 'last_run_status', sql: 'ALTER TABLE maintenance_jobs ADD COLUMN last_run_status TEXT' },
+          { col: 'last_run_error', sql: 'ALTER TABLE maintenance_jobs ADD COLUMN last_run_error TEXT' },
+          { col: 'total_runs', sql: 'ALTER TABLE maintenance_jobs ADD COLUMN total_runs INTEGER DEFAULT 0' },
+          { col: 'success_count', sql: 'ALTER TABLE maintenance_jobs ADD COLUMN success_count INTEGER DEFAULT 0' },
+          { col: 'failure_count', sql: 'ALTER TABLE maintenance_jobs ADD COLUMN failure_count INTEGER DEFAULT 0' },
+          { col: 'job_config', sql: 'ALTER TABLE maintenance_jobs ADD COLUMN job_config TEXT' },
+          { col: 'next_run_at', sql: 'ALTER TABLE maintenance_jobs ADD COLUMN next_run_at INTEGER' },
+          { col: 'run_count', sql: 'ALTER TABLE maintenance_jobs DROP COLUMN run_count' },
+        ];
+        
+        for (const migration of maintenanceJobsMigrations) {
+          // For DROP migrations, only run if column EXISTS
+          // For ADD migrations, only run if column does NOT exist
+          const shouldRun = migration.sql.startsWith('ALTER TABLE maintenance_jobs DROP COLUMN')
+            ? existingMaintenanceJobsColumns.has(migration.col)
+            : !existingMaintenanceJobsColumns.has(migration.col);
+            
+          if (shouldRun) {
+            try {
+              sqlite.exec(migration.sql);
+              logger.info(`Migration: ${migration.col} on maintenance_jobs table`);
+            } catch (error) {
+              const msg = error instanceof Error ? error.message : String(error);
+              if (msg.includes('duplicate column name') || msg.includes('no such column')) {
+                logger.debug(`Migration skipped for ${migration.col}: ${msg.includes('duplicate column name') ? 'column already exists' : 'column does not exist'}`);
+              } else {
+                throw new Error(`Migration failed for column ${migration.col}: ${msg}`);
+              }
+            }
+          }
+        }
+      }
+    }
 }
 
 export async function ensurePostgresSchema(pool: Pool): Promise<void> {

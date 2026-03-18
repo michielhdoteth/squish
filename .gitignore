@@ -63,3 +63,6 @@ docs/MEMORY-LIFECYCLE.md
 docs/COMPETITIVE-ANALYSIS.md
 docs/POSITIONING.md
 docs/ROADMAP.md
+
+# Claude context file (local only, do not commit)
+CLAUDE.md
