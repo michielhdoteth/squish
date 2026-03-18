@@ -308,7 +308,7 @@ export class OpenClawGateway {
       id,
       success: true,
       data: {
-        version: '0.7.0',
+        version: '1.0.2',
         gateway: 'squish-openclaw',
         database: dbHealth ? 'ok' : 'unavailable',
         timestamp: new Date().toISOString()

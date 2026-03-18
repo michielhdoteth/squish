@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Squish v1.0.0 - Universal Memory Plugin System
+ * Squish v1.0.2 - Universal Memory Plugin System
  * 
  * Modes:
  * - CLI Mode: For any MCP client bash execution (e.g., `squish remember "text"`)
