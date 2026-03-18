@@ -17,10 +17,9 @@ const openAiApiKey = process.env.SQUISH_OPENAI_API_KEY || process.env.OPENAI_API
 // - ollama: Local Ollama server (requires nomic-embed-text)
 // - local: TF-IDF offline (no dependencies)
 // - none: Disable embeddings (stub)
-// - qmd: QMD (requires qmd CLI installed)
-// - hybrid: Try multiple providers with fallbacks
 // - google-multimodal: Google Cloud multimodal embeddings
-const VALID_PROVIDERS = new Set(['openai', 'ollama', 'local', 'none', 'qmd', 'hybrid', 'google-multimodal', 'auto']);
+// - auto: Smart fallback (cloud if available, local fallback)
+const VALID_PROVIDERS = new Set(['openai', 'ollama', 'local', 'none', 'google-multimodal', 'auto']);
 const embeddingsProvider = (() => {
   const explicit = process.env.SQUISH_EMBEDDINGS_PROVIDER?.toLowerCase();
   if (explicit && VALID_PROVIDERS.has(explicit)) {
@@ -58,7 +57,7 @@ export const config = {
   mcpServerPort: parseInt(process.env.SQUISH_MCP_PORT || '8767'),
   mcpServerEnabled: process.env.SQUISH_MCP_SERVER_ENABLED !== 'false',
   
-  embeddingsProvider: embeddingsProvider as 'openai' | 'ollama' | 'local' | 'none' | 'qmd' | 'hybrid' | 'google-multimodal' | 'auto',
+  embeddingsProvider: embeddingsProvider as 'local' | 'openai' | 'ollama' | 'google-multimodal' | 'none' | 'auto',
   openAiApiKey,
   openAiApiUrl: process.env.SQUISH_OPENAI_API_URL || 'https://api.openai.com/v1/embeddings',
   openAiEmbeddingModel: process.env.SQUISH_OPENAI_EMBEDDING_MODEL || 'text-embedding-3-small',

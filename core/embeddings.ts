@@ -1,9 +1,8 @@
 import { config } from '../config.js';
-import { getQMDClient } from './embeddings/qmd-client.js';
 import { getGoogleMultimodalEmbedding, isMultimodalInput, MultimodalInput } from './embeddings/google-multimodal.js';
 import { logger } from './logger.js';
 
-export type EmbeddingProvider = 'openai' | 'ollama' | 'local' | 'none' | 'auto' | 'qmd' | 'hybrid' | 'google-multimodal';
+export type EmbeddingProvider = 'local' | 'openai' | 'ollama' | 'google-multimodal' | 'none' | 'auto';
 
 // Retry utility with exponential backoff
 async function withRetry<T>(
@@ -134,66 +133,42 @@ export async function getEmbedding(input: string | MultimodalInput): Promise<num
 
   let result: number[] | null = null;
 
-  // Handle multimodal input
-  if (isMultimodalInput(input) && (provider === 'google-multimodal' || provider === 'hybrid')) {
-    const multimodalResult = await getGoogleMultimodalEmbedding(input);
-    if (multimodalResult) {
-      result = multimodalResult.embedding;
-    }
-  }
+   // Handle multimodal input
+   if (isMultimodalInput(input) && provider === 'google-multimodal') {
+     const multimodalResult = await getGoogleMultimodalEmbedding(input);
+     if (multimodalResult) {
+       result = multimodalResult.embedding;
+     }
+   }
 
-  // Handle text-only input
-  if (!result && typeof input === 'string') {
-    const textInput = input;
+   // Handle text-only input
+   if (!result && typeof input === 'string') {
+     const textInput = input;
 
-    if (provider === 'none') {
-      result = null;
-    } else if (provider === 'google-multimodal') {
-      const multimodalResult = await getGoogleMultimodalEmbedding({ text: textInput });
-      result = multimodalResult?.embedding || null;
-    } else if (provider === 'qmd') {
-      result = await getQMDEmbedding(textInput);
-      // Fallback if QMD fails (unless qmd-only mode)
-      if (!result && config.qmdFallbackMode !== 'qmd-only') {
-        result = getLocalEmbedding(textInput);
-      }
-    } else if (provider === 'hybrid') {
-      // Hybrid mode: Try cloud providers first (best quality), then local fallback
-      // Order: Google Multimodal → OpenAI → Ollama → Local TF-IDF
-      // Note: QMD is not used for embedding generation (search only)
-      if (config.multimodalEmbeddingsEnabled) {
-        const multimodalResult = await getGoogleMultimodalEmbedding({ text: textInput });
-        result = multimodalResult?.embedding || null;
-      }
-      if (!result && config.openAiApiKey) {
-        result = await getOpenAiEmbedding(textInput);
-      }
-      if (!result && config.ollamaUrl) {
-        result = await getOllamaEmbedding(textInput);
-      }
-      if (!result) {
-        result = getLocalEmbedding(textInput);
-      }
-    } else if (provider === 'openai') {
-      result = await getOpenAiEmbedding(textInput);
-    } else if (provider === 'ollama') {
-      result = await getOllamaEmbedding(textInput);
-    } else if (provider === 'local') {
-      result = getLocalEmbedding(textInput);
-    } else {
-      // Auto mode: use local TF-IDF by default (fast, no API needed)
-      // Only try external providers if explicitly configured
-      if (config.openAiApiKey) {
-        result = await getOpenAiEmbedding(textInput);
-      }
-      if (!result && config.ollamaUrl) {
-        result = await getOllamaEmbedding(textInput);
-      }
-      if (!result) {
-        result = getLocalEmbedding(textInput);
-      }
-    }
-  }
+     if (provider === 'none') {
+       result = null;
+     } else if (provider === 'google-multimodal') {
+       const multimodalResult = await getGoogleMultimodalEmbedding({ text: textInput });
+       result = multimodalResult?.embedding || null;
+     } else if (provider === 'openai') {
+       result = await getOpenAiEmbedding(textInput);
+     } else if (provider === 'ollama') {
+       result = await getOllamaEmbedding(textInput);
+     } else if (provider === 'local') {
+       result = getLocalEmbedding(textInput);
+     } else {
+       // Auto mode: try cloud providers first if configured, then fall back to local
+       if (config.openAiApiKey) {
+         result = await getOpenAiEmbedding(textInput);
+       }
+       if (!result && config.ollamaUrl) {
+         result = await getOllamaEmbedding(textInput);
+       }
+       if (!result) {
+         result = getLocalEmbedding(textInput);
+       }
+     }
+   }
 
   // Cache the result if valid
   if (result) {
@@ -337,39 +312,8 @@ function getLocalEmbedding(input: string): number[] | null {
     }
   }
 
-  return vector;
-}
-
-/**
- * Get embedding via QMD
- * Note: QMD doesn't expose direct embedding generation via MCP.
- * This function returns null to trigger fallback to other providers.
- * The main QMD integration value is through hybrid search (qmd_query).
- */
-async function getQMDEmbedding(input: string): Promise<number[] | null> {
-  if (!config.qmdEnabled) {
-    return null;
-  }
-
-  try {
-    const client = await getQMDClient();
-    const available = await client.isAvailable();
-
-    if (!available) {
-      return null;
-    }
-
-    // QMD doesn't expose direct embedding generation via MCP
-    // The search tools use embeddings internally but don't return them
-    //
-    // For embedding generation, we rely on fallback providers
-    // QMD's main value is through the qmd_search, qmd_vsearch, qmd_query tools
-    return null;
-  } catch (error) {
-    logger.debug('QMD embedding unavailable (expected if QMD server not running)');
-    return null;
-  }
-}
+   return vector;
+ }
 
 /**
  * DJB2 hash function - fast, good distribution
@@ -444,7 +388,7 @@ async function getOllamaEmbedding(input: string): Promise<number[] | null> {
  */
 export async function checkEmbeddingProviderHealth(): Promise<Map<string, { available: boolean; latencyMs?: number; error?: string }>> {
   const results = new Map<string, { available: boolean; latencyMs?: number; error?: string }>();
-  const providers = ['local', 'openai', 'ollama', 'google-multimodal', 'qmd'] as const;
+  const providers = ['local', 'openai', 'ollama', 'google-multimodal', 'none', 'auto'] as const;
   
   // Test local provider (always available)
   results.set('local', { available: true, latencyMs: 0 });
@@ -522,9 +466,6 @@ export async function checkEmbeddingProviderHealth(): Promise<Map<string, { avai
   } else {
     results.set('google-multimodal', { available: false, error: 'Not configured' });
   }
-  
-  // QMD is not used for embedding generation (search only)
-  results.set('qmd', { available: false, error: 'QMD not used for embeddings (search only)' });
-  
+
   return results;
 }

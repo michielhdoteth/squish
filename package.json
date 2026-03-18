@@ -1,6 +1,6 @@
 {
   "name": "squish-memory",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Universal plugin architecture memory system - works as plugin across Claude Code, OpenClaw, OpenCode, Codex, Cursor, VSCode, Windsurf. MCP server with CLI fallback, QMD search, and two-tier storage.",
   "main": "dist/index.js",
   "type": "module",
