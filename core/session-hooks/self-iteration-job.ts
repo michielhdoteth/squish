@@ -126,12 +126,13 @@ async function getConversationsForIteration(maxMessages: number): Promise<Conver
   if (!db) return [];
 
   const schema = await getSchema();
+  const sqliteDb = db as any;
 
   // Get conversations that:
   // 1. Have ended (endedAt is not null)
   // 2. Haven't been processed yet (metadata.selfIterationProcessed is not set)
   // 3. Have enough messages (messageCount >= minMessageCount)
-  const conversations = await db.select()
+  const conversations = await sqliteDb.select()
     .from(schema.conversations)
     .where(sql`${schema.conversations.endedAt} IS NOT NULL
       AND (${schema.conversations.metadata}->>'selfIterationProcessed') IS NULL
@@ -149,8 +150,9 @@ async function getConversationMessages(conversationId: string): Promise<MessageR
   if (!db) return [];
 
   const schema = await getSchema();
+  const sqliteDb = db as any;
 
-  const messages = await db.select()
+  const messages = await sqliteDb.select()
     .from(schema.messages)
     .where(eq(schema.messages.conversationId, conversationId))
     .orderBy(schema.messages.createdAt);
@@ -172,8 +174,9 @@ async function markConversationProcessed(conversationId: string): Promise<void> 
   if (!db) return;
 
   const schema = await getSchema();
+  const sqliteDb = db as any;
 
-  await db.update(schema.conversations)
+  await sqliteDb.update(schema.conversations)
     .set({
       metadata: sql`json_set(${schema.conversations.metadata}, 'selfIterationProcessed', true)`,
     })
@@ -270,8 +273,9 @@ async function processConversation(
     // Update conversation with summary
     const db = await getDb();
     const schema = await getSchema();
+    const sqliteDb = db as any;
 
-    await db.update(schema.conversations)
+    await sqliteDb.update(schema.conversations)
       .set({ summary })
       .where(eq(schema.conversations.id, conversation.id));
 

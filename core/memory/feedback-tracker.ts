@@ -33,8 +33,9 @@ export async function recordInjection(
 
   try {
     const now = new Date();
+    const sqliteDb = db as any;
     for (const memoryId of memoryIds) {
-      await db.insert(memoryFeedback).values({
+      await sqliteDb.insert(memoryFeedback).values({
         memoryId,
         sessionId,
         wasInjected: true,
@@ -79,12 +80,13 @@ export async function analyzeAndRecordFeedback(
 
   try {
     const now = new Date();
+    const sqliteDb = db as any;
 
     for (const memoryId of injection.memoryIds) {
       const wasReferenced = analysis.referencedMemoryIds.includes(memoryId);
       const delta = wasReferenced ? config.feedbackEchoBonus : -config.feedbackFizzlePenalty;
 
-      const existing = await db
+      const existing = await sqliteDb
         .select()
         .from(memoryFeedback)
         .where(and(
@@ -94,7 +96,7 @@ export async function analyzeAndRecordFeedback(
         .limit(1);
 
       if (existing.length > 0) {
-        await db
+        await sqliteDb
           .update(memoryFeedback)
           .set({
             wasReferenced,
@@ -134,7 +136,8 @@ export async function updateRetrievalPriority(memoryId: string, delta: number): 
   if (!db) return;
 
   try {
-    const [memory] = await db
+    const sqliteDb = db as any;
+    const [memory] = await sqliteDb
       .select({ retrievalPriority: memories.retrievalPriority })
       .from(memories)
       .where(eq(memories.id, memoryId))
@@ -145,7 +148,7 @@ export async function updateRetrievalPriority(memoryId: string, delta: number): 
     const currentPriority = memory.retrievalPriority ?? 50;
     const newPriority = Math.max(0, Math.min(100, currentPriority + delta));
 
-    await db
+    await sqliteDb
       .update(memories)
       .set({ retrievalPriority: newPriority })
       .where(eq(memories.id, memoryId));
@@ -168,7 +171,8 @@ export async function getMemoryFeedbackStats(memoryId: string): Promise<{
   }
 
   try {
-    const records = await db
+    const sqliteDb = db as any;
+    const records = await sqliteDb
       .select()
       .from(memoryFeedback)
       .where(eq(memoryFeedback.memoryId, memoryId));

@@ -58,7 +58,8 @@ export async function initializeScheduler(): Promise<void> {
   try {
     await ensureDefaultJobs(db);
 
-    const jobs = await db
+    const sqliteDb = db as any;
+    const jobs = await sqliteDb
       .select()
       .from(maintenanceJobs)
       .where(eq(maintenanceJobs.enabled, true));
@@ -151,7 +152,8 @@ export async function scheduleJob(job: ScheduledJob): Promise<void> {
   const nextRun = getNextRunTime(job.cronExpression);
   const db = await getDb();
   if (db) {
-    await db
+    const sqliteDb = db as any;
+    await sqliteDb
       .update(maintenanceJobs)
       .set({ nextRunAt: nextRun })
       .where(eq(maintenanceJobs.id, job.id));
@@ -199,12 +201,13 @@ export async function executeJob(job: ScheduledJob): Promise<void> {
   const completedAt = new Date();
 
   if (db) {
-    const [currentJob] = await db
+    const sqliteDb = db as any;
+    const [currentJob] = await sqliteDb
       .select()
       .from(maintenanceJobs)
       .where(eq(maintenanceJobs.id, job.id));
 
-    await db
+    await sqliteDb
       .update(maintenanceJobs)
       .set({
         lastRunAt: startedAt,
@@ -218,7 +221,7 @@ export async function executeJob(job: ScheduledJob): Promise<void> {
       })
       .where(eq(maintenanceJobs.id, job.id));
 
-    await db.insert(maintenanceJobHistory).values({
+    await sqliteDb.insert(maintenanceJobHistory).values({
       jobId: job.id,
       startedAt,
       completedAt,
@@ -262,7 +265,8 @@ export async function getScheduledJobs(): Promise<ScheduledJob[]> {
   const db = await getDb();
   if (!db) return [];
 
-  const jobs = await db.select().from(maintenanceJobs);
+  const sqliteDb = db as any;
+  const jobs = await sqliteDb.select().from(maintenanceJobs);
   return jobs.map((job: typeof maintenanceJobs.$inferSelect) => ({
     id: job.id,
     jobName: job.jobName,
@@ -280,7 +284,8 @@ export async function getOverdueJobs(): Promise<ScheduledJob[]> {
   if (!db) return [];
 
   const now = new Date();
-  const jobs = await db.select().from(maintenanceJobs);
+  const sqliteDb = db as any;
+  const jobs = await sqliteDb.select().from(maintenanceJobs);
 
   return jobs
     .filter((job: typeof maintenanceJobs.$inferSelect) => {

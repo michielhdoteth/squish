@@ -156,7 +156,9 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
     async ({ memoryId }: { memoryId: string }) => {
       const db = await getDb();
       const schema = await getSchema();
-      const result = await db.delete(schema.memories).where(eq(schema.memories.id, memoryId));
+      // Cast to any to handle Drizzle ORM union type issue
+      const sqliteDb = db as any;
+      const result = await sqliteDb.delete(schema.memories).where(eq(schema.memories.id, memoryId));
       return { content: [{ type: "text", text: `Memory deleted: ${memoryId}` }] };
     }
   )) toolCount++;
@@ -186,7 +188,9 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
         return { content: [{ type: "text", text: "No updates provided" }], isError: true };
       }
 
-      await db.update(schema.memories).set(updates).where(eq(schema.memories.id, memoryId));
+      // Cast to any to handle Drizzle ORM union type issue
+      const sqliteDb2 = db as any;
+      await sqliteDb2.update(schema.memories).set(updates).where(eq(schema.memories.id, memoryId));
       return { content: [{ type: "text", text: `Memory updated: ${memoryId}` }] };
     }
   )) toolCount++;

@@ -52,7 +52,8 @@ export async function createNamespace(input: NamespaceCreateInput): Promise<Name
   const id = randomUUID();
 
   // Check if namespace with same name exists under parent
-  const existing = await db.select()
+  const sqliteDb = db as any;
+  const existing = await sqliteDb.select()
     .from(schema.namespaces)
     .where(and(
       eq(schema.namespaces.projectId, input.projectId),
@@ -70,7 +71,7 @@ export async function createNamespace(input: NamespaceCreateInput): Promise<Name
   // Build namespace path
   const path = await buildNamespacePath(input.projectId, input.name, input.parentId ?? null);
 
-  await db.insert(schema.namespaces).values({
+  await sqliteDb.insert(schema.namespaces).values({
     id,
     projectId: input.projectId,
     name: input.name,
@@ -110,8 +111,9 @@ async function buildNamespacePath(
 
   const db = await getDb();
   const schema = await getSchema();
+  const sqliteDb = db as any;
 
-  const [parent] = await db.select()
+  const [parent] = await sqliteDb.select()
     .from(schema.namespaces)
     .where(eq(schema.namespaces.id, parentId))
     .limit(1);
@@ -131,7 +133,8 @@ export async function getNamespaceById(id: string): Promise<Namespace | null> {
   if (!db) return null;
 
   const schema = await getSchema();
-  const [row] = await db.select()
+  const sqliteDb = db as any;
+  const [row] = await sqliteDb.select()
     .from(schema.namespaces)
     .where(eq(schema.namespaces.id, id))
     .limit(1);
@@ -165,13 +168,14 @@ export async function resolveNamespacePath(
   if (!db) return null;
 
   const schema = await getSchema();
+  const sqliteDb = db as any;
 
   let parentId: string | null = null;
   let targetNamespace: any = null;
 
   // Traverse path segments
   for (const segment of path) {
-    const [result]: any[] = await db.select()
+    const [result]: any[] = await sqliteDb.select()
       .from(schema.namespaces)
       .where(and(
         eq(schema.namespaces.projectId, projectId),
@@ -199,9 +203,10 @@ export async function getNamespaceTree(projectId: string): Promise<NamespaceTree
   if (!db) return [];
 
   const schema = await getSchema();
+  const sqliteDb = db as any;
 
   // Get all namespaces for project
-  const all = await db.select()
+  const all = await sqliteDb.select()
     .from(schema.namespaces)
     .where(eq(schema.namespaces.projectId, projectId))
     .orderBy(schema.namespaces.name);
@@ -242,6 +247,7 @@ export async function getDefaultNamespaces(projectId: string): Promise<Namespace
   if (!db) return [];
 
   const schema = await getSchema();
+  const sqliteDb = db as any;
   const created: Namespace[] = [];
 
   const defaults: Omit<NamespaceCreateInput, 'projectId'>[] = [
@@ -253,7 +259,7 @@ export async function getDefaultNamespaces(projectId: string): Promise<Namespace
   const defaultNames = ['user', 'agent', 'project'];
 
   // Check all default namespaces at once with IN clause
-  const existing = await db.select()
+  const existing = await sqliteDb.select()
     .from(schema.namespaces)
     .where(and(
       eq(schema.namespaces.projectId, projectId),
@@ -284,7 +290,7 @@ export async function getDefaultNamespaces(projectId: string): Promise<Namespace
 
   // Check remaining defaults sequentially (agent and project)
   for (const defName of defaultNames.slice(1)) {
-    const existing = await db.select()
+    const existing = await sqliteDb.select()
       .from(schema.namespaces)
       .where(and(
         eq(schema.namespaces.projectId, projectId),
@@ -334,6 +340,7 @@ export async function listNamespaces(options: {
   if (!db) return [];
 
   const schema = await getSchema();
+  const sqliteDb = db as any;
   const conditions = [];
 
   if (options.projectId) {
@@ -350,7 +357,7 @@ export async function listNamespaces(options: {
     }
   }
 
-  const rows = await db.select()
+  const rows = await sqliteDb.select()
     .from(schema.namespaces)
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(schema.namespaces.name);
@@ -376,7 +383,8 @@ export async function deleteNamespace(id: string): Promise<void> {
   if (!db) return;
 
   const schema = await getSchema();
-  await db.delete(schema.namespaces).where(eq(schema.namespaces.id, id));
+  const sqliteDb = db as any;
+  await sqliteDb.delete(schema.namespaces).where(eq(schema.namespaces.id, id));
 
   logger.info(`[Namespaces] Deleted namespace: ${id}`);
 }
@@ -392,7 +400,8 @@ export async function updateNamespace(id: string, updates: Partial<{
   if (!db) return;
 
   const schema = await getSchema();
-  await db.update(schema.namespaces).set({
+  const sqliteDb = db as any;
+  await sqliteDb.update(schema.namespaces).set({
     ...updates,
     updatedAt: new Date(),
   }).where(eq(schema.namespaces.id, id));

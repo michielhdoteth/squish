@@ -22,7 +22,8 @@ export async function collectRecentContext(
   }
 
   try {
-    const [conversation] = await db
+    const sqliteDb = db as any;
+    const [conversation] = await sqliteDb
       .select()
       .from(conversations)
       .where(eq(conversations.sessionId, sessionId))
@@ -34,7 +35,7 @@ export async function collectRecentContext(
       return [];
     }
 
-    const recentMessages = await db
+    const recentMessages = await sqliteDb
       .select()
       .from(messages)
       .where(eq(messages.conversationId, conversation.id))

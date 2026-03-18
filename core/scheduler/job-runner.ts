@@ -130,7 +130,8 @@ async function boostFrequentlyAccessed(): Promise<number> {
   const db = await getDb();
   if (!db) return 0;
 
-  const frequentlyAccessed = await db
+  const sqliteDb = db as any;
+  const frequentlyAccessed = await sqliteDb
     .select()
     .from(memories)
     .where(gt(memories.accessCount, 3));
@@ -140,7 +141,7 @@ async function boostFrequentlyAccessed(): Promise<number> {
     const currentPriority = memory.retrievalPriority ?? 50;
     const newPriority = Math.min(100, currentPriority + 5);
 
-    await db
+    await sqliteDb
       .update(memories)
       .set({ retrievalPriority: newPriority })
       .where(eq(memories.id, memory.id));
@@ -156,8 +157,9 @@ async function archiveStaleMemories(daysOld: number): Promise<number> {
   if (!db) return 0;
 
   const staleThreshold = new Date(Date.now() - daysOld * 24 * 60 * 60 * 1000);
+  const sqliteDb = db as any;
 
-  const staleMemories = await db
+  const staleMemories = await sqliteDb
     .select()
     .from(memories)
     .where(and(
@@ -169,7 +171,7 @@ async function archiveStaleMemories(daysOld: number): Promise<number> {
 
   let archived = 0;
   for (const memory of staleMemories) {
-    await db
+    await sqliteDb
       .update(memories)
       .set({ tier: 'cold' })
       .where(eq(memories.id, memory.id));
@@ -185,8 +187,9 @@ async function cleanupOldFeedbackRecords(daysOld: number): Promise<number> {
   if (!db) return 0;
 
   const oldThreshold = new Date(Date.now() - daysOld * 24 * 60 * 60 * 1000);
+  const sqliteDb = db as any;
 
-  await db
+  await sqliteDb
     .delete(memoryFeedback)
     .where(lt(memoryFeedback.createdAt, oldThreshold));
 

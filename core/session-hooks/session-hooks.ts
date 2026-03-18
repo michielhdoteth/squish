@@ -22,9 +22,10 @@ export async function onSessionEnd(sessionId: string): Promise<void> {
   }
 
   const schema = await getSchema();
+  const sqliteDb = db as any;
 
   // Mark conversation as ended
-  await db.update(schema.conversations)
+  await sqliteDb.update(schema.conversations)
     .set({ endedAt: new Date() })
     .where(eq(schema.conversations.sessionId, sessionId));
 
@@ -39,8 +40,9 @@ export async function getActiveSessions(projectId: string): Promise<string[]> {
   if (!db) return [];
 
   const schema = await getSchema();
+  const sqliteDb = db as any;
 
-  const sessions = await db.select()
+  const sessions = await sqliteDb.select()
     .from(schema.conversations)
     .where(eq(schema.conversations.projectId, projectId))
     .where(sql`${schema.conversations.endedAt} IS NULL`);
@@ -56,8 +58,9 @@ export async function endAllProjectSessions(projectId: string): Promise<number> 
   if (!db) return 0;
 
   const schema = await getSchema();
+  const sqliteDb = db as any;
 
-  const result = await db.update(schema.conversations)
+  const result = await sqliteDb.update(schema.conversations)
     .set({ endedAt: new Date() })
     .where(eq(schema.conversations.projectId, projectId));
 

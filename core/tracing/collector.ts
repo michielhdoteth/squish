@@ -82,12 +82,13 @@ export async function startTrace(sessionId: string, query: string): Promise<stri
   }
 
   const schema = await getSchema();
+  const sqliteDb = db as any;
 
   const traceId = crypto.randomUUID();
   const timestamp = new Date();
 
   // Create trace record
-  await db.insert(schema.searchTraces).values({
+  await sqliteDb.insert(schema.searchTraces).values({
     id: traceId,
     sessionId,
     query,
@@ -109,9 +110,10 @@ export async function addQueryRewriteStage(traceId: string, stage: QueryRewriteS
   if (!db) return;
 
   const schema = await getSchema();
+  const sqliteDb = db as any;
   const data = JSON.stringify(stage);
 
-  await db.update(schema.searchTraces)
+  await sqliteDb.update(schema.searchTraces)
     .set({
       queryRewrite: sql`CAST(? AS jsonb)`,
     })
@@ -129,9 +131,10 @@ export async function addCandidateRetrievalStage(traceId: string, stage: Retriev
   if (!db) return;
 
   const schema = await getSchema();
+  const sqliteDb = db as any;
   const data = JSON.stringify(stage);
 
-  await db.update(schema.searchTraces)
+  await sqliteDb.update(schema.searchTraces)
     .set({ candidateRetrieval: data })
     .where(eq(schema.searchTraces.id, traceId));
 
@@ -146,9 +149,10 @@ export async function addEntityFilteringStage(traceId: string, stage: RetrievalS
   if (!db) return;
 
   const schema = await getSchema();
+  const sqliteDb = db as any;
   const data = JSON.stringify(stage);
 
-  await db.update(schema.searchTraces)
+  await sqliteDb.update(schema.searchTraces)
     .set({ entityFiltering: data })
     .where(eq(schema.searchTraces.id, traceId));
 
@@ -163,9 +167,10 @@ export async function addHybridScoringStage(traceId: string, stage: ScoringStage
   if (!db) return;
 
   const schema = await getSchema();
+  const sqliteDb = db as any;
   const data = JSON.stringify(stage);
 
-  await db.update(schema.searchTraces)
+  await sqliteDb.update(schema.searchTraces)
     .set({ hybridScoring: data })
     .where(eq(schema.searchTraces.id, traceId));
 
@@ -180,9 +185,10 @@ export async function addRerankingStage(traceId: string, stage: RerankingStage):
   if (!db) return;
 
   const schema = await getSchema();
+  const sqliteDb = db as any;
   const data = JSON.stringify(stage);
 
-  await db.update(schema.searchTraces)
+  await sqliteDb.update(schema.searchTraces)
     .set({ reranking: data })
     .where(eq(schema.searchTraces.id, traceId));
 
@@ -197,9 +203,10 @@ export async function completeTrace(traceId: string, results: TopResult[]): Prom
   if (!db) return;
 
   const schema = await getSchema();
+  const sqliteDb = db as any;
 
   // Get trace
-  const rows = await db.select()
+  const rows = await sqliteDb.select()
     .from(schema.searchTraces)
     .where(eq(schema.searchTraces.id, traceId))
     .limit(1);
@@ -217,7 +224,7 @@ export async function completeTrace(traceId: string, results: TopResult[]): Prom
   const resultCount = results.length;
   const topResults = results.slice(0, 10);
 
-  await db.update(schema.searchTraces)
+  await sqliteDb.update(schema.searchTraces)
     .set({
       resultCount,
       topResults: JSON.stringify(topResults),
@@ -236,6 +243,7 @@ export async function getTraces(options: TraceOptions = {}): Promise<SearchTrace
   if (!db) return [];
 
   const schema = await getSchema();
+  const sqliteDb = db as any;
 
   let conditions = [];
 
@@ -247,7 +255,7 @@ export async function getTraces(options: TraceOptions = {}): Promise<SearchTrace
     conditions.push(eq(schema.searchTraces.sessionId, options.session));
   }
 
-  const query = db.select()
+  const query = sqliteDb.select()
     .from(schema.searchTraces)
     .where(conditions.length > 0 ? eq(schema.searchTraces.sessionId, options.sessionId || options.session || '') : undefined)
     .orderBy(desc(schema.searchTraces.timestamp));
@@ -283,8 +291,9 @@ export async function getTraceById(traceId: string): Promise<SearchTrace | null>
   if (!db) return null;
 
   const schema = await getSchema();
+  const sqliteDb = db as any;
 
-  const rows = await db.select()
+  const rows = await sqliteDb.select()
     .from(schema.searchTraces)
     .where(eq(schema.searchTraces.id, traceId))
     .limit(1);
@@ -318,8 +327,9 @@ export async function getRecentTraces(limit: number = 10): Promise<SearchTrace[]
   if (!db) return [];
 
   const schema = await getSchema();
+  const sqliteDb = db as any;
 
-  const traces = await db.select()
+  const traces = await sqliteDb.select()
     .from(schema.searchTraces)
     .orderBy(desc(schema.searchTraces.timestamp))
     .limit(limit);
@@ -349,9 +359,10 @@ export async function getSessionTraces(sessionId: string): Promise<SearchTrace[]
   if (!db) return [];
 
   const schema = await getSchema();
+  const sqliteDb = db as any;
 
   // Get all traces for this session
-  const traces = await db.select()
+  const traces = await sqliteDb.select()
     .from(schema.searchTraces)
     .where(eq(schema.searchTraces.sessionId, sessionId))
     .orderBy(desc(schema.searchTraces.timestamp));
@@ -435,8 +446,9 @@ export async function getTraceStats(): Promise<TraceStats> {
   }
 
   const schema = await getSchema();
+  const sqliteDb = db as any;
 
-  const traces = await db.select()
+  const traces = await sqliteDb.select()
     .from(schema.searchTraces)
     .limit(100);
 

@@ -20,8 +20,9 @@ app.get('/api/health', async (req, res) => {
 
   try {
     const db = await getDb();
-    if (db && typeof db.prepare === 'function') {
-      db.prepare('SELECT 1').get();
+    const sqliteDb = db as any;
+    if (sqliteDb && typeof sqliteDb.prepare === 'function') {
+      sqliteDb.prepare('SELECT 1').get();
     }
     
     // Get all projects from database
