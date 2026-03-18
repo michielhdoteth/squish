@@ -241,18 +241,35 @@ REDIS_URL=redis://localhost:6379             # Optional for caching
 PORT=3000                                   # API server port
 ```
 
-**Optional:**
+**Configuration File (config/settings.json):**
+```json
+{
+  "embeddings": {
+    "provider": "local",
+    "models": {
+      "openai": { "model": "text-embedding-3-small" },
+      "google": { "model": "gemini-embedding-001" },
+      "ollama": { "model": "nomic-embed-text:v1.5" }
+    }
+  }
+}
+```
+
+**Environment Variables (override settings.json):**
 ```bash
 SQUISH_DATA_DIR=./.squish          # Custom data directory
-SQUISH_EMBEDDINGS_PROVIDER=local   # local, openai, ollama, google-multimodal, hybrid
+SQUISH_EMBEDDINGS_PROVIDER=local   # local, openai, ollama, google, none, auto
 
-# For better embeddings (optional)
-SQUISH_OPENAI_API_KEY=sk-...
+# Model selection (optional, uses defaults if not set)
 SQUISH_OPENAI_EMBEDDING_MODEL=text-embedding-3-small
-SQUISH_OLLAMA_URL=http://localhost:11434
+SQUISH_GOOGLE_EMBEDDING_MODEL=gemini-embedding-001
 SQUISH_OLLAMA_EMBEDDING_MODEL=nomic-embed-text:v1.5
-SQUISH_GOOGLE_CLOUD_PROJECT=your-project
-SQUISH_GOOGLE_CLOUD_API_KEY=your-key
+
+# API credentials (for cloud providers)
+SQUISH_OPENAI_API_KEY=sk-...
+SQUISH_OLLAMA_URL=http://localhost:11434
+GOOGLE_CLOUD_PROJECT=your-project
+GOOGLE_CLOUD_API_KEY=your-key
 
 # Embedding performance & reliability
 SQUISH_EMBEDDINGS_TIMEOUT_MS=30000

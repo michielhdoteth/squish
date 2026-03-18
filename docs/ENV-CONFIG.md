@@ -1,5 +1,47 @@
 # Environment Configuration Examples
 
+Squish supports configuration via environment variables and a unified `config/settings.json` file. Environment variables take priority over settings.json.
+
+## Unified Configuration (config/settings.json)
+
+Create `config/settings.json` for persistent configuration:
+
+```json
+{
+  "embeddings": {
+    "provider": "local",
+    "models": {
+      "openai": {
+        "model": "text-embedding-3-small"
+      },
+      "google": {
+        "model": "gemini-embedding-001"
+      },
+      "ollama": {
+        "model": "nomic-embed-text:v1.5"
+      }
+    }
+  },
+  "api": {
+    "openai": {
+      "apiKey": null,
+      "apiUrl": "https://api.openai.com/v1/embeddings"
+    },
+    "google": {
+      "apiKey": null,
+      "projectId": null
+    },
+    "ollama": {
+      "url": "http://localhost:11434"
+    }
+  },
+  "mcp": {
+    "serverPort": 8767,
+    "serverEnabled": true
+  }
+}
+```
+
 ## Local Development
 
 ```bash
@@ -21,36 +63,70 @@ SQUISH_LIFECYCLE_ENABLED=true
 SQUISH_SUMMARIZATION_ENABLED=true
 ```
 
-## Google Multimodal (Recommended)
+## Google Embeddings
 
 ```bash
-# .env.multimodal
+# .env.google
 
-# Use Google Multimodal embeddings
-SQUISH_EMBEDDINGS_PROVIDER=google-multimodal
-SQUISH_MULTIMODAL_EMBEDDINGS_ENABLED=true
+# Use Google embeddings
+SQUISH_EMBEDDINGS_PROVIDER=google
 
 # Google Cloud credentials
 GOOGLE_CLOUD_PROJECT=my-project
 GOOGLE_CLOUD_LOCATION=us-central1
 GOOGLE_CLOUD_API_KEY=your-api-key
 
+# Optional: specify model (default: gemini-embedding-001)
+SQUISH_GOOGLE_EMBEDDING_MODEL=gemini-embedding-001
+# Alternative: gemini-embedding-2
+
 # Or use service account
 # GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
 ```
 
-## Managed Mode (Coming Soon)
+## OpenAI Embeddings
 
 ```bash
-# .env.managed
+# .env.openai
 
-# Enable managed cloud storage
-SQUISH_MANAGED_MODE=true
-SQUISH_MANAGED_API_URL=https://api.squish.dev
-SQUISH_MANAGED_API_KEY=your-managed-api-key
+# Use OpenAI embeddings
+SQUISH_EMBEDDINGS_PROVIDER=openai
 
-# Use hybrid embeddings (cloud + local fallback)
-SQUISH_EMBEDDINGS_PROVIDER=hybrid
+# OpenAI credentials
+SQUISH_OPENAI_API_KEY=sk-xxx
+
+# Optional: specify model (default: text-embedding-3-small)
+SQUISH_OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+# Alternative: text-embedding-3-large
+```
+
+## Ollama Embeddings (Local)
+
+```bash
+# .env.ollama
+
+# Use Ollama embeddings
+SQUISH_EMBEDDINGS_PROVIDER=ollama
+SQUISH_OLLAMA_URL=http://localhost:11434
+
+# Optional: specify model (default: nomic-embed-text:v1.5)
+SQUISH_OLLAMA_EMBEDDING_MODEL=nomic-embed-text:v1.5
+# Alternative: mxbai-embed-large
+```
+
+## Auto Mode (Smart Fallback)
+
+```bash
+# .env.auto
+
+# Auto mode tries cloud providers first if configured, falls back to local
+SQUISH_EMBEDDINGS_PROVIDER=auto
+
+# Configure cloud providers (auto will use if available)
+SQUISH_OPENAI_API_KEY=sk-xxx
+GOOGLE_CLOUD_API_KEY=xxx
+GOOGLE_CLOUD_PROJECT=my-project
+SQUISH_OLLAMA_URL=http://localhost:11434
 ```
 
 ## Production VPS
@@ -68,9 +144,9 @@ DATABASE_URL=postgresql://user:pass@localhost:5432/squish
 # Redis for caching (optional)
 REDIS_URL=redis://localhost:6379
 
-# Embeddings
-SQUISH_EMBEDDINGS_PROVIDER=hybrid
-SQUISH_MULTIMODAL_EMBEDDINGS_ENABLED=true
+# Embeddings - use Google with fallback to local
+SQUISH_EMBEDDINGS_PROVIDER=google
+SQUISH_GOOGLE_EMBEDDING_MODEL=gemini-embedding-001
 
 # Google Cloud
 GOOGLE_CLOUD_PROJECT=production-project
@@ -115,24 +191,26 @@ SQUISH_GOVERNANCE_ENABLED=true
 SQUISH_MCP_PORT=8767
 SQUISH_MCP_SERVER_ENABLED=true
 
-# Embeddings
-SQUISH_EMBEDDINGS_PROVIDER=hybrid
-SQUISH_MULTIMODAL_EMBEDDINGS_ENABLED=true
+# Embeddings Provider: local | openai | ollama | google | none | auto
+SQUISH_EMBEDDINGS_PROVIDER=google
 
-# Google Cloud Multimodal
+# Model Selection
+SQUISH_OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+SQUISH_GOOGLE_EMBEDDING_MODEL=gemini-embedding-001
+SQUISH_OLLAMA_EMBEDDING_MODEL=nomic-embed-text:v1.5
+
+# Google Cloud
 GOOGLE_CLOUD_PROJECT=my-project
 GOOGLE_CLOUD_LOCATION=us-central1
 GOOGLE_CLOUD_API_KEY=xxx
 # Or: GOOGLE_APPLICATION_CREDENTIALS=/path/to/credentials.json
 
-# OpenAI (fallback)
+# OpenAI (for openai provider or auto mode)
 SQUISH_OPENAI_API_KEY=sk-xxx
 SQUISH_OPENAI_API_URL=https://api.openai.com/v1/embeddings
-SQUISH_OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 
-# Ollama (local fallback)
+# Ollama (for ollama provider or auto mode)
 SQUISH_OLLAMA_URL=http://localhost:11434
-SQUISH_OLLAMA_EMBEDDING_MODEL=nomic-embed-text:v1.5
 
 # QMD Integration
 SQUISH_QMD_ENABLED=true
@@ -193,3 +271,20 @@ SQUISH_CRON_ENABLED=true
 SQUISH_HEARTBEAT_INTERVAL=60000
 SQUISH_JOB_RETENTION_DAYS=30
 ```
+
+## Configuration Priority
+
+1. **Environment Variables** (highest priority)
+2. **config/settings.json** (persistent config)
+3. **Built-in defaults** (lowest priority)
+
+## Embedding Providers
+
+| Provider | Description | Models Available |
+|----------|-------------|------------------|
+| `local` | TF-IDF offline, no API needed | Built-in (768 dims) |
+| `openai` | OpenAI API | text-embedding-3-small, text-embedding-3-large |
+| `google` | Google Cloud | gemini-embedding-001, gemini-embedding-2 |
+| `ollama` | Local Ollama | nomic-embed-text:v1.5, mxbai-embed-large |
+| `none` | Disable embeddings | - |
+| `auto` | Smart fallback | Uses configured providers in order |
