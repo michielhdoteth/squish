@@ -1,5 +1,10 @@
 import { join } from 'path';
-import { mkdirSync, existsSync } from 'fs';
+import { mkdirSync, existsSync, readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 export function getDataDir(): string {
   const projectRoot = process.env.CLAUDE_WORKING_DIRECTORY || process.cwd();
@@ -8,21 +13,63 @@ export function getDataDir(): string {
   return dir;
 }
 
+// Load settings from config/settings.json
+function loadSettings(): any {
+  const settingsPath = join(__dirname, 'config', 'settings.json');
+  try {
+    if (existsSync(settingsPath)) {
+      const content = readFileSync(settingsPath, 'utf-8');
+      return JSON.parse(content);
+    }
+  } catch (error) {
+    console.warn('Failed to load settings.json, using defaults');
+  }
+  return {};
+}
+
+const settings = loadSettings();
+
+// Helper to get env var or settings value
+function getConfig(path: string, envVar: string | null, defaultValue: any): any {
+  // Priority 1: Environment variable
+  if (envVar && process.env[envVar]) {
+    return process.env[envVar];
+  }
+  
+  // Priority 2: Settings file
+  const keys = path.split('.');
+  let value = settings;
+  for (const key of keys) {
+    if (value && typeof value === 'object' && key in value) {
+      value = value[key];
+    } else {
+      value = undefined;
+      break;
+    }
+  }
+  
+  if (value !== undefined) {
+    return value;
+  }
+  
+  // Priority 3: Default value
+  return defaultValue;
+}
+
 const isTeamMode = !!process.env.DATABASE_URL?.startsWith('postgres');
 const isManagedMode = process.env.SQUISH_MANAGED_MODE === 'true';
-const openAiApiKey = process.env.SQUISH_OPENAI_API_KEY || process.env.OPENAI_API_KEY || '';
 
 // Embeddings providers:
 // - openai: OpenAI API (requires API key)
 // - ollama: Local Ollama server (requires nomic-embed-text)
 // - local: TF-IDF offline (no dependencies)
 // - none: Disable embeddings (stub)
-// - google-multimodal: Google Cloud multimodal embeddings
+// - google: Google Cloud embeddings
 // - auto: Smart fallback (cloud if available, local fallback)
-const VALID_PROVIDERS = new Set(['openai', 'ollama', 'local', 'none', 'google-multimodal', 'auto']);
+const VALID_PROVIDERS = new Set(['openai', 'ollama', 'local', 'none', 'google', 'auto']);
 const embeddingsProvider = (() => {
-  const explicit = process.env.SQUISH_EMBEDDINGS_PROVIDER?.toLowerCase();
-  if (explicit && VALID_PROVIDERS.has(explicit)) {
+  const explicit = getConfig('embeddings.provider', 'SQUISH_EMBEDDINGS_PROVIDER', 'local').toLowerCase();
+  if (VALID_PROVIDERS.has(explicit)) {
     return explicit;
   }
   return 'local';
@@ -48,33 +95,58 @@ const qmdCollectionMapping = process.env.SQUISH_QMD_COLLECTION_MAPPING
   ? JSON.parse(process.env.SQUISH_QMD_COLLECTION_MAPPING)
   : defaultCollectionMapping;
 
+// OpenAI Configuration
+const openAiApiKey = process.env.SQUISH_OPENAI_API_KEY || process.env.OPENAI_API_KEY || '';
+const openAiApiUrl = getConfig('api.openai.apiUrl', 'SQUISH_OPENAI_API_URL', 'https://api.openai.com/v1/embeddings');
+const openAiEmbeddingModel = getConfig('embeddings.models.openai.model', 'SQUISH_OPENAI_EMBEDDING_MODEL', 'text-embedding-3-small');
+
+// Google Configuration  
+const googleCloudApiKey = process.env.GOOGLE_CLOUD_API_KEY || process.env.SQUISH_GOOGLE_CLOUD_API_KEY || '';
+const googleCloudProject = process.env.GOOGLE_CLOUD_PROJECT || process.env.SQUISH_GOOGLE_CLOUD_PROJECT || '';
+const googleCloudLocation = process.env.GOOGLE_CLOUD_LOCATION || process.env.SQUISH_GOOGLE_CLOUD_LOCATION || 'us-central1';
+const googleEmbeddingModel = getConfig('embeddings.models.google.model', 'SQUISH_GOOGLE_EMBEDDING_MODEL', 'gemini-embedding-001');
+
+// Ollama Configuration
+const ollamaUrl = getConfig('api.ollama.url', 'SQUISH_OLLAMA_URL', 'http://localhost:11434');
+const ollamaEmbeddingModel = getConfig('embeddings.models.ollama.model', 'SQUISH_OLLAMA_EMBEDDING_MODEL', 'nomic-embed-text:v1.5');
+
 export const config = {
   isTeamMode,
   isManagedMode,
   redisEnabled: !!process.env.REDIS_URL,
   dataDir: getDataDir(),
   
-  mcpServerPort: parseInt(process.env.SQUISH_MCP_PORT || '8767'),
-  mcpServerEnabled: process.env.SQUISH_MCP_SERVER_ENABLED !== 'false',
+  mcpServerPort: parseInt(getConfig('mcp.serverPort', 'SQUISH_MCP_PORT', '8767')),
+  mcpServerEnabled: getConfig('mcp.serverEnabled', 'SQUISH_MCP_SERVER_ENABLED', true) !== false,
   
-  embeddingsProvider: embeddingsProvider as 'local' | 'openai' | 'ollama' | 'google-multimodal' | 'none' | 'auto',
+  embeddingsProvider: embeddingsProvider as 'local' | 'openai' | 'ollama' | 'google' | 'none' | 'auto',
+  
+  // OpenAI
   openAiApiKey,
-  openAiApiUrl: process.env.SQUISH_OPENAI_API_URL || 'https://api.openai.com/v1/embeddings',
-  openAiEmbeddingModel: process.env.SQUISH_OPENAI_EMBEDDING_MODEL || 'text-embedding-3-small',
-  ollamaUrl: process.env.SQUISH_OLLAMA_URL || 'http://localhost:11434',
-  ollamaEmbeddingModel: process.env.SQUISH_OLLAMA_EMBEDDING_MODEL || 'nomic-embed-text:v1.5',
+  openAiApiUrl,
+  openAiEmbeddingModel,
+  
+  // Google
+  googleCloudApiKey,
+  googleCloudProject,
+  googleCloudLocation,
+  googleEmbeddingModel,
+  
+  // Ollama
+  ollamaUrl,
+  ollamaEmbeddingModel,
 
   // Lifecycle Management
-  lifecycleEnabled: process.env.SQUISH_LIFECYCLE_ENABLED !== 'false',
+  lifecycleEnabled: getConfig('features.lifecycleEnabled', 'SQUISH_LIFECYCLE_ENABLED', true) !== false,
   lifecycleInterval: parseInt(process.env.SQUISH_LIFECYCLE_INTERVAL || '3600000'),
 
   // Session Summarization
-  summarizationEnabled: process.env.SQUISH_SUMMARIZATION_ENABLED !== 'false',
+  summarizationEnabled: getConfig('features.summarizationEnabled', 'SQUISH_SUMMARIZATION_ENABLED', true) !== false,
   incrementalThreshold: parseInt(process.env.SQUISH_INCREMENTAL_THRESHOLD || '10'),
   rollingWindowSize: parseInt(process.env.SQUISH_ROLLING_WINDOW_SIZE || '50'),
 
   // Agent-Aware Memory
-  agentIsolationEnabled: process.env.SQUISH_AGENT_ISOLATION_ENABLED !== 'false',
+  agentIsolationEnabled: getConfig('features.agentIsolation', 'SQUISH_AGENT_ISOLATION_ENABLED', true) !== false,
   defaultVisibilityScope: (process.env.SQUISH_DEFAULT_VISIBILITY || 'private') as 'private' | 'project' | 'team' | 'global',
 
   // Memory Governance
@@ -89,12 +161,6 @@ export const config = {
   qmdCollectionsPath,
   qmdFallbackMode: qmdFallbackMode as 'qmd-only' | 'cloud-first' | 'hybrid' | 'local-only',
   qmdCollectionMapping,
-
-  // Google Cloud Multimodal Embeddings
-  googleCloudApiKey: process.env.GOOGLE_CLOUD_API_KEY || process.env.SQUISH_GOOGLE_CLOUD_API_KEY || '',
-  googleCloudProject: process.env.GOOGLE_CLOUD_PROJECT || process.env.SQUISH_GOOGLE_CLOUD_PROJECT || '',
-  googleCloudLocation: process.env.GOOGLE_CLOUD_LOCATION || process.env.SQUISH_GOOGLE_CLOUD_LOCATION || 'us-central1',
-  multimodalEmbeddingsEnabled: process.env.SQUISH_MULTIMODAL_EMBEDDINGS_ENABLED === 'true',
 
   // Managed Mode
   managedMode: process.env.SQUISH_MANAGED_MODE === 'true',
@@ -132,7 +198,7 @@ export const config = {
   embeddingsRetryDelayMs: parseInt(process.env.SQUISH_EMBEDDINGS_RETRY_DELAY_MS || '1000'),
   openAiTimeoutMs: parseInt(process.env.SQUISH_OPENAI_TIMEOUT_MS || process.env.SQUISH_EMBEDDINGS_TIMEOUT_MS || '30000'),
   ollamaTimeoutMs: parseInt(process.env.SQUISH_OLLAMA_TIMEOUT_MS || process.env.SQUISH_EMBEDDINGS_TIMEOUT_MS || '30000'),
-  googleMultimodalTimeoutMs: parseInt(process.env.SQUISH_GOOGLE_MULTIMODAL_TIMEOUT_MS || process.env.SQUISH_EMBEDDINGS_TIMEOUT_MS || '30000'),
+  googleTimeoutMs: parseInt(process.env.SQUISH_GOOGLE_TIMEOUT_MS || process.env.SQUISH_EMBEDDINGS_TIMEOUT_MS || '30000'),
 };
 
 export default config;

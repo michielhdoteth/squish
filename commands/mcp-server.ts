@@ -25,7 +25,7 @@ import { getSchema } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 
 const SERVER_NAME = "squish-memory";
-const SERVER_VERSION = "1.0.2";
+const SERVER_VERSION = "1.0.1";
 
 function parseArgs(): { mode: "stdio" | "http"; port: number; health: boolean } {
   const args = process.argv.slice(2);

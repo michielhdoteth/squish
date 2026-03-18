@@ -1,0 +1,51 @@
+{
+  "$schema": "./settings.schema.json",
+  "embeddings": {
+    "provider": "local",
+    "models": {
+      "openai": {
+        "model": "text-embedding-3-small",
+        "availableModels": [
+          "text-embedding-3-small",
+          "text-embedding-3-large"
+        ]
+      },
+      "google": {
+        "model": "gemini-embedding-001",
+        "availableModels": [
+          "gemini-embedding-001",
+          "gemini-embedding-2"
+        ]
+      },
+      "ollama": {
+        "model": "nomic-embed-text:v1.5",
+        "availableModels": [
+          "nomic-embed-text:v1.5",
+          "mxbai-embed-large"
+        ]
+      }
+    }
+  },
+  "api": {
+    "openai": {
+      "apiKey": null,
+      "apiUrl": "https://api.openai.com/v1/embeddings"
+    },
+    "google": {
+      "apiKey": null,
+      "projectId": null
+    },
+    "ollama": {
+      "url": "http://localhost:11434"
+    }
+  },
+  "mcp": {
+    "serverPort": 8767,
+    "serverEnabled": true
+  },
+  "features": {
+    "lifecycleEnabled": true,
+    "summarizationEnabled": true,
+    "agentIsolation": true
+  }
+}

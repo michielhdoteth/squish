@@ -2,7 +2,7 @@ import { config } from '../config.js';
 import { getGoogleMultimodalEmbedding, isMultimodalInput, MultimodalInput } from './embeddings/google-multimodal.js';
 import { logger } from './logger.js';
 
-export type EmbeddingProvider = 'local' | 'openai' | 'ollama' | 'google-multimodal' | 'none' | 'auto';
+export type EmbeddingProvider = 'local' | 'openai' | 'ollama' | 'google' | 'none' | 'auto';
 
 // Retry utility with exponential backoff
 async function withRetry<T>(
@@ -134,7 +134,7 @@ export async function getEmbedding(input: string | MultimodalInput): Promise<num
   let result: number[] | null = null;
 
    // Handle multimodal input
-   if (isMultimodalInput(input) && provider === 'google-multimodal') {
+   if (isMultimodalInput(input) && provider === 'google') {
      const multimodalResult = await getGoogleMultimodalEmbedding(input);
      if (multimodalResult) {
        result = multimodalResult.embedding;
@@ -147,7 +147,7 @@ export async function getEmbedding(input: string | MultimodalInput): Promise<num
 
      if (provider === 'none') {
        result = null;
-     } else if (provider === 'google-multimodal') {
+     } else if (provider === 'google') {
        const multimodalResult = await getGoogleMultimodalEmbedding({ text: textInput });
        result = multimodalResult?.embedding || null;
      } else if (provider === 'openai') {
@@ -388,7 +388,7 @@ async function getOllamaEmbedding(input: string): Promise<number[] | null> {
  */
 export async function checkEmbeddingProviderHealth(): Promise<Map<string, { available: boolean; latencyMs?: number; error?: string }>> {
   const results = new Map<string, { available: boolean; latencyMs?: number; error?: string }>();
-  const providers = ['local', 'openai', 'ollama', 'google-multimodal', 'none', 'auto'] as const;
+  const providers = ['local', 'openai', 'ollama', 'google', 'none', 'auto'] as const;
   
   // Test local provider (always available)
   results.set('local', { available: true, latencyMs: 0 });
@@ -443,28 +443,28 @@ export async function checkEmbeddingProviderHealth(): Promise<Map<string, { avai
     results.set('ollama', { available: false, error: 'Not configured' });
   }
   
-  // Test Google Multimodal if configured
-  if (config.multimodalEmbeddingsEnabled && (config.googleCloudApiKey || config.googleCloudProject)) {
+  // Test Google if configured
+  if (config.googleCloudApiKey || config.googleCloudProject) {
     const start = Date.now();
     try {
       const result = await withRetry(
-        () => withTimeout(getGoogleMultimodalEmbedding({ text: 'health check' }), config.googleMultimodalTimeoutMs),
+        () => withTimeout(getGoogleMultimodalEmbedding({ text: 'health check' }), config.googleTimeoutMs),
         config.embeddingsMaxRetries,
         config.embeddingsRetryDelayMs
       );
       const latency = Date.now() - start;
-      results.set('google-multimodal', { 
+      results.set('google', { 
         available: result !== null && result.embedding.length > 0, 
         latencyMs: latency 
       });
     } catch (error) {
-      results.set('google-multimodal', { 
+      results.set('google', { 
         available: false, 
         error: (error as Error).message 
       });
     }
   } else {
-    results.set('google-multimodal', { available: false, error: 'Not configured' });
+    results.set('google', { available: false, error: 'Not configured' });
   }
 
   return results;
