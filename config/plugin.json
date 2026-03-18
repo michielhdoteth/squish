@@ -10,7 +10,7 @@
   "homepage": "https://github.com/michielhdoteth/squish#readme",
   "repository": "https://github.com/michielhdoteth/squish.git",
   "commands": "./commands/",
-  "mcpServers": "./.mcp.json",
+  "mcpServers": "./mcp.json.example",
   "keywords": [
     "claude",
     "claude-code",

@@ -48,10 +48,10 @@ curl -X POST http://localhost:8767/tools/call \
 
 ## Configure
 
-Copy `.env.mcp.example` to `.env` and customize:
+Copy `.env.example` to `.env` and customize:
 
 ```bash
-cp .env.mcp.example .env
+cp .env.example .env
 ```
 
 Key settings:

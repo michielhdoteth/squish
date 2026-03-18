@@ -58,6 +58,9 @@ temp/
 references/
 opencode/
 
+# Quick start guide (local only, do not commit)
+QUICK-START.md
+
 # Planning/launch docs generated during execution (keep local, do not commit)
 .sisyphus/plans/squish-launch-100-ready.md
 docs/MEMORY-SYSTEM.md

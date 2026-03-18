@@ -28,5 +28,5 @@
     "model-context-protocol"
   ],
   "commands": "./commands/",
-  "mcpServers": "./.mcp.json"
+  "mcpServers": "./mcp.json.example"
 }
