@@ -77,7 +77,7 @@ import { initializeScheduler, registerJobHandler } from './core/scheduler/cron-s
 import { startHeartbeatChecking, heartbeat } from './core/scheduler/heartbeat.js';
 import { runNightlyJob, runWeeklyJob } from './core/scheduler/job-runner.js';
 
-const VERSION = '1.0.0';
+const VERSION = '1.0.1';
 
 // Load plugin manifest for self-verification
 function loadPluginManifest(): any {
