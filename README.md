@@ -1,350 +1,180 @@
-# Squish - Universal Two-Tier Memory for AI Agents
+# Squish - Universal Memory for AI Agents
 
-**Squish gives any AI agent persistent, intelligent memory through a two-tier architecture.** Without memory, agents forget everything between sessions. With Squish, they learn, adapt, and get smarter over time - regardless of which agent framework you use.
+[![npm version](https://img.shields.io/npm/v/squish-memory)](https://www.npmjs.com/package/squish-memory)
+[![npm downloads](https://img.shields.io/npm/dm/squish-memory)](https://www.npmjs.com/package/squish-memory)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
+
+**Give any AI agent persistent, intelligent memory.** Without memory, agents forget everything between sessions. With Squish, they learn and adapt over time.
 
 ```bash
-npm install squish-memory
+bun add squish-memory
 ```
 
-## Why Agents Need Memory
+## Why Memory Matters
 
 | Without Squish | With Squish |
 |----------------|-------------|
-| Forgets after every session | Remembers across sessions |
+| Forgets everything after session | Remembers across sessions |
 | Repeats the same mistakes | Learns from past decisions |
-| No context awareness | Builds project understanding |
-| Can't track preferences | Adapts to user style |
+| No project awareness | Builds understanding over time |
+| Can't track preferences | Adapts to your style |
 
 ## How It Works
 
-Squish uses a two-tier memory architecture for optimal performance:
-- **Fast Search Tier**: QMD (Quick Markdown Search) provides lightning-fast hybrid BM25 + vector search
-- **Persistent Storage Tier**: SQLite (local) or PostgreSQL (team) ensures durable, reliable memory storage
+**Two-tier architecture** for optimal speed and durability:
 
 ```
-Agent Action -----> [Squish Memory Layer]
-                            |
-                            v
-                     ┌──────────────┐
-                     │  Trigger     │ <-- "remember this", "important"
-                     │  Detection   │
-                     └──────────────┘
-                            |
-                            v
-                     ┌──────────────┐
-                     │  Write Gate  │ <-- Validate, sanitize, score
-                     └──────────────┘
-                            |
-                            v
-          ┌─────────────────────┐
-          │  Dual Storage Write │
-          │  ──→ QMD Index      │  (fast search)
-          │  ──→ SQLite/Postgres│  (durable storage)
-          └─────────────────────┘
-                            |
-                            v
-          ┌─────────────────────┐
-          │  Hybrid Retrieval   │
-          │  QMD Search +       │
-          │  Vector Ranking     │
-          └─────────────────────┘
-                            |
-                            v
-                     Agent Context
+User Action ──► Trigger Detection ──► Write Gate ──► Short-term (QMD)
+                                                             │
+                                                         Long-term (SQLite/PG)
+                                                             │
+                                                         Hybrid Retrieval
+                                                             │
+                                                      Agent Context
 ```
 
-## Key Features
-
-### Memory Intelligence
-- **Trigger Detection**: Auto-detects "remember", "important", corrections
-- **Contradiction Resolution**: Auto-updates when facts change
-- **Temporal Facts**: Handles time-bound information ("until January")
-- **Confidence Scoring**: Knows how reliable each memory is
-
-### Retrieval Quality
-- **Hybrid Search**: Vector + keyword (BM25) with fusion
-- **Multi-factor Ranking**: Semantic, recency, importance, confidence
-- **Telemetry**: Tracks which memories are actually useful
-
-### Agent Safety
-- **Write Gate**: Validates content before storage
-- **Secret Detection**: Auto-redacts API keys, passwords
-- **Graceful Degradation**: Works even when database fails
+- **Short-term (QMD)**: Lightning-fast file-based search. Instant recall for recent context.
+- **Long-term (SQLite/PG)**: Durable storage. SQLite for local, PostgreSQL for teams.
 
 ## Quick Start
 
-### Universal Plugin Installer (Recommended)
 ```bash
-# Install for your AI assistant(s)
-npx squish-memory install-plugin --client=claude-code  # Claude Code
-npx squish-memory install-plugin --client=openclaw    # OpenClaw
-npx squish-memory install-plugin --client=opencode    # OpenCode
-npx squish-memory install-plugin --client=all         # All supported clients
+# Store a memory
+squish remember "User prefers TypeScript over JavaScript"
 
-# Verify installation
-npx squish-memory install-plugin --client=claude-code --verify
+# Search memories
+squish search "coding preferences"
+
+# Get relevant context
+squish recall --query "user preferences"
 ```
 
-### For Claude Code (Plugin) - Legacy Method
-```bash
-# Install from marketplace
-/plugin marketplace add https://github.com/michielhdoteth/squish.git
-/plugin install squish@michielhdoteth-squish
-```
-
-### For OpenClaw (npm) - Legacy Method
-```bash
-npm install -g squish-memory
-```
-
-Add to your OpenClaw MCP config - done.
-
-### Universal CLI
-```bash
-# Works with any agent framework
-squish remember "User prefers TypeScript"
-squish search "preferences"
-squish health
-```
-
-### Universal API
-```bash
-# Start the universal HTTP server
-bun run universal:server
-
-# Add memory via HTTP (stored in both QMD index and SQLite)
-curl -X POST http://localhost:3000/api/memories \
-  -H "Content-Type: application/json" \
-  -d '{"content": "User prefers TypeScript", "type": "preference", "container": "my-project"}'
-
-# Search memories via HTTP (uses QMD for fast hybrid search)
-curl "http://localhost:3000/api/memories/search?q=TypeScript"
-```
-
-**That's it.** One install, persistent memory for any AI agent.
-
-## MCP Tools for Agents
-
-| Tool | What It Does |
-|------|--------------|
-| `remember` | Store a memory |
-| `search` | Find relevant memories |
-| `recall` | Get specific memory by ID |
-| `core_memory` | Always-visible context (persona, user info) |
-| `context` | Get project-relevant memories |
-| `observe` | Record patterns from tool usage |
-
-## Execution Model
-
-- **Universal First**: Works with any AI agent via MCP, CLI, or HTTP API
-- **Transport Agnostic**: MCP (stdio/SSE), CLI, or HTTP/WebSocket - choose your preference
-- **Storage Flexible**: SQLite for local, PostgreSQL for team deployments
-
-## Universal Plugin Architecture
-
-Squish now provides a **universal plugin system** that works as a plugin across all major AI assistant frameworks through a single manifest-driven installer.
-
-### How It Works
-1. Single `plugin-manifest.json` defines the plugin for all clients
-2. `npx squish-memory install-plugin --client=<target>` handles installation
-3. Auto-installs dependencies (mcporter, qmd) with pinned versions
-4. Generates client-specific configurations automatically
-5. Provides unified verification and troubleshooting
-
-### Supported Clients
-| Client | Installation Method | Status |
-|--------|-------------------|---------|
-| Claude Code | Plugin hooks (.claude-plugin/) | ✅ Stable |
-| OpenClaw | Memory slot via MCP bridge | ✅ Stable |
-| OpenCode | MCP server config | ✅ Stable |
-| Codex | MCP server config | ✅ Stable |
-| Cursor | MCP server config | ✅ Beta |
-| VS Code | MCP server config | ✅ Beta |
-| Windsurf | MCP server config | ✅ Beta |
-
-### Quick Installation Examples
-```bash
-# Install for Claude Code (recommended for Claude users)
-npx squish-memory install-plugin --client=claude-code --verify
-
-# Install for OpenClaw (recommended for OpenClaw users)  
-npx squish-memory install-plugin --client=openclaw --verify
-
-# Install for all supported clients
-npx squish-memory install-plugin --client=all --verify
-
-# Install for multiple specific clients
-npx squish-memory install-plugin --client=claude-code,openclaw,opencode --verify
-```
-
-### Benefits
-- **One manifest to rule them all**: Single source of truth
-- **Zero manual configuration**: Automatic dependency installation
-- **Version pinned dependencies**: Stable, reproducible builds
-- **Unified verification**: One command to check all clients
-- **Backward compatible**: Existing integrations still work
-
-## Universal API
-
-Squish now provides a universal HTTP API that works with any AI agent:
-
-```typescript
-// Add memory via HTTP
-POST /api/memories
-{
-  "content": "User prefers TypeScript",
-  "type": "preference",
-  "container": "my-project",
-  "tags": ["preferences", "coding-style"]
-}
-
-// Search memories via HTTP
-GET /api/memories/search?query=TypeScript&limit=10
-```
-
-**Universal Benefits:**
-- Works with any AI agent (Claude, OpenAI, Anthropic, custom)
-- HTTP RESTful API + WebSocket for real-time sync
-- PostgreSQL + pgvector for scalable memory
-- Docker-ready for easy deployment
-
-### Docker Deployment
+Or use as a plugin:
 
 ```bash
-# Quick start with Docker Compose
-docker-compose -f docker-compose.universal.yml up
+# Install for Claude Code
+npx squish-memory install-plugin --client=claude-code
 
-# Or deploy to cloud
-docker build -t squish-universal .
-docker run -p 3000:3000 squish-universal
+# Install for OpenCode
+npx squish-memory install-plugin --client=opencode
 ```
 
-## Open-Core Model
+## Features
 
-- **OSS Core (MIT)**: local mode, self-hosted workflows, MCP/CLI tooling
-- **Commercial Remote**: managed remote control plane, enterprise ops, support
-- **Universal API**: HTTP REST + WebSocket for any AI agent
-- **Sponsor development**: https://github.com/sponsors/michielhdoteth
+### Memory Intelligence
+- Auto-detects "remember this", "important", corrections
+- Handles contradictions when facts change
+- Temporal facts with expiration ("until January")
+- Confidence scoring for each memory
+
+### Retrieval Quality
+- Hybrid search: semantic + keyword (BM25)
+- Multi-factor ranking: relevance, recency, importance
+- LLM-powered context extraction with Ollama (local)
+
+### Universal Compatibility
+- **CLI**: `squish remember`, `squish search`, `squish stats`
+- **MCP Server**: Works with Claude Code, OpenCode, Cursor, VS Code
+- **HTTP API**: REST API + WebSocket for any agent
+- **SQLite**: Local, zero-config
+- **PostgreSQL**: Team mode with pgvector
+
+## Benchmark Results
+
+Real tests using [LoCoMo](https://github.com/snap-research/locomo) benchmark (22 questions):
+
+| Metric | Result |
+|--------|--------|
+| **LoCoMo Score** | **77%** |
+| Embedding Latency | 1-5ms |
+| API Latency | 1-20ms |
+| Max Throughput | 943 ops/sec |
+| Package Size | **283 KB** |
+
+### vs Cloud Solutions
+
+| | Squish | Cloud Memory |
+|--|--------|-------------|
+| **Cost** | $0 | API fees |
+| **Local-first** | Yes | No |
+| **Setup** | 1 command | 3+ steps |
+| **API keys** | None | Required |
+| **LoCoMo** | 77% | 75-81% |
+
+Squish matches cloud solutions on accuracy while running 100% locally with zero API costs.
+
+## Supported Clients
+
+| Client | Status |
+|--------|--------|
+| Claude Code | Stable |
+| OpenCode | Stable |
+| OpenClaw | Stable |
+| Cursor | Beta |
+| VS Code | Beta |
+| Windsurf | Beta |
 
 ## Configuration
 
-### Environment Variables
+**Zero config required** - works out of the box with local embeddings.
 
-**Required (local mode - default):**
-- None! Works out-of-the-box with local TF-IDF embeddings
+For customization:
 
-**Universal API:**
 ```bash
-# For universal HTTP API mode
-DATABASE_URL=postgresql://user:pass@host/db  # Required for universal mode
-REDIS_URL=redis://localhost:6379             # Optional for caching
-PORT=3000                                   # API server port
-```
-
-**Configuration File (config/settings.json):**
-```json
-{
-  "embeddings": {
-    "provider": "local",
-    "models": {
-      "openai": { "model": "text-embedding-3-small" },
-      "google": { "model": "gemini-embedding-001" },
-      "ollama": { "model": "nomic-embed-text:v1.5" }
-    }
-  }
-}
-```
-
-**Environment Variables (override settings.json):**
-```bash
-SQUISH_DATA_DIR=./.squish          # Custom data directory
-SQUISH_EMBEDDINGS_PROVIDER=local   # local, openai, ollama, google, none, auto
-
-# Model selection (optional, uses defaults if not set)
-SQUISH_OPENAI_EMBEDDING_MODEL=text-embedding-3-small
-SQUISH_GOOGLE_EMBEDDING_MODEL=gemini-embedding-001
-SQUISH_OLLAMA_EMBEDDING_MODEL=nomic-embed-text:v1.5
-
-# API credentials (for cloud providers)
-SQUISH_OPENAI_API_KEY=sk-...
+# Environment variables
+SQUISH_DATA_DIR=./.squish
+SQUISH_EMBEDDINGS_PROVIDER=ollama  # openai, ollama, google, local
 SQUISH_OLLAMA_URL=http://localhost:11434
-GOOGLE_CLOUD_PROJECT=your-project
-GOOGLE_CLOUD_API_KEY=your-key
 
-# Embedding performance & reliability
-SQUISH_EMBEDDINGS_TIMEOUT_MS=30000
-SQUISH_EMBEDDINGS_MAX_RETRIES=3
-SQUISH_EMBEDDINGS_RETRY_DELAY_MS=1000
-
-# Core memory size (default: 16KB total, 4KB per section)
-SQUISH_CORE_MEMORY_TOTAL_BYTES=16384
-SQUISH_CORE_MEMORY_SECTION_BYTES=4096
-
-# For team mode
+# Team mode
 DATABASE_URL=postgresql://user:pass@host/db
 ```
 
 ## Architecture
 
-### Two-Tier Memory System
-Squish employs a two-tier architecture for optimal performance and reliability:
-- **Fast Search Tier**: QMD (Quick Markdown Search) provides hybrid BM25 + vector search with sub-second response times
-- **Persistent Storage Tier**: SQLite (local mode) or PostgreSQL (team mode) ensures durable, ACID-compliant memory storage
+### Two-Tier Memory
+- **QMD (Files)**: BM25 + vectors for fast recall
+- **SQLite/PostgreSQL**: ACID-compliant persistent storage
 
-### Universal Interfaces
-- **MCP Server**: Native integration for Claude Code, OpenClaw, and any MCP-compatible agent
-- **HTTP REST API**: Universal JSON API works with any AI agent capable of HTTP requests
-- **WebSocket**: Real-time memory sync and notifications for collaborative agents
-- **CLI**: Standalone command-line tool for shell-based agents and debugging
-
-### Memory Organization
-- **Core Memory (configurable, default 16KB total)**: Always-visible sections for persona, user info, project context, and working notes. Each section limited to 4KB by default. Token estimation helps track LLM context usage.
-- **Context Paging**: Agent-controlled retrieval with token budgeting (8KB default)
-- **Background Jobs**: Automatic memory maintenance including decay, deduplication, and consolidation
+### Interfaces
+- **MCP**: Native agent integration
+- **HTTP**: REST + WebSocket
+- **CLI**: Shell and scripts
 
 ### Memory Lifecycle
-- **Sectors**: episodic, semantic, procedural, autobiographical, working memory
-- **Tiers**: hot (recently accessed), warm (accessible), cold (archived but searchable)
-- **Status**: active, merged, superseded, expired (with automatic handling)
-
-### Deployment Flexibility
-- **Local SQLite**: Zero-configuration, perfect for individual agents and edge deployment
-- **PostgreSQL**: Horizontal scaling for teams and enterprise deployments
-- **Docker**: Single-command deployment with docker-compose.universal.yml
-- **Cloud**: Ready for AWS/GCP/Azure with standard PostgreSQL compatibility
+- **Sectors**: episodic, semantic, procedural, autobiographical
+- **Tiers**: hot (recent), warm (accessible), cold (archived)
+- **Status**: active, merged, superseded, expired
 
 ## Development
 
 ```bash
-# Install dependencies
 bun install
-
-# Build
 bun run build
-
-# Test
 bun test
-
-# Verify MCP
 bun run verify:mcp
 ```
 
 ## Troubleshooting
 
-### Database Issues
-- **SQLite corrupted**: Delete `.squish/squish.db` and restart
-- **PostgreSQL connection**: Verify DATABASE_URL format
+```bash
+# Reset local database
+rm -rf .squish/squish.db
 
-### MCP Issues
-- **Hooks not working**: Run `bun run build` first
-- **API prompts**: Set `SQUISH_EMBEDDINGS_PROVIDER=local`
+# Verify MCP setup
+bun run verify:mcp
+
+# Check health
+squish health
+```
 
 ## License
 
-MIT for OSS core. See `LICENSE` for details.
+MIT License. See [LICENSE](LICENSE).
 
 ## Links
 
-- GitHub: https://github.com/michielhdoteth/squish
-- Issues: https://github.com/michielhdoteth/squish/issues
-- Sponsors: https://github.com/sponsors/michielhdoteth
+- [Documentation](https://github.com/michielhdoteth/squish)
+- [Benchmarks](docs/BENCHMARK.md)
+- [Issues](https://github.com/michielhdoteth/squish/issues)
