@@ -122,17 +122,46 @@ async function ensureDefaultJobs(db: any): Promise<void> {
     }
 
     if (existing.length === 0) {
-      await db.insert(maintenanceJobs).values({
-        ...job,
-        totalRuns: 0,
-        successCount: 0,
-        failureCount: 0,
-        lastRunAt: null,
-        nextRunAt: null,
-        lastRunDuration: null,
-        lastRunStatus: null,
-        lastRunError: null,
-      });
+      try {
+        await db.insert(maintenanceJobs).values({
+          jobName: job.jobName,
+          jobType: job.jobType,
+          cronExpression: job.cronExpression,
+          enabled: job.enabled,
+          jobConfig: job.jobConfig,
+          totalRuns: 0,
+          successCount: 0,
+          failureCount: 0,
+          lastRunAt: null,
+          nextRunAt: null,
+          lastRunDuration: null,
+          lastRunStatus: null,
+          lastRunError: null,
+        });
+      } catch (insertError: any) {
+        // Fallback to raw SQL if drizzle insert fails
+        logger.warn(`[Scheduler] Drizzle insert failed, using raw SQL: ${insertError.message}`);
+        const rawDb = (db as any).$client;
+        if (rawDb && typeof rawDb.prepare === 'function') {
+          const stmt = rawDb.prepare(`
+            INSERT INTO maintenance_jobs 
+            (id, job_name, job_type, cron_expression, enabled, job_config, 
+             total_runs, success_count, failure_count, last_run_at, next_run_at, 
+             last_run_duration, last_run_status, last_run_error)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `);
+          stmt.run(
+            crypto.randomUUID(),
+            job.jobName,
+            job.jobType,
+            job.cronExpression,
+            job.enabled ? 1 : 0,
+            JSON.stringify(job.jobConfig),
+            0, 0, 0,
+            null, null, null, null, null
+          );
+        }
+      }
       logger.info(`[Scheduler] Created default job: ${job.jobName}`);
 
       // Register self-iteration handler
