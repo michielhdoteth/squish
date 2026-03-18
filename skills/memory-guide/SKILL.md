@@ -1,13 +1,13 @@
 ---
 name: memory-guide
-description: Expert guide for using Squish memory system v1.0.1. Use when managing persistent memory, storing context, recalling information, or optimizing memory usage across MCP clients.
-version: 1.0.1
+description: Expert guide for using Squish memory system v1.0.2. Use when managing persistent memory, storing context, recalling information, or optimizing memory usage across MCP clients.
+version: 1.0.2
 author: michielhdoteth
 tags: [memory, persistence, squish, guide, mcp, ai-assistant]
 emoji: book
 ---
 
-# Squish Memory System Guide v1.0.1
+# Squish Memory System Guide v1.0.2
 
 You are an expert at using the Squish persistent memory system for AI coding assistants.
 

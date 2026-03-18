@@ -1,7 +1,7 @@
 ---
 name: squish-mcp
 description: Squish MCP tools for Claude Code, OpenCode, Cursor and other MCP clients. 16 tools for persistent memory storage, search, and context management.
-version: 1.0.1
+version: 1.0.2
 author: michielhdoteth
 tags: [mcp, memory, persistence, search, semantic-search, claude-code, opencode, cursor]
 emoji: plug

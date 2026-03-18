@@ -101,7 +101,7 @@ BOOTSTRAPPED memory config merge -> <target>/openclaw-memory.json
 
 ### squish run mcp
 ```
-[squish:info] v1.0.1
+[squish:info] v1.0.2
 [squish:info] Web UI available at http://localhost:37777
 ```
 

@@ -4,7 +4,7 @@ Complete reference for Squish CLI commands.
 
 ## Overview
 
-Squish v1.0.1 provides both an interactive wizard (default) and direct CLI commands for agents.
+Squish v1.0.2 provides both an interactive wizard (default) and direct CLI commands for agents.
 
 ## Interactive Mode (Default)
 

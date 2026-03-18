@@ -1,13 +1,13 @@
 ---
 name: squish-memory
 description: Squish - Persistent memory system for AI assistants. Store facts, decisions, and context with semantic search. Works with Claude Code, OpenCode, OpenClaw, and any MCP client.
-version: 1.0.1
+version: 1.0.2
 author: michielhdoteth
 tags: [memory, persistence, search, semantic-search, ai-assistant, mcp, cli]
 emoji: brain
 ---
 
-# Squish Memory v1.0.1
+# Squish Memory v1.0.2
 
 Persistent memory system for AI coding assistants. Store facts, decisions, context, and preferences with semantic search.
 
