@@ -51,6 +51,9 @@ temp/
 *.db
 *.db-journal
 
+# OpenCode skill (local only, do not commit)
+.opencode/skills/code-simplifier/
+
 # References and opencode directories
 references/
 opencode/
