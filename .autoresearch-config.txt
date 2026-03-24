@@ -1,1 +1,10 @@
-Goal: Migrate workspace memories to a structured, agent-friendly format
+# Autoresearch Configuration for Squish
+
+## Squish Agent Memory Optimization
+
+### Agent Collaboration Patterns
+- **Goal:** Improve memory sharing between agents
+- **Scope:** core/memory/, core/associations.ts, api/openclaw/
+- **Metric:** Number of successful cross-agent memory retrievals
+- **Direction:** Higher is better
+- **Iterations:** 10
