@@ -1,0 +1,1 @@
+Goal: Migrate workspace memories to a structured, agent-friendly format
