@@ -49,7 +49,7 @@ export async function getTokenUsage(projectPath: string): Promise<TokenUsageStat
   const projectId = project.id;
   const db = createDatabaseClient(await getDb());
   const schema = await getSchema();
-  const { memories, coreMemory } = schema;
+  const memories = schema.memories; const coreMemory = schema.coreMemory;
 
   const coreMemoryRows = await db
     .select()
@@ -133,7 +133,7 @@ export async function getOptimizationSuggestions(
   const projectId = project.id;
   const db = createDatabaseClient(await getDb());
   const schema = await getSchema();
-  const { memories } = schema;
+  const memories = schema.memories;
 
   const candidates = await db
     .select({

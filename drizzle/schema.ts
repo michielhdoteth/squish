@@ -160,6 +160,9 @@ export const memories = pgTable(
     hasL1Overview: boolean('has_l1_overview').default(false),
     lastLayerUpdate: timestamp('last_layer_update'),
 
+    // v1.0.x: Token tracking
+    tokensEstimate: integer('tokens_estimate').default(0).notNull(),
+
     createdAt: timestamp('created_at').defaultNow().notNull(),
     updatedAt: timestamp('updated_at').defaultNow().notNull(),
   },
