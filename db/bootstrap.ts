@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS memories (
   embedding BLOB,
   source TEXT,
   confidence INTEGER DEFAULT 100,
+  confidence_level TEXT DEFAULT 'certain',
   tags TEXT,
   metadata TEXT,
   is_private INTEGER DEFAULT 0,
@@ -397,25 +398,26 @@ const postgresStatements = [
     updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
   );`,
   `CREATE INDEX IF NOT EXISTS projects_path_idx ON projects(path);`,
-  `CREATE TABLE IF NOT EXISTS memories (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
-    user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-    type TEXT NOT NULL,
-    content TEXT NOT NULL,
-    summary TEXT,
-    embedding vector(1536),
-    source TEXT,
-    confidence INTEGER DEFAULT 100,
-    tags TEXT[],
-    metadata JSONB,
-    is_active BOOLEAN DEFAULT TRUE,
-    expires_at TIMESTAMPTZ,
-    access_count INTEGER DEFAULT 0,
-    last_accessed_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
-    updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
-  );`,
+`CREATE TABLE IF NOT EXISTS memories (
+id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
+user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+type TEXT NOT NULL,
+content TEXT NOT NULL,
+summary TEXT,
+embedding vector(1536),
+source TEXT,
+confidence INTEGER DEFAULT 100,
+confidence_level TEXT DEFAULT 'certain',
+tags TEXT[],
+metadata JSONB,
+is_active BOOLEAN DEFAULT TRUE,
+expires_at TIMESTAMPTZ,
+access_count INTEGER DEFAULT 0,
+last_accessed_at TIMESTAMPTZ,
+created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);`,
   `CREATE INDEX IF NOT EXISTS memories_project_idx ON memories(project_id);`,
   `CREATE INDEX IF NOT EXISTS memories_type_idx ON memories(type);`,
   `CREATE INDEX IF NOT EXISTS memories_created_idx ON memories(created_at);`,
@@ -687,9 +689,12 @@ async function runSqliteMigrations(sqlite: Database): Promise<void> {
        { col: 'namespace_id', sql: 'ALTER TABLE memories ADD COLUMN namespace_id TEXT REFERENCES namespaces(id) ON DELETE SET NULL' },
        { col: 'namespace_path', sql: 'ALTER TABLE memories ADD COLUMN namespace_path TEXT' },
 
-        // Token tracking (v1.0.x)
-        { col: 'tokens_estimate', sql: 'ALTER TABLE memories ADD COLUMN tokens_estimate INTEGER DEFAULT 0' },
-      ];
+	// Token tracking (v1.0.x)
+	{ col: 'tokens_estimate', sql: 'ALTER TABLE memories ADD COLUMN tokens_estimate INTEGER DEFAULT 0' },
+
+	// Iteration 3: Confidence flags
+	{ col: 'confidence_level', sql: 'ALTER TABLE memories ADD COLUMN confidence_level TEXT DEFAULT "certain"' },
+];
    
    // Get existing columns for memories table
    const tableInfo = sqlite.prepare("PRAGMA table_info(memories)").all() as Array<{name: string}>;

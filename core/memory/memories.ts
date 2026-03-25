@@ -45,8 +45,9 @@ export interface MemoryRecord {
   validFrom?: string | null;
   validTo?: string | null;
   recordedAt?: string | null;
-  similarity?: number; // Vector similarity score (0-1)
-  importance?: number; // Importance score (0-1)
+  similarity?: number;
+  importance?: number;
+  confidenceLevel?: 'certain' | 'speculative' | 'outdated' | null;
 }
 
 export interface SearchResult extends MemoryRecord {
@@ -166,27 +167,40 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
 }
 
 export async function getMemoryById(id: string, incrementAccess: boolean = true): Promise<MemoryRecord | null> {
-  try {
-    const db = createDatabaseClient(await getDb());
-    const schema = await getSchema();
-    const rows = await db.select().from(schema.memories).where(eq(schema.memories.id, id)).limit(1);
-    const row = rows[0];
-    if (!row) return null;
+	try {
+		const db = createDatabaseClient(await getDb());
+		const schema = await getSchema();
+		const rows = await db.select().from(schema.memories).where(eq(schema.memories.id, id)).limit(1);
+		const row = rows[0];
+		if (!row) return null;
 
-    // Increment access count and update last accessed time
-    if (incrementAccess) {
-      await db.update(schema.memories)
-        .set({
-          accessCount: (row.accessCount ?? 0) + 1,
-          lastAccessedAt: new Date(),
-        })
-        .where(eq(schema.memories.id, id));
-    }
+		// Increment access count and update last accessed time
+		if (incrementAccess) {
+			await db.update(schema.memories)
+			.set({
+				accessCount: (row.accessCount ?? 0) + 1,
+				lastAccessedAt: new Date(),
+			})
+			.where(eq(schema.memories.id, id));
+		}
 
-    return normalizeMemory(row);
-  } catch (error: any) {
-    throw error;
-  }
+		return normalizeMemory(row);
+	} catch (error: any) {
+		throw error;
+	}
+}
+
+export async function updateConfidenceLevel(id: string, level: 'certain' | 'speculative' | 'outdated'): Promise<boolean> {
+	try {
+		const db = createDatabaseClient(await getDb());
+		const schema = await getSchema();
+		await db.update(schema.memories)
+			.set({ confidenceLevel: level, updatedAt: new Date() })
+			.where(eq(schema.memories.id, id));
+		return true;
+	} catch (error: any) {
+		throw error;
+	}
 }
 
 export async function getRecentMemories(projectPath: string, limit: number): Promise<MemoryRecord[]> {
@@ -508,17 +522,18 @@ function normalizeMemory(row: any): MemoryRecord {
     }
   }
 
-   return {
-     id: row.id,
-     projectId: row.projectId ?? row.project_id ?? null,
-     type: row.type,
-     content: row.content,
-     summary: row.summary ?? null,
-     tags,
-     metadata,
-     createdAt: createdAtStr,
-     validFrom: row.validFrom ?? row.valid_from ?? null,
-     validTo: row.validTo ?? row.valid_to ?? null,
-     recordedAt: row.recordedAt ?? row.recorded_at ?? null,
-   };
+	return {
+		id: row.id,
+		projectId: row.projectId ?? row.project_id ?? null,
+		type: row.type,
+		content: row.content,
+		summary: row.summary ?? null,
+		tags,
+		metadata,
+		createdAt: createdAtStr,
+		validFrom: row.validFrom ?? row.valid_from ?? null,
+		validTo: row.validTo ?? row.valid_to ?? null,
+		recordedAt: row.recordedAt ?? row.recorded_at ?? null,
+		confidenceLevel: row.confidenceLevel ?? row.confidence_level ?? null,
+	};
 }

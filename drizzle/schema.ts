@@ -93,10 +93,11 @@ export const memories = pgTable(
     // Semantic search
     embedding: vector('embedding', { dimensions: 1536 }), // OpenAI ada-002 compatible
 
-    // Metadata
-    source: text('source'), // Where this memory came from (tool, hook, user)
-    confidence: integer('confidence').default(100), // 0-100 confidence score
-    tags: text('tags').array(),
+	// Metadata
+	source: text('source'), // Where this memory came from (tool, hook, user)
+	confidence: integer('confidence').default(100), // 0-100 confidence score
+	confidenceLevel: text('confidence_level').default('certain').$type<'certain' | 'speculative' | 'outdated'>(), // Iteration 3: Confidence flags
+	tags: text('tags').array(),
     metadata: jsonb('metadata').$type<Record<string, unknown>>(),
 
     // v0.2.0: Privacy and relevance
