@@ -13,6 +13,7 @@ import { hybridSearch as hybridSearchImpl } from './hybrid-search.js';
 import { calculateImportance } from './importance.js';
 import { detectMemorySignals, MemorySignals } from './trigger-detector.js';
 import { resolveContradictions, applySupersession } from './contradiction-resolver.js';
+import { estimateTokens } from '../context-window.js';
 
 export type MemoryType = 'observation' | 'fact' | 'decision' | 'context' | 'preference' | 'jot';
 
@@ -89,7 +90,9 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
   });
 
   const embeddingValues = prepareEmbedding(embedding);
-  
+
+  const tokensEstimate = estimateTokens(input.content);
+
   let tagsValue;
   if (config.isTeamMode) {
     tagsValue = tags.length ? tags : null;
@@ -122,6 +125,7 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
     ...embeddingValues,
     importanceScore: importance.score,
     lastImportanceRecalc: new Date(),
+    tokensEstimate,
     createdAt: new Date(),
   });
 

@@ -99,6 +99,9 @@ export const memories = sqliteTable(
     // v0.10.0: Echo/Fizzle Tracking - Retrieval Priority
     retrievalPriority: integer('retrieval_priority').default(50), // 0-100, adjusted by feedback
 
+    // v1.0.x: Token tracking
+    tokensEstimate: integer('tokens_estimate').default(0).notNull(),
+
     // v0.8.0: Consolidation tracking
     consolidatedInto: text('consolidated_into').references((): any => (memories as any).id),
     consolidatedAt: integer('consolidated_at', { mode: 'timestamp' }),
