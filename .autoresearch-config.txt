@@ -1,0 +1,22 @@
+# Autoresearch Configuration for Squish
+
+## Goal
+Enhance Squish for agent collaboration and memory optimization
+
+## Scope
+src/, core/, skills/, api/
+
+## Metric
+Number of agent-collaboration improvements implemented
+
+## Direction
+Higher is better
+
+## Iterations
+10
+
+## Verification
+npm test
+
+## Guard
+npm run build
