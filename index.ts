@@ -392,19 +392,48 @@ async function runCliMode() {
       }
     });
 
-  // squish recall <memoryId>
-  program
-    .command('recall <memoryId>')
-    .description('Retrieve a memory by ID')
-    .action(async (memoryId) => {
-      try {
-        const memory = await getMemoryById(String(memoryId));
-        console.log(JSON.stringify({ ok: true, found: !!memory, memory }, null, 2));
-      } catch (error: any) {
-        console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
-        process.exit(1);
-      }
-    });
+// squish get <memoryId> - Retrieve a memory by ID
+program
+  .command('get <memoryId>')
+  .description('Retrieve a memory by ID')
+  .action(async (memoryId) => {
+    try {
+      const memory = await getMemoryById(String(memoryId));
+      console.log(JSON.stringify({ ok: true, found: !!memory, memory }, null, 2));
+    } catch (error: any) {
+      console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
+      process.exit(1);
+    }
+  });
+
+// squish recall <query> - Fuzzy natural language memory search
+program
+  .command('recall <query>')
+  .description('Fuzzy natural language memory search (hybrid BM25 + vector)')
+  .option('-l, --limit <number>', 'Max results', '5')
+  .option('-t, --type <type>', 'Filter by memory type')
+  .option('-p, --project <project>', 'Project path', process.cwd())
+  .action(async (query, options) => {
+    try {
+      const results = await searchMemories({
+        query,
+        type: options.type,
+        limit: parseInt(options.limit, 10),
+        project: options.project,
+      });
+      const matches = results?.map((r: any) => ({
+        id: r.id,
+        score: r.similarity ?? 0,
+        type: r.type,
+        content: r.content.length > 200 ? r.content.slice(0, 200) + '...' : r.content,
+        tags: r.tags,
+      })) ?? [];
+      console.log(JSON.stringify({ ok: true, query, count: matches.length, matches }, null, 2));
+    } catch (error: any) {
+      console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
+      process.exit(1);
+    }
+  });
 
   // squish core_memory view
   // squish core_memory edit persona --content "I am helpful"
