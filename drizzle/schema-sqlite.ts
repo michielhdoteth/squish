@@ -55,10 +55,11 @@ export const memories = sqliteTable(
     // v0.2.0: Vector embedding for local search
     embedding: blob('embedding'),
 
-    // Metadata
-    source: text('source'),
-    confidence: integer('confidence').default(100),
-    tags: text('tags').$type<string[]>(),
+	// Metadata
+	source: text('source'),
+	confidence: integer('confidence').default(100),
+	confidenceLevel: text('confidence_level').$type<'certain' | 'speculative' | 'outdated'>().default('certain'), // Iteration 3: Confidence flags
+	tags: text('tags').$type<string[]>(),
     metadata: text('metadata').$type<Record<string, unknown>>(),
 
     // v0.2.0: Privacy and relevance
