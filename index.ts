@@ -36,7 +36,7 @@ import {
 import { logger } from './core/logger.js';
 import { checkDatabaseHealth, config } from './db/index.js';
 import { checkRedisHealth, closeCache } from './core/cache.js';
-import { rememberMemory, getMemoryById, searchMemories } from './core/memory/memories.js';
+import { rememberMemory, getMemoryById, searchMemories, updateConfidenceLevel } from './core/memory/memories.js';
 import { searchConversations, getRecentConversations } from './core/search/conversations.js';
 import { createObservation } from './core/observations.js';
 import { getProjectContext } from './core/context.js';
@@ -435,6 +435,33 @@ program
     }
   });
 
+// squish confidence <memoryId> [level] - Set or view confidence level
+program
+  .command('confidence <memoryId> [level]')
+  .description('Set or view confidence level (certain/speculative/outdated)')
+  .action(async (memoryId, level) => {
+    try {
+      if (!level) {
+        const memory = await getMemoryById(String(memoryId));
+        if (!memory) {
+          console.log(JSON.stringify({ ok: false, error: 'Memory not found' }, null, 2));
+          process.exit(1);
+        }
+        console.log(JSON.stringify({ ok: true, memoryId, confidenceLevel: memory.confidenceLevel ?? 'certain' }, null, 2));
+      } else {
+        const validLevels = ['certain', 'speculative', 'outdated'] as const;
+        if (!validLevels.includes(level as any)) {
+          console.log(JSON.stringify({ ok: false, error: 'Invalid level. Use: certain, speculative, or outdated' }, null, 2));
+          process.exit(1);
+        }
+        await updateConfidenceLevel(String(memoryId), level as 'certain' | 'speculative' | 'outdated');
+        console.log(JSON.stringify({ ok: true, memoryId, confidenceLevel: level }, null, 2));
+      }
+    } catch (error: any) {
+      console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
+      process.exit(1);
+    }
+  });
   // squish core_memory view
   // squish core_memory edit persona --content "I am helpful"
   // squish core_memory append user_info --text "Prefers TypeScript"
