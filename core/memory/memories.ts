@@ -14,7 +14,7 @@ import { calculateImportance } from './importance.js';
 import { detectMemorySignals, MemorySignals } from './trigger-detector.js';
 import { resolveContradictions, applySupersession } from './contradiction-resolver.js';
 
-export type MemoryType = 'observation' | 'fact' | 'decision' | 'context' | 'preference';
+export type MemoryType = 'observation' | 'fact' | 'decision' | 'context' | 'preference' | 'jot';
 
 export interface RememberInput {
   content: string;

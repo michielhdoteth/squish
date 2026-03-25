@@ -5,7 +5,7 @@ import { relations } from 'drizzle-orm';
 // Type Definitions
 // ============================================================================
 
-export type MemoryType = 'observation' | 'fact' | 'decision' | 'context' | 'preference';
+export type MemoryType = 'observation' | 'fact' | 'decision' | 'context' | 'preference' | 'jot';
 
 // ============================================================================
 // Core Tables

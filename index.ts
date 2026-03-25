@@ -611,13 +611,33 @@ async function runCliMode() {
         }
       });
 
-    // squish install
-    program
-      .command('install')
-      .description('Run the interactive installer wizard')
-      .action(async () => {
-        await spawnInstallerWizard();
-      });
+  // squish install
+  program
+    .command('install')
+    .description('Run the interactive installer wizard')
+    .action(async () => {
+      await spawnInstallerWizard();
+    });
+
+  // squish jot "my thought here" - quick brain dump
+  program
+    .command('jot <content>')
+    .description('Quick brain dump - store a raw memory to process later')
+    .option('-p, --project <project>', 'Project path', process.cwd())
+    .action(async (content, options) => {
+      try {
+        const result = await rememberMemory({
+          content,
+          type: 'jot',
+          tags: ['jot', 'unprocessed'],
+          project: options.project,
+        });
+        console.log(JSON.stringify({ ok: true, message: 'Jot saved', id: result.id }, null, 2));
+      } catch (error: any) {
+        console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
+        process.exit(1);
+      }
+    });
 
   await program.parseAsync(process.argv);
 }
