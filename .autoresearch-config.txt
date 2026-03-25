@@ -1,13 +1,19 @@
 # Autoresearch Configuration for Squish
 
 ## Goal
-Enhance Squish for agent collaboration and memory optimization
+Make Squish easier for AI agents to use daily
+
+## Priority Improvements
+1. Quick jot command - squish jot 'thought' for brain dumps
+2. Fuzzy recall search - squish recall 'something about gas'
+3. Memory confidence flags - mark as certain/speculative/outdated
+4. Context window helper - warn on token limits
 
 ## Scope
-src/, core/, skills/, api/
+commands/, core/memory/, bin/
 
 ## Metric
-Number of agent-collaboration improvements implemented
+Number of agent-usability improvements implemented
 
 ## Direction
 Higher is better
@@ -19,4 +25,4 @@ Higher is better
 npm test
 
 ## Guard
-npm run build
+npm run build && npm run prepublishOnly
