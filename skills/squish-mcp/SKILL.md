@@ -1,13 +1,13 @@
 ---
 name: squish-mcp
-description: Squish MCP tools for Claude Code, OpenCode, Cursor and other MCP clients. 15 tools for persistent memory storage, search, and context management.
-version: 1.0.3
+description: Squish MCP tools for Claude Code, OpenCode, Cursor and other MCP clients. 14 tools for persistent memory storage, search, and context management.
+version: 1.0.4
 author: michielhdoteth
 tags: [mcp, memory, persistence, search, semantic-search, claude-code, opencode, cursor]
 emoji: plug
 ---
 
-# Squish MCP Tools (15 Tools)
+# Squish MCP Tools (14 Tools)
 
 Use these MCP tools when working with Claude Code, OpenCode, Cursor, or any MCP-compatible client.
 
@@ -236,43 +236,7 @@ Record observations.
 }
 ```
 
-### 10. squish_qmd_search
-Search markdown files.
-
-```typescript
-{
-  name: "squish_qmd_search",
-  description: "Search markdown files using QMD (BM25 + vector)",
-  inputSchema: {
-    type: "object",
-    properties: {
-      query: { type: "string", description: "Search query" },
-      collection: { type: "string", description: "QMD collection name" },
-      limit: { type: "number", description: "Max results (default: 10)" }
-    },
-    required: ["query"]
-  }
-}
-```
-
-### 11. squish_embed
-Generate embeddings.
-
-```typescript
-{
-  name: "squish_embed",
-  description: "Generate embeddings for text using configured provider",
-  inputSchema: {
-    type: "object",
-    properties: {
-      text: { type: "string", description: "Text to embed" }
-    },
-    required: ["text"]
-  }
-}
-```
-
-### 12. squish_health
+### 10. squish_health
 Check system health. No input required.
 
 ```typescript
@@ -286,7 +250,7 @@ Check system health. No input required.
 }
 ```
 
-### 13. squish_stats
+### 11. squish_stats
 Get memory statistics.
 
 ```typescript
@@ -302,7 +266,7 @@ Get memory statistics.
 }
 ```
 
-### 14. squish_projects
+### 12. squish_projects
 List all projects. No input required.
 
 ```typescript
@@ -328,7 +292,6 @@ List all projects. No input required.
 | squish_related | Find related | memoryId |
 | squish_context | Project overview | project |
 | squish_observe | Record observation | type, action, summary |
-| squish_embed | Generate embedding | text |
 | squish_health | Check status | - |
 | squish_stats | View stats | project (optional) |
 | squish_projects | List projects | - |
