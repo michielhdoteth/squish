@@ -46,6 +46,9 @@ opencode.json
 .gemini/
 config/mcporter.json
 
+# OpenCode
+.opencode/
+
 # Test coverage
 coverage/
 .nyc_output/
