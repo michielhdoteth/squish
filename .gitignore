@@ -85,3 +85,6 @@ docs/ROADMAP.md
 
 # Claude context file (local only, do not commit)
 CLAUDE.md
+
+# OpenCode memory
+.opencode/

@@ -40,7 +40,7 @@ import { eq } from 'drizzle-orm';
 import { checkRedisHealth, closeCache } from './core/cache.js';
 import { rememberMemory, getMemoryById, searchMemories, updateConfidenceLevel } from './core/memory/memories.js';
 import { searchConversations, getRecentConversations } from './core/search/conversations.js';
-import { createObservation } from './core/observations.js';
+import { createObservation, getObservationsForProject } from './core/observations.js';
 import { getProjectContext } from './core/context.js';
 import { getMemoryStats } from './core/memory/stats.js';
 import { ensureProject, getAllProjects } from './core/projects.js';
@@ -79,11 +79,6 @@ import { initializeScheduler, registerJobHandler } from './core/scheduler/cron-s
 import { startHeartbeatChecking, heartbeat } from './core/scheduler/heartbeat.js';
 import { runNightlyJob, runWeeklyJob } from './core/scheduler/job-runner.js';
 import {
-  getTokenUsage,
-  getOptimizationSuggestions,
-  getContextWindowStatus,
-  checkContextLimit,
-  estimateTokens,
   DEFAULT_CONTEXT_CONFIG,
 } from './core/context-window.js';
 
@@ -665,105 +660,63 @@ program
       await spawnInstallerWizard();
     });
 
-// squish jot "my thought here" - quick brain dump
+// squish note "my thought here" - quick brain dump
 program
-.command('jot <content>')
+.command('note <content>')
 .description('Quick brain dump - store a raw memory to process later')
 .option('-p, --project <project>', 'Project path', process.cwd())
 .action(async (content, options) => {
 try {
 const result = await rememberMemory({
 content,
-type: 'jot',
-tags: ['jot', 'unprocessed'],
+type: 'observation',
+tags: ['note', 'quick'],
 project: options.project,
 });
-console.log(JSON.stringify({ ok: true, message: 'Jot saved', id: result.id }, null, 2));
+console.log(JSON.stringify({ ok: true, message: 'Note saved', id: result.id }, null, 2));
 } catch (error: any) {
 console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
 process.exit(1);
 }
 });
 
-// squish context status - Show current token usage
+// squish context - Show project context (memories + observations)
 program
 .command('context')
-.description('Manage context window and token usage')
-.argument('[action]', 'status, optimize, or check', 'status')
+.description('Show project context - recent memories and observations')
 .option('-p, --project <project>', 'Project path', process.cwd())
-.option('-t, --tokens <number>', 'Tokens to check (for check action)')
+.option('-l, --limit <number>', 'Number of items to show', '10')
+.option('-i, --include <items>', 'What to include: memories, observations, entities', 'memories,observations')
 .option('-j, --json', 'Output as JSON', false)
-.action(async (action, options) => {
+.action(async (options) => {
 try {
-switch (action) {
-case 'status': {
-const status = await getContextWindowStatus(options.project);
+const include = options.include.split(',').map((i: string) => i.trim());
+const limit = parseInt(options.limit, 10);
+const context: any = await getProjectContext({ project: options.project, include, limit });
 if (options.json) {
-console.log(JSON.stringify({ ok: true, ...status }, null, 2));
+console.log(JSON.stringify({ ok: true, ...context }, null, 2));
 } else {
-console.log(`\n Context Window Status`);
-console.log(` ======================`);
-console.log(` Memory Count: ${status.memoryCount}`);
-console.log(` Core Memory Sections: ${status.coreMemorySections}`);
-console.log(`\n Token Usage:`);
-console.log(`   Core Memory: ${status.usage.coreMemoryTokens.toLocaleString()} tokens`);
-console.log(`   Memories: ${status.usage.memoriesTokens.toLocaleString()} tokens`);
-console.log(`   Total: ${status.usage.totalTokens.toLocaleString()} / ${status.usage.maxTokens.toLocaleString()} tokens (${status.usage.usagePercent.toFixed(1)}%)`);
-console.log(`   Status: ${status.usage.status.toUpperCase()}`);
-if (status.suggestions.length > 0) {
-console.log(`\n Optimization Suggestions (${status.suggestions.length}):`);
-for (const sug of status.suggestions.slice(0, 5)) {
-console.log(`   [${sug.type}] ${sug.memoryId.substring(0, 8)}... (${sug.tokens} tokens)`);
-console.log(`     ${sug.reason}`);
+console.log(`\n Project Context: ${context.project?.name || 'unknown'}`);
+console.log(` ================================`);
+if (context.memories?.length) {
+console.log(`\n Recent Memories (${context.memories.length}):`);
+for (const m of context.memories.slice(0, 5)) {
+console.log(`   [${m.type}] ${m.content.substring(0, 60)}...`);
+}
+}
+if (context.observations?.length) {
+console.log(`\n Recent Observations (${context.observations.length}):`);
+for (const o of context.observations.slice(0, 5)) {
+console.log(`   ${o.content.substring(0, 60)}...`);
+}
+}
+if (context.entities?.length) {
+console.log(`\n Entities (${context.entities.length}):`);
+for (const e of context.entities.slice(0, 5)) {
+console.log(`   ${e.name} (${e.type})`);
 }
 }
 console.log('');
-}
-break;
-}
-case 'optimize': {
-const suggestions = await getOptimizationSuggestions(options.project);
-if (options.json) {
-console.log(JSON.stringify({ ok: true, suggestions }, null, 2));
-} else {
-console.log(`\n Optimization Suggestions (${suggestions.length})`);
-console.log(` ==============================`);
-for (const sug of suggestions) {
-console.log(`\n [${sug.type.toUpperCase()}] Memory: ${sug.memoryId}`);
-console.log(`   Type: ${sug.memoryType}`);
-console.log(`   Tokens: ${sug.tokens}`);
-console.log(`   Preview: ${sug.contentPreview}`);
-console.log(`   Reason: ${sug.reason}`);
-}
-console.log('');
-}
-break;
-}
-case 'check': {
-const tokens = parseInt(options.tokens || '1000', 10);
-const result = await checkContextLimit(options.project, tokens);
-if (options.json) {
-console.log(JSON.stringify({ ok: result.ok, warning: result.warning, stats: result.stats }, null, 2));
-} else {
-console.log(`\n Context Check: +${tokens} tokens`);
-console.log(` ============================`);
-console.log(` Current: ${result.stats.totalTokens.toLocaleString()} tokens (${result.stats.usagePercent.toFixed(1)}%)`);
-console.log(` After Add: ${(result.stats.totalTokens + tokens).toLocaleString()} tokens`);
-if (result.warning) {
-console.log(`\n ⚠️  ${result.warning}`);
-} else {
-console.log(`\n ✓ OK - Within limits`);
-}
-console.log('');
-}
-if (!result.ok) {
-process.exit(1);
-}
-break;
-}
-default:
-console.log(JSON.stringify({ ok: false, error: `Unknown action: ${action}. Use: status, optimize, check` }, null, 2));
-process.exit(1);
 }
 } catch (error: any) {
 console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
