@@ -34,7 +34,9 @@ import {
   McpError,
 } from '@modelcontextprotocol/sdk/types.js';
 import { logger } from './core/logger.js';
-import { checkDatabaseHealth, config } from './db/index.js';
+import { checkDatabaseHealth, config, getDb } from './db/index.js';
+import { getSchema } from './db/schema.js';
+import { eq } from 'drizzle-orm';
 import { checkRedisHealth, closeCache } from './core/cache.js';
 import { rememberMemory, getMemoryById, searchMemories, updateConfidenceLevel } from './core/memory/memories.js';
 import { searchConversations, getRecentConversations } from './core/search/conversations.js';
@@ -42,7 +44,7 @@ import { createObservation } from './core/observations.js';
 import { getProjectContext } from './core/context.js';
 import { setImportanceScore } from './core/memory/importance.js';
 import { getMemoryStats } from './core/memory/stats.js';
-import { ensureProject } from './core/projects.js';
+import { ensureProject, getAllProjects } from './core/projects.js';
 import { consolidateMemories as consolidateMemoriesImpl, getConsolidationStats } from './core/memory/consolidation.js';
 import { startWebServer } from './api/web/web.js';
 import { handleDetectDuplicates } from './algorithms/handlers/detect-duplicates.js';
@@ -414,6 +416,62 @@ program
     }
   });
 
+// squish forget <memoryId> - Delete a memory
+program
+  .command('forget <memoryId>')
+  .description('Delete a memory by ID')
+  .action(async (memoryId) => {
+    try {
+      const db = await getDb();
+      const schema = await getSchema();
+      const sqliteDb = db as any;
+      await sqliteDb.delete(schema.memories).where(eq(schema.memories.id, memoryId));
+      console.log(JSON.stringify({ ok: true, message: `Memory ${memoryId} deleted` }, null, 2));
+    } catch (error: any) {
+      console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
+      process.exit(1);
+    }
+  });
+
+// squish update <memoryId> - Update a memory
+program
+  .command('update <memoryId>')
+  .description('Update a memory')
+  .option('-c, --content <content>', 'New content')
+  .option('-t, --type <type>', 'New type (observation, fact, decision, context, preference)')
+  .option('-T, --tags <tags>', 'Comma-separated tags')
+  .action(async (memoryId, options) => {
+    try {
+      const updates: Record<string, any> = {};
+      if (options.content) updates.content = options.content;
+      if (options.type) updates.type = options.type;
+      if (options.tags) updates.tags = config.isTeamMode ? options.tags : JSON.stringify(options.tags.split(','));
+      
+      const db = await getDb();
+      const schema = await getSchema();
+      const sqliteDb = db as any;
+      await sqliteDb.update(schema.memories).set(updates).where(eq(schema.memories.id, memoryId));
+      console.log(JSON.stringify({ ok: true, message: `Memory ${memoryId} updated` }, null, 2));
+    } catch (error: any) {
+      console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
+      process.exit(1);
+    }
+  });
+
+// squish projects - List all projects
+program
+  .command('projects')
+  .description('List all registered projects')
+  .action(async () => {
+    try {
+      const allProjects = await getAllProjects();
+      console.log(JSON.stringify({ ok: true, count: allProjects.length, projects: allProjects }, null, 2));
+    } catch (error: any) {
+      console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
+      process.exit(1);
+    }
+  });
+
 // squish recall <query> - Fuzzy natural language memory search
 program
   .command('recall <query>')
@@ -571,31 +629,6 @@ program
       try {
         await unpinMemory(String(memoryId));
         console.log(JSON.stringify({ ok: true, memoryId, pinned: false }, null, 2));
-      } catch (error: any) {
-        console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
-        process.exit(1);
-      }
-    });
-
-  // squish consolidate --project-id <id> --min-age 90
-  program
-    .command('consolidate')
-    .description('Trigger manual memory consolidation')
-    .option('-p, --project-id <id>', 'Project ID', process.cwd())
-    .option('-a, --min-age <number>', 'Minimum age in days', '90')
-    .option('-i, --max-importance <number>', 'Maximum importance to consolidate', '30')
-    .option('-t, --threshold <number>', 'Similarity threshold (0-1)', '0.7')
-    .option('-l, --limit <number>', 'Max memories to process', '100')
-    .action(async (options) => {
-      try {
-        const results = await consolidateMemoriesImpl({
-          projectId: String(options.projectId),
-          minAge: parseInt(options.minAge, 10),
-          maxImportance: parseInt(options.maxImportance, 10),
-          similarityThreshold: parseFloat(options.threshold),
-          limit: parseInt(options.limit, 10),
-        });
-        console.log(JSON.stringify({ ok: true, consolidated: results.length, results }, null, 2));
       } catch (error: any) {
         console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
         process.exit(1);

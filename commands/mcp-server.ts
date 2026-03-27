@@ -383,6 +383,60 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
     }
   )) toolCount++;
 
+  if (safeRegisterTool(
+    server,
+    "squish_confidence",
+    {
+      description: "Get or set confidence level for a memory (0-100)",
+      inputSchema: {
+        memoryId: z.string().uuid().describe("Memory ID"),
+        level: z.number().min(0).max(100).optional().describe("Confidence level to set (0-100)")
+      }
+    },
+    async ({ memoryId, level }: { memoryId: string; level?: number }) => {
+      const db = await getDb();
+      const schema = await getSchema();
+      
+      if (level !== undefined) {
+        const sqliteDb = db as any;
+        await sqliteDb.update(schema.memories)
+          .set({ confidence: level })
+          .where(eq(schema.memories.id, memoryId));
+        return { content: [{ type: "text", text: `Confidence set to ${level} for memory ${memoryId}` }] };
+      }
+      
+      const sqliteDb2 = db as any;
+      const result = await sqliteDb2.select().from(schema.memories).where(eq(schema.memories.id, memoryId));
+      if (result.length === 0) {
+        return { content: [{ type: "text", text: `Memory not found: ${memoryId}` }], isError: true };
+      }
+      return { content: [{ type: "text", text: `Confidence for memory ${memoryId}: ${result[0].confidence}` }] };
+    }
+  )) toolCount++;
+
+  if (safeRegisterTool(
+    server,
+    "squish_pin",
+    {
+      description: "Pin or unpin a memory to prevent consolidation",
+      inputSchema: {
+        memoryId: z.string().uuid().describe("Memory ID"),
+        pinned: z.boolean().default(true).describe("Pin (true) or unpin (false)")
+      }
+    },
+    async ({ memoryId, pinned }: { memoryId: string; pinned: boolean }) => {
+      const db = await getDb();
+      const schema = await getSchema();
+      const sqliteDb = db as any;
+      
+      await sqliteDb.update(schema.memories)
+        .set({ isPinned: pinned })
+        .where(eq(schema.memories.id, memoryId));
+      
+      return { content: [{ type: "text", text: `Memory ${memoryId} ${pinned ? 'pinned' : 'unpinned'}` }] };
+    }
+  )) toolCount++;
+
   console.error(`[MCP] Tool registration complete. Registered ${toolCount} tools.`);
 
   return { server, toolCount };
