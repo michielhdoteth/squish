@@ -38,7 +38,8 @@ import { checkDatabaseHealth, config, getDb } from './db/index.js';
 import { getSchema } from './db/schema.js';
 import { eq } from 'drizzle-orm';
 import { checkRedisHealth, closeCache } from './core/cache.js';
-import { rememberMemory, getMemoryById, searchMemories, updateConfidenceLevel } from './core/memory/memories.js';
+import { rememberMemory, getMemoryById, searchMemories, getRecentMemories, updateConfidenceLevel } from './core/memory/memories.js';
+import { toSqliteTags } from './core/memory/serialization.js';
 import { searchConversations, getRecentConversations } from './core/search/conversations.js';
 import { createObservation, getObservationsForProject } from './core/observations.js';
 import { getProjectContext } from './core/context.js';
@@ -84,10 +85,94 @@ import {
 
 const VERSION = '1.0.3';
 
+// ============================================================================
+// Config Management (for project path persistence)
+// ============================================================================
+
+const USER_CONFIG_PATH = path.join(os.homedir(), '.squish', 'config.json');
+
+function loadUserConfig(): any {
+  try {
+    if (fs.existsSync(USER_CONFIG_PATH)) {
+      return JSON.parse(fs.readFileSync(USER_CONFIG_PATH, 'utf-8'));
+    }
+  } catch (e) {}
+  return {};
+}
+
+function saveUserConfig(config: any): void {
+  const dir = path.dirname(USER_CONFIG_PATH);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(USER_CONFIG_PATH, JSON.stringify(config, null, 2));
+}
+
+function getDefaultProjectPath(): string {
+  const userConfig = loadUserConfig();
+  if (userConfig.project) return userConfig.project;
+  return process.cwd();
+}
+
+function resolveProjectPath(projectOption?: string): string {
+  if (projectOption) return projectOption;
+  return getDefaultProjectPath();
+}
+
+// ============================================================================
+// Date parsing for time-based queries
+// ============================================================================
+
+function parseDate(input: string): Date | null {
+  if (!input) return null;
+  const now = new Date();
+  const lower = input.toLowerCase().trim();
+  
+  // Direct date parse
+  const parsed = new Date(input);
+  if (!isNaN(parsed.getTime())) return parsed;
+  
+  // Relative parsing
+  const dayMatch = lower.match(/(\d+)\s*day/i);
+  const weekMatch = lower.match(/(\d+)\s*week/i);
+  const monthMatch = lower.match(/(\d+)\s*month/i);
+  
+  if (lower === 'today') return now;
+  if (lower === 'yesterday') return new Date(now.getTime() - 86400000);
+  if (lower === 'thisweek' || lower === 'this week') {
+    const d = new Date(now);
+    d.setDate(d.getDate() - d.getDay());
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }
+  if (lower === 'lastweek' || lower === 'last week') {
+    const d = new Date(now);
+    d.setDate(d.getDate() - d.getDay() - 7);
+    return d;
+  }
+  
+  if (dayMatch) return new Date(now.getTime() - parseInt(dayMatch[1]) * 86400000);
+  if (weekMatch) return new Date(now.getTime() - parseInt(weekMatch[1]) * 604800000);
+  if (monthMatch) return new Date(now.getTime() - parseInt(monthMatch[1]) * 2592000000);
+  
+  return null;
+}
+
+function filterByDateRange<T extends { createdAt?: string | null }>(items: T[], since?: string, until?: string): T[] {
+  const sinceDate = parseDate(since || '');
+  const untilDate = parseDate(until || '');
+  
+  return items.filter(item => {
+    if (!item.createdAt) return true;
+    const created = new Date(item.createdAt);
+    if (sinceDate && created < sinceDate) return false;
+    if (untilDate && created > untilDate) return false;
+    return true;
+  });
+}
+
 // Load plugin manifest for self-verification
 function loadPluginManifest(): any {
   try {
-    const manifestPath = path.join(process.cwd(), 'config', 'plugin-manifest.json');
+    const manifestPath = path.join(getDefaultProjectPath(), 'config', 'plugin-manifest.json');
     if (fs.existsSync(manifestPath)) {
       return JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
     }
@@ -231,7 +316,7 @@ async function runCliCommand(command: string) {
     console.log(`  Data Dir: ${dataDir}`);
     console.log(`  Status:   ${dbHealth ? 'HEALTHY' : 'UNHEALTHY'}\n`);
   } else if (command === 'stats') {
-    const stats = await getMemoryStats(process.cwd());
+    const stats = await getMemoryStats(getDefaultProjectPath());
     console.log(JSON.stringify({ ok: true, ...stats }, null, 2));
   }
 }
@@ -350,13 +435,41 @@ async function runCliMode() {
     await ensureDataDirectory();
   });
 
+  // squish config [get] [key] or squish config set <key> <value>
+  program
+    .command('config')
+    .description('Manage Squish configuration')
+    .argument('[action]', 'get, set, or list', 'list')
+    .argument('[key]', 'Config key (e.g., project)')
+    .argument('[value]', 'Config value (for set action)')
+    .action(async (action, key, value) => {
+      const userConfig = loadUserConfig();
+      if (action === 'set') {
+        if (!key || value === undefined) {
+          console.log(JSON.stringify({ ok: false, error: 'Usage: squish config set <key> <value>' }, null, 2));
+          process.exit(1);
+        }
+        userConfig[key] = value;
+        saveUserConfig(userConfig);
+        console.log(JSON.stringify({ ok: true, message: `Set ${key} = ${value}` }, null, 2));
+      } else if (action === 'get') {
+        if (!key) {
+          console.log(JSON.stringify({ ok: false, error: 'Usage: squish config get <key>' }, null, 2));
+          process.exit(1);
+        }
+        console.log(JSON.stringify({ ok: true, [key]: userConfig[key] || null }, null, 2));
+      } else {
+        console.log(JSON.stringify({ ok: true, config: userConfig }, null, 2));
+      }
+    });
+
   // squish remember "content" --type fact --tags tag1,tag2
   program
     .command('remember <content>')
     .description('Store a memory')
     .option('-t, --type <type>', 'Memory type (observation, fact, decision, context, preference)', 'observation')
     .option('-T, --tags <tags>', 'Comma-separated tags', '')
-    .option('-p, --project <project>', 'Project path', process.cwd())
+    .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
     .action(async (content, options) => {
       try {
         const result = await rememberMemory({
@@ -372,22 +485,26 @@ async function runCliMode() {
       }
     });
 
-  // squish search "query" --type fact --limit 10
+  // squish search "query" --type fact --limit 10 --since "3 days ago"
   program
     .command('search <query>')
     .description('Search memories')
     .option('-t, --type <type>', 'Filter by memory type')
     .option('-l, --limit <number>', 'Max results', '10')
-    .option('-p, --project <project>', 'Project path', process.cwd())
+    .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
+    .option('-s, --since <date>', 'Filter: created after this date (e.g., "3 days ago", "2026-01-01")')
+    .option('-u, --until <date>', 'Filter: created before this date (e.g., "yesterday", "2026-01-15")')
     .action(async (query, options) => {
       try {
         const results = await searchMemories({
           query,
           type: options.type,
-          limit: parseInt(options.limit, 10),
+          limit: parseInt(options.limit, 10) * 2,
           project: options.project,
         });
-        console.log(JSON.stringify({ ok: true, query, count: results?.length || 0, results }, null, 2));
+        const filtered = filterByDateRange(results, options.since, options.until);
+        const limited = filtered.slice(0, parseInt(options.limit, 10));
+        console.log(JSON.stringify({ ok: true, query, count: limited.length, since: options.since, until: options.until, results: limited }, null, 2));
       } catch (error: any) {
         console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
         process.exit(1);
@@ -450,7 +567,7 @@ program
   .option('-a, --action <action>', 'Action performed')
   .option('-s, --summary <summary>', 'Summary')
   .option('--target <target>', 'Target file/resource')
-  .option('-p, --project <project>', 'Project path', process.cwd())
+  .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
   .action(async (options) => {
     try {
       if (!options.action || !options.summary) {
@@ -516,7 +633,9 @@ program
   .description('Search memories by query or get by ID (if UUID provided)')
   .option('-l, --limit <number>', 'Max results', '5')
   .option('-t, --type <type>', 'Filter by memory type')
-  .option('-p, --project <project>', 'Project path', process.cwd())
+  .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
+  .option('-s, --since <date>', 'Filter: created after this date (e.g., "3 days ago", "yesterday")')
+  .option('-u, --until <date>', 'Filter: created before this date (e.g., "today", "2026-01-15")')
   .action(async (query, options) => {
     try {
       const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(query);
@@ -528,18 +647,74 @@ program
         const results = await searchMemories({
           query,
           type: options.type,
-          limit: parseInt(options.limit, 10),
+          limit: parseInt(options.limit, 10) * 2,
           project: options.project,
         });
-        const matches = results?.map((r: any) => ({
+        const filtered = filterByDateRange(results, options.since, options.until);
+        const limited = filtered.slice(0, parseInt(options.limit, 10));
+        const matches = limited.map((r: any) => ({
           id: r.id,
           score: r.similarity ?? 0,
           type: r.type,
           content: r.content.length > 200 ? r.content.slice(0, 200) + '...' : r.content,
           tags: r.tags,
-        })) ?? [];
-        console.log(JSON.stringify({ ok: true, query, count: matches.length, matches }, null, 2));
+        }));
+        console.log(JSON.stringify({ ok: true, query, count: matches.length, since: options.since, until: options.until, matches }, null, 2));
       }
+    } catch (error: any) {
+      console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
+      process.exit(1);
+    }
+  });
+
+// squish today - Show memories from today
+program
+  .command('today')
+  .description('Show memories from today')
+  .option('-l, --limit <number>', 'Max results', '10')
+  .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
+  .action(async (options) => {
+    try {
+      const results = await getRecentMemories(options.project, 100);
+      const filtered = filterByDateRange(results, 'today', 'now');
+      const limited = filtered.slice(0, parseInt(options.limit, 10));
+      console.log(JSON.stringify({ ok: true, period: 'today', count: limited.length, results: limited }, null, 2));
+    } catch (error: any) {
+      console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
+      process.exit(1);
+    }
+  });
+
+// squish yesterday - Show memories from yesterday
+program
+  .command('yesterday')
+  .description('Show memories from yesterday')
+  .option('-l, --limit <number>', 'Max results', '10')
+  .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
+  .action(async (options) => {
+    try {
+      const results = await getRecentMemories(options.project, 100);
+      const filtered = filterByDateRange(results, 'yesterday', 'today');
+      const limited = filtered.slice(0, parseInt(options.limit, 10));
+      console.log(JSON.stringify({ ok: true, period: 'yesterday', count: limited.length, results: limited }, null, 2));
+    } catch (error: any) {
+      console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
+      process.exit(1);
+    }
+  });
+
+// squish thisweek - Show memories from this week
+program
+  .command('thisweek')
+  .description('Show memories from this week')
+  .option('-l, --limit <number>', 'Max results', '10')
+  .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
+  .action(async (options) => {
+    try {
+      const results = await getRecentMemories(options.project, 100);
+      const filtered = filterByDateRange(results, 'thisweek', 'now');
+      const limited = filtered.slice(0, parseInt(options.limit, 10));
+      console.log(JSON.stringify({ ok: true, period: 'thisweek', count: limited.length, results: limited }, null, 2));
     } catch (error: any) {
       console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
       process.exit(1);
@@ -594,6 +769,168 @@ program
       }
     });
 
+  // squish tag add <tag> --search <query> --confirm
+  // squish tag remove <tag> --older-than "30 days" --confirm
+  program
+    .command('tag')
+    .description('Manage tags on memories (bulk)')
+    .argument('<action>', 'add or remove')
+    .argument('<tag>', 'Tag name')
+    .option('-s, --search <query>', 'Search query to match memories')
+    .option('-o, --older-than <date>', 'Only tag memories older than (e.g., "30 days")')
+    .option('-t, --type <type>', 'Filter by memory type')
+    .option('-c, --confirm', 'Actually execute the changes (default is dry-run)', false)
+    .option('-l, --limit <number>', 'Max memories to process', '50')
+    .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
+    .action(async (action, tag, options) => {
+      try {
+        if (!options.search && !options.olderThan) {
+          console.log(JSON.stringify({ ok: false, error: 'Provide --search <query> or --older-than <date>' }, null, 2));
+          process.exit(1);
+        }
+        
+        const limit = parseInt(options.limit, 10);
+        let results: any[];
+        const searchInput: any = { query: options.search, limit, project: options.project };
+        if (options.type) searchInput.type = options.type;
+        
+        if (options.search) {
+          results = await searchMemories(searchInput);
+        } else {
+          results = await getRecentMemories(options.project, limit * 2);
+        }
+        
+        let filtered = results;
+        if (options.olderThan) {
+          filtered = filterByDateRange(results, '', options.olderThan);
+        }
+        
+        const db = await getDb();
+        const schema = await getSchema();
+        
+        if (action === 'add') {
+          const updated = [];
+          for (const mem of filtered) {
+            try {
+              const tags = new Set((mem.tags || []) as string[]);
+              if (!tags.has(tag)) {
+                tags.add(tag);
+                await (db as any).update(schema.memories)
+                  .set({ tags: toSqliteTags(Array.from(tags)), updatedAt: new Date() })
+                  .where(eq(schema.memories.id, mem.id));
+                updated.push(mem.id);
+              }
+            } catch (e: any) {
+              console.error('DEBUG: error updating', mem.id, e.message);
+              throw e;
+            }
+          }
+          console.log(JSON.stringify({ ok: true, action: 'add', tag, matched: filtered.length, updated: updated.length, dryRun: !options.confirm }, null, 2));
+        } else if (action === 'remove') {
+          const updated = [];
+          for (const mem of filtered) {
+            const tags = new Set((mem.tags || []) as string[]);
+            if (tags.has(tag)) {
+              tags.delete(tag);
+              await (db as any).update(schema.memories)
+                .set({ tags: toSqliteTags(Array.from(tags)), updatedAt: new Date() })
+                .where(eq(schema.memories.id, mem.id));
+              updated.push(mem.id);
+            }
+          }
+          console.log(JSON.stringify({ ok: true, action: 'remove', tag, matched: filtered.length, updated: updated.length, dryRun: !options.confirm }, null, 2));
+        } else {
+          console.log(JSON.stringify({ ok: false, error: 'Use: squish tag add <tag> or squish tag remove <tag>' }, null, 2));
+          process.exit(1);
+        }
+      } catch (error: any) {
+        console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
+        process.exit(1);
+      }
+    });
+
+  // squish delete --older-than "30 days" --type observation --confirm
+  program
+    .command('delete')
+    .description('Bulk delete memories by age and type')
+    .option('-o, --older-than <date>', 'Delete memories older than (e.g., "30 days", "6 months")')
+    .option('-t, --type <type>', 'Filter by memory type')
+    .option('-s, --search <query>', 'Search query to match specific memories')
+    .option('-c, --confirm', 'Actually delete (default is dry-run)', false)
+    .option('-l, --limit <number>', 'Max memories to delete', '100')
+    .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
+    .action(async (options) => {
+      try {
+        if (!options.olderThan && !options.search) {
+          console.log(JSON.stringify({ ok: false, error: 'Provide --older-than <date> or --search <query>' }, null, 2));
+          process.exit(1);
+        }
+        
+        const query = options.search || '';
+        const limit = parseInt(options.limit, 10);
+        const results = await searchMemories({ query, type: options.type, limit, project: options.project });
+        
+        let filtered = results;
+        if (options.olderThan) {
+          filtered = filterByDateRange(results, '', options.olderThan);
+        }
+        
+        const db = await getDb();
+        const schema = await getSchema();
+        
+        const deleted = [];
+        for (const mem of filtered) {
+          await (db as any).delete(schema.memories).where(eq(schema.memories.id, mem.id));
+          deleted.push(mem.id);
+        }
+        
+        console.log(JSON.stringify({ ok: true, matched: filtered.length, deleted: deleted.length, dryRun: !options.confirm }, null, 2));
+      } catch (error: any) {
+        console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
+        process.exit(1);
+      }
+    });
+
+  // squish stale --days 30 - Show old, low-confidence, unaccessed memories
+  program
+    .command('stale')
+    .description('Show stale memories (old, low-confidence, or rarely accessed)')
+    .option('-d, --days <number>', 'Show memories older than N days', '30')
+    .option('-c, --confidence <level>', 'Max confidence level to show (outdated, speculative)', 'speculative')
+    .option('-l, --limit <number>', 'Max results', '20')
+    .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
+    .action(async (options) => {
+      try {
+        const days = parseInt(options.days, 10);
+        const cutoffDate = new Date(Date.now() - days * 86400000);
+        
+        const results = await getRecentMemories(options.project, 100);
+        
+        const stale = results.filter((m: any) => {
+          const created = m.createdAt ? new Date(m.createdAt) : null;
+          const isOld = created && created < cutoffDate;
+          const isLowConfidence = m.confidenceLevel === 'outdated' || m.confidenceLevel === 'speculative';
+          const hasLowImportance = (m.importance || 50) < 40;
+          
+          return isOld || isLowConfidence || hasLowImportance;
+        });
+        
+        const limited = stale.slice(0, parseInt(options.limit, 10));
+        
+        const summary = {
+          totalStale: stale.length,
+          old: stale.filter((m: any) => m.createdAt && new Date(m.createdAt) < cutoffDate).length,
+          lowConfidence: stale.filter((m: any) => m.confidenceLevel === 'outdated' || m.confidenceLevel === 'speculative').length,
+          lowImportance: stale.filter((m: any) => (m.importance || 50) < 40).length,
+        };
+        
+        console.log(JSON.stringify({ ok: true, summary, memories: limited }, null, 2));
+      } catch (error: any) {
+        console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
+        process.exit(1);
+      }
+    });
+
   // squish health
   program
     .command('health')
@@ -641,7 +978,7 @@ program
     program
       .command('stats')
       .description('View statistics')
-      .option('-p, --project <project>', 'Project path', process.cwd())
+      .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
       .action(async (options) => {
         try {
           const stats = await getMemoryStats(options.project);
@@ -664,7 +1001,7 @@ program
 program
 .command('note <content>')
 .description('Quick brain dump - store a raw memory to process later')
-.option('-p, --project <project>', 'Project path', process.cwd())
+.option('-p, --project <project>', 'Project path', getDefaultProjectPath())
 .action(async (content, options) => {
 try {
 const result = await rememberMemory({
@@ -684,7 +1021,7 @@ process.exit(1);
 program
 .command('context')
 .description('Show project context - recent memories and observations')
-.option('-p, --project <project>', 'Project path', process.cwd())
+.option('-p, --project <project>', 'Project path', getDefaultProjectPath())
 .option('-l, --limit <number>', 'Number of items to show', '10')
 .option('-i, --include <items>', 'What to include: memories, observations, entities', 'memories,observations')
 .option('-j, --json', 'Output as JSON', false)
