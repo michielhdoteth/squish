@@ -37,6 +37,15 @@ NUL
 *.swo
 *~
 
+# add-mcp generated configs
+.mcp.json
+opencode.json
+.zed/
+.cursor/
+.codex/
+.gemini/
+config/mcporter.json
+
 # Test coverage
 coverage/
 .nyc_output/

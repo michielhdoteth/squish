@@ -13,6 +13,13 @@ Use these MCP tools when working with Claude Code, OpenCode, Cursor, or any MCP-
 
 ## Install
 
+### Option 1: add-mcp (Recommended)
+```bash
+npx add-mcp squish-memory
+```
+Works with Claude Code, OpenCode, Cursor, VS Code, Codex, Gemini CLI, and more.
+
+### Option 2: npm
 ```bash
 npm install -g squish-memory
 ```

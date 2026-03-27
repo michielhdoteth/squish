@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Squish v0.2.6 - One-line installer for Claude Code Plugin
-# Usage: curl -fsSL https://get.squishapp.dev | bash
+# Squish v1.0.2 - One-line installer for Squish Memory
+# Usage: curl -fsSL https://get.squishplugin.dev | bash
 
 set -e
 
@@ -12,7 +12,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-echo -e "${BLUE}🐙 Installing Squish Memory v0.2.6...${NC}"
+echo -e "${BLUE}Installing Squish Memory v1.0.2...${NC}"
 
 # Detect platform and architecture
 detect_platform() {

@@ -39,6 +39,19 @@ User Action ──► Trigger Detection ──► Write Gate ──► Short-ter
 
 ## Quick Start
 
+### Install with add-mcp (Recommended)
+One command installs to Claude Code, OpenCode, Cursor, VS Code, Codex, and more:
+
+```bash
+npx add-mcp squish-memory
+```
+
+Or traditional npm install:
+
+```bash
+bun add squish-memory
+```
+
 ```bash
 # Store a memory
 squish remember "User prefers TypeScript over JavaScript"
