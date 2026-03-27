@@ -45,7 +45,6 @@ import { getProjectContext } from './core/context.js';
 import { setImportanceScore } from './core/memory/importance.js';
 import { getMemoryStats } from './core/memory/stats.js';
 import { ensureProject, getAllProjects } from './core/projects.js';
-import { consolidateMemories as consolidateMemoriesImpl, getConsolidationStats } from './core/memory/consolidation.js';
 import { startWebServer } from './api/web/web.js';
 import { handleDetectDuplicates } from './algorithms/handlers/detect-duplicates.js';
 import { handleListProposals } from './algorithms/handlers/list-proposals.js';
@@ -527,64 +526,6 @@ program
       process.exit(1);
     }
   });
-  // squish core_memory view
-  // squish core_memory edit persona --content "I am helpful"
-  // squish core_memory append user_info --text "Prefers TypeScript"
-  program
-    .command('core_memory')
-    .description('Manage core memory (always-visible context)')
-    .argument('[action]', 'view, edit, append', 'view')
-    .option('-s, --section <section>', 'Section: persona, user_info, project_context, working_notes')
-    .option('-c, --content <content>', 'New content (for edit)')
-    .option('-t, --text <text>', 'Text to append (for append)')
-    .option('-p, --project <project>', 'Project path', process.cwd())
-    .action(async (action, options) => {
-      try {
-        const projectPath = options.project;
-        const projectRecord = await ensureProject(projectPath);
-        if (!projectRecord) {
-          console.log(JSON.stringify({ ok: false, error: 'Project not found and could not be created' }, null, 2));
-          process.exit(1);
-        }
-        const projectId = projectRecord.id;
-
-        switch (action) {
-          case 'view':
-            await initializeCoreMemory(projectId);
-            const core = await getCoreMemory(projectId);
-            const stats = await getCoreMemoryStats(projectId);
-            console.log(JSON.stringify({ ok: true, action, content: core, stats }, null, 2));
-            break;
-
-          case 'edit':
-            if (!options.section || !options.content) {
-              console.log(JSON.stringify({ ok: false, error: '--section and --content required for edit' }, null, 2));
-              process.exit(1);
-            }
-            await initializeCoreMemory(projectId);
-            const editResult = await editCoreMemorySection(projectId, options.section as any, String(options.content));
-            console.log(JSON.stringify({ ok: editResult.success, action: 'edit', section: options.section, ...editResult }, null, 2));
-            break;
-
-          case 'append':
-            if (!options.section || !options.text) {
-              console.log(JSON.stringify({ ok: false, error: '--section and --text required for append' }, null, 2));
-              process.exit(1);
-            }
-            await initializeCoreMemory(projectId);
-            const appendResult = await appendCoreMemorySection(projectId, options.section as any, String(options.text));
-            console.log(JSON.stringify({ ok: appendResult.success, action: 'append', section: options.section, ...appendResult }, null, 2));
-            break;
-
-          default:
-            console.log(JSON.stringify({ ok: false, error: `Unknown action: ${action}` }, null, 2));
-            process.exit(1);
-        }
-      } catch (error: any) {
-        console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
-        process.exit(1);
-      }
-    });
 
   // squish set-importance <memoryId> --importance 80
   program
@@ -628,21 +569,6 @@ program
       try {
         await unpinMemory(String(memoryId));
         console.log(JSON.stringify({ ok: true, memoryId, pinned: false }, null, 2));
-      } catch (error: any) {
-        console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
-        process.exit(1);
-      }
-    });
-
-  // squish consolidation-stats --project-id <id>
-  program
-    .command('consolidation-stats')
-    .description('Get consolidation statistics for a project')
-    .option('-p, --project-id <id>', 'Project ID', process.cwd())
-    .action(async (options) => {
-      try {
-        const stats = await getConsolidationStats(String(options.projectId));
-        console.log(JSON.stringify({ ok: true, ...stats }, null, 2));
       } catch (error: any) {
         console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
         process.exit(1);

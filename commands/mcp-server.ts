@@ -285,24 +285,6 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
 
   if (safeRegisterTool(
     server,
-    "squish_embed",
-    {
-      description: "Generate embeddings for text using configured provider",
-      inputSchema: {
-        text: z.string().describe("Text to embed")
-      }
-    },
-    async ({ text }: { text: string }) => {
-      const embedding = await getEmbedding(text);
-      if (!embedding) {
-        return { content: [{ type: "text", text: "Failed to generate embedding" }], isError: true };
-      }
-      return { content: [{ type: "text", text: JSON.stringify({ dimensions: embedding.length, preview: embedding.slice(0, 5) }, null, 2) }] };
-    }
-  )) toolCount++;
-
-  if (safeRegisterTool(
-    server,
     "squish_health",
     {
       description: "Check Squish system health status",

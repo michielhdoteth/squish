@@ -1,6 +1,7 @@
 {
   "$schema": "./settings.schema.json",
   "embeddings": {
+    "enabled": true,
     "provider": "local",
     "models": {
       "openai": {
