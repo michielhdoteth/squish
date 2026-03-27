@@ -42,7 +42,6 @@ import { rememberMemory, getMemoryById, searchMemories, updateConfidenceLevel } 
 import { searchConversations, getRecentConversations } from './core/search/conversations.js';
 import { createObservation } from './core/observations.js';
 import { getProjectContext } from './core/context.js';
-import { setImportanceScore } from './core/memory/importance.js';
 import { getMemoryStats } from './core/memory/stats.js';
 import { ensureProject, getAllProjects } from './core/projects.js';
 import { startWebServer } from './api/web/web.js';
