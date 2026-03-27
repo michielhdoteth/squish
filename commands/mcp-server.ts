@@ -197,34 +197,6 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
 
   if (safeRegisterTool(
     server,
-    "squish_qmd_search",
-    {
-      description: "Search markdown files using QMD (BM25 + vector)",
-      inputSchema: {
-        query: z.string().describe("Search query"),
-        collection: z.string().optional().describe("QMD collection name"),
-        limit: z.number().min(1).max(100).default(10).describe("Maximum results")
-      }
-    },
-    async ({ query, collection, limit = 10 }: { query: string; collection?: string; limit?: number }) => {
-      const client = await getQMDClient();
-      const available = await client.isAvailable();
-      
-      if (!available) {
-        return { content: [{ type: "text", text: "QMD not available. Install with: bun install -g qmd" }], isError: true };
-      }
-
-      const results = await client.search({ query, collection, limit });
-      const formatted = results.map((r: any, i: number) =>
-        `${i + 1}. ${r.path || r.file} (score: ${r.score?.toFixed(2)})\n   ${r.content?.substring(0, 150)}...`
-      ).join("\n\n");
-
-      return { content: [{ type: "text", text: `QMD found ${results.length} results:\n\n${formatted}` }] };
-    }
-  )) toolCount++;
-
-  if (safeRegisterTool(
-    server,
     "squish_associate",
     {
       description: "Create an association between two memories in the graph",
