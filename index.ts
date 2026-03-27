@@ -56,7 +56,7 @@ import { handleGetMergeStats } from './algorithms/handlers/get-stats.js';
 import { forceLifecycleMaintenance } from './core/worker.js';
 import { summarizeSession } from './core/summarization.js';
 import { storeAgentMemory } from './core/agent-memory.js';
-import { getRelatedMemories } from './core/associations.js';
+import { getRelatedMemories, createAssociation } from './core/associations.js';
 import { protectMemory, pinMemory, unpinMemory } from './core/governance.js';
 import { isDatabaseUnavailableError, determineOverallStatus } from './core/utils.js';
 import { searchWithQMD, isQMDAvailable } from './core/search/qmd-search.js';
@@ -400,21 +400,7 @@ async function runCliMode() {
       }
     });
 
-// squish get <memoryId> - Retrieve a memory by ID
-program
-  .command('get <memoryId>')
-  .description('Retrieve a memory by ID')
-  .action(async (memoryId) => {
-    try {
-      const memory = await getMemoryById(String(memoryId));
-      console.log(JSON.stringify({ ok: true, found: !!memory, memory }, null, 2));
-    } catch (error: any) {
-      console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
-      process.exit(1);
-    }
-  });
-
-// squish forget <memoryId> - Delete a memory
+  // squish confidence <memoryId> [level] - Set or view confidence level
 program
   .command('forget <memoryId>')
   .description('Delete a memory by ID')
@@ -431,7 +417,67 @@ program
     }
   });
 
-// squish update <memoryId> - Update a memory
+// squish associate <fromId> <toId> <type> - Link two memories
+program
+  .command('associate <fromMemoryId> <toMemoryId> <type>')
+  .description('Link two memories together (relates_to, supports, contradicts, supersedes, duplicate)')
+  .action(async (fromMemoryId, toMemoryId, type) => {
+    try {
+      await createAssociation(fromMemoryId, toMemoryId, type as any, 0.5);
+      console.log(JSON.stringify({ ok: true, message: `Linked ${fromMemoryId} -> ${toMemoryId} (${type})` }, null, 2));
+    } catch (error: any) {
+      console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
+      process.exit(1);
+    }
+  });
+
+// squish related <memoryId> - Find related memories
+program
+  .command('related <memoryId>')
+  .description('Find memories related to a memory via graph')
+  .option('-d, --depth <number>', 'Graph depth (1-5)', '2')
+  .option('-w, --min-weight <number>', 'Minimum weight (0-1)', '0.3')
+  .action(async (memoryId, options) => {
+    try {
+      const related = await getRelatedMemories(memoryId, parseInt(options.depth) * 5);
+      const filtered = related.filter((r: any) => r.weight >= parseFloat(options.minWeight));
+      console.log(JSON.stringify({ ok: true, count: filtered.length, related: filtered }, null, 2));
+    } catch (error: any) {
+      console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
+      process.exit(1);
+    }
+  });
+
+// squish observe <type> <action> <summary> - Record observation
+program
+  .command('observe')
+  .description('Record an observation (tool_use, file_change, error, pattern, insight)')
+  .option('-t, --type <type>', 'Observation type', 'insight')
+  .option('-a, --action <action>', 'Action performed')
+  .option('-s, --summary <summary>', 'Summary')
+  .option('--target <target>', 'Target file/resource')
+  .option('-p, --project <project>', 'Project path', process.cwd())
+  .action(async (options) => {
+    try {
+      if (!options.action || !options.summary) {
+        console.log(JSON.stringify({ ok: false, error: '--action and --summary required' }, null, 2));
+        process.exit(1);
+      }
+      const observation = await createObservation({
+        type: options.type as any,
+        action: options.action,
+        summary: options.summary,
+        target: options.target,
+        project: options.project,
+      });
+      console.log(JSON.stringify({ ok: true, observation }, null, 2));
+    } catch (error: any) {
+      console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
+      process.exit(1);
+    }
+  });
+
+// squish projects - List all projects
 program
   .command('update <memoryId>')
   .description('Update a memory')
@@ -470,29 +516,36 @@ program
     }
   });
 
-// squish recall <query> - Fuzzy natural language memory search
+// squish recall <query or memoryId> - Search or get by ID
 program
   .command('recall <query>')
-  .description('Fuzzy natural language memory search (hybrid BM25 + vector)')
+  .description('Search memories by query or get by ID (if UUID provided)')
   .option('-l, --limit <number>', 'Max results', '5')
   .option('-t, --type <type>', 'Filter by memory type')
   .option('-p, --project <project>', 'Project path', process.cwd())
   .action(async (query, options) => {
     try {
-      const results = await searchMemories({
-        query,
-        type: options.type,
-        limit: parseInt(options.limit, 10),
-        project: options.project,
-      });
-      const matches = results?.map((r: any) => ({
-        id: r.id,
-        score: r.similarity ?? 0,
-        type: r.type,
-        content: r.content.length > 200 ? r.content.slice(0, 200) + '...' : r.content,
-        tags: r.tags,
-      })) ?? [];
-      console.log(JSON.stringify({ ok: true, query, count: matches.length, matches }, null, 2));
+      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(query);
+      
+      if (isUUID) {
+        const memory = await getMemoryById(query);
+        console.log(JSON.stringify({ ok: true, found: !!memory, memory }, null, 2));
+      } else {
+        const results = await searchMemories({
+          query,
+          type: options.type,
+          limit: parseInt(options.limit, 10),
+          project: options.project,
+        });
+        const matches = results?.map((r: any) => ({
+          id: r.id,
+          score: r.similarity ?? 0,
+          type: r.type,
+          content: r.content.length > 200 ? r.content.slice(0, 200) + '...' : r.content,
+          tags: r.tags,
+        })) ?? [];
+        console.log(JSON.stringify({ ok: true, query, count: matches.length, matches }, null, 2));
+      }
     } catch (error: any) {
       console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
       process.exit(1);
@@ -527,48 +580,20 @@ program
     }
   });
 
-  // squish set-importance <memoryId> --importance 80
-  program
-    .command('set-importance <memoryId>')
-    .description('Manually set importance score for a memory (0-100)')
-    .option('-i, --importance <number>', 'Importance score (0-100)', '50')
-    .action(async (memoryId, options) => {
-      try {
-        const score = parseInt(options.importance, 10);
-        if (isNaN(score) || score < 0 || score > 100) {
-          console.log(JSON.stringify({ ok: false, error: 'Importance must be between 0 and 100' }, null, 2));
-          process.exit(1);
-        }
-        await setImportanceScore(String(memoryId), score);
-        console.log(JSON.stringify({ ok: true, memoryId, importanceScore: score }, null, 2));
-      } catch (error: any) {
-        console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
-        process.exit(1);
-      }
-    });
-
-  // squish pin <memoryId>
+  // squish pin <memoryId> [--unpin]
   program
     .command('pin <memoryId>')
-    .description('Pin a memory to prevent pruning/consolidation')
-    .action(async (memoryId) => {
+    .description('Pin/unpin a memory to prevent pruning/consolidation')
+    .option('-u, --unpin', 'Unpin the memory instead of pinning', false)
+    .action(async (memoryId, options) => {
       try {
-        await pinMemory(String(memoryId));
-        console.log(JSON.stringify({ ok: true, memoryId, pinned: true }, null, 2));
-      } catch (error: any) {
-        console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
-        process.exit(1);
-      }
-    });
-
-  // squish unpin <memoryId>
-  program
-    .command('unpin <memoryId>')
-    .description('Unpin a memory')
-    .action(async (memoryId) => {
-      try {
-        await unpinMemory(String(memoryId));
-        console.log(JSON.stringify({ ok: true, memoryId, pinned: false }, null, 2));
+        if (options.unpin) {
+          await unpinMemory(String(memoryId));
+          console.log(JSON.stringify({ ok: true, memoryId, pinned: false }, null, 2));
+        } else {
+          await pinMemory(String(memoryId));
+          console.log(JSON.stringify({ ok: true, memoryId, pinned: true }, null, 2));
+        }
       } catch (error: any) {
         console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
         process.exit(1);
