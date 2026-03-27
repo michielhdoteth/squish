@@ -135,7 +135,11 @@ function parseDate(input: string): Date | null {
   const weekMatch = lower.match(/(\d+)\s*week/i);
   const monthMatch = lower.match(/(\d+)\s*month/i);
   
-  if (lower === 'today') return now;
+  if (lower === 'today') {
+    const d = new Date(now);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }
   if (lower === 'yesterday') return new Date(now.getTime() - 86400000);
   if (lower === 'thisweek' || lower === 'this week') {
     const d = new Date(now);
@@ -904,7 +908,8 @@ program
         const days = parseInt(options.days, 10);
         const cutoffDate = new Date(Date.now() - days * 86400000);
         
-        const results = await getRecentMemories(options.project, 100);
+        // Get recent memories - larger limit to find stale ones
+        const results = await getRecentMemories(options.project, 500);
         
         const stale = results.filter((m: any) => {
           const created = m.createdAt ? new Date(m.createdAt) : null;
