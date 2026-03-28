@@ -3,7 +3,7 @@
 import { logger } from '../logger.js';
 import { config } from '../../config.js';
 import { initializeCoreMemory, getCoreMemory } from '../core-memory.js';
-import { searchMemories } from '../memory/memories.js';
+import { search } from '../memory/memories.js';
 import { getProjectContext } from '../context.js';
 import { ensureProject } from '../projects.js';
 import { AutoLoadConfig, AutoLoadResult, DEFAULT_AUTO_LOAD_CONFIG } from './types.js';
@@ -61,7 +61,7 @@ export async function performAutoLoad(
 
     if (cfg.includeRecentMemories && cfg.recentMemoryCount > 0) {
       try {
-        const recentMemories = await searchMemories({
+        const recentMemories = await search({
           query: '',
           project: projectPath,
           limit: cfg.recentMemoryCount,

@@ -2,8 +2,8 @@ import express from 'express';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import { logger } from '../../core/logger.js';
-import { getRecentMemories } from '../../core/memory/memories.js';
-import { getObservationsForProject } from '../../core/observations.js';
+import { getRecent } from '../../core/memory/memories.js';
+import { getObservations } from '../../core/observations.js';
 import { getAllProjects, getProjectByPath } from '../../core/projects.js';
 import { getDb } from '../../db/index.js';
 
@@ -85,7 +85,7 @@ app.get('/api/memories', async (req, res) => {
       return res.json({ status: 'ok', data: [], count: 0, message: 'Project not found' });
     }
 
-     const memories = await getRecentMemories(projectPath, limit);
+     const memories = await getRecent(projectPath, limit);
      
      res.json({
        status: 'ok',
@@ -110,7 +110,7 @@ app.get('/api/observations', async (req, res) => {
       return res.json({ status: 'ok', data: [], count: 0, message: 'Project not found' });
     }
 
-    const observations = await getObservationsForProject(projectPath, limit);
+    const observations = await getObservations(projectPath, limit);
     
     res.json({
       status: 'ok',
@@ -161,8 +161,8 @@ app.get('/api/context', async (req, res) => {
       });
     }
 
-    const memories = await getRecentMemories(projectPath, 20);
-    const observations = await getObservationsForProject(projectPath, 20);
+    const memories = await getRecent(projectPath, 20);
+    const observations = await getObservations(projectPath, 20);
 
      res.json({
        status: 'ok',

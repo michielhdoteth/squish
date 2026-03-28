@@ -23,6 +23,28 @@ The manifest is the single source of truth that defines:
 
 See `config/plugin-manifest.schema.json` for the complete schema definition.
 
+## add-mcp (Recommended)
+
+The recommended way to install Squish is using [add-mcp](https://github.com/neondatabase/add-mcp), a universal CLI that installs MCP servers across all major coding agents with a single command:
+
+```bash
+npx add-mcp squish-memory
+```
+
+This automatically installs Squish for:
+- Claude Code
+- OpenCode
+- Cursor
+- VS Code
+- Codex
+- And other supported agents
+
+Benefits:
+- Single command for all agents
+- Project-level or global installation
+- Automatic detection of installed agents
+- Future-proof as new agents are added
+
 ### Installation Process
 1. **Manifest Loading**: Installer reads `config/plugin-manifest.json`
 2. **Dependency Resolution**: Checks and installs required dependencies (mcporter, qmd) with pinned versions

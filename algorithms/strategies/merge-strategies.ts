@@ -390,7 +390,8 @@ export const MERGE_STRATEGIES: Record<MemoryType, MergeStrategy> = {
   decision: new DecisionMergeStrategy(),
   observation: new ObservationMergeStrategy(),
   context: new ContextMergeStrategy(),
-  jot: new ObservationMergeStrategy(), // jot uses observation strategy
+  reflection: new ObservationMergeStrategy(),
+  note: new ObservationMergeStrategy(), // jot uses observation strategy
 };
 
 export function getMergeStrategy(type: MemoryType): MergeStrategy {

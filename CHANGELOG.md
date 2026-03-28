@@ -2,6 +2,38 @@
 
 All notable changes to Squish will be documented in this file.
 
+## [1.1.0-enhanced] - 2026-03-27
+
+### Added - Security & Encryption
+- **Client-side encryption**: AES-256-GCM encryption for sensitive memories
+- **Optional encryption**: Controlled via `SQUISH_ENCRYPTION_PASSPHRASE` env var
+- **Encryption CLI tools**:
+  - `squish_set_passphrase`: Set encryption passphrase (writes to `.squish/.env`)
+  - `squish_rotate_key`: Rotate passphrase and re-encrypt all memories
+- **New schema columns**: `encrypted_content`, `encryption_nonce`, `is_encrypted`, `status`
+
+### Added - Graph-Boosted Retrieval
+- **Graph associations**: Memories linked by coactivation count
+- **Boost computation**: `weight * coactivationCount` per association
+- **Hybrid search integration**: Graph boost added to RRF scoring
+- **Configurable weight**: `SQUISH_WEIGHT_GRAPH_BOOST` (default: 1.5)
+
+### Added - Memory Lifecycle
+- **Decay scheduler**: Automatic tier promotion/demotion based on importance
+- **Tier system**: hot → warm → cold → expired
+- **Cron-based**: Configurable via `SQUISH_LIFECYCLE_DECAY_CRON`
+- **New schema columns**: `status`, `decay_rate`, `last_decay_at`
+
+### Added - Supabase Backend Support
+- **PostgreSQL via Supabase**: New backend option
+- **Auto-detection**: Uses Supabase when `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` are set
+- **Drizzle ORM**: Full compatibility with existing queries
+
+### Changed - Memory Types
+- Replaced `jot` type with `note`
+- Added `reflection` type
+- Updated categorizer, merge strategies, and two-stage detector
+
 ## [1.0.0] - 2026-03-17
 
 ### 🚀 Major Release - Universal Plugin Architecture

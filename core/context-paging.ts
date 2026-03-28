@@ -16,7 +16,7 @@ import { sql } from 'drizzle-orm';
 import { getDb } from '../db/index.js';
 import { getSchema } from '../db/schema.js';
 import { createDatabaseClient } from './database.js';
-import { getMemoryById } from './memory/memories.js';
+import { getMemory } from './memory/memories.js';
 
 interface LoadedMemory {
   id: string;
@@ -103,7 +103,7 @@ export async function loadMemoryToContext(
   }
 
   // Get memory
-  const memory = await getMemoryById(memoryId);
+  const memory = await getMemory(memoryId);
   if (!memory) {
     return {
       success: false,
@@ -248,7 +248,7 @@ export async function viewLoadedMemories(
   // Get all loaded memories
   const memories: LoadedMemory[] = [];
   for (const id of loadedIds) {
-    const memory = await getMemoryById(id);
+    const memory = await getMemory(id);
     if (memory) {
       memories.push({
         id: memory.id,
@@ -326,7 +326,7 @@ export async function getContextStatus(
   const loadedIds = (currentSession.loadedMemoryIds as string[]) || [];
   const loadedMemories = [];
   for (const id of loadedIds) {
-    const memory = await getMemoryById(id);
+    const memory = await getMemory(id);
     if (memory) {
       loadedMemories.push({
         id: memory.id,

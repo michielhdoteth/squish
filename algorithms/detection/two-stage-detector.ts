@@ -382,7 +382,8 @@ function countByType(memories: Memory[]): Record<MemoryType, number> {
     decision: 0,
     context: 0,
     preference: 0,
-    jot: 0,
+    reflection: 0,
+    note: 0,
   };
 
   for (const memory of memories) {

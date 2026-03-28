@@ -113,6 +113,9 @@ CREATE TABLE IF NOT EXISTS memory_associations (
   UNIQUE(from_memory_id, to_memory_id)
 );
 
+-- Composite index for graph traversal (v1.1.0)
+CREATE INDEX IF NOT EXISTS associations_graph_traversal_idx ON memory_associations(from_memory_id, to_memory_id, weight, association_type);
+
 CREATE TABLE IF NOT EXISTS conversations (
   id TEXT PRIMARY KEY,
   project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
@@ -159,6 +162,12 @@ CREATE TABLE IF NOT EXISTS observations (
   summary TEXT NOT NULL,
   details TEXT,
   embedding_json TEXT,
+  embedding BLOB,
+  folder_path TEXT,
+  project_path TEXT,
+  is_private INTEGER DEFAULT 0,
+  has_secrets INTEGER DEFAULT 0,
+  relevance_score INTEGER DEFAULT 50,
   category TEXT,
   importance INTEGER DEFAULT 50,
   metadata TEXT,
@@ -694,6 +703,12 @@ async function runSqliteMigrations(sqlite: Database): Promise<void> {
 
 	// Iteration 3: Confidence flags
 	{ col: 'confidence_level', sql: 'ALTER TABLE memories ADD COLUMN confidence_level TEXT DEFAULT "certain"' },
+
+	// v1.1.0: Status and encryption
+	{ col: 'status', sql: 'ALTER TABLE memories ADD COLUMN status TEXT DEFAULT "active"' },
+	{ col: 'encrypted_content', sql: 'ALTER TABLE memories ADD COLUMN encrypted_content TEXT' },
+	{ col: 'encryption_nonce', sql: 'ALTER TABLE memories ADD COLUMN encryption_nonce TEXT' },
+	{ col: 'is_encrypted', sql: 'ALTER TABLE memories ADD COLUMN is_encrypted INTEGER DEFAULT 0' },
 ];
    
    // Get existing columns for memories table
@@ -743,7 +758,61 @@ async function runSqliteMigrations(sqlite: Database): Promise<void> {
         }
       }
     }
-    
+
+    // Migrations for observations table (v1.1.x)
+    const observationsTableCheck = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='observations'").get() as {name: string} | undefined;
+    if (observationsTableCheck) {
+      const observationsInfo = sqlite.prepare("PRAGMA table_info(observations)").all() as Array<{name: string}>;
+      const existingObservationsColumns = new Set(observationsInfo.map(col => col.name));
+
+      const observationsMigrations = [
+        { col: 'embedding', sql: 'ALTER TABLE observations ADD COLUMN embedding BLOB' },
+        { col: 'folder_path', sql: 'ALTER TABLE observations ADD COLUMN folder_path TEXT' },
+        { col: 'project_path', sql: 'ALTER TABLE observations ADD COLUMN project_path TEXT' },
+        { col: 'is_private', sql: 'ALTER TABLE observations ADD COLUMN is_private INTEGER DEFAULT 0' },
+        { col: 'has_secrets', sql: 'ALTER TABLE observations ADD COLUMN has_secrets INTEGER DEFAULT 0' },
+        { col: 'relevance_score', sql: 'ALTER TABLE observations ADD COLUMN relevance_score INTEGER DEFAULT 50' },
+      ];
+
+      for (const migration of observationsMigrations) {
+        if (!existingObservationsColumns.has(migration.col)) {
+          try {
+            sqlite.exec(migration.sql);
+            logger.info(`Migration: Added column ${migration.col} to observations table`);
+          } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            if (msg.includes('duplicate column name')) {
+              logger.debug(`Migration skipped for ${migration.col}: column already exists`);
+            } else {
+              logger.warn(`Migration note for ${migration.col}: ${msg}`);
+            }
+          }
+        }
+      }
+
+      // Add indexes if they don't exist
+      const existingIndexes = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='observations'").all() as Array<{name: string}>;
+      const existingIndexNames = new Set(existingIndexes.map(idx => idx.name));
+
+      const indexMigrations = [
+        { name: 'observations_folder_idx', sql: 'CREATE INDEX IF NOT EXISTS observations_folder_idx ON observations(folder_path)' },
+        { name: 'observations_relevance_idx', sql: 'CREATE INDEX IF NOT EXISTS observations_relevance_idx ON observations(relevance_score)' },
+        { name: 'observations_private_idx', sql: 'CREATE INDEX IF NOT EXISTS observations_private_idx ON observations(is_private)' },
+      ];
+
+      for (const idx of indexMigrations) {
+        if (!existingIndexNames.has(idx.name)) {
+          try {
+            sqlite.exec(idx.sql);
+            logger.info(`Migration: Added index ${idx.name} to observations table`);
+          } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            logger.warn(`Index migration note for ${idx.name}: ${msg}`);
+          }
+        }
+      }
+    }
+
     // Migrations for maintenance_jobs table (v1.0.x)
     const maintenanceJobsTableCheck = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='maintenance_jobs'").get() as {name: string} | undefined;
     if (maintenanceJobsTableCheck) {

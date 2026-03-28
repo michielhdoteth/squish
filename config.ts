@@ -136,9 +136,20 @@ export const config = {
   ollamaUrl,
   ollamaEmbeddingModel,
 
+  // Supabase configuration
+  supabaseUrl: getConfig('supabase.url', 'SUPABASE_URL', ''),
+  supabaseKey: getConfig('supabase.key', 'SUPABASE_SERVICE_KEY', ''),
+
+  // Encryption configuration
+  clientEncryptionEnabled: getConfig('security.encryptionEnabled', null, false) !== false,
+  encryptionPassphrase: process.env.SQUISH_ENCRYPTION_PASSPHRASE || '',
+
   // Lifecycle Management
   lifecycleEnabled: getConfig('features.lifecycleEnabled', 'SQUISH_LIFECYCLE_ENABLED', true) !== false,
   lifecycleInterval: parseInt(process.env.SQUISH_LIFECYCLE_INTERVAL || '3600000'),
+  // Decay scheduler
+  decayJobCron: getConfig('lifecycle.decayCron', null, '0 * * * *'),
+  decayThreshold: parseFloat(process.env.SQUISH_DECAY_THRESHOLD || '0.1'),
 
   // Session Summarization
   summarizationEnabled: getConfig('features.summarizationEnabled', 'SQUISH_SUMMARIZATION_ENABLED', true) !== false,
@@ -181,6 +192,15 @@ export const config = {
   feedbackTrackingEnabled: process.env.SQUISH_FEEDBACK_TRACKING !== 'false',
   feedbackEchoBonus: parseInt(process.env.SQUISH_FEEDBACK_ECHO_BONUS || '10'),
   feedbackFizzlePenalty: parseInt(process.env.SQUISH_FEEDBACK_FIZZLE_PENALTY || '5'),
+
+  // Scoring Weights (override defaults)
+  scoringWeights: {
+    recency: parseFloat(process.env.SQUISH_WEIGHT_RECENCY || '0.5'),
+    relevance: parseFloat(process.env.SQUISH_WEIGHT_RELEVANCE || '3'),
+    importance: parseFloat(process.env.SQUISH_WEIGHT_IMPORTANCE || '2'),
+    vectorSim: parseFloat(process.env.SQUISH_WEIGHT_VECTOR_SIM || '3'),
+    graphBoost: parseFloat(process.env.SQUISH_WEIGHT_GRAPH_BOOST || '1.5'),
+  },
 
   // Scheduler
   schedulerMode: (process.env.SQUISH_SCHEDULER_MODE || 'cron') as 'cron' | 'interval' | 'heartbeat',

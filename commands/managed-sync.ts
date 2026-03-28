@@ -1,7 +1,7 @@
 import { MCPClient } from '../core/mcp/client.js';
 import { config } from '../config.js';
 import { logger } from '../core/logger.js';
-import { searchMemories, rememberMemory } from '../core/memory/memories.js';
+import { search, rememberMemory } from '../core/memory/memories.js';
 
 export class ManagedSync {
   private client: MCPClient;
@@ -31,7 +31,7 @@ export class ManagedSync {
     if (!this.syncEnabled) return;
 
     try {
-      const memory = await searchMemories({ query: memoryId, limit: 1 });
+      const memory = await search({ query: memoryId, limit: 1 });
       if (memory.length > 0) {
         await this.client.callTool('managed_memory_store', {
           memory: memory[0],

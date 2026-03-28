@@ -80,18 +80,27 @@ npx squish-memory install-plugin --client=opencode
 - Handles contradictions when facts change
 - Temporal facts with expiration ("until January")
 - Confidence scoring for each memory
+- **Tier lifecycle**: hot/warm/cold memory tiers with automatic decay
+- **Graph-boosted retrieval**: associations between memories boost relevance
 
 ### Retrieval Quality
-- Hybrid search: semantic + keyword (BM25)
-- Multi-factor ranking: relevance, recency, importance
+- Hybrid search: semantic + keyword (BM25) with Reciprocal Rank Fusion
+- Multi-factor ranking: relevance, recency, importance, graph-boost
 - LLM-powered context extraction with Ollama (local)
+- **Graph associations**: memories linked by coactivation boost search results
+
+### Security & Encryption
+- **Client-side encryption**: AES-256-GCM encryption for sensitive memories
+- **Passphrase management**: `squish_set_passphrase` and `squish_rotate_key` CLI tools
+- Optional encryption via `SQUISH_ENCRYPTION_PASSPHRASE` env var
 
 ### Universal Compatibility
 - **CLI**: `squish remember`, `squish search`, `squish stats`
-- **MCP Server**: Works with Claude Code, OpenCode, Cursor, VS Code
+- **MCP Server**: Works with Claude Code, OpenCode, Cursor, VS Code, OpenClaw
 - **HTTP API**: REST API + WebSocket for any agent
 - **SQLite**: Local, zero-config
-- **PostgreSQL**: Team mode with pgvector
+- **PostgreSQL**: Team mode with Supabase/pgvector
+- **QMD Integration**: Native .md file search via QMD
 
 ## Benchmark Results
 

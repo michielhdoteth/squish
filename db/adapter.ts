@@ -50,17 +50,22 @@ async function createSqliteDb() {
   try {
     return await createBunSqliteDb(dbPath);
   } catch (bunSqliteError: any) {
-    logger.warn('bun:sqlite failed, trying better-sqlite3', { 
-      error: bunSqliteError.message 
-    });
+    // Only log in debug mode - this is expected on non-Bun runtimes
+    if (process.env.DEBUG === 'true') {
+      logger.warn('bun:sqlite failed, trying better-sqlite3', { 
+        error: bunSqliteError.message 
+      });
+    }
     
     // Try better-sqlite3 second (best performance)
     try {
       return await createBetterSqliteDb(dbPath);
     } catch (betterSqliteError: any) {
-      logger.warn('better-sqlite3 failed, trying sql.js fallback', { 
-        error: betterSqliteError.message 
-      });
+      if (process.env.DEBUG === 'true') {
+        logger.warn('better-sqlite3 failed, trying sql.js fallback', { 
+          error: betterSqliteError.message 
+        });
+      }
       
       // Fallback to sql.js (pure JavaScript, no native module)
       try {

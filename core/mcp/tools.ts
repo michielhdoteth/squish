@@ -1,6 +1,6 @@
 import { MCPToolDefinition, MCPToolResult } from './types.js';
 import { hybridSearch } from '../memory/hybrid-retrieval.js';
-import { rememberMemory, searchMemories, getMemoryById } from '../memory/memories.js';
+import { rememberMemory, search, getMemory } from '../memory/memories.js';
 import { getEmbedding, getBatchEmbeddings } from '../embeddings.js';
 import { getQMDClient } from '../embeddings/qmd-client.js';
 import { logger } from '../logger.js';
@@ -143,7 +143,7 @@ export const squishRecallTool: MCPToolDefinition = {
         return errorResult('Memory ID is required');
       }
 
-      const memory = await getMemoryById(memoryId);
+      const memory = await getMemory(memoryId);
 
       if (!memory) {
         return errorResult('Memory not found');

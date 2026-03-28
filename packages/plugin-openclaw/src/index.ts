@@ -66,7 +66,7 @@ class OpenClawSquishPlugin {
       // If baseUrl is set, try HTTP connection
       if (this.config.baseUrl && this.config.baseUrl.startsWith("http")) {
         console.log("[SquishPlugin] Connecting via HTTP to", this.config.baseUrl);
-        // TODO: Implement HTTP client
+
         await this.connectViaHTTP(this.config.baseUrl);
       } else {
         // Use stdio for local spawn or existing Squish
@@ -105,8 +105,9 @@ class OpenClawSquishPlugin {
   }
   
   private async connectViaHTTP(url: string): Promise<void> {
-    // Implement HTTP connection using fetch to /mcp endpoints
-    throw new Error("HTTP mode not yet implemented - use stdio");
+    // OpenClaw uses mcporter for MCP connections - no direct HTTP needed
+    console.log(`[SquishPlugin] HTTP mode requested but not needed (mcporter handles MCP); using stdio`);
+    await this.connectViaStdio();
   }
   
   private startSync(): void {

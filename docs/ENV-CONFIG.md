@@ -160,6 +160,37 @@ SQUISH_QMD_COLLECTIONS=/var/squish/qmd-collections
 # Scheduler
 SQUISH_SCHEDULER_MODE=cron
 SQUISH_CRON_ENABLED=true
+
+# Client-side encryption (v1.1.0-enhanced)
+SQUISH_ENCRYPTION_PASSPHRASE=your-secure-passphrase
+```
+
+## Supabase Backend (v1.1.0-enhanced)
+
+```bash
+# .env.supabase
+
+# Supabase PostgreSQL backend
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_KEY=your-service-key
+
+# Optional: encryption
+SQUISH_ENCRYPTION_PASSPHRASE=your-secure-passphrase
+```
+
+## Encryption & Graph Boost (v1.1.0-enhanced)
+
+```bash
+# Client-side encryption
+SQUISH_ENCRYPTION_PASSPHRASE=your-secure-passphrase
+
+# Graph-boosted retrieval weight (default: 1.5)
+SQUISH_WEIGHT_GRAPH_BOOST=1.5
+
+# Memory lifecycle decay
+SQUISH_LIFECYCLE_INTERVAL=3600000
+SQUISH_DECAY_THRESHOLD=0.1
+SQUISH_LIFECYCLE_DECAY_CRON="0 * * * *"
 ```
 
 ## OpenClaw Agent

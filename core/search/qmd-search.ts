@@ -17,7 +17,7 @@
 
 import { getQMDClient, QMDSearchResult } from '../embeddings/qmd-client.js';
 import type { SearchInput, SearchResult } from '../memory/memories.js';
-import { searchMemories } from '../memory/memories.js';
+import { search } from '../memory/memories.js';
 import { logger } from '../logger.js';
 import { config } from '../../config.js';
 
@@ -46,7 +46,7 @@ export async function searchWithQMD(
   if (!(await client.isAvailable())) {
     logger.warn('QMD unavailable, falling back to Squish search');
     // Fallback to Squish search
-    const squishResults = await searchMemories(options);
+    const squishResults = await search(options);
     return squishResults.map((r): QMDHybridSearchResult => ({
       ...r,
       source: 'squish'
@@ -92,7 +92,7 @@ export async function searchWithQMD(
   } catch (error) {
     logger.error(`QMD search failed: ${error}`);
     // Fallback to Squish search
-    const squishResults = await searchMemories(options);
+    const squishResults = await search(options);
     return squishResults.map((r): QMDHybridSearchResult => ({
       ...r,
       source: 'squish'
@@ -116,7 +116,7 @@ export async function fusedSearch(
 
   // Run searches in parallel
   const results = await Promise.allSettled([
-    searchMemories(options),
+    search(options),
     qmdAvailable ? searchWithQMD({ ...options, includeSquishResults: false }) : []
   ]);
 

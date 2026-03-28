@@ -10,14 +10,19 @@ export async function getDb() {
     throw new Error(dbError);
   }
 
-  if (!db) {
-    try {
-      db = await createDb();
-    } catch (error) {
-      dbError = error instanceof Error ? error.message : 'Database initialization failed';
-      throw new Error(dbError);
+if (!db) {
+      try {
+        if (config.supabaseUrl && config.supabaseKey) {
+          const { createSupabaseClient } = await import('./supabase.js');
+          db = await createSupabaseClient();
+        } else {
+          db = await createDb();
+        }
+      } catch (error) {
+        dbError = error instanceof Error ? error.message : 'Database initialization failed';
+        throw new Error(dbError);
+      }
     }
-  }
   return db;
 }
 

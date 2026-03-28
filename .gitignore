@@ -64,9 +64,6 @@ temp/
 *.db
 *.db-journal
 
-# OpenCode skill (local only, do not commit)
-.opencode/skills/code-simplifier/
-
 # References and opencode directories
 references/
 opencode/
@@ -85,6 +82,3 @@ docs/ROADMAP.md
 
 # Claude context file (local only, do not commit)
 CLAUDE.md
-
-# OpenCode memory
-.opencode/

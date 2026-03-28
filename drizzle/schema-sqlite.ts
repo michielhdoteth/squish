@@ -2,7 +2,6 @@ import { sqliteTable, text, integer, blob, index, primaryKey } from 'drizzle-orm
 import { relations } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
 
-// ============================================================================
 // Core Tables - SQLite compatible version
 // ============================================================================
 
@@ -110,6 +109,11 @@ export const memories = sqliteTable(
     // v0.3.0: Memory Lifecycle Management
     sector: text('sector').$type<'episodic' | 'semantic' | 'procedural' | 'autobiographical' | 'working'>().default('episodic'),
     tier: text('tier').$type<'hot' | 'warm' | 'cold'>().default('hot'),
+    status: text('status').notNull().default('active'),
+    decay_rate: text('decay_rate').default('0.03'),
+    encrypted_content: text('encrypted_content'),
+    encryption_nonce: text('encryption_nonce'),
+    is_encrypted: integer('is_encrypted', { mode: 'boolean' }).default(false),
 
     // v0.5.0: Context Status - Track whether memory is in active context or archived
     contextStatus: text('context_status').$type<'in-context' | 'out-of-context' | 'archived'>().default('out-of-context'),
@@ -369,7 +373,6 @@ export const memoryLayers = sqliteTable('memory_layers', {
   index('memory_layers_type_idx').on(table.layerType),
 ]);
 
-// ============================================================================
 // Progressive Disclosure & Context Paging Tables
 // ============================================================================
 
@@ -429,7 +432,6 @@ export const contextPagingSessions = sqliteTable('context_paging_sessions', {
   index('context_paging_created_idx').on(table.createdAt),
 ]);
 
-// ============================================================================
 // Memory Merging Tables
 // ============================================================================
 
@@ -525,7 +527,6 @@ export const entityRelations = sqliteTable('entity_relations', {
   index('relations_type_idx').on(table.type),
 ]);
 
-// ============================================================================
 // v0.3.0: Lifecycle Features - Associations, Summarization, Snapshots
 // ============================================================================
 
@@ -648,7 +649,6 @@ export const contextSessions = sqliteTable('context_sessions', {
   index('context_sessions_created_idx').on(table.createdAt),
 ]);
 
-// ============================================================================
 // Types
 // ============================================================================
 
@@ -700,7 +700,6 @@ export type NewCoreMemory = typeof coreMemory.$inferInsert;
 export type ContextSession = typeof contextSessions.$inferSelect;
 export type NewContextSession = typeof contextSessions.$inferInsert;
 
-// ============================================================================
 // v0.10.0: Echo/Fizzle Tracking & Scheduled Maintenance
 // ============================================================================
 
@@ -779,7 +778,6 @@ export type NewLightweightMemoryIndex = typeof lightweightMemoryIndices.$inferIn
 export type ContextPagingSession = typeof contextPagingSessions.$inferSelect;
 export type NewContextPagingSession = typeof contextPagingSessions.$inferInsert;
 
-// ============================================================================
 // Memory Editing Tables (SQLite)
 // ============================================================================
 
@@ -812,7 +810,6 @@ export type NewMemoryEditProposal = typeof memoryEditProposals.$inferInsert;
 
 export type SearchTrace = typeof searchTraces.$inferSelect;
 
-// ============================================================================
 // Phase 3: Retrieval Tracing - Search Traces table
 // ============================================================================
 

@@ -11,21 +11,25 @@ import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import express from "express";
 import { z } from "zod";
 import { config } from "../config.js";
+import { writeFileSync } from "fs";
+import { join } from "path";
 import { hybridSearch } from "../core/memory/hybrid-retrieval.js";
-import { rememberMemory, searchMemories, getMemoryById, type MemoryType } from "../core/memory/memories.js";
+import { rememberMemory, search as searchMemories, getMemory, getRecent, type MemoryType } from "../core/memory/memories.js";
 import { getEmbedding, getBatchEmbeddings } from "../core/embeddings.js";
 import { getQMDClient } from "../core/embeddings/qmd-client.js";
 import { createAssociation, getRelatedMemories, trackCoactivation, type AssociationType } from "../core/associations.js";
-import { createObservation, getObservationsForProject, type ObservationType } from "../core/observations.js";
+import { addObservation, getObservations, createLearning, type ObservationType, type LearningType } from "../core/observations.js";
 import { ensureProject, getProjectByPath, getAllProjects } from "../core/projects.js";
 import { getMemoryStats } from "../core/memory/stats.js";
 import { logger } from "../core/logger.js";
 import { getDb } from "../db/index.js";
 import { getSchema } from "../db/schema.js";
 import { eq } from "drizzle-orm";
+import { encrypt, decrypt } from "../core/security/encrypt.js";
+import { existsSync, readFileSync } from "fs";
 
 const SERVER_NAME = "squish-memory";
-const SERVER_VERSION = "1.0.2";
+const SERVER_VERSION = "1.1.0";
 
 function parseArgs(): { mode: "stdio" | "http"; port: number; health: boolean } {
   const args = process.argv.slice(2);
@@ -136,7 +140,7 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
       }
     },
     async ({ memoryId }: { memoryId: string }) => {
-      const memory = await getMemoryById(memoryId);
+      const memory = await getMemory(memoryId);
       if (!memory) {
         return { content: [{ type: "text", text: `Memory not found: ${memoryId}` }], isError: true };
       }
@@ -148,18 +152,50 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
     server,
     "squish_forget",
     {
-      description: "Delete a memory by ID",
+      description: "Delete a memory by ID, or bulk delete with filters (older-than, search, type)",
       inputSchema: {
-        memoryId: z.string().uuid().describe("Memory ID to delete")
+        memoryId: z.string().optional().describe("Memory ID to delete (single)"),
+        olderThan: z.string().optional().describe("Bulk delete memories older than (e.g., '30 days', '6 months')"),
+        search: z.string().optional().describe("Search query to match specific memories"),
+        type: z.string().optional().describe("Filter by memory type"),
+        confirm: z.boolean().optional().describe("Actually delete (default is dry-run)"),
+        limit: z.number().optional().describe("Max memories to delete"),
+        project: z.string().optional().describe("Project path (defaults to current)")
       }
     },
-    async ({ memoryId }: { memoryId: string }) => {
+    async ({ memoryId, olderThan, search, type, confirm = false, limit = 100, project }: { memoryId?: string; olderThan?: string; search?: string; type?: string; confirm?: boolean; limit?: number; project?: string }) => {
       const db = await getDb();
       const schema = await getSchema();
-      // Cast to any to handle Drizzle ORM union type issue
       const sqliteDb = db as any;
-      const result = await sqliteDb.delete(schema.memories).where(eq(schema.memories.id, memoryId));
-      return { content: [{ type: "text", text: `Memory deleted: ${memoryId}` }] };
+      const proj = project || process.cwd();
+      
+      // Single memory deletion
+      if (memoryId) {
+        await sqliteDb.delete(schema.memories).where(eq(schema.memories.id, memoryId));
+        return { content: [{ type: "text", text: `Memory deleted: ${memoryId}` }] };
+      }
+      
+      // Bulk deletion
+      if (!olderThan && !search) {
+        return { content: [{ type: "text", text: "Error: Provide memoryId or use --older-than / --search for bulk delete" }], isError: true };
+      }
+      
+      const results = await searchMemories({ query: search || '', type: type as MemoryType, limit, project: proj });
+      
+      let filtered = results;
+      if (olderThan) {
+        filtered = filterByDateRange(results, '', olderThan);
+      }
+      
+      const deleted = [];
+      if (confirm) {
+        for (const mem of filtered) {
+          await sqliteDb.delete(schema.memories).where(eq(schema.memories.id, mem.id));
+          deleted.push(mem.id);
+        }
+      }
+      
+      return { content: [{ type: "text", text: JSON.stringify({ ok: true, matched: filtered.length, deleted: deleted.length, dryRun: !confirm }, null, 2) }] };
     }
   )) toolCount++;
 
@@ -195,43 +231,53 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
     }
   )) toolCount++;
 
+  // squish_link - Unified graph operations (find related, add links, list)
   if (safeRegisterTool(
     server,
-    "squish_associate",
+    "squish_link",
     {
-      description: "Create an association between two memories in the graph",
+      description: "Manage memory associations: find related memories, add links, or list associations",
       inputSchema: {
-        fromMemoryId: z.string().uuid().describe("Source memory ID"),
-        toMemoryId: z.string().uuid().describe("Target memory ID"),
-        type: z.enum(["relates_to", "supersedes", "contradicts", "supports", "duplicate", "merged"]).describe("Association type"),
-        weight: z.number().min(0).max(1).default(0.5).describe("Association strength (0-1)")
+        action: z.enum(["find", "add", "list"]).describe("Action: find, add, or list"),
+        memoryId: z.string().optional().describe("Memory ID (for find action)"),
+        fromMemoryId: z.string().optional().describe("Source memory ID (for add action)"),
+        toMemoryId: z.string().optional().describe("Target memory ID (for add action)"),
+        type: z.string().optional().describe("Association type (for add action): relates_to, supports, contradicts, supersedes, duplicate"),
+        weight: z.number().min(0).max(1).default(0.5).describe("Association strength (0-1)"),
+        depth: z.number().min(1).max(5).default(2).describe("Graph traversal depth (for find action)"),
+        minWeight: z.number().min(0).max(1).default(0.3).describe("Minimum weight (for find action)")
       }
     },
-    async ({ fromMemoryId, toMemoryId, type, weight = 0.5 }: { fromMemoryId: string; toMemoryId: string; type: AssociationType; weight?: number }) => {
-      await createAssociation(fromMemoryId, toMemoryId, type, weight);
-      return { content: [{ type: "text", text: `Association created: ${fromMemoryId} -> ${toMemoryId} (${type})` }] };
-    }
-  )) toolCount++;
-
-  if (safeRegisterTool(
-    server,
-    "squish_related",
-    {
-      description: "Get related memories via graph traversal",
-      inputSchema: {
-        memoryId: z.string().uuid().describe("Memory ID to find relations for"),
-        depth: z.number().min(1).max(5).default(2).describe("Graph traversal depth"),
-        minWeight: z.number().min(0).max(1).default(0.3).describe("Minimum association weight")
+    async ({ action, memoryId, fromMemoryId, toMemoryId, type = "relates_to", weight = 0.5, depth = 2, minWeight = 0.3 }: { action: "find" | "add" | "list"; memoryId?: string; fromMemoryId?: string; toMemoryId?: string; type?: string; weight?: number; depth?: number; minWeight?: number }) => {
+      if (action === "find") {
+        if (!memoryId) {
+          return { content: [{ type: "text", text: "Error: memoryId required for find action" }], isError: true };
+        }
+        const related = await getRelatedMemories(memoryId, depth * 5);
+        const filtered = related.filter((r: any) => r.weight >= minWeight);
+        const formatted = filtered.map((r: any, i: number) =>
+          `${i + 1}. [${r.type || "memory"}] ${r.content?.substring(0, 100)}... (weight: ${r.weight?.toFixed(2)})`
+        ).join("\n");
+        return { content: [{ type: "text", text: `Found ${filtered.length} related memories:\n\n${formatted}` }] };
       }
-    },
-    async ({ memoryId, depth = 2, minWeight = 0.3 }: { memoryId: string; depth?: number; minWeight?: number }) => {
-      const related = await getRelatedMemories(memoryId, depth * 5);
-      const filtered = related.filter((r: any) => r.weight >= minWeight);
-      const formatted = filtered.map((r: any, i: number) =>
-        `${i + 1}. [${r.type || "memory"}] ${r.content?.substring(0, 100)}... (weight: ${r.weight?.toFixed(2)})`
-      ).join("\n");
-
-      return { content: [{ type: "text", text: `Found ${related.length} related memories:\n\n${formatted}` }] };
+      
+      if (action === "add") {
+        if (!fromMemoryId || !toMemoryId) {
+          return { content: [{ type: "text", text: "Error: fromMemoryId and toMemoryId required for add action" }], isError: true };
+        }
+        await createAssociation(fromMemoryId, toMemoryId, type as AssociationType, weight);
+        return { content: [{ type: "text", text: `Association created: ${fromMemoryId} -> ${toMemoryId} (${type})` }] };
+      }
+      
+      if (action === "list") {
+        const db = await getDb();
+        const schema = await getSchema();
+        const sqliteDb = db as any;
+        const associations = await sqliteDb.select().from(schema.memoryAssociations).limit(100);
+        return { content: [{ type: "text", text: JSON.stringify({ ok: true, count: associations.length, associations }, null, 2) }] };
+      }
+      
+      return { content: [{ type: "text", text: "Error: invalid action. Use find, add, or list" }], isError: true };
     }
   )) toolCount++;
 
@@ -252,7 +298,7 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
       }
 
       const recentMemories = await searchMemories({ query: "", project, limit });
-      const observations = await getObservationsForProject(project, 5);
+      const observations = await getObservations(project, 5);
 
       const context = {
         project: projectRecord,
@@ -278,8 +324,27 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
       }
     },
     async ({ type, action, summary, target, project }: { type: ObservationType; action: string; summary: string; target?: string; project?: string }) => {
-      const observation = await createObservation({ type, action, summary, target, project });
+      const observation = await addObservation({ type, action, summary, target, project });
       return { content: [{ type: "text", text: `Observation stored: ${observation.id}` }] };
+    }
+  )) toolCount++;
+
+  if (safeRegisterTool(
+    server,
+    "squish_learn",
+    {
+      description: "Record learning: what worked (success), what failed (failure), or how it was fixed (fix)",
+      inputSchema: {
+        type: z.enum(["success", "failure", "fix"]).describe("Learning type"),
+        content: z.string().describe("What happened or what was learned"),
+        context: z.string().optional().describe("Additional context or result"),
+        target: z.string().optional().describe("Target file or resource"),
+        project: z.string().optional().describe("Project path")
+      }
+    },
+    async ({ type, content, context, target, project }: { type: LearningType; content: string; context?: string; target?: string; project?: string }) => {
+      const learning = await createLearning({ type, content, context, target, project });
+      return { content: [{ type: "text", text: `Learning recorded: ${learning.id}\nType: ${type}\nContent: ${content}` }] };
     }
   )) toolCount++;
 
@@ -388,6 +453,276 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
         .where(eq(schema.memories.id, memoryId));
       
       return { content: [{ type: "text", text: `Memory ${memoryId} ${pinned ? 'pinned' : 'unpinned'}` }] };
+    }
+  )) toolCount++;
+
+  // Register tool to set encryption passphrase
+  if (safeRegisterTool(
+    server,
+    "squish_set_passphrase",
+    {
+      description: "Set the client-side encryption passphrase (writes to .env in data directory)",
+      inputSchema: {
+        passphrase: z.string().min(1).describe("Encryption passphrase to store")
+      }
+    },
+    async ({ passphrase }: { passphrase: string }) => {
+      const envPath = join(config.dataDir, ".env");
+      try {
+        writeFileSync(envPath, `SQUISH_ENCRYPTION_PASSPHRASE=${passphrase}\n`, { flag: "w" });
+        return { content: [{ type: "text", text: `Passphrase written to ${envPath}` }] };
+      } catch (error) {
+        return { content: [{ type: "text", text: `Failed to write passphrase: ${error}` }], isError: true };
+      }
+    }
+  )) toolCount++;
+
+  // Register tool to rotate encryption passphrase (re-encrypt all encrypted memories)
+  if (safeRegisterTool(
+    server,
+    "squish_rotate_key",
+    {
+      description: "Rotate the encryption passphrase - re-encrypts all memories with a new passphrase",
+      inputSchema: {
+        oldPassphrase: z.string().min(1).describe("Current encryption passphrase"),
+        newPassphrase: z.string().min(1).describe("New encryption passphrase")
+      }
+    },
+    async ({ oldPassphrase, newPassphrase }: { oldPassphrase: string; newPassphrase: string }) => {
+      try {
+        const db = await getDb();
+        const schema = await getSchema();
+        
+        // Fetch all encrypted memories
+        const sqliteDb = db as any;
+        const encryptedMemories = await sqliteDb
+          .select()
+          .from(schema.memories)
+          .where(eq(schema.memories.isEncrypted, true));
+        
+        let rotated = 0;
+        for (const mem of encryptedMemories) {
+          try {
+            // Decrypt with old passphrase
+            const decrypted = decrypt(mem.encryptedContent!, mem.encryptionNonce!, oldPassphrase);
+            // Re-encrypt with new passphrase
+            const { ciphertext, nonce } = encrypt(decrypted, newPassphrase);
+            
+            // Update memory
+            await sqliteDb
+              .update(schema.memories)
+              .set({ 
+                encryptedContent: ciphertext, 
+                encryptionNonce: nonce 
+              })
+              .where(eq(schema.memories.id, mem.id));
+            rotated++;
+          } catch (e) {
+            // Skip memories that fail to decrypt (wrong passphrase)
+          }
+        }
+        
+        // Update .env file with new passphrase
+        const envPath = join(config.dataDir, ".env");
+        writeFileSync(envPath, `SQUISH_ENCRYPTION_PASSPHRASE=${newPassphrase}\n`, { flag: "w" });
+        
+        return { content: [{ type: "text", text: `Rotated encryption key for ${rotated} memories. New passphrase saved to ${envPath}` }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to rotate key: ${error.message}` }], isError: true };
+      }
+    }
+  )) toolCount++;
+
+  // Helper function for date filtering (same as in index.ts)
+  function parseDate(input: string): Date | null {
+    if (!input) return null;
+    const now = new Date();
+    const lower = input.toLowerCase().trim();
+    if (!lower) return null;
+    const parsed = new Date(input);
+    if (!isNaN(parsed.getTime())) return parsed;
+    const dayMatch = lower.match(/(\d+)\s*day/i);
+    const weekMatch = lower.match(/(\d+)\s*week/i);
+    const monthMatch = lower.match(/(\d+)\s*month/i);
+    if (lower === 'today') {
+      const d = new Date(now);
+      d.setHours(0, 0, 0, 0);
+      return d;
+    }
+    if (lower === 'yesterday') return new Date(now.getTime() - 86400000);
+    if (lower === 'thisweek' || lower === 'this week') {
+      const d = new Date(now);
+      d.setDate(d.getDate() - d.getDay());
+      d.setHours(0, 0, 0, 0);
+      return d;
+    }
+    if (dayMatch) return new Date(now.getTime() - parseInt(dayMatch[1]) * 86400000);
+    if (weekMatch) return new Date(now.getTime() - parseInt(weekMatch[1]) * 604800000);
+    if (monthMatch) return new Date(now.getTime() - parseInt(monthMatch[1]) * 2592000000);
+    return null;
+  }
+
+  function filterByDateRange<T extends { createdAt?: string | null }>(items: T[], since?: string, until?: string): T[] {
+    const sinceDate = parseDate(since || '');
+    const untilDate = parseDate(until || '');
+    return items.filter(item => {
+      if (!item.createdAt) return true;
+      const created = new Date(item.createdAt);
+      if (sinceDate && created < sinceDate) return false;
+      if (untilDate && created > untilDate) return false;
+      return true;
+    });
+  }
+
+  // squish_recent - Unified recent memories (replaces squish_today, squish_yesterday, squish_thisweek)
+  if (safeRegisterTool(
+    server,
+    "squish_recent",
+    {
+      description: "Get recent memories by period (today, yesterday, thisweek, 7days, 30days, or custom)",
+      inputSchema: {
+        period: z.string().optional().describe("Period: today, yesterday, thisweek, 7days, 14days, 30days, 90days"),
+        since: z.string().optional().describe("Start date (alternative to period, e.g., '3 days', '2026-01-01')"),
+        until: z.string().optional().describe("End date (alternative to period, e.g., 'now', '2026-01-15')"),
+        limit: z.number().optional().describe("Max results to return"),
+        project: z.string().optional().describe("Project path (defaults to current)")
+      }
+    },
+    async ({ period = 'today', since, until, limit = 10, project }: { period?: string; since?: string; until?: string; limit?: number; project?: string }) => {
+      const proj = project || process.cwd();
+      let sinceDate: string, untilDate: string;
+      
+      if (since && until) {
+        sinceDate = since;
+        untilDate = until;
+      } else if (since) {
+        sinceDate = since;
+        untilDate = 'now';
+      } else {
+        const periodMap: Record<string, [string, string]> = {
+          today: ['today', 'now'],
+          yesterday: ['yesterday', 'today'],
+          thisweek: ['thisweek', 'now'],
+          '7days': ['7 days', 'now'],
+          '14days': ['14 days', 'now'],
+          '30days': ['30 days', 'now'],
+          '90days': ['90 days', 'now'],
+        };
+        const mapped = periodMap[period];
+        if (mapped) {
+          [sinceDate, untilDate] = mapped;
+        } else {
+          sinceDate = period;
+          untilDate = 'now';
+        }
+      }
+      
+      const results = await getRecent(proj, 100);
+      const filtered = filterByDateRange(results, sinceDate, untilDate);
+      const limited = filtered.slice(0, limit);
+      return { content: [{ type: "text", text: JSON.stringify({ ok: true, period, since: sinceDate, until: untilDate, count: limited.length, results: limited }, null, 2) }] };
+    }
+  )) toolCount++;
+
+  // squish_stale - Show stale memories
+  if (safeRegisterTool(
+    server,
+    "squish_stale",
+    {
+      description: "Show stale memories (old, low-confidence, or rarely accessed)",
+      inputSchema: {
+        days: z.number().optional().describe("Show memories older than N days"),
+        limit: z.number().optional().describe("Max results to return"),
+        project: z.string().optional().describe("Project path (defaults to current)")
+      }
+    },
+    async ({ days = 30, limit = 20, project }: { days?: number; limit?: number; project?: string }) => {
+      const proj = project || process.cwd();
+      const cutoffDate = new Date(Date.now() - days * 86400000);
+      const results = await getRecent(proj, 500);
+      const stale = results.filter((m: any) => {
+        const created = m.createdAt ? new Date(m.createdAt) : null;
+        const isOld = created && created < cutoffDate;
+        const isLowConfidence = m.confidenceLevel === 'outdated' || m.confidenceLevel === 'speculative';
+        const hasLowImportance = (m.importance || 50) < 40;
+        return isOld || isLowConfidence || hasLowImportance;
+      });
+      const limited = stale.slice(0, limit);
+      const summary = {
+        totalStale: stale.length,
+        old: stale.filter((m: any) => m.createdAt && new Date(m.createdAt) < cutoffDate).length,
+        lowConfidence: stale.filter((m: any) => m.confidenceLevel === 'outdated' || m.confidenceLevel === 'speculative').length,
+        lowImportance: stale.filter((m: any) => (m.importance || 50) < 40).length,
+      };
+      return { content: [{ type: "text", text: JSON.stringify({ ok: true, summary, memories: limited }, null, 2) }] };
+    }
+  )) toolCount++;
+
+  // squish_note - Quick brain dump
+  if (safeRegisterTool(
+    server,
+    "squish_note",
+    {
+      description: "Quick brain dump - store a raw memory to process later",
+      inputSchema: {
+        content: z.string().describe("The note content to store"),
+        project: z.string().optional().describe("Project path (defaults to current)")
+      }
+    },
+    async ({ content, project }: { content: string; project?: string }) => {
+      const result = await rememberMemory({
+        content,
+        type: 'observation',
+        tags: ['note', 'quick'],
+        project: project || process.cwd(),
+      });
+      return { content: [{ type: "text", text: JSON.stringify({ ok: true, message: 'Note saved', id: result.id }, null, 2) }] };
+    }
+  )) toolCount++;
+
+  // squish_tag - Manage tags on memories
+  if (safeRegisterTool(
+    server,
+    "squish_tag",
+    {
+      description: "Add or remove tags from memories",
+      inputSchema: {
+        action: z.enum(["add", "remove"]).describe("Action: add or remove"),
+        tag: z.string().describe("Tag name to add or remove"),
+        search: z.string().optional().describe("Search query to match memories"),
+        olderThan: z.string().optional().describe("Only tag memories older than (e.g., '30 days')"),
+        type: z.string().optional().describe("Filter by memory type"),
+        confirm: z.boolean().optional().describe("Actually execute the changes (default is dry-run)"),
+        limit: z.number().optional().describe("Max memories to process"),
+        project: z.string().optional().describe("Project path (defaults to current)")
+      }
+    },
+    async ({ action, tag, search, olderThan, type, confirm = false, limit = 50, project }: { action: 'add' | 'remove'; tag: string; search?: string; olderThan?: string; type?: string; confirm?: boolean; limit?: number; project?: string }) => {
+      const proj = project || process.cwd();
+      const db = await getDb();
+      const schema = await getSchema();
+      const sqliteDb = db as any;
+      
+      let results = search 
+        ? await searchMemories({ query: search, type: type as MemoryType, limit: limit * 2, project: proj })
+        : await getRecent(proj, limit * 2);
+      
+      if (olderThan) {
+        results = filterByDateRange(results, '', olderThan);
+      }
+      
+      const tagged = [];
+      for (const mem of results.slice(0, limit)) {
+        const currentTags = mem.tags || [];
+        const newTags = action === 'add' 
+          ? [...new Set([...currentTags, tag])]
+          : currentTags.filter((t: string) => t !== tag);
+        
+        await sqliteDb.update(schema.memories).set({ tags: config.isTeamMode ? newTags : JSON.stringify(newTags) }).where(eq(schema.memories.id, mem.id));
+        tagged.push(mem.id);
+      }
+      
+      return { content: [{ type: "text", text: JSON.stringify({ ok: true, action, tag, matched: results.length, processed: tagged.length, dryRun: !confirm }, null, 2) }] };
     }
   )) toolCount++;
 

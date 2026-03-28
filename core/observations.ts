@@ -10,7 +10,7 @@ import { createDatabaseClient } from './database.js';
 import { normalizeTimestamp, prepareEmbedding } from './utils.js';
 import { logger } from './logger.js';
 
-export type ObservationType = 'tool_use' | 'file_change' | 'error' | 'pattern' | 'insight';
+export type ObservationType = 'tool_use' | 'file_change' | 'error' | 'pattern' | 'insight' | 'success' | 'failure' | 'fix';
 
 export interface ObservationInput {
   type: ObservationType;
@@ -20,6 +20,29 @@ export interface ObservationInput {
   details?: Record<string, unknown>;
   session?: string;
   project?: string;
+}
+
+export type LearningType = 'success' | 'failure' | 'fix';
+
+export interface LearningInput {
+  type: LearningType;
+  content: string;
+  context?: string;
+  target?: string;
+  project?: string;
+}
+
+export async function createLearning(input: LearningInput): Promise<ObservationRecord> {
+  const learningTypes: ObservationType[] = ['success', 'failure', 'fix'];
+  
+  return addObservation({
+    type: input.type,
+    action: input.content,
+    summary: input.context || input.content,
+    target: input.target,
+    details: { learningContent: input.content, learningContext: input.context },
+    project: input.project,
+  });
 }
 
 export interface ObservationRecord {
@@ -34,7 +57,7 @@ export interface ObservationRecord {
   createdAt?: string | null;
 }
 
-export async function createObservation(input: ObservationInput): Promise<ObservationRecord> {
+export async function addObservation(input: ObservationInput): Promise<ObservationRecord> {
   const db = createDatabaseClient(await getDb());
   const schema = await getSchema();
   const project = await ensureProject(input.project);
@@ -72,7 +95,7 @@ export async function createObservation(input: ObservationInput): Promise<Observ
   };
 }
 
-export async function getObservationsForProject(projectPath: string, limit: number): Promise<ObservationRecord[]> {
+export async function getObservations(projectPath: string, limit: number): Promise<ObservationRecord[]> {
   try {
     const db = createDatabaseClient(await getDb());
     const schema = await getSchema();

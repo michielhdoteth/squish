@@ -3,6 +3,7 @@ import { desc, eq } from 'drizzle-orm';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
 import { config } from '../../config.js';
+import { logger } from '../../core/logger.js';
 import { ensureProject, getProjectByPath } from '../../core/projects.js';
 import { getEmbedding } from '../../core/embeddings.js';
 import { fromSqliteJson, fromSqliteTags, normalizeTags, toSqliteJson, toSqliteTags } from '../../core/memory/serialization.js';
@@ -13,9 +14,11 @@ import { hybridSearch as hybridSearchImpl } from './hybrid-search.js';
 import { calculateImportance } from './importance.js';
 import { detectMemorySignals, MemorySignals } from './trigger-detector.js';
 import { resolveContradictions, applySupersession } from './contradiction-resolver.js';
+import { encrypt, decrypt } from '../security/encrypt.js';
 import { estimateTokens } from '../context-window.js';
+import { writeMemory as writeQMDMemory, deleteMemory as deleteQMDMemory } from '../qmd-shortterm.js';
 
-export type MemoryType = 'observation' | 'fact' | 'decision' | 'context' | 'preference' | 'jot';
+export type MemoryType = 'observation' | 'fact' | 'decision' | 'context' | 'preference' | 'note';
 
 export interface RememberInput {
   content: string;
@@ -118,7 +121,8 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
     metadataValue = toSqliteJson(enrichedMetadata);
   }
 
-  await db.insert(schema.memories).values({
+  // Prepare fields for insertion, handling optional encryption
+  let insertValues: any = {
     ...baseValues,
     tags: tagsValue,
     metadata: metadataValue,
@@ -127,7 +131,41 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
     lastImportanceRecalc: new Date(),
     tokensEstimate,
     createdAt: new Date(),
-  });
+    status: 'active',
+    tier: 'hot',
+  };
+
+  if (config.clientEncryptionEnabled) {
+    const { ciphertext, nonce } = encrypt(input.content);
+    insertValues.encrypted_content = ciphertext;
+    insertValues.encryption_nonce = nonce;
+    insertValues.is_encrypted = true;
+    // Store empty placeholder for plain content
+    insertValues.content = '';
+  } else {
+    insertValues.content = input.content;
+    insertValues.is_encrypted = false;
+  }
+
+  await db.insert(schema.memories).values(insertValues);
+
+  // Write to QMD hot-tier storage (if enabled and tier is hot)
+  if (config.qmdEnabled && insertValues.tier === 'hot') {
+    try {
+      await writeQMDMemory({
+        id,
+        content: input.content,
+        type,
+        tags,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        tier: 'hot',
+        projectPath: input.project,
+      });
+    } catch (error) {
+      logger.warn(`[QMD] Failed to write hot memory to QMD: ${error}`);
+    }
+  }
 
    // Resolve contradictions and supersede old memories (async, non-blocking)
    resolveContradictions(input.content, type, project?.id)
@@ -170,7 +208,7 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
   return memoryRecord;
 }
 
-export async function getMemoryById(id: string, incrementAccess: boolean = true): Promise<MemoryRecord | null> {
+export async function getMemory(id: string, incrementAccess: boolean = true): Promise<MemoryRecord | null> {
 	try {
 		const db = createDatabaseClient(await getDb());
 		const schema = await getSchema();
@@ -188,13 +226,23 @@ export async function getMemoryById(id: string, incrementAccess: boolean = true)
 			.where(eq(schema.memories.id, id));
 		}
 
-		return normalizeMemory(row);
+		let content = row.content;
+		if (row.is_encrypted) {
+		  try {
+		    content = decrypt(row.encrypted_content, row.encryption_nonce);
+		  } catch (e) {
+		    console.warn('Failed to decrypt memory', e);
+		    content = row.content; // fall back to stored content
+		  }
+		}
+		const decryptedRow = { ...row, content };
+		return normalizeMemory(decryptedRow);
 	} catch (error: any) {
 		throw error;
 	}
 }
 
-export async function updateConfidenceLevel(id: string, level: 'certain' | 'speculative' | 'outdated'): Promise<boolean> {
+export async function setConfidence(id: string, level: 'certain' | 'speculative' | 'outdated'): Promise<boolean> {
 	try {
 		const db = createDatabaseClient(await getDb());
 		const schema = await getSchema();
@@ -207,7 +255,7 @@ export async function updateConfidenceLevel(id: string, level: 'certain' | 'spec
 	}
 }
 
-export async function getRecentMemories(projectPath: string, limit: number): Promise<MemoryRecord[]> {
+export async function getRecent(projectPath: string, limit: number): Promise<MemoryRecord[]> {
   try {
     const db = createDatabaseClient(await getDb());
     const sqlite = db.$client as any;
@@ -228,16 +276,49 @@ export async function getRecentMemories(projectPath: string, limit: number): Pro
   }
 }
 
-export async function searchMemories(input: SearchInput): Promise<SearchResult[]> {
+export async function search(input: SearchInput): Promise<SearchResult[]> {
   const limit = clampLimit(input.limit, 10, 1, 100);
   const tags = normalizeTags(input.tags);
 
-  if (config.isTeamMode) {
-    return await searchMemoriesPostgres(input, tags, limit);
+  // First, query QMD hot-tier for fast results
+  let qmdResults: SearchResult[] = [];
+  if (config.qmdEnabled && input.query) {
+    try {
+      const { searchMemories: qmdSearch } = await import('../qmd-shortterm.js');
+      const qmdMemories = await qmdSearch(input.query, input.project, { limit, tier: 'hot' });
+      qmdResults = qmdMemories.map(m => ({
+        id: m.id,
+        content: m.content,
+        type: m.type as MemoryType,
+        tags: m.tags,
+        createdAt: m.createdAt,
+        similarity: 1.0,
+        projectId: '',
+        source: 'qmd',
+      }));
+    } catch (error) {
+      logger.warn(`[QMD] Search failed: ${error}`);
+    }
   }
 
-  // Use hybrid search for SQLite (BM25 + vectors with RRF)
-  return await hybridSearchImpl(input, { limit });
+  // Get results from database
+  let dbResults: SearchResult[];
+  if (config.isTeamMode) {
+    dbResults = await searchMemoriesPostgres(input, tags, limit);
+  } else {
+    // Use hybrid search for SQLite (BM25 + vectors with RRF)
+    dbResults = await hybridSearchImpl(input, { limit });
+  }
+
+  // Merge QMD results with DB results (QMD first for hot memories)
+  const merged = [...qmdResults];
+  for (const result of dbResults) {
+    if (!merged.find(r => r.id === result.id)) {
+      merged.push(result);
+    }
+  }
+
+  return merged.slice(0, limit);
 }
 
 /**

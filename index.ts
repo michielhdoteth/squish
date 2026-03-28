@@ -1,19 +1,21 @@
 #!/usr/bin/env node
 
 /**
- * Squish v1.0.2 - Universal Memory Plugin System
+ * Squish v1.1.0 - Universal Memory Plugin System
  * 
  * Modes:
  * - CLI Mode: For any MCP client bash execution (e.g., `squish remember "text"`)
  * - MCP Mode: For AI assistants (Claude Code, OpenClaw, OpenCode, Codex, etc.)
  *
  * Features:
- * - Hybrid Search: BM25 + vector search with RRF
+ * - Hybrid Search: BM25 + vector search with RRF + graph boost
  * - Importance Scoring: Auto-score memories with temporal decay
- * - Consolidation: Summarize old, low-importance memory clusters
- * - 16 MCP tools
+ * - Tier-Based Lifecycle: hot/warm/cold memory tiers
+ * - Client-Side Encryption: AES-256-GCM with PBKDF2
+ * - Squish Learn: Capture success, failure, and fixes
+ * - 20 MCP tools
  * - Local mode: SQLite with FTS5
- * - Team mode: PostgreSQL + pgvector
+ * - Team mode: PostgreSQL + pgvector + Supabase
  * - Universal Plugin: Works with 7+ AI assistants
  */
 
@@ -23,7 +25,7 @@ import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawnSync } from 'node:child_process';
+ import { spawn, spawnSync } from 'node:child_process';
 import { Command } from 'commander';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -38,10 +40,10 @@ import { checkDatabaseHealth, config, getDb } from './db/index.js';
 import { getSchema } from './db/schema.js';
 import { eq } from 'drizzle-orm';
 import { checkRedisHealth, closeCache } from './core/cache.js';
-import { rememberMemory, getMemoryById, searchMemories, getRecentMemories, updateConfidenceLevel } from './core/memory/memories.js';
+import { rememberMemory, getMemory, search, getRecent, setConfidence } from './core/memory/memories.js';
 import { toSqliteTags } from './core/memory/serialization.js';
 import { searchConversations, getRecentConversations } from './core/search/conversations.js';
-import { createObservation, getObservationsForProject } from './core/observations.js';
+import { addObservation, getObservations, createLearning, type LearningType } from './core/observations.js';
 import { getProjectContext } from './core/context.js';
 import { getMemoryStats } from './core/memory/stats.js';
 import { ensureProject, getAllProjects } from './core/projects.js';
@@ -82,10 +84,8 @@ import { runNightlyJob, runWeeklyJob } from './core/scheduler/job-runner.js';
 import {
   DEFAULT_CONTEXT_CONFIG,
 } from './core/context-window.js';
+const VERSION = '1.1.0';
 
-const VERSION = '1.0.3';
-
-// ============================================================================
 // Config Management (for project path persistence)
 // ============================================================================
 
@@ -117,7 +117,6 @@ function resolveProjectPath(projectOption?: string): string {
   return getDefaultProjectPath();
 }
 
-// ============================================================================
 // Date parsing for time-based queries
 // ============================================================================
 
@@ -214,7 +213,6 @@ function verifyManifest(manifest: any): { ok: boolean; errors: string[] } {
   return { ok: errors.length === 0, errors };
 }
 
-// ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
 
@@ -230,16 +228,24 @@ Usage:
 
 CLI Commands (for agents):
   squish remember <content>   Store a memory
+  squish recall <query>       Search or get by ID
   squish search <query>       Search memories
-  squish health               Check system health
-  squish stats                View statistics
-  squish core_memory          Manage core memory
+  squish forget <memoryId>   Delete memory (single or bulk with --older-than --search)
+  squish update <memoryId>    Update memory
+  squish recent --period      Recent memories (today/yesterday/thisweek/7days/30days)
+  squish context              Project context
+  squish stale                Show stale memories
+  squish tag <action>         Manage tags
+  squish confidence <id>      Set confidence
+  squish pin <memoryId>       Pin/unpin memory
+  squish projects             List projects
+  squish link <action>        Manage links (find/add/list)
 
 Examples:
-  squish run mcp              # Start MCP server (for Claude Code)
+  squish run mcp              # Start MCP server (for agents)
   squish run web              # Start Web UI only
-  squish remember "Hello"     # Store memory via CLI
-  squish search "query"       # Search memories via CLI
+  squish remember "Hello"     # Store memory
+  squish search "query"       # Search memories
 
 For more info: https://github.com/michielhdoteth/squish
 `);
@@ -361,7 +367,6 @@ async function runWebOnly() {
   startWebServer();
 }
 
-// ============================================================================
 // CLI MODE DETECTION
 // ============================================================================
 
@@ -379,50 +384,76 @@ if (isNoArgs) {
     console.log(`[squish] No existing database found. Launching installer wizard...\n`);
     await spawnInstallerWizard();
   } else {
-    // === INTERACTIVE WIZARD (default when no args) ===
+    // INTERACTIVE WIZARD (default when no args) ===
     runInteractiveInstaller().catch((e) => {
       console.error('Installer error:', e.message);
       process.exit(1);
     });
   }
-} else if (isRunCommand) {
-  // === RUN SUBCOMMAND ===
-  const subcommand = args[1];
-  if (subcommand === 'mcp') {
-    const { spawn } = require('child_process');
-    spawn('npx', ['squish-mcp'], { stdio: 'inherit', shell: true });
-  } else if (subcommand === 'web') {
-    runWebOnly().catch((e) => {
-      logger.error('Web server error', e);
-      process.exit(1);
-    });
-  } else {
-    console.log(`
+  } else if (isRunCommand) {
+    // RUN SUBCOMMAND ===
+    const subcommand = args[1];
+    if (subcommand === 'mcp') {
+      (async () => {
+        try {
+          // Initialize data directory before starting MCP
+          await ensureDataDirectory();
+          
+          // Start MCP server as child process (stdio mode for agents)
+          const mcpProcess = spawn('npx', ['squish-mcp'], { 
+            stdio: 'inherit', 
+            shell: true 
+          });
+          
+          // Forward MCP exit code when it exits
+          mcpProcess.on('exit', (code: number | null) => {
+            process.exit(code ?? 0);
+          });
+          
+          // Clean shutdown: forward signals to MCP child
+          const cleanup = () => {
+            mcpProcess.kill('SIGTERM');
+            setTimeout(() => process.exit(0), 100);
+          };
+          process.on('SIGINT', cleanup);
+          process.on('SIGTERM', cleanup);
+          
+        } catch (error: any) {
+          console.error('[squish] Failed to start MCP server:', error.message);
+          process.exit(1);
+        }
+      })();
+    } else if (subcommand === 'web') {
+      runWebOnly().catch((e) => {
+        logger.error('Web server error', e);
+        process.exit(1);
+      });
+    } else {
+      console.log(`
 Usage: squish run <command>
 
 Commands:
-  mcp    Start MCP server
+  mcp    Start MCP server (for agents like Claude Code)
   web    Start Web UI only
 
 Examples:
-  squish run mcp   # Start MCP server with web UI
-  squish run web   # Start Web UI only
+  squish run mcp   # Start MCP server (agents connect automatically)
+  squish run web   # Start Web UI at http://localhost:37777
 `);
-    process.exit(subcommand ? 1 : 0);
-  }
-} else if (isHelpCommand) {
-  // === SHOW HELP ===
+      process.exit(subcommand ? 1 : 0);
+    }
+  } else if (isHelpCommand) {
+  // SHOW HELP ===
   showHelp();
   process.exit(0);
 } else {
-  // === CLI MODE (for agents/OpenClaw) ===
+  // CLI MODE (for agents/OpenClaw) ===
   runCliMode().catch((e) => {
     console.error(JSON.stringify({ error: e.message }, null, 2));
     process.exit(1);
   });
 }
 
-// ============================================================================
 // CLI MODE (for OpenClaw bash execution)
 // ============================================================================
 
@@ -500,7 +531,7 @@ async function runCliMode() {
     .option('-u, --until <date>', 'Filter: created before this date (e.g., "yesterday", "2026-01-15")')
     .action(async (query, options) => {
       try {
-        const results = await searchMemories({
+        const results = await search({
           query,
           type: options.type,
           limit: parseInt(options.limit, 10) * 2,
@@ -515,48 +546,109 @@ async function runCliMode() {
       }
     });
 
-  // squish confidence <memoryId> [level] - Set or view confidence level
+  // squish forget <memoryId> -- Delete single or bulk delete memories
 program
-  .command('forget <memoryId>')
-  .description('Delete a memory by ID')
-  .action(async (memoryId) => {
+  .command('forget [memoryId]')
+  .description('Delete a memory by ID, or bulk delete with filters')
+  .option('-o, --older-than <date>', 'Bulk delete memories older than (e.g., "30 days", "6 months")')
+  .option('-t, --type <type>', 'Filter by memory type')
+  .option('-s, --search <query>', 'Search query to match specific memories')
+  .option('-c, --confirm', 'Actually delete (default is dry-run)', false)
+  .option('-l, --limit <number>', 'Max memories to delete', '100')
+  .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
+  .action(async (memoryId, options) => {
     try {
+      // Single memory deletion
+      if (memoryId) {
+        const db = await getDb();
+        const schema = await getSchema();
+        const sqliteDb = db as any;
+        await sqliteDb.delete(schema.memories).where(eq(schema.memories.id, memoryId));
+        console.log(JSON.stringify({ ok: true, message: `Memory ${memoryId} deleted` }, null, 2));
+        return;
+      }
+      
+      // Bulk deletion
+      if (!options.olderThan && !options.search) {
+        console.log(JSON.stringify({ ok: false, error: 'Provide memory ID or use --older-than / --search for bulk delete' }, null, 2));
+        process.exit(1);
+      }
+      
+      const query = options.search || '';
+      const limit = parseInt(options.limit, 10);
+      const results = await search({ query, type: options.type, limit, project: options.project });
+      
+      let filtered = results;
+      if (options.olderThan) {
+        filtered = filterByDateRange(results, '', options.olderThan);
+      }
+      
       const db = await getDb();
       const schema = await getSchema();
       const sqliteDb = db as any;
-      await sqliteDb.delete(schema.memories).where(eq(schema.memories.id, memoryId));
-      console.log(JSON.stringify({ ok: true, message: `Memory ${memoryId} deleted` }, null, 2));
+      
+      const deleted = [];
+      for (const mem of filtered) {
+        await sqliteDb.delete(schema.memories).where(eq(schema.memories.id, mem.id));
+        deleted.push(mem.id);
+      }
+      
+      console.log(JSON.stringify({ ok: true, matched: filtered.length, deleted: deleted.length, dryRun: !options.confirm }, null, 2));
     } catch (error: any) {
       console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
       process.exit(1);
     }
   });
 
-// squish associate <fromId> <toId> <type> - Link two memories
+// squish link - Unified graph operations (find related, add links, list associations)
 program
-  .command('associate <fromMemoryId> <toMemoryId> <type>')
-  .description('Link two memories together (relates_to, supports, contradicts, supersedes, duplicate)')
-  .action(async (fromMemoryId, toMemoryId, type) => {
+  .command('link')
+  .description('Manage memory associations: find, add, list')
+  .argument('<action>', 'Action: find, add, or list')
+  .argument('[args...]', 'Additional arguments')
+  .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
+  .action(async (action, args, options) => {
     try {
-      await createAssociation(fromMemoryId, toMemoryId, type as any, 0.5);
-      console.log(JSON.stringify({ ok: true, message: `Linked ${fromMemoryId} -> ${toMemoryId} (${type})` }, null, 2));
-    } catch (error: any) {
-      console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
-      process.exit(1);
-    }
-  });
-
-// squish related <memoryId> - Find related memories
-program
-  .command('related <memoryId>')
-  .description('Find memories related to a memory via graph')
-  .option('-d, --depth <number>', 'Graph depth (1-5)', '2')
-  .option('-w, --min-weight <number>', 'Minimum weight (0-1)', '0.3')
-  .action(async (memoryId, options) => {
-    try {
-      const related = await getRelatedMemories(memoryId, parseInt(options.depth) * 5);
-      const filtered = related.filter((r: any) => r.weight >= parseFloat(options.minWeight));
-      console.log(JSON.stringify({ ok: true, count: filtered.length, related: filtered }, null, 2));
+      // link find <memoryId> [--depth N] [--min-weight N]
+      if (action === 'find') {
+        const memoryId = args[0];
+        if (!memoryId) {
+          console.log(JSON.stringify({ ok: false, error: 'Usage: squish link find <memoryId> [--depth N] [--min-weight N]' }, null, 2));
+          process.exit(1);
+        }
+        const depth = parseInt(args[1]) || 2;
+        const minWeight = parseFloat(args[2]) || 0.3;
+        const related = await getRelatedMemories(memoryId, depth * 5);
+        const filtered = related.filter((r: any) => r.weight >= minWeight);
+        console.log(JSON.stringify({ ok: true, count: filtered.length, related: filtered }, null, 2));
+        return;
+      }
+      
+      // link add <fromId> <toId> <type>
+      if (action === 'add') {
+        const fromMemoryId = args[0];
+        const toMemoryId = args[1];
+        const type = args[2] || 'relates_to';
+        if (!fromMemoryId || !toMemoryId) {
+          console.log(JSON.stringify({ ok: false, error: 'Usage: squish link add <fromId> <toId> <type>' }, null, 2));
+          process.exit(1);
+        }
+        await createAssociation(fromMemoryId, toMemoryId, type as any, 0.5);
+        console.log(JSON.stringify({ ok: true, message: `Linked ${fromMemoryId} -> ${toMemoryId} (${type})` }, null, 2));
+        return;
+      }
+      
+      // link list - List all associations
+      if (action === 'list') {
+        const db = await getDb();
+        const schema = await getSchema();
+        const sqliteDb = db as any;
+        const associations = await sqliteDb.select().from(schema.memoryAssociations).limit(100);
+        console.log(JSON.stringify({ ok: true, count: associations.length, associations }, null, 2));
+        return;
+      }
+      
+      console.log(JSON.stringify({ ok: false, error: 'Usage: squish link <find|add|list> [args]' }, null, 2));
     } catch (error: any) {
       console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
       process.exit(1);
@@ -578,7 +670,7 @@ program
         console.log(JSON.stringify({ ok: false, error: '--action and --summary required' }, null, 2));
         process.exit(1);
       }
-      const observation = await createObservation({
+      const observation = await addObservation({
         type: options.type as any,
         action: options.action,
         summary: options.summary,
@@ -586,6 +678,34 @@ program
         project: options.project,
       });
       console.log(JSON.stringify({ ok: true, observation }, null, 2));
+    } catch (error: any) {
+      console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
+      process.exit(1);
+    }
+  });
+
+// squish learn <type> <content> - Record learning: success, failure, or fix
+program
+  .command('learn <type> <content>')
+  .description('Record learning: success, failure, or fix')
+  .option('-c, --context <context>', 'Additional context about what happened')
+  .option('-t, --target <target>', 'Target file or resource')
+  .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
+  .action(async (type, content, options) => {
+    try {
+      const validTypes: LearningType[] = ['success', 'failure', 'fix'];
+      if (!validTypes.includes(type as LearningType)) {
+        console.log(JSON.stringify({ ok: false, error: `Invalid type. Must be: ${validTypes.join(', ')}` }, null, 2));
+        process.exit(1);
+      }
+      const learning = await createLearning({
+        type: type as LearningType,
+        content,
+        context: options.context,
+        target: options.target,
+        project: options.project,
+      });
+      console.log(JSON.stringify({ ok: true, learning }, null, 2));
     } catch (error: any) {
       console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
       process.exit(1);
@@ -645,10 +765,10 @@ program
       const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(query);
       
       if (isUUID) {
-        const memory = await getMemoryById(query);
+        const memory = await getMemory(query);
         console.log(JSON.stringify({ ok: true, found: !!memory, memory }, null, 2));
       } else {
-        const results = await searchMemories({
+        const results = await search({
           query,
           type: options.type,
           limit: parseInt(options.limit, 10) * 2,
@@ -671,54 +791,48 @@ program
     }
   });
 
-// squish today - Show memories from today
+// squish recent --period <period> - Show recent memories
 program
-  .command('today')
-  .description('Show memories from today')
+  .command('recent')
+  .description('Show recent memories by period')
+  .option('-p, --period <period>', 'Period: today, yesterday, thisweek, 7days, 30days, or custom like "3 days"', 'today')
+  .option('-s, --since <date>', 'Start date (alternative to --period)')
+  .option('-u, --until <date>', 'End date (alternative to --period)')
   .option('-l, --limit <number>', 'Max results', '10')
-  .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
+  .option('-P, --project <project>', 'Project path', getDefaultProjectPath())
   .action(async (options) => {
     try {
-      const results = await getRecentMemories(options.project, 100);
-      const filtered = filterByDateRange(results, 'today', 'now');
+      let since: string, until: string;
+      
+      if (options.since && options.until) {
+        since = options.since;
+        until = options.until;
+      } else if (options.since) {
+        since = options.since;
+        until = 'now';
+      } else {
+        const periodMap: Record<string, [string, string]> = {
+          today: ['today', 'now'],
+          yesterday: ['yesterday', 'today'],
+          thisweek: ['thisweek', 'now'],
+          '7days': ['7 days', 'now'],
+          '14days': ['14 days', 'now'],
+          '30days': ['30 days', 'now'],
+          '90days': ['90 days', 'now'],
+        };
+        const mapped = periodMap[options.period];
+        if (mapped) {
+          [since, until] = mapped;
+        } else {
+          since = options.period;
+          until = 'now';
+        }
+      }
+      
+      const results = await getRecent(options.project, 100);
+      const filtered = filterByDateRange(results, since, until);
       const limited = filtered.slice(0, parseInt(options.limit, 10));
-      console.log(JSON.stringify({ ok: true, period: 'today', count: limited.length, results: limited }, null, 2));
-    } catch (error: any) {
-      console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
-      process.exit(1);
-    }
-  });
-
-// squish yesterday - Show memories from yesterday
-program
-  .command('yesterday')
-  .description('Show memories from yesterday')
-  .option('-l, --limit <number>', 'Max results', '10')
-  .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
-  .action(async (options) => {
-    try {
-      const results = await getRecentMemories(options.project, 100);
-      const filtered = filterByDateRange(results, 'yesterday', 'today');
-      const limited = filtered.slice(0, parseInt(options.limit, 10));
-      console.log(JSON.stringify({ ok: true, period: 'yesterday', count: limited.length, results: limited }, null, 2));
-    } catch (error: any) {
-      console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
-      process.exit(1);
-    }
-  });
-
-// squish thisweek - Show memories from this week
-program
-  .command('thisweek')
-  .description('Show memories from this week')
-  .option('-l, --limit <number>', 'Max results', '10')
-  .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
-  .action(async (options) => {
-    try {
-      const results = await getRecentMemories(options.project, 100);
-      const filtered = filterByDateRange(results, 'thisweek', 'now');
-      const limited = filtered.slice(0, parseInt(options.limit, 10));
-      console.log(JSON.stringify({ ok: true, period: 'thisweek', count: limited.length, results: limited }, null, 2));
+      console.log(JSON.stringify({ ok: true, period: options.period, since, until, count: limited.length, results: limited }, null, 2));
     } catch (error: any) {
       console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
       process.exit(1);
@@ -732,7 +846,7 @@ program
   .action(async (memoryId, level) => {
     try {
       if (!level) {
-        const memory = await getMemoryById(String(memoryId));
+        const memory = await getMemory(String(memoryId));
         if (!memory) {
           console.log(JSON.stringify({ ok: false, error: 'Memory not found' }, null, 2));
           process.exit(1);
@@ -744,7 +858,7 @@ program
           console.log(JSON.stringify({ ok: false, error: 'Invalid level. Use: certain, speculative, or outdated' }, null, 2));
           process.exit(1);
         }
-        await updateConfidenceLevel(String(memoryId), level as 'certain' | 'speculative' | 'outdated');
+        await setConfidence(String(memoryId), level as 'certain' | 'speculative' | 'outdated');
         console.log(JSON.stringify({ ok: true, memoryId, confidenceLevel: level }, null, 2));
       }
     } catch (error: any) {
@@ -799,9 +913,9 @@ program
         if (options.type) searchInput.type = options.type;
         
         if (options.search) {
-          results = await searchMemories(searchInput);
+          results = await search(searchInput);
         } else {
-          results = await getRecentMemories(options.project, limit * 2);
+          results = await getRecent(options.project, limit * 2);
         }
         
         let filtered = results;
@@ -853,48 +967,6 @@ program
       }
     });
 
-  // squish delete --older-than "30 days" --type observation --confirm
-  program
-    .command('delete')
-    .description('Bulk delete memories by age and type')
-    .option('-o, --older-than <date>', 'Delete memories older than (e.g., "30 days", "6 months")')
-    .option('-t, --type <type>', 'Filter by memory type')
-    .option('-s, --search <query>', 'Search query to match specific memories')
-    .option('-c, --confirm', 'Actually delete (default is dry-run)', false)
-    .option('-l, --limit <number>', 'Max memories to delete', '100')
-    .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
-    .action(async (options) => {
-      try {
-        if (!options.olderThan && !options.search) {
-          console.log(JSON.stringify({ ok: false, error: 'Provide --older-than <date> or --search <query>' }, null, 2));
-          process.exit(1);
-        }
-        
-        const query = options.search || '';
-        const limit = parseInt(options.limit, 10);
-        const results = await searchMemories({ query, type: options.type, limit, project: options.project });
-        
-        let filtered = results;
-        if (options.olderThan) {
-          filtered = filterByDateRange(results, '', options.olderThan);
-        }
-        
-        const db = await getDb();
-        const schema = await getSchema();
-        
-        const deleted = [];
-        for (const mem of filtered) {
-          await (db as any).delete(schema.memories).where(eq(schema.memories.id, mem.id));
-          deleted.push(mem.id);
-        }
-        
-        console.log(JSON.stringify({ ok: true, matched: filtered.length, deleted: deleted.length, dryRun: !options.confirm }, null, 2));
-      } catch (error: any) {
-        console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
-        process.exit(1);
-      }
-    });
-
   // squish stale --days 30 - Show old, low-confidence, unaccessed memories
   program
     .command('stale')
@@ -909,7 +981,7 @@ program
         const cutoffDate = new Date(Date.now() - days * 86400000);
         
         // Get recent memories - larger limit to find stale ones
-        const results = await getRecentMemories(options.project, 500);
+        const results = await getRecent(options.project, 500);
         
         const stale = results.filter((m: any) => {
           const created = m.createdAt ? new Date(m.createdAt) : null;
@@ -1043,13 +1115,13 @@ console.log(` ================================`);
 if (context.memories?.length) {
 console.log(`\n Recent Memories (${context.memories.length}):`);
 for (const m of context.memories.slice(0, 5)) {
-console.log(`   [${m.type}] ${m.content.substring(0, 60)}...`);
+console.log(`   [${m.type}] ${m.content?.substring(0, 60)}...`);
 }
 }
 if (context.observations?.length) {
 console.log(`\n Recent Observations (${context.observations.length}):`);
 for (const o of context.observations.slice(0, 5)) {
-console.log(`   ${o.content.substring(0, 60)}...`);
+console.log(`   ${(o.summary || o.action)?.substring(0, 60)}...`);
 }
 }
 if (context.entities?.length) {
@@ -1069,7 +1141,6 @@ process.exit(1);
 await program.parseAsync(process.argv);
 }
 
-// ============================================================================
 // MCP server: commands/mcp-server.ts
 // Run with: npx squish-mcp
 // ============================================================================

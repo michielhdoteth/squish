@@ -1,6 +1,6 @@
 import { hybridScore, HybridScorerOptions } from './hybrid-scorer.js';
 import { getEmbedding } from '../embeddings.js';
-import { searchMemories, SearchInput, MemoryRecord } from './memories.js';
+import { search, SearchInput, MemoryRecord } from './memories.js';
 import { filterByEntities } from './entity-resolver.js';
 import { rewriteQuery, wouldBenefitFromRewrite } from './query-rewriter.js';
 import { collectRecentContext } from './context-collector.js';
@@ -104,7 +104,7 @@ export async function hybridSearch(options: HybridSearchOptions): Promise<Hybrid
 
   // Candidate retrieval stage
   const retrievalStart = Date.now();
-  const candidates = await searchMemories({
+  const candidates = await search({
     ...options,
     limit: candidateLimit,
   });

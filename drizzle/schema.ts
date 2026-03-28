@@ -1,13 +1,11 @@
 import { pgTable, text, timestamp, uuid, integer, boolean, jsonb, index, vector, numeric } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
-// ============================================================================
 // Type Definitions
 // ============================================================================
 
-export type MemoryType = 'observation' | 'fact' | 'decision' | 'context' | 'preference' | 'jot';
+export type MemoryType = 'observation' | 'fact' | 'decision' | 'context' | 'preference' | 'reflection' | 'note';
 
-// ============================================================================
 // Core Tables
 // ============================================================================
 
@@ -24,7 +22,6 @@ export const users = pgTable('users', {
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
-// ============================================================================
 // Memory Editing Tables
 // ============================================================================
 
@@ -108,6 +105,11 @@ export const memories = pgTable(
     // v0.3.0: Lifecycle Management
     sector: text('sector').default('episodic').$type<'episodic' | 'semantic' | 'procedural' | 'autobiographical' | 'working'>(),
     tier: text('tier').default('hot').$type<'hot' | 'warm' | 'cold'>(),
+    status: text('status').notNull().default('active'),
+    decay_rate: numeric('decay_rate').default('0.03'),
+    encrypted_content: text('encrypted_content'),
+    encryption_nonce: text('encryption_nonce'),
+    is_encrypted: boolean('is_encrypted').default(false),
     decayRate: integer('decay_rate').default(30), // days until decay
     coactivationScore: integer('coactivation_score').default(0), // 0-100
     lastDecayAt: timestamp('last_decay_at').defaultNow(),
@@ -406,7 +408,6 @@ export const entityRelations = pgTable('entity_relations', {
   index('relations_type_idx').on(table.type),
 ]);
 
-// ============================================================================
 // v0.3.0: Lifecycle & Governance Tables
 // ============================================================================
 
@@ -480,7 +481,6 @@ export const memorySnapshots = pgTable('memory_snapshots', {
   index('snapshots_created_idx').on(table.createdAt),
 ]);
 
-// ============================================================================
 // Progressive Disclosure & Context Paging Tables
 // ============================================================================
 
@@ -540,7 +540,6 @@ export const contextPagingSessions = pgTable('context_paging_sessions', {
   index('context_paging_created_idx').on(table.createdAt),
 ]);
 
-// ============================================================================
 // Memory Merging Tables
 // ============================================================================
 
@@ -714,7 +713,6 @@ export const contextSessions = pgTable('context_sessions', {
   index('context_sessions_created_idx').on(table.createdAt),
 ]);
 
-// ============================================================================
 // Relations (Drizzle ORM)
 // ============================================================================
 
@@ -866,7 +864,6 @@ export const memoryHashCacheRelations = relations(memoryHashCache, ({ one }) => 
   }),
 }));
 
-// ============================================================================
 // Types
 // ============================================================================
 

@@ -10,7 +10,15 @@ Squish integrates with Claude Code as a plugin that provides persistent memory c
 
 ## Installation Methods
 
-### Method 1: Universal Plugin Installer (Recommended)
+### Method 1: add-mcp (Recommended)
+```bash
+# One command installs Squish MCP for Claude Code, Cursor, OpenCode, and more
+npx add-mcp squish-memory
+```
+
+That's it! The add-mcp tool will automatically detect your coding agents and configure Squish for them.
+
+### Method 2: Universal Plugin Installer
 ```bash
 # Install Squish if not already installed
 npm install -g squish-memory
@@ -22,7 +30,7 @@ npx squish-memory install-plugin --client=claude-code
 npx squish-memory install-plugin --client=claude-code --verify
 ```
 
-### Method 2: Legacy Marketplace Installation
+### Method 3: Legacy Marketplace Installation
 ```bash
 # Install via Claude Code marketplace
 /plugin marketplace add https://github.com/michielhdoteth/squish.git
@@ -31,11 +39,7 @@ npx squish-memory install-plugin --client=claude-code --verify
 
 ## What Gets Installed
 
-The installer copies the plugin configuration to your Claude Code directory:
-- Source: `.claude-plugin/plugin.json`
-- Destination: `~/.claude/plugin.json`
-
-This file tells Claude Code to load the Squish memory plugin as a session hook.
+With add-mcp, the MCP server configuration is automatically added to your project or global Claude Code config. This tells Claude Code to load the Squish memory server as an MCP tool.
 
 ## Features Enabled
 

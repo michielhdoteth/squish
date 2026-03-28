@@ -1,6 +1,6 @@
 import { getProjectByPath } from './projects.js';
-import { getRecentMemories } from './memory/memories.js';
-import { getObservationsForProject } from './observations.js';
+import { getRecent } from './memory/memories.js';
+import { getObservations } from './observations.js';
 import { getEntitiesForProject } from './search/entities.js';
 
 export interface ContextInput {
@@ -21,11 +21,11 @@ export async function getProjectContext(input: ContextInput): Promise<Record<str
   const result: Record<string, unknown> = { project };
 
   if (include.includes('memories')) {
-    result.memories = await getRecentMemories(project.path, limit);
+    result.memories = await getRecent(project.path, limit);
   }
 
   if (include.includes('observations')) {
-    result.observations = await getObservationsForProject(project.path, limit);
+    result.observations = await getObservations(project.path, limit);
   }
 
   if (include.includes('entities')) {

@@ -14,6 +14,8 @@ import { createDatabaseClient } from '../../core/database.js';
 import { getEmbedding } from '../../core/embeddings.js';
 import { getProjectByPath, ensureProject } from '../../core/projects.js';
 import { fromSqliteTags, normalizeTags } from './serialization.js';
+import { computeGraphBoost } from '../search/graph-boost.js';
+import config from '../../config.js';
 
 /**
  * Reciprocal Rank Fusion (RRF) constant
@@ -57,11 +59,16 @@ export async function hybridSearch(
     vectorSearch(input, { ...options, limit: limit * 2 }),
   ]);
 
-  // Apply RRF to merge results
+  // Compute graph boost for the candidate memory IDs
+  const candidateIds = Array.from(new Set([...bm25Results.map(r => r.id), ...vectorResults.map(r => r.id)]));
+  const graphBoostMap = await computeGraphBoost(candidateIds);
+
+  // Apply RRF to merge results, incorporating graph boost
   return reciprocalRankFusion(
     bm25Results,
     vectorResults,
-    { limit, bm25Weight, vectorWeight }
+    { limit, bm25Weight, vectorWeight },
+    graphBoostMap
   );
 }
 
@@ -330,7 +337,8 @@ async function vectorSearch(
 function reciprocalRankFusion(
   bm25Results: RankedResult[],
   vectorResults: RankedResult[],
-  options: { limit: number; bm25Weight: number; vectorWeight: number }
+  options: { limit: number; bm25Weight: number; vectorWeight: number },
+  graphBoostMap: Record<string, number>
 ): SearchResult[] {
   const { limit, bm25Weight, vectorWeight } = options;
   const scores = new Map<string, { score: number; result: RankedResult['result'] }>();
@@ -357,7 +365,14 @@ function reciprocalRankFusion(
     }
   }
 
-  // Sort by RRF score (descending) and return top results
+  // Add graph boost to each score
+  for (const [id, entry] of scores.entries()) {
+    const boost = graphBoostMap[id] ?? 0;
+    const weight = config.scoringWeights.graphBoost ?? 1;
+    entry.score += boost * weight;
+  }
+
+  // Sort by final score (descending) and return top results
   return Array.from(scores.values())
     .sort((a, b) => b.score - a.score)
     .slice(0, limit)
