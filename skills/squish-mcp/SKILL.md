@@ -1,326 +1,99 @@
 ---
 name: squish-mcp
-description: Squish MCP tools for Claude Code, OpenCode, Cursor and other MCP clients. 14 tools for persistent memory storage, search, and context management.
-version: 1.0.4
+description: Squish MCP tools for Claude Code, OpenCode, Cursor and other MCP clients. Current release exposes 18 tools for memory storage, retrieval, and maintenance.
+version: 1.1.0
 author: michielhdoteth
 tags: [mcp, memory, persistence, search, semantic-search, claude-code, opencode, cursor]
 emoji: plug
 ---
 
-# Squish MCP Tools (14 Tools)
+# Squish MCP Tools (18 Tools)
 
 Use these MCP tools when working with Claude Code, OpenCode, Cursor, or any MCP-compatible client.
 
 ## Install
 
-### Option 1: add-mcp (Recommended)
 ```bash
 npx add-mcp squish-memory
 ```
-Works with Claude Code, OpenCode, Cursor, VS Code, Codex, Gemini CLI, and more.
 
-### Option 2: npm
+Or install globally and run directly:
+
 ```bash
 npm install -g squish-memory
-```
-
-Then start the MCP server:
-```bash
 squish run mcp
 ```
 
-This will also start the Web UI at http://localhost:37777
+The MCP command is `squish-mcp`. The web UI runs separately via `squish run web`.
 
-Configure in your client's MCP settings:
-- **Command**: `squish-mcp`
-- **Args**: (none needed)
-- **Environment**: 
-  - `SQUISH_MODE=local` or `team`
-  - `SQUISH_DATA_DIR=~/.squish`
+## Tool Reference
 
-## MCP Tools (16 Tools)
+| Tool | Purpose | Typical Input |
+|------|---------|---------------|
+| `squish_remember` | Store a memory | `content`, optional `type`, `tags`, `project` |
+| `squish_search` | Search memories | `query`, optional `limit`, `project`, `mode` |
+| `squish_recall` | Fetch memory by ID | `memoryId` |
+| `squish_forget` | Delete one or many memories | `memoryId` or bulk filters |
+| `squish_update` | Update memory fields | `memoryId`, changed fields |
+| `squish_link` | Find, add, or list associations | `action`, plus memory IDs when needed |
+| `squish_context` | Load project context or list projects | `project`, `limit`, `listProjects` |
+| `squish_learn` | Record success, failure, fix, or observation | `type`, `content`, optional `action`, `context` |
+| `squish_health` | Check system health | no input |
+| `squish_stats` | Get memory statistics | optional `project` |
+| `squish_confidence` | Get or set confidence | `memoryId`, optional `level` |
+| `squish_pin` | Pin or unpin a memory | `memoryId`, optional `pinned`/mode |
+| `squish_set_passphrase` | Configure encryption passphrase | passphrase input |
+| `squish_rotate_key` | Rotate encryption key | new passphrase input |
+| `squish_recent` | List recent memories | optional filters |
+| `squish_stale` | Show stale memories | optional thresholds |
+| `squish_note` | Save a quick note | `content`, optional `project` |
+| `squish_tag` | Bulk tag operations | `action`, `tag`, filters |
 
-### 1. squish_remember
-Store a new memory with automatic embedding.
+## Common Patterns
 
-```typescript
-{
-  name: "squish_remember",
-  description: "Store a new memory in Squish with automatic embedding",
-  inputSchema: {
-    type: "object",
-    properties: {
-      content: { type: "string", description: "Memory content to store" },
-      type: { 
-        type: "string", 
-        enum: ["observation", "fact", "decision", "context", "preference"],
-        description: "Memory type (default: observation)"
-      },
-      tags: { 
-        type: "array", 
-        items: { type: "string" },
-        description: "Optional tags" 
-      },
-      project: { type: "string", description: "Project path" }
-    },
-    required: ["content"]
-  }
-}
-```
-
-### 2. squish_search
-Hybrid search across QMD, SQLite DB, and embeddings.
+### Store a memory
 
 ```typescript
-{
-  name: "squish_search",
-  description: "Hybrid search across QMD, SQLite DB, and embeddings with graph expansion",
-  inputSchema: {
-    type: "object",
-    properties: {
-      query: { type: "string", description: "Search query" },
-      limit: { type: "number", description: "Max results (default: 5, max: 100)" },
-      project: { type: "string", description: "Project path filter" },
-      mode: { 
-        type: "string", 
-        enum: ["hybrid", "qmd", "db", "semantic"],
-        description: "Search mode (default: hybrid)"
-      }
-    },
-    required: ["query"]
-  }
-}
+squish_remember({
+  content: "User prefers functional React components",
+  type: "preference",
+  tags: ["react", "preferences"]
+})
 ```
 
-### 3. squish_recall
-Retrieve a specific memory by ID.
+### Record an observation or lesson
 
 ```typescript
-{
-  name: "squish_recall",
-  description: "Retrieve a specific memory by ID",
-  inputSchema: {
-    type: "object",
-    properties: {
-      memoryId: { type: "string", description: "Memory UUID to retrieve" }
-    },
-    required: ["memoryId"]
-  }
-}
+squish_learn({
+  type: "observation",
+  content: "Updated auth flow to use refresh tokens",
+  action: "edit",
+  observationType: "insight",
+  target: "src/auth.ts"
+})
 ```
 
-### 4. squish_forget
-Delete a memory by ID.
+### Search and load context
 
 ```typescript
-{
-  name: "squish_forget",
-  description: "Delete a memory by ID",
-  inputSchema: {
-    type: "object",
-    properties: {
-      memoryId: { type: "string", description: "Memory UUID to delete" }
-    },
-    required: ["memoryId"]
-  }
-}
+squish_search({ query: "authentication", limit: 5 })
+squish_context({ project: "/path/to/project", limit: 10 })
+squish_context({ listProjects: true })
 ```
 
-### 5. squish_update
-Update an existing memory.
+### Manage graph links
 
 ```typescript
-{
-  name: "squish_update",
-  description: "Update an existing memory",
-  inputSchema: {
-    type: "object",
-    properties: {
-      memoryId: { type: "string", description: "Memory UUID to update" },
-      content: { type: "string", description: "New content" },
-      tags: { type: "array", items: { type: "string" }, description: "New tags" },
-      type: { 
-        type: "string", 
-        enum: ["observation", "fact", "decision", "context", "preference"],
-        description: "New type" 
-      }
-    },
-    required: ["memoryId"]
-  }
-}
+squish_link({
+  action: "add",
+  fromMemoryId: "uuid-1",
+  toMemoryId: "uuid-2",
+  type: "relates_to",
+  weight: 0.8
+})
 ```
 
-### 6. squish_associate
-Create association between two memories.
+## Notes
 
-```typescript
-{
-  name: "squish_associate",
-  description: "Create an association between two memories in the graph",
-  inputSchema: {
-    type: "object",
-    properties: {
-      fromMemoryId: { type: "string", description: "Source memory UUID" },
-      toMemoryId: { type: "string", description: "Target memory UUID" },
-      type: { 
-        type: "string",
-        enum: ["relates_to", "supersedes", "contradicts", "supports", "duplicate", "merged"],
-        description: "Association type"
-      },
-      weight: { type: "number", description: "Strength 0-1 (default: 0.5)" }
-    },
-    required: ["fromMemoryId", "toMemoryId", "type"]
-  }
-}
-```
-
-### 7. squish_related
-Find related memories via graph.
-
-```typescript
-{
-  name: "squish_related",
-  description: "Get related memories via graph traversal",
-  inputSchema: {
-    type: "object",
-    properties: {
-      memoryId: { type: "string", description: "Memory UUID" },
-      depth: { type: "number", description: "Graph depth 1-5 (default: 2)" },
-      minWeight: { type: "number", description: "Min weight 0-1 (default: 0.3)" }
-    },
-    required: ["memoryId"]
-  }
-}
-```
-
-### 8. squish_context
-Get project context.
-
-```typescript
-{
-  name: "squish_context",
-  description: "Get project context with relevant memories",
-  inputSchema: {
-    type: "object",
-    properties: {
-      project: { type: "string", description: "Project path" },
-      limit: { type: "number", description: "Max memories (default: 10)" }
-    },
-    required: ["project"]
-  }
-}
-```
-
-### 9. squish_observe
-Record observations.
-
-```typescript
-{
-  name: "squish_observe",
-  description: "Store an observation about tool usage, patterns, or insights",
-  inputSchema: {
-    type: "object",
-    properties: {
-      type: { 
-        type: "string",
-        enum: ["tool_use", "file_change", "error", "pattern", "insight"],
-        description: "Observation type"
-      },
-      action: { type: "string", description: "Action performed" },
-      summary: { type: "string", description: "Summary of observation" },
-      target: { type: "string", description: "Target file or resource" },
-      project: { type: "string", description: "Project path" }
-    },
-    required: ["type", "action", "summary"]
-  }
-}
-```
-
-### 10. squish_health
-Check system health. No input required.
-
-```typescript
-{
-  name: "squish_health",
-  description: "Check system health",
-  inputSchema: {
-    type: "object",
-    properties: {}
-  }
-}
-```
-
-### 11. squish_stats
-Get memory statistics.
-
-```typescript
-{
-  name: "squish_stats",
-  description: "Get memory statistics for a project",
-  inputSchema: {
-    type: "object",
-    properties: {
-      project: { type: "string", description: "Project path (defaults to current)" }
-    }
-  }
-}
-```
-
-### 12. squish_projects
-List all projects. No input required.
-
-```typescript
-{
-  name: "squish_projects",
-  description: "List all projects",
-  inputSchema: {
-    type: "object"
-  }
-}
-```
-
-## Quick Reference
-
-| Tool | Purpose | Required Input |
-|------|---------|----------------|
-| squish_remember | Store memory | content |
-| squish_search | Find memories | query |
-| squish_recall | Get by ID | memoryId |
-| squish_forget | Delete memory | memoryId |
-| squish_update | Edit memory | memoryId |
-| squish_associate | Link memories | fromMemoryId, toMemoryId, type |
-| squish_related | Find related | memoryId |
-| squish_context | Project overview | project |
-| squish_observe | Record observation | type, action, summary |
-| squish_health | Check status | - |
-| squish_stats | View stats | project (optional) |
-| squish_projects | List projects | - |
-| squish_confidence | Get/set confidence | memoryId, level |
-| squish_pin | Pin/unpin memory | memoryId, pinned |
-
-## Configuration
-
-```json
-{
-  "mcpServers": {
-    "squish": {
-      "command": "squish-mcp",
-      "env": {
-        "SQUISH_MODE": "local",
-        "SQUISH_DATA_DIR": "~/.squish"
-      }
-    }
-  }
-}
-```
-
-## Migration from v0.9.x
-
-**Breaking Changes:**
-- Added `squish run mcp` and `squish run web` commands to start servers
-- The `squish` command now shows interactive wizard (was MCP server + Web UI)
-
-**What stays the same:**
-- All MCP tool names and schemas
-- Environment variables
-- Configuration format
+- Project listing is handled through `squish_context({ listProjects: true })`.
+- Observations and lessons are recorded through `squish_learn({ type: "observation", ... })`.

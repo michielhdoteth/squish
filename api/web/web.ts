@@ -1,14 +1,18 @@
 import express from 'express';
+import type { Server } from 'node:http';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import { logger } from '../../core/logger.js';
 import { getRecent } from '../../core/memory/memories.js';
 import { getObservations } from '../../core/observations.js';
 import { getAllProjects, getProjectByPath } from '../../core/projects.js';
-import { getDb } from '../../db/index.js';
+import { checkDatabaseHealth, getDb } from '../../db/index.js';
+import { config } from '../../config.js';
+import { isDatabaseUnavailableError } from '../../core/utils.js';
 
 const app = express();
-const PORT = process.env.SQUISH_WEB_PORT || 37777;
+const PORT = Number(process.env.SQUISH_WEB_PORT || 37777);
+const VERSION = '1.1.0';
 
 const allowedOrigins = process.env.SQUISH_CORS_ORIGINS?.split(',').map(s => s.trim()) || ['http://localhost:*', 'http://127.0.0.1:*'];
 const appCors = cors({
@@ -41,35 +45,38 @@ app.use(express.json());
 
 // Health check endpoint
 app.get('/api/health', async (req, res) => {
-  let dbStatus = 'ok';
+  let dbStatus = 'error';
   let projectInfo = null;
   let allProjects: any[] = [];
+  let errorMessage: string | null = null;
 
   try {
-    const db = await getDb();
-    const sqliteDb = db as any;
-    if (sqliteDb && typeof sqliteDb.prepare === 'function') {
-      sqliteDb.prepare('SELECT 1').get();
-    }
-    
-    // Get all projects from database
-    allProjects = await getAllProjects();
-    
-    // If there are projects, use the first one as default (most recent)
-    if (allProjects.length > 0) {
-      projectInfo = { id: allProjects[0].id, name: allProjects[0].name, path: allProjects[0].path };
+    const healthy = await checkDatabaseHealth();
+    dbStatus = healthy ? 'ok' : 'error';
+
+    if (healthy) {
+      allProjects = await getAllProjects();
+      if (allProjects.length > 0) {
+        projectInfo = { id: allProjects[0].id, name: allProjects[0].name, path: allProjects[0].path };
+      }
     }
   } catch (error: any) {
-    dbStatus = 'error';
-    logger.error('Health check failed:', error.message);
+    errorMessage = error.message;
+    if (!isDatabaseUnavailableError(error)) {
+      logger.error('Health check failed:', error.message);
+    }
   }
 
   res.json({
-    status: dbStatus === 'ok' ? 'ok' : 'error',
-    version: '0.9.1',
+    ok: dbStatus === 'ok',
+    status: dbStatus,
+    version: VERSION,
     database: dbStatus,
+    cache: config.redisEnabled ? 'configured' : 'unavailable',
+    dataDirectory: config.dataDir,
     project: projectInfo || { id: 'unknown', name: 'No Project', path: '' },
     projects: allProjects,
+    error: errorMessage,
     timestamp: new Date().toISOString()
   });
 });
@@ -94,8 +101,10 @@ app.get('/api/memories', async (req, res) => {
        project: { id: project.id, name: project.name, path: project.path }
      });
    } catch (error: any) {
-     logger.error('Failed to get memories:', error.message);
-     res.status(500).json({ status: 'error', message: error.message });
+     if (!isDatabaseUnavailableError(error)) {
+       logger.error('Failed to get memories:', error.message);
+     }
+     res.status(isDatabaseUnavailableError(error) ? 503 : 500).json({ status: 'error', message: error.message });
    }
 });
 
@@ -119,8 +128,10 @@ app.get('/api/observations', async (req, res) => {
       project: { id: project.id, name: project.name, path: project.path }
      });
    } catch (error: any) {
-     logger.error('Failed to get observations:', error.message);
-     res.status(500).json({ status: 'error', message: error.message });
+     if (!isDatabaseUnavailableError(error)) {
+       logger.error('Failed to get observations:', error.message);
+     }
+     res.status(isDatabaseUnavailableError(error) ? 503 : 500).json({ status: 'error', message: error.message });
    }
 });
 
@@ -173,8 +184,10 @@ app.get('/api/context', async (req, res) => {
        totalCount: memories.length + observations.length
      });
    } catch (error: any) {
-     logger.error('Failed to get context:', error.message);
-     res.status(500).json({ status: 'error', message: error.message });
+     if (!isDatabaseUnavailableError(error)) {
+       logger.error('Failed to get context:', error.message);
+     }
+     res.status(isDatabaseUnavailableError(error) ? 503 : 500).json({ status: 'error', message: error.message });
    }
 });
 
@@ -188,8 +201,10 @@ app.get('/api/projects', async (req, res) => {
       count: projects.length
      });
    } catch (error: any) {
-     logger.error('Failed to get projects:', error.message);
-     res.status(500).json({ status: 'error', message: error.message });
+     if (!isDatabaseUnavailableError(error)) {
+       logger.error('Failed to get projects:', error.message);
+     }
+     res.status(isDatabaseUnavailableError(error) ? 503 : 500).json({ status: 'error', message: error.message });
    }
 });
 
@@ -650,9 +665,14 @@ app.get('/', (req, res) => {
 });
 
 // Start server
-export function startWebServer() {
-  app.listen(PORT, () => {
-    logger.info('Web UI available at http://localhost:' + PORT);
+export function startWebServer(): Promise<Server> {
+  return new Promise((resolve, reject) => {
+    const server = app.listen(PORT, () => {
+      logger.info('Web UI available at http://localhost:' + PORT);
+      resolve(server);
+    });
+
+    server.on('error', reject);
   });
 }
 

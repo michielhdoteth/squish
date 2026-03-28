@@ -30,8 +30,16 @@ export function normalizeTimestamp(value: any): string | null {
 }
 
 export function isDatabaseUnavailableError(error: any): boolean {
-  return error.message?.includes('Database unavailable') ||
-         error.message?.includes('not a valid Win32 application');
+  const message = error?.message || '';
+  return [
+    'Database unavailable',
+    'not a valid Win32 application',
+    'invalid ELF header',
+    'bun:',
+    'sql.js wasm asset not found',
+    'SQLite database initialization failed',
+    'working local SQLite driver',
+  ].some((pattern) => message.includes(pattern));
 }
 
 export async function withDatabaseErrorHandling<T>(

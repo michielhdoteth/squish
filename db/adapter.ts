@@ -1,6 +1,63 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { config, getDataDir } from '../config.js';
 import { ensurePostgresSchema, ensureSqliteSchema } from './bootstrap.js';
 import { logger } from '../core/logger.js';
+
+const SQL_JS_WASM_RELATIVE_PATH = '../vendor/sql.js/sql-wasm.wasm';
+
+function isBunRuntime(): boolean {
+  return typeof (globalThis as { Bun?: unknown }).Bun !== 'undefined';
+}
+
+function formatInitializationError(label: string, error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return `${label}: ${message}`;
+}
+
+function shouldPersistSql(query: string): boolean {
+  return /^\s*(insert|update|delete|create|alter|drop|replace|pragma|begin|commit|rollback|vacuum|reindex)\b/i.test(query);
+}
+
+function persistSqlJsDatabase(sqlite: { export: () => Uint8Array }, dbPath: string) {
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+  fs.writeFileSync(dbPath, Buffer.from(sqlite.export()));
+}
+
+function resolveSqlJsWasmPath(): string {
+  const currentDir = path.dirname(fileURLToPath(import.meta.url));
+  const candidates = [
+    path.resolve(currentDir, SQL_JS_WASM_RELATIVE_PATH),
+    path.resolve(currentDir, '../../node_modules/sql.js/dist/sql-wasm.wasm'),
+    path.resolve(process.cwd(), 'node_modules/sql.js/dist/sql-wasm.wasm'),
+  ];
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  throw new Error(
+    `sql.js wasm asset not found. Looked in: ${candidates.join(', ')}`
+  );
+}
+
+function wrapSqlJsStatement(stmt: any, sqlite: any, dbPath: string, query: string) {
+  const persistAfterRun = shouldPersistSql(query);
+
+  if (persistAfterRun && typeof stmt.run === 'function') {
+    const originalRun = stmt.run.bind(stmt);
+    stmt.run = (...args: any[]) => {
+      const result = originalRun(...args);
+      persistSqlJsDatabase(sqlite, dbPath);
+      return result;
+    };
+  }
+
+  return stmt;
+}
 
 async function createBunSqliteDb(dbPath: string) {
   // @ts-ignore - bun:sqlite module not found in types but works at runtime
@@ -45,51 +102,43 @@ async function createPostgresDb() {
 
 async function createSqliteDb() {
   const dbPath = `${getDataDir()}/squish.db`;
+  const errors: string[] = [];
 
-  // Try bun:sqlite first (Bun's built-in SQLite)
-  try {
-    return await createBunSqliteDb(dbPath);
-  } catch (bunSqliteError: any) {
-    // Only log in debug mode - this is expected on non-Bun runtimes
-    if (process.env.DEBUG === 'true') {
-      logger.warn('bun:sqlite failed, trying better-sqlite3', { 
-        error: bunSqliteError.message 
-      });
-    }
-    
-    // Try better-sqlite3 second (best performance)
+  if (isBunRuntime()) {
     try {
-      return await createBetterSqliteDb(dbPath);
-    } catch (betterSqliteError: any) {
+      return await createBunSqliteDb(dbPath);
+    } catch (error) {
+      errors.push(formatInitializationError('bun:sqlite', error));
       if (process.env.DEBUG === 'true') {
-        logger.warn('better-sqlite3 failed, trying sql.js fallback', { 
-          error: betterSqliteError.message 
+        logger.warn('bun:sqlite failed, trying Node-compatible drivers', {
+          error: error instanceof Error ? error.message : String(error),
         });
-      }
-      
-      // Fallback to sql.js (pure JavaScript, no native module)
-      try {
-        return await createSqlJsDb(dbPath);
-      } catch (sqlJsError: any) {
-        // All failed - this is critical, Squish cannot work without DB
-        logger.error('CRITICAL: SQLite database initialization failed', {
-          bunSqliteError: bunSqliteError.message,
-          betterSqliteError: betterSqliteError.message,
-          sqlJsError: sqlJsError.message
-        });
-        
-        throw new Error(
-          `Squish requires SQLite to function. Database initialization failed.\n` +
-          `Primary error (bun:sqlite): ${bunSqliteError.message}\n` +
-          `Secondary error (better-sqlite3): ${betterSqliteError.message}\n` +
-          `Fallback error (sql.js): ${sqlJsError.message}\n\n` +
-          `Solutions:\n` +
-          `1. Install build tools: npm install -g windows-build-tools (Windows)\n` +
-          `2. Or use PostgreSQL instead by setting DATABASE_URL environment variable`
-        );
       }
     }
   }
+
+  try {
+    return await createBetterSqliteDb(dbPath);
+  } catch (error) {
+    errors.push(formatInitializationError('better-sqlite3', error));
+    if (process.env.DEBUG === 'true') {
+      logger.warn('better-sqlite3 failed, trying sql.js fallback', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  try {
+    return await createSqlJsDb(dbPath);
+  } catch (error) {
+    errors.push(formatInitializationError('sql.js', error));
+  }
+
+  logger.error('CRITICAL: SQLite database initialization failed', { errors });
+  throw new Error(
+    'Squish requires a working local SQLite driver. Initialization failed.\n' +
+      errors.map((entry, index) => `${index + 1}. ${entry}`).join('\n')
+  );
 }
 
 async function createBetterSqliteDb(dbPath: string) {
@@ -114,90 +163,51 @@ async function createSqlJsDb(dbPath: string) {
   const initSqlJs = await import('sql.js');
   const { drizzle } = await import('drizzle-orm/sql-js');
   const schemaModule = await import('../drizzle/schema-sqlite.js');
-  const fs = await import('fs');
-  const path = await import('path');
+  const wasmPath = resolveSqlJsWasmPath();
+  const SQL = await initSqlJs.default({
+    locateFile: (file: string) => (file.endsWith('.wasm') ? wasmPath : file),
+  });
 
-  const SQL = await initSqlJs.default();
-  
   let data: Uint8Array | undefined;
-  
-  // Try to load existing database
+
   if (fs.existsSync(dbPath)) {
     data = fs.readFileSync(dbPath);
   }
-  
-  const sqlite = new SQL.Database(data);
-  
-  // Enable foreign keys
+
+  const sqlite: any = new SQL.Database(data);
   sqlite.exec('PRAGMA foreign_keys = ON');
-  
-  // Schema bootstrap
   await ensureSqliteSchema(sqlite);
-  
-  // Persist database on changes (sql.js is in-memory by default)
+
+  persistSqlJsDatabase(sqlite, dbPath);
+
   const originalExec = sqlite.exec.bind(sqlite);
-  sqlite.exec = function(...args: any[]) {
+  sqlite.exec = (...args: any[]) => {
+    const [query] = args;
     const result = originalExec(...args);
-    // Save after each exec
-    const data = sqlite.export();
-    fs.writeFileSync(dbPath, Buffer.from(data));
+    if (typeof query === 'string' && shouldPersistSql(query)) {
+      persistSqlJsDatabase(sqlite, dbPath);
+    }
     return result;
   };
-  
-  // Add prepare method for compatibility with drizzle-orm/sql-js
-  sqlite.prepare = (query: string) => {
-    const stmt = sqlite.prepare(query);
-    const preparedStatement: any = {};
-    
-    preparedStatement.bind = (bindParams: any[]) => {
-      bindParams.forEach((param, index) => {
-        stmt.bind(param, index + 1);
-      });
-      return preparedStatement;
-    };
-    
-    preparedStatement.step = () => {
-      return stmt.step();
-    };
-    
-    preparedStatement.getAsObject = () => {
-      return stmt.getAsObject();
-    };
-    
-    preparedStatement.free = () => {
-      stmt.free();
-    };
-    
-    preparedStatement.run = () => {
-      const result = stmt.step() ? { changes: sqlite.changes() } : { changes: 0 };
-      stmt.reset();
+
+  if (typeof sqlite.run === 'function') {
+    const originalRun = sqlite.run.bind(sqlite);
+    sqlite.run = (...args: any[]) => {
+      const [query] = args;
+      const result = originalRun(...args);
+      if (typeof query === 'string' && shouldPersistSql(query)) {
+        persistSqlJsDatabase(sqlite, dbPath);
+      }
       return result;
     };
-    
-    preparedStatement.get = (bindParams: any[] = []) => {
-      if (bindParams.length > 0) {
-        preparedStatement.bind(bindParams);
-      }
-      const row = stmt.step() ? stmt.getAsObject() : undefined;
-      stmt.reset();
-      return row;
-    };
-    
-    preparedStatement.all = (bindParams: any[] = []) => {
-      if (bindParams.length > 0) {
-        preparedStatement.bind(bindParams);
-      }
-      const rows = [];
-      while (stmt.step()) {
-        rows.push(stmt.getAsObject());
-      }
-      stmt.reset();
-      return rows;
-    };
-    
-    return preparedStatement;
+  }
+
+  const originalPrepare = sqlite.prepare.bind(sqlite);
+  sqlite.prepare = (query: string, ...args: any[]) => {
+    const stmt = originalPrepare(query, ...args);
+    return wrapSqlJsStatement(stmt, sqlite, dbPath, query);
   };
-  
+
   logger.info('SQLite initialized with sql.js (pure JavaScript fallback)');
   return drizzle(sqlite, { schema: schemaModule });
 }

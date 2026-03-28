@@ -215,8 +215,8 @@ function printSuccess(openclawDir) {
   console.log("  squish stats               - View statistics");
   console.log("");
   log("cyan", "MCP Tools (via mcporter):");
-  console.log("  remember, search, recall, observe");
-  console.log("  context, health, core_memory, forget");
+  console.log("  remember, search, recall, learn");
+  console.log("  context, health, stats, note");
   console.log("");
   log("blue", "Documentation: https://github.com/michielhdoteth/squish");
   console.log("");

@@ -90,7 +90,7 @@ class ClaudeCodeSquishPlugin {
     console.log("[SquishPlugin] Session started:", this.sessionId);
     
     // Store session start observation
-    await this.observe("session_start", "Claude Code session started", {
+    await this.recordSessionEvent("session_start", "Claude Code session started", {
       sessionId: this.sessionId,
       workspace: this.workspaceDir,
       timestamp: new Date().toISOString()
@@ -144,7 +144,7 @@ class ClaudeCodeSquishPlugin {
   private async onPostToolUse(): Promise<void> {
     // Capture tool usage from Claude Code output
     // This would need integration with Claude Code's tool result streaming
-    // Simplified: we'll rely on users to call observe manually or via prompts
+    // Tool-use capture can be added here if Claude Code exposes richer hook events.
   }
   
   private async onSessionEnd(): Promise<void> {
@@ -155,7 +155,7 @@ class ClaudeCodeSquishPlugin {
       const summary = await this.summarizeSession();
       
       // Store summary observation
-      await this.observe("session_summary", summary, {
+      await this.recordSessionEvent("session_summary", summary, {
         sessionId: this.sessionId,
         memoryCount: this.recentMemories.length,
         endedAt: new Date().toISOString()
@@ -176,12 +176,15 @@ class ClaudeCodeSquishPlugin {
     return `Session ${this.sessionId}: Captured ${this.recentMemories.length} memories from user prompts and interactions.`;
   }
   
-  private async observe(type: string, summary: string, details?: Record<string, any>): Promise<any> {
-    return this.callTool("squish_observe", {
-      type,
+  private async recordSessionEvent(type: string, summary: string, details?: Record<string, any>): Promise<any> {
+    const observationType = type === "error" ? "error" : "insight";
+    return this.callTool("squish_learn", {
+      type: "observation",
+      content: summary,
       action: "claude_code_event",
-      summary,
-      details,
+      observationType,
+      context: details ? JSON.stringify(details) : undefined,
+      target: this.workspaceDir,
       project: this.workspaceDir
     });
   }

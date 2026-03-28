@@ -1,6 +1,7 @@
 import { createDb } from './adapter.js';
 import { config } from '../config.js';
 import { logger } from '../core/logger.js';
+import { isDatabaseUnavailableError } from '../core/utils.js';
 
 let db: Awaited<ReturnType<typeof createDb>> | null = null;
 let dbError: string | null = null;
@@ -29,19 +30,27 @@ if (!db) {
 export async function checkDatabaseHealth(): Promise<boolean> {
   try {
     const database = await getDb();
-    // Try a simple query - use a raw query that's guaranteed to work
-    const dbClient = (database as any).$client;
+
+    const dbClient = (database as any).$client ?? database;
     if (dbClient && typeof dbClient.query === 'function') {
       await dbClient.query('SELECT 1');
+    } else if (dbClient && typeof dbClient.exec === 'function') {
+      dbClient.exec('SELECT 1');
     } else if (dbClient && typeof dbClient.prepare === 'function') {
-      dbClient.prepare('SELECT 1').get();
+      const statement = dbClient.prepare('SELECT 1');
+      if (typeof statement.get === 'function') {
+        statement.get();
+      } else if (typeof statement.step === 'function') {
+        statement.step();
+      }
+      if (typeof statement.free === 'function') {
+        statement.free();
+      }
     }
     return true;
   } catch (error: any) {
-    // Check if it's a known database unavailability issue
-    if (error.message?.includes('not a valid Win32 application') ||
-        error.message?.includes('Database unavailable')) {
-      return false; // Graceful degradation - database unavailable but not an error
+    if (isDatabaseUnavailableError(error)) {
+      return false;
     }
     logger.error('Database health check failed', error);
     return false;

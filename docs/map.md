@@ -166,7 +166,7 @@ Response Formatting
 - `recent` - Get recent conversations
 
 ### **Observation Tracking (1 tool)**
-- `observe` - Record tool usage patterns
+- `learn observation` - Record tool usage patterns and work observations
 
 ### **Context & Project (1 tool)**
 - `context` - Retrieve project context

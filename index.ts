@@ -13,7 +13,7 @@
  * - Tier-Based Lifecycle: hot/warm/cold memory tiers
  * - Client-Side Encryption: AES-256-GCM with PBKDF2
  * - Squish Learn: Capture success, failure, and fixes
- * - 20 MCP tools
+ * - 18 MCP tools
  * - Local mode: SQLite with FTS5
  * - Team mode: PostgreSQL + pgvector + Supabase
  * - Universal Plugin: Works with 7+ AI assistants
@@ -213,6 +213,28 @@ function verifyManifest(manifest: any): { ok: boolean; errors: string[] } {
   return { ok: errors.length === 0, errors };
 }
 
+async function buildHealthStatus() {
+  const dbHealth = await checkDatabaseHealth();
+  const redisHealth = await checkRedisHealth();
+  const database = dbHealth ? 'ok' : 'error';
+  const cache = config.redisEnabled ? (redisHealth ? 'ok' : 'error') : 'unavailable';
+  const overallStatus = config.redisEnabled
+    ? determineOverallStatus(database, redisHealth)
+    : (dbHealth ? 'ok' : 'error');
+
+  return {
+    ok: overallStatus === 'ok',
+    version: VERSION,
+    mode: config.isTeamMode ? 'team' : 'local',
+    database,
+    cache,
+    dataDirectory: config.dataDir,
+    dataDirectoryExists: fs.existsSync(config.dataDir),
+    status: overallStatus,
+    timestamp: new Date().toISOString(),
+  };
+}
+
 // HELPER FUNCTIONS
 // ============================================================================
 
@@ -227,25 +249,35 @@ Usage:
   squish <command> [options]  Run CLI commands for agents
 
 CLI Commands (for agents):
+  squish config [action]      Manage Squish configuration
   squish remember <content>   Store a memory
-  squish recall <query>       Search or get by ID
+  squish note <content>       Save a quick note
+  squish learn <type> <text>  Record learning or observations
   squish search <query>       Search memories
-  squish forget <memoryId>   Delete memory (single or bulk with --older-than --search)
-  squish update <memoryId>    Update memory
+  squish recall <query>       Search or get by ID
   squish recent --period      Recent memories (today/yesterday/thisweek/7days/30days)
-  squish context              Project context
-  squish stale                Show stale memories
-  squish tag <action>         Manage tags
-  squish confidence <id>      Set confidence
+  squish update <memoryId>    Update memory
+  squish forget <memoryId>    Delete memory (single or bulk with --older-than --search)
   squish pin <memoryId>       Pin/unpin memory
-  squish projects             List projects
+  squish confidence <id>      Set confidence
+  squish tag <action>         Manage tags
+  squish stale                Show stale memories
   squish link <action>        Manage links (find/add/list)
+  squish context              Show context or list projects
+  squish health               Check service health
+  squish stats                View memory statistics
 
 Examples:
   squish run mcp              # Start MCP server (for agents)
   squish run web              # Start Web UI only
+  squish config set project /repo/path
   squish remember "Hello"     # Store memory
+  squish note "Ship v1 first" # Save a quick note
+  squish learn observation "Updated auth flow" --action edit
+  squish learn fix "Patched auth middleware" --target middleware.ts
   squish search "query"       # Search memories
+  squish context --list-projects
+  squish context              # Inspect current project context
 
 For more info: https://github.com/michielhdoteth/squish
 `);
@@ -313,18 +345,14 @@ async function runCliCommand(command: string) {
   });
   
   if (command === 'health') {
-    const dbHealth = await checkDatabaseHealth();
-    const redisHealth = await checkRedisHealth();
-    const dataDir = process.env.SQUISH_DATA_DIR || path.join(os.homedir(), '.squish');
-    const dirExists = fs.existsSync(dataDir);
-    
+    const status = await buildHealthStatus();
     console.log(`\n  Squish Memory v${VERSION}`);
     console.log(`  ====================`);
-    console.log(`  Mode:     ${config.isTeamMode ? 'team' : 'local'}`);
-    console.log(`  Database: ${dbHealth ? 'ok' : 'error'}`);
-    console.log(`  Cache:    ${redisHealth ? 'ok' : 'unavailable'}`);
-    console.log(`  Data Dir: ${dataDir}`);
-    console.log(`  Status:   ${dbHealth ? 'HEALTHY' : 'UNHEALTHY'}\n`);
+    console.log(`  Mode:     ${status.mode}`);
+    console.log(`  Database: ${status.database}`);
+    console.log(`  Cache:    ${status.cache}`);
+    console.log(`  Data Dir: ${status.dataDirectory}`);
+    console.log(`  Status:   ${status.ok ? 'HEALTHY' : 'UNHEALTHY'}\n`);
   } else if (command === 'stats') {
     const stats = await getMemoryStats(getDefaultProjectPath());
     console.log(JSON.stringify({ ok: true, ...stats }, null, 2));
@@ -364,7 +392,7 @@ function isDatabaseInitialized(): boolean {
 async function runWebOnly() {
   console.log(`[squish] Starting Web UI only...`);
   await ensureDataDirectory();
-  startWebServer();
+  await startWebServer();
 }
 
 // CLI MODE DETECTION
@@ -655,53 +683,32 @@ program
     }
   });
 
-// squish observe <type> <action> <summary> - Record observation
-program
-  .command('observe')
-  .description('Record an observation (tool_use, file_change, error, pattern, insight)')
-  .option('-t, --type <type>', 'Observation type', 'insight')
-  .option('-a, --action <action>', 'Action performed')
-  .option('-s, --summary <summary>', 'Summary')
-  .option('--target <target>', 'Target file/resource')
-  .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
-  .action(async (options) => {
-    try {
-      if (!options.action || !options.summary) {
-        console.log(JSON.stringify({ ok: false, error: '--action and --summary required' }, null, 2));
-        process.exit(1);
-      }
-      const observation = await addObservation({
-        type: options.type as any,
-        action: options.action,
-        summary: options.summary,
-        target: options.target,
-        project: options.project,
-      });
-      console.log(JSON.stringify({ ok: true, observation }, null, 2));
-    } catch (error: any) {
-      console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
-      process.exit(1);
-    }
-  });
-
-// squish learn <type> <content> - Record learning: success, failure, or fix
+// squish learn <type> <content> - Record learning: success, failure, fix, or observation
 program
   .command('learn <type> <content>')
-  .description('Record learning: success, failure, or fix')
+  .description('Record learning: success, failure, fix, or observation')
   .option('-c, --context <context>', 'Additional context about what happened')
+  .option('-a, --action <action>', 'Action performed (used for observation)')
+  .option('-o, --observation-type <kind>', 'Observation kind: tool_use, file_change, error, pattern, insight', 'insight')
   .option('-t, --target <target>', 'Target file or resource')
   .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
   .action(async (type, content, options) => {
     try {
-      const validTypes: LearningType[] = ['success', 'failure', 'fix'];
+      const validTypes: LearningType[] = ['success', 'failure', 'fix', 'observation'];
       if (!validTypes.includes(type as LearningType)) {
         console.log(JSON.stringify({ ok: false, error: `Invalid type. Must be: ${validTypes.join(', ')}` }, null, 2));
+        process.exit(1);
+      }
+      if (type === 'observation' && !options.action) {
+        console.log(JSON.stringify({ ok: false, error: '--action is required when type is observation' }, null, 2));
         process.exit(1);
       }
       const learning = await createLearning({
         type: type as LearningType,
         content,
         context: options.context,
+        action: options.action,
+        observationType: options.observationType,
         target: options.target,
         project: options.project,
       });
@@ -712,7 +719,6 @@ program
     }
   });
 
-// squish projects - List all projects
 program
   .command('update <memoryId>')
   .description('Update a memory')
@@ -731,20 +737,6 @@ program
       const sqliteDb = db as any;
       await sqliteDb.update(schema.memories).set(updates).where(eq(schema.memories.id, memoryId));
       console.log(JSON.stringify({ ok: true, message: `Memory ${memoryId} updated` }, null, 2));
-    } catch (error: any) {
-      console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
-      process.exit(1);
-    }
-  });
-
-// squish projects - List all projects
-program
-  .command('projects')
-  .description('List all registered projects')
-  .action(async () => {
-    try {
-      const allProjects = await getAllProjects();
-      console.log(JSON.stringify({ ok: true, count: allProjects.length, projects: allProjects }, null, 2));
     } catch (error: any) {
       console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
       process.exit(1);
@@ -1015,23 +1007,10 @@ program
     .option('-j, --json', 'Output as JSON', false)
     .action(async (options) => {
       try {
-        const dbHealth = await checkDatabaseHealth();
-        const redisHealth = await checkRedisHealth();
-        const dataDir = process.env.SQUISH_DATA_DIR || path.join(os.homedir(), '.squish');
-        const dirExists = fs.existsSync(dataDir);
-
-        const status = {
-          version: VERSION,
-          mode: config.isTeamMode ? 'team' : 'local',
-          database: dbHealth ? 'ok' : 'error',
-          cache: redisHealth ? 'ok' : 'unavailable',
-          dataDirectory: dataDir,
-          dataDirectoryExists: dirExists,
-          timestamp: new Date().toISOString()
-        };
+        const status = await buildHealthStatus();
 
         if (options.json) {
-          console.log(JSON.stringify({ ok: true, ...status }, null, 2));
+          console.log(JSON.stringify(status, null, 2));
         } else {
           console.log(`\n  Squish Memory v${VERSION}`);
           console.log(`  ====================`);
@@ -1039,14 +1018,17 @@ program
           console.log(`  Database: ${status.database}`);
           console.log(`  Cache:    ${status.cache}`);
           console.log(`  Data Dir: ${status.dataDirectory}`);
-          console.log(`  Status:   ${dbHealth ? 'HEALTHY' : 'UNHEALTHY'}\n`);
+          console.log(`  Status:   ${status.ok ? 'HEALTHY' : 'UNHEALTHY'}\n`);
         }
 
-        if (!dbHealth) {
+        if (!status.ok) {
           process.exit(1);
         }
       } catch (error: any) {
-        console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
+        const message = isDatabaseUnavailableError(error)
+          ? error.message
+          : `Health check failed: ${error.message}`;
+        console.log(JSON.stringify({ ok: false, error: message }, null, 2));
         process.exit(1);
       }
     });
@@ -1097,13 +1079,30 @@ process.exit(1);
 // squish context - Show project context (memories + observations)
 program
 .command('context')
-.description('Show project context - recent memories and observations')
+.description('Show project context or list available projects')
 .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
 .option('-l, --limit <number>', 'Number of items to show', '10')
 .option('-i, --include <items>', 'What to include: memories, observations, entities', 'memories,observations')
+.option('--list-projects', 'List registered projects instead of loading context', false)
 .option('-j, --json', 'Output as JSON', false)
 .action(async (options) => {
 try {
+if (options.listProjects) {
+const projects = await getAllProjects();
+if (options.json) {
+console.log(JSON.stringify({ ok: true, count: projects.length, projects }, null, 2));
+} else {
+console.log(`\n Registered Projects (${projects.length})`);
+console.log(` ================================`);
+for (const project of projects) {
+console.log(`\n ${project.name}`);
+console.log(`   Path: ${project.path}`);
+console.log(`   ID: ${project.id}`);
+}
+console.log('');
+}
+return;
+}
 const include = options.include.split(',').map((i: string) => i.trim());
 const limit = parseInt(options.limit, 10);
 const context: any = await getProjectContext({ project: options.project, include, limit });

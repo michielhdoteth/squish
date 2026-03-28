@@ -14,7 +14,7 @@
      "squish-install-plugin": "scripts/install-plugin.mjs"
    },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node scripts/copy-runtime-assets.mjs && npm --prefix packages/plugin-claude-code run build",
     "build:plugins": "npm run build && npm run build:claude && npm run build:openclaw",
     "build:claude": "cp -r .claude-plugin packages/plugin-claude-code/",
     "build:openclaw": "mkdir -p packages/plugin-openclaw/dist && cp -r plugins/openclaw/* packages/plugin-openclaw/ && (cd packages/plugin-openclaw && npm run build 2>/dev/null || true)",
@@ -98,6 +98,7 @@
     "dist/**/*.js",
     "dist/**/*.d.ts",
     "dist/**/*.cjs",
+    "dist/**/*.wasm",
     "scripts",
     "!scripts/init-dirs.ts",
     "skills",
@@ -130,7 +131,6 @@
     "commands/health.md",
     "commands/init.md",
     "commands/merge.md",
-    "commands/observe.md",
     "commands/recall.md",
     "commands/remember.md",
     "commands/search.md"

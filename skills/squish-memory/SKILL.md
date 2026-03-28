@@ -1,111 +1,101 @@
 ---
 name: squish-memory
-description: Squish - Persistent memory system for AI assistants. Store facts, decisions, and context with semantic search. Works with Claude Code, OpenCode, OpenClaw, and any MCP client.
-version: 1.0.2
+description: Squish - Persistent memory system for AI assistants. Store facts, decisions, context, and notes with CLI and MCP workflows.
+version: 1.1.0
 author: michielhdoteth
 tags: [memory, persistence, search, semantic-search, ai-assistant, mcp, cli]
 emoji: brain
 ---
 
-# Squish Memory v1.0.2
+# Squish Memory v1.1.0
 
-Persistent memory system for AI coding assistants. Store facts, decisions, context, and preferences with semantic search.
-
-## What is Squish?
-
-Squish provides persistent memory for AI agents with:
-- **Hybrid Search**: BM25 + vector embeddings with graph expansion
-- **Memory Types**: observation, fact, decision, context, preference
-- **Graph Associations**: Link related memories together
-- **Core Memory**: Always-visible context sections
-- **Importance Scoring**: Auto-score memories with temporal decay
-- **Consolidation**: Summarize old, low-importance memories
-- **Namespace Support**: Hierarchical organization of memories
-- **Maintenance Scheduling**: Automated cleanup and optimization tasks
-
-## Install
-
-```bash
-npm install -g squish-memory
-# or
-bun add -g squish-memory
-```
+Persistent memory for AI coding assistants with local SQLite/Postgres storage, hybrid retrieval, and MCP integration.
 
 ## Quick Setup
 
-### Interactive Wizard (Recommended)
 ```bash
-squish
-```
-Launches the interactive installer menu.
+npm install -g squish-memory
 
-### Direct Server Start
-```bash
-# MCP server (for Claude Code, etc.)
+# Start the MCP server
 squish run mcp
 
-# Web UI only
+# Or start the web UI only
 squish run web
 ```
 
-### MCP Clients
-Configure in your client's MCP settings:
-- **Command**: `squish-mcp`
-- **Args**: (none needed)
-- **Environment**: 
-  - `SQUISH_MODE=local` or `team`
-  - `SQUISH_DATA_DIR=~/.squish`
-
 ## Skills Available
-
-This repo contains 4 skills for different use cases:
 
 | Skill | Description | Install |
 |-------|-------------|---------|
-| `squish-memory` | Overview & quick start | `npx skills add michielhdoteth/squish --skill squish-memory` |
-| `squish-mcp` | MCP tools (16 tools) | `npx skills add michielhdoteth/squish --skill squish-mcp` |
-| `squish-cli` | CLI commands | `npx skills add michielhdoteth/squish --skill squish-cli` |
-| `memory-guide` | Usage guide & best practices | `npx skills add michielhdoteth/squish --skill memory-guide` |
+| `squish-memory` | Overview and quick start | `npx skills add michielhdoteth/squish --skill squish-memory` |
+| `squish-mcp` | Current MCP tool reference (18 tools) | `npx skills add michielhdoteth/squish --skill squish-mcp` |
+| `squish-cli` | CLI command reference | `npx skills add michielhdoteth/squish --skill squish-cli` |
+| `memory-guide` | Usage patterns and best practices | `npx skills add michielhdoteth/squish --skill memory-guide` |
 
-## MCP Tools (16)
+## MCP Tools (18)
 
-- squish_remember - Store memory
-- squish_search - Hybrid search
-- squish_recall - Get by ID
-- squish_forget - Delete memory
-- squish_update - Update memory
-- squish_associate - Link memories
-- squish_related - Find related
-- squish_context - Project context
-- squish_observe - Record observation
-- squish_qmd_search - Search docs
-- squish_embed - Generate embeddings
-- squish_health - Check status
-- squish_stats - View stats
-- squish_projects - List projects
+- `squish_remember` - Store memory
+- `squish_search` - Search memories
+- `squish_recall` - Fetch memory by ID
+- `squish_forget` - Delete memory
+- `squish_update` - Update memory
+- `squish_link` - Find, add, or list associations
+- `squish_context` - Load project context or list projects
+- `squish_learn` - Record success, failure, fix, or observation
+- `squish_health` - Check health
+- `squish_stats` - View stats
+- `squish_confidence` - Get or set confidence
+- `squish_pin` - Pin or unpin memory
+- `squish_set_passphrase` - Configure encryption passphrase
+- `squish_rotate_key` - Rotate encryption key
+- `squish_recent` - List recent memories
+- `squish_stale` - Show stale memories
+- `squish_note` - Save a quick note
+- `squish_tag` - Bulk tag operations
 
 ## CLI Commands
 
-- `squish` - Interactive wizard/menu
+- `squish` - Interactive wizard
 - `squish run mcp` - Start MCP server
-- `squish run web` - Start Web UI only
+- `squish run web` - Start web UI
+- `squish config` - View or update config
 - `squish remember` - Store memory
-- `squish search` - Find memories
-- `squish recall` - Get by ID
-- `squish health` - Check service status
-- `squish stats` - View memory statistics
-- `squish core_memory` - Manage always-visible context
-- `squish add` - Interactive installer (alias)
-- `squish rm` - Remove memory
+- `squish note` - Save quick note
+- `squish learn` - Record learnings and observations
+- `squish search` - Search memories
+- `squish recall` - Search or fetch by ID
+- `squish recent` - Show recent memories
+- `squish update` - Update memory
+- `squish forget` - Delete memory
+- `squish pin` - Pin or unpin memory
+- `squish confidence` - View or set confidence
+- `squish tag` - Bulk tag management
+- `squish stale` - Show stale memories
+- `squish link` - Graph operations
+- `squish context --list-projects` - List projects
+- `squish context` - Load project context
+- `squish health` - Check service health
+- `squish stats` - View statistics
+
+## Example Workflow
+
+```bash
+squish remember "User prefers TypeScript over JavaScript" --type preference
+squish note "Revisit caching strategy after launch"
+squish learn observation "Updated auth flow" --action edit
+squish search "coding preferences"
+squish context --list-projects
+squish context
+```
 
 ## Configuration
 
 | Env Variable | Description | Default |
 |--------------|-------------|---------|
-| SQUISH_MODE | local or team | local |
-| SQUISH_DATA_DIR | Data directory | ~/.squish |
-| SQUISH_EMBEDDINGS_PROVIDER | local or openai | local |
-| SQUISH_QMD_ENABLED | Enable QMD search | true |
+| `SQUISH_MODE` | local or team | `local` |
+| `SQUISH_DATA_DIR` | Data directory | `.squish` in current workspace |
+| `SQUISH_EMBEDDINGS_PROVIDER` | `local`, `openai`, `ollama`, `google`, `none`, `auto` | `local` |
+| `SQUISH_QMD_ENABLED` | Enable QMD integration | `false` unless set |
 
 ## More Info
 

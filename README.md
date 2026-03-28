@@ -7,6 +7,8 @@
 
 **Give any AI agent persistent, intelligent memory.** Without memory, agents forget everything between sessions. With Squish, they learn and adapt over time.
 
+> Squish does not have a crypto token, has no token launch planned, and nobody is authorized to launch one on behalf of the project.
+
 ```bash
 bun add squish-memory
 ```
@@ -56,11 +58,24 @@ bun add squish-memory
 # Store a memory
 squish remember "User prefers TypeScript over JavaScript"
 
+# Save a quick note
+squish note "Revisit caching strategy after launch"
+
+# Record an observation
+squish learn observation "Updated auth flow" --action edit
+
+# Record a fix or lesson learned
+squish learn fix "Patched auth middleware regression"
+
 # Search memories
 squish search "coding preferences"
 
-# Get relevant context
-squish recall --query "user preferences"
+# List projects, then inspect relevant context
+squish context --list-projects
+squish context
+
+# Get relevant context or fetch by ID
+squish recall "user preferences"
 ```
 
 Or use as a plugin:
@@ -91,16 +106,22 @@ npx squish-memory install-plugin --client=opencode
 
 ### Security & Encryption
 - **Client-side encryption**: AES-256-GCM encryption for sensitive memories
-- **Passphrase management**: `squish_set_passphrase` and `squish_rotate_key` CLI tools
+- **Passphrase management**: `squish_set_passphrase` and `squish_rotate_key` MCP tools
 - Optional encryption via `SQUISH_ENCRYPTION_PASSPHRASE` env var
 
 ### Universal Compatibility
-- **CLI**: `squish remember`, `squish search`, `squish stats`
+- **CLI**: `squish config`, `squish remember`, `squish note`, `squish learn`, `squish search`, `squish context`, `squish stats`
 - **MCP Server**: Works with Claude Code, OpenCode, Cursor, VS Code, OpenClaw
 - **HTTP API**: REST API + WebSocket for any agent
 - **SQLite**: Local, zero-config
 - **PostgreSQL**: Team mode with Supabase/pgvector
 - **QMD Integration**: Native .md file search via QMD
+
+### Current MCP Tools
+- `squish_remember`, `squish_search`, `squish_recall`, `squish_forget`, `squish_update`
+- `squish_link`, `squish_context`, `squish_learn`, `squish_health`, `squish_stats`
+- `squish_confidence`, `squish_pin`, `squish_set_passphrase`, `squish_rotate_key`
+- `squish_recent`, `squish_stale`, `squish_note`, `squish_tag`
 
 ## Benchmark Results
 
@@ -190,6 +211,14 @@ bun run verify:mcp
 # Check health
 squish health
 ```
+
+## CLI Command Families
+
+- Setup/runtime: `squish`, `squish config`, `squish install`, `squish run mcp`, `squish run web`
+- Capture/retrieval: `squish remember`, `squish note`, `squish learn`, `squish search`, `squish recall`, `squish recent`
+- Memory management: `squish update`, `squish forget`, `squish pin`, `squish confidence`, `squish tag`, `squish stale`, `squish link`
+- Context/project discovery: `squish context --list-projects`, `squish context`
+- System: `squish health`, `squish stats`
 
 ## License
 
