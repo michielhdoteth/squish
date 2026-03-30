@@ -9,6 +9,7 @@ import { getSchema } from '../db/schema.js';
 import { config } from '../config.js';
 import { performMemoryOperation } from './utils/memory-operations.js';
 import { logger } from './logger.js';
+import { createDatabaseClient } from './database.js';
 
 /**
  * Mark a memory as protected (cannot be evicted)
@@ -27,23 +28,33 @@ export async function protectMemory(memoryId: string, reason: string): Promise<v
  * Pin a memory for automatic injection into context
  */
 export async function pinMemory(memoryId: string): Promise<void> {
-  await performMemoryOperation(memoryId, {
-    name: 'pinning memory',
-    updates: {
+  const db = createDatabaseClient(await getDb());
+  const schema = await getSchema();
+
+  await db
+    .update(schema.memories)
+    .set({
       isPinned: true,
-      metadata: { pinnedAt: new Date().toISOString() },
-    },
-  });
+      importanceScore: 100,
+      lastImportanceRecalc: new Date(),
+    })
+    .where(eq(schema.memories.id, memoryId));
 }
 
 /**
  * Unpin a memory
  */
 export async function unpinMemory(memoryId: string): Promise<void> {
-  await performMemoryOperation(memoryId, {
-    name: 'unpinning memory',
-    updates: { isPinned: false },
-  });
+  const db = createDatabaseClient(await getDb());
+  const schema = await getSchema();
+
+  await db
+    .update(schema.memories)
+    .set({
+      isPinned: false,
+      lastImportanceRecalc: new Date(),
+    })
+    .where(eq(schema.memories.id, memoryId));
 }
 
 
@@ -60,21 +71,32 @@ export async function unpinMemory(memoryId: string): Promise<void> {
 
 /**
  * Get all pinned memories for auto-injection into context
+ * Works regardless of governance settings - pinned memories should always be accessible
  */
-export async function getPinnedMemories(): Promise<any[]> {
-  if (!config.governanceEnabled) return [];
-
+export async function getPinnedMemories(projectId?: string): Promise<any[]> {
   try {
     const db = await getDb();
     const schema = await getSchema();
 
-    return await (db as any)
+    let query = (db as any)
       .select()
       .from(schema.memories)
       .where(eq(schema.memories.isPinned, true))
       .limit(50);
+
+    return await query;
   } catch (error) {
     logger.error('Error retrieving pinned memories', error);
     return [];
   }
+}
+
+/**
+ * Get pinned memories formatted for context injection
+ */
+export async function getPinnedMemoriesForContext(projectId?: string): Promise<string[]> {
+  const pinned = await getPinnedMemories(projectId);
+  return pinned.map(m => 
+    `[Pinned] ${m.content?.substring(0, 500) || '(no content)'}`
+  );
 }

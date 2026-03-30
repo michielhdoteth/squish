@@ -22,19 +22,34 @@ export interface ObservationInput {
   project?: string;
 }
 
-export type LearningType = 'success' | 'failure' | 'fix';
+export type LearningType = 'success' | 'failure' | 'fix' | 'observation';
 
 export interface LearningInput {
   type: LearningType;
   content: string;
   context?: string;
+  action?: string;
+  observationType?: Exclude<ObservationType, 'success' | 'failure' | 'fix'>;
   target?: string;
   project?: string;
 }
 
 export async function createLearning(input: LearningInput): Promise<ObservationRecord> {
-  const learningTypes: ObservationType[] = ['success', 'failure', 'fix'];
-  
+  if (input.type === 'observation') {
+    return addObservation({
+      type: input.observationType ?? 'insight',
+      action: input.action ?? 'learn',
+      summary: input.content,
+      target: input.target,
+      details: {
+        learningType: input.type,
+        learningContent: input.content,
+        learningContext: input.context,
+      },
+      project: input.project,
+    });
+  }
+
   return addObservation({
     type: input.type,
     action: input.content,

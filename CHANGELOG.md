@@ -2,12 +2,21 @@
 
 All notable changes to Squish will be documented in this file.
 
+## [1.1.0] - 2026-03-28
+
+### Changed - Launch Surface Cleanup
+- Removed legacy CLI commands `observe` and `projects`
+- Removed legacy MCP tools `squish_observe` and `squish_projects`
+- `squish learn` is now the single capture path for `success`, `failure`, `fix`, and `observation`
+- `squish context --list-projects` is now the single project discovery path
+- Launch docs and help now reflect the final 18-tool MCP surface
+
 ## [1.1.0-enhanced] - 2026-03-27
 
 ### Added - Security & Encryption
 - **Client-side encryption**: AES-256-GCM encryption for sensitive memories
 - **Optional encryption**: Controlled via `SQUISH_ENCRYPTION_PASSPHRASE` env var
-- **Encryption CLI tools**:
+- **Encryption MCP tools**:
   - `squish_set_passphrase`: Set encryption passphrase (writes to `.squish/.env`)
   - `squish_rotate_key`: Rotate passphrase and re-encrypt all memories
 - **New schema columns**: `encrypted_content`, `encryption_nonce`, `is_encrypted`, `status`

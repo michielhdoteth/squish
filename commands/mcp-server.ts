@@ -285,13 +285,27 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
     server,
     "squish_context",
     {
-      description: "Get project context with relevant memories",
+      description: "Get project context or list registered projects",
       inputSchema: {
-        project: z.string().describe("Project path"),
-        limit: z.number().min(1).max(50).default(10).describe("Maximum memories to return")
+        project: z.string().optional().describe("Project path"),
+        limit: z.number().min(1).max(50).default(10).describe("Maximum memories to return"),
+        listProjects: z.boolean().optional().describe("List registered projects instead of loading context")
       }
     },
-    async ({ project, limit = 10 }: { project: string; limit?: number }) => {
+    async ({ project, limit = 10, listProjects = false }: { project?: string; limit?: number; listProjects?: boolean }) => {
+      if (listProjects) {
+        const projects = await getAllProjects();
+        const formatted = projects.map((p, i) =>
+          `${i + 1}. ${p.name}\n   Path: ${p.path}\n   ID: ${p.id}`
+        ).join("\n\n");
+
+        return { content: [{ type: "text", text: `Found ${projects.length} projects:\n\n${formatted}` }] };
+      }
+
+      if (!project) {
+        return { content: [{ type: "text", text: "Error: project is required unless listProjects=true" }], isError: true };
+      }
+
       const projectRecord = await getProjectByPath(project);
       if (!projectRecord) {
         return { content: [{ type: "text", text: `Project not found: ${project}` }], isError: true };
@@ -312,38 +326,24 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
 
   if (safeRegisterTool(
     server,
-    "squish_observe",
-    {
-      description: "Store an observation about tool usage, patterns, or insights",
-      inputSchema: {
-        type: z.enum(["tool_use", "file_change", "error", "pattern", "insight"]).describe("Observation type"),
-        action: z.string().describe("Action performed"),
-        summary: z.string().describe("Summary of observation"),
-        target: z.string().optional().describe("Target file or resource"),
-        project: z.string().optional().describe("Project path")
-      }
-    },
-    async ({ type, action, summary, target, project }: { type: ObservationType; action: string; summary: string; target?: string; project?: string }) => {
-      const observation = await addObservation({ type, action, summary, target, project });
-      return { content: [{ type: "text", text: `Observation stored: ${observation.id}` }] };
-    }
-  )) toolCount++;
-
-  if (safeRegisterTool(
-    server,
     "squish_learn",
     {
-      description: "Record learning: what worked (success), what failed (failure), or how it was fixed (fix)",
+      description: "Record learning or observations: success, failure, fix, or observation",
       inputSchema: {
-        type: z.enum(["success", "failure", "fix"]).describe("Learning type"),
+        type: z.enum(["success", "failure", "fix", "observation"]).describe("Learning type"),
         content: z.string().describe("What happened or what was learned"),
         context: z.string().optional().describe("Additional context or result"),
+        action: z.string().optional().describe("Action performed (required for observation)"),
+        observationType: z.enum(["tool_use", "file_change", "error", "pattern", "insight"]).optional().describe("Observation kind when type=observation"),
         target: z.string().optional().describe("Target file or resource"),
         project: z.string().optional().describe("Project path")
       }
     },
-    async ({ type, content, context, target, project }: { type: LearningType; content: string; context?: string; target?: string; project?: string }) => {
-      const learning = await createLearning({ type, content, context, target, project });
+    async ({ type, content, context, action, observationType, target, project }: { type: LearningType; content: string; context?: string; action?: string; observationType?: Exclude<ObservationType, "success" | "failure" | "fix">; target?: string; project?: string }) => {
+      if (type === "observation" && !action) {
+        return { content: [{ type: "text", text: "Error: action is required when type=observation" }], isError: true };
+      }
+      const learning = await createLearning({ type, content, context, action, observationType, target, project });
       return { content: [{ type: "text", text: `Learning recorded: ${learning.id}\nType: ${type}\nContent: ${content}` }] };
     }
   )) toolCount++;
@@ -382,23 +382,6 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
     async ({ project }: { project?: string }) => {
       const stats = await getMemoryStats(project || process.cwd());
       return { content: [{ type: "text", text: JSON.stringify(stats, null, 2) }] };
-    }
-  )) toolCount++;
-
-  if (safeRegisterTool(
-    server,
-    "squish_projects",
-    {
-      description: "List all registered projects",
-      inputSchema: {}
-    },
-    async (): Promise<any> => {
-      const projects = await getAllProjects();
-      const formatted = projects.map((p, i) =>
-        `${i + 1}. ${p.name}\n   Path: ${p.path}\n   ID: ${p.id}`
-      ).join("\n\n");
-
-      return { content: [{ type: "text", text: `Found ${projects.length} projects:\n\n${formatted}` }] };
     }
   )) toolCount++;
 

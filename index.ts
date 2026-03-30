@@ -86,6 +86,56 @@ import {
 } from './core/context-window.js';
 const VERSION = '1.1.0';
 
+// Output Formatting Utilities
+// ============================================================================
+
+function formatOutput(data: any, pretty: boolean = false): string {
+  if (!pretty) {
+    return JSON.stringify(data, null, 2);
+  }
+  
+  if (Array.isArray(data)) {
+    return data.map((item, i) => `${i + 1}. ${formatItem(item)}`).join('\n');
+  }
+  
+  if (data.results) {
+    return data.results.map((item: any, i: number) => `${i + 1}. ${formatItem(item)}`).join('\n');
+  }
+  
+  if (data.matches) {
+    return data.matches.map((item: any, i: number) => `${i + 1}. ${formatItem(item)}`).join('\n');
+  }
+  
+  if (data.count !== undefined) {
+    let output = `\nFound ${data.count} results:\n`;
+    if (data.results) {
+      output += data.results.map((item: any, i: number) => `  ${i + 1}. ${formatItem(item)}`).join('\n');
+    }
+    return output;
+  }
+  
+  return JSON.stringify(data, null, 2);
+}
+
+function formatItem(item: any): string {
+  if (typeof item === 'string') return item.substring(0, 100);
+  const content = item.content || item.summary || item.memory?.content || '';
+  const type = item.type || '';
+  return `[${type}] ${content.substring(0, 80)}${content.length > 80 ? '...' : ''}`;
+}
+
+function printSuccess(message: string): void {
+  console.log(`\n  ✓ ${message}\n`);
+}
+
+function printError(message: string): void {
+  console.error(`\n  ✗ ${message}\n`);
+}
+
+function printInfo(message: string): void {
+  console.log(`\n  ℹ ${message}\n`);
+}
+
 // Config Management (for project path persistence)
 // ============================================================================
 
@@ -266,6 +316,10 @@ CLI Commands (for agents):
   squish context              Show context or list projects
   squish health               Check service health
   squish stats                View memory statistics
+
+New in v1.2:
+  squish search --pretty      Human-friendly output
+  squish recall --pretty      Human-friendly output
 
 Examples:
   squish run mcp              # Start MCP server (for agents)
@@ -557,6 +611,7 @@ async function runCliMode() {
     .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
     .option('-s, --since <date>', 'Filter: created after this date (e.g., "3 days ago", "2026-01-01")')
     .option('-u, --until <date>', 'Filter: created before this date (e.g., "yesterday", "2026-01-15")')
+    .option('-P, --pretty', 'Human-friendly output', false)
     .action(async (query, options) => {
       try {
         const results = await search({
@@ -567,7 +622,17 @@ async function runCliMode() {
         });
         const filtered = filterByDateRange(results, options.since, options.until);
         const limited = filtered.slice(0, parseInt(options.limit, 10));
-        console.log(JSON.stringify({ ok: true, query, count: limited.length, since: options.since, until: options.until, results: limited }, null, 2));
+        
+        if (options.pretty) {
+          console.log(`\n  Search: "${query}"`);
+          console.log(`  Found ${limited.length} results:\n`);
+          limited.forEach((r: any, i: number) => {
+            console.log(`  ${i + 1}. [${r.type || 'memory'}] ${(r.content || '').substring(0, 60)}...`);
+          });
+          console.log('');
+        } else {
+          console.log(JSON.stringify({ ok: true, query, count: limited.length, since: options.since, until: options.until, results: limited }, null, 2));
+        }
       } catch (error: any) {
         console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
         process.exit(1);
@@ -752,13 +817,20 @@ program
   .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
   .option('-s, --since <date>', 'Filter: created after this date (e.g., "3 days ago", "yesterday")')
   .option('-u, --until <date>', 'Filter: created before this date (e.g., "today", "2026-01-15")')
+  .option('-P, --pretty', 'Human-friendly output', false)
   .action(async (query, options) => {
     try {
       const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(query);
       
       if (isUUID) {
         const memory = await getMemory(query);
-        console.log(JSON.stringify({ ok: true, found: !!memory, memory }, null, 2));
+        if (options.pretty && memory) {
+          console.log(`\n  Memory: ${memory.id}`);
+          console.log(`  Type: ${memory.type}`);
+          console.log(`  Content: ${memory.content}\n`);
+        } else {
+          console.log(JSON.stringify({ ok: true, found: !!memory, memory }, null, 2));
+        }
       } else {
         const results = await search({
           query,
@@ -768,14 +840,24 @@ program
         });
         const filtered = filterByDateRange(results, options.since, options.until);
         const limited = filtered.slice(0, parseInt(options.limit, 10));
-        const matches = limited.map((r: any) => ({
-          id: r.id,
-          score: r.similarity ?? 0,
-          type: r.type,
-          content: r.content.length > 200 ? r.content.slice(0, 200) + '...' : r.content,
-          tags: r.tags,
-        }));
-        console.log(JSON.stringify({ ok: true, query, count: matches.length, since: options.since, until: options.until, matches }, null, 2));
+        
+        if (options.pretty) {
+          console.log(`\n  Recall: "${query}"`);
+          console.log(`  Found ${limited.length} matches:\n`);
+          limited.forEach((r: any, i: number) => {
+            console.log(`  ${i + 1}. [${r.type || 'memory'}] ${(r.content || '').substring(0, 60)}... (${(r.similarity ?? 0).toFixed(2)})`);
+          });
+          console.log('');
+        } else {
+          const matches = limited.map((r: any) => ({
+            id: r.id,
+            score: r.similarity ?? 0,
+            type: r.type,
+            content: r.content.length > 200 ? r.content.slice(0, 200) + '...' : r.content,
+            tags: r.tags,
+          }));
+          console.log(JSON.stringify({ ok: true, query, count: matches.length, since: options.since, until: options.until, matches }, null, 2));
+        }
       }
     } catch (error: any) {
       console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));

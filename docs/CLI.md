@@ -1,41 +1,50 @@
 # Squish CLI Reference
 
-Complete reference for Squish CLI commands.
+Current reference for the Squish CLI implemented in `squish/index.ts`.
 
 ## Overview
 
-Squish v1.0.2 provides both an interactive wizard (default) and direct CLI commands for agents.
+Squish provides:
 
-## Interactive Mode (Default)
+- An interactive wizard when you run `squish`
+- Runtime commands for MCP and Web UI
+- Direct CLI commands for capture, retrieval, context, and memory management
 
-Running `squish` without arguments launches the interactive wizard:
+## Setup / Runtime
+
+### squish
+
+Launch the interactive wizard:
 
 ```bash
 squish
 ```
 
-**Interactive Menu:**
-```
-[1] Start MCP Server (for Claude Code, etc.)
-[2] Start Web UI Only
-[3] Check Health Status
-[4] View Memory Stats
-[5] Open Installer Wizard
-[6] Show Help
-[0] Exit
+### squish config
+
+Manage persisted Squish configuration:
+
+```bash
+squish config
+squish config get project
+squish config set project /path/to/project
 ```
 
-## Server Commands
+### squish install
+
+Launch the installer wizard directly:
+
+```bash
+squish install
+```
 
 ### squish run mcp
 
-Start the MCP server (for Claude Code, OpenCode, etc.):
+Start the MCP server for Claude Code, OpenCode, Codex, and other MCP clients:
 
 ```bash
 squish run mcp
 ```
-
-Also starts the Web UI at http://localhost:37777
 
 ### squish run web
 
@@ -45,13 +54,11 @@ Start only the Web UI:
 squish run web
 ```
 
-Access at http://localhost:37777
-
-## CLI Commands (for Agents)
+## Capture / Retrieval
 
 ### squish remember
 
-Store a memory.
+Store a memory:
 
 ```bash
 squish remember "User prefers TypeScript" --type preference
@@ -60,37 +67,170 @@ squish remember "Chose PostgreSQL" --type decision --project /path/to/project
 ```
 
 Options:
-- `-t, --type <type>` - Memory type: observation, fact, decision, context, preference (default: observation)
-- `-T, --tags <tags>` - Comma-separated tags
-- `-p, --project <project>` - Project path (default: current directory)
+- `-t, --type <type>` memory type: `observation`, `fact`, `decision`, `context`, `preference`
+- `-T, --tags <tags>` comma-separated tags
+- `-p, --project <project>` project path
+
+### squish note
+
+Save a quick brain dump for later processing:
+
+```bash
+squish note "Revisit caching strategy after launch"
+```
+
+Options:
+- `-p, --project <project>` project path
+
+### squish learn
+
+Record structured learning and observations:
+
+```bash
+squish learn success "Shipped MCP config to Claude Code"
+squish learn failure "Rate limiter blocked valid webhook traffic"
+squish learn fix "Patched auth middleware" --target middleware.ts
+squish learn observation "Updated auth flow" --action edit
+```
+
+Options:
+- `-c, --context <context>` extra context
+- `-a, --action <action>` action performed when type is `observation`
+- `-o, --observation-type <kind>` observation kind for `observation` mode
+- `-t, --target <target>` target file or resource
+- `-p, --project <project>` project path
+
+Valid types:
+- `success`
+- `failure`
+- `fix`
+- `observation`
 
 ### squish search
 
-Search memories.
+Search memories:
 
 ```bash
 squish search "authentication patterns"
 squish search "database schema" --limit 10
 squish search "user preferences" --type preference
-squish search "" --project /path/to/project  # List recent
 ```
 
 Options:
-- `-t, --type <type>` - Filter by memory type
-- `-l, --limit <number>` - Max results (default: 10)
-- `-p, --project <project>` - Project path
+- `-t, --type <type>` filter by memory type
+- `-l, --limit <number>` max results
+- `-p, --project <project>` project path
+- `-s, --since <date>` created after date
+- `-u, --until <date>` created before date
 
 ### squish recall
 
-Retrieve a memory by ID.
+Search by query or fetch by memory ID:
 
 ```bash
-squish recall <memory-uuid>
+squish recall "user preferences"
+squish recall 123e4567-e89b-12d3-a456-426614174000
 ```
+
+Options:
+- `-l, --limit <number>` max results
+- `-t, --type <type>` filter by type
+- `-p, --project <project>` project path
+- `-s, --since <date>` created after date
+- `-u, --until <date>` created before date
+
+### squish recent
+
+Show recent memories:
+
+```bash
+squish recent --period today
+squish recent --period 7days
+squish recent --since "2026-01-01" --until "2026-01-31"
+```
+
+## Memory Management
+
+### squish update
+
+Update an existing memory:
+
+```bash
+squish update <memory-id> --content "Updated text"
+```
+
+### squish forget
+
+Delete a memory or bulk-delete matches:
+
+```bash
+squish forget <memory-id>
+squish forget --search "stale auth notes" --confirm
+```
+
+### squish pin
+
+Pin or unpin a memory:
+
+```bash
+squish pin <memory-id>
+squish pin <memory-id> --unpin
+```
+
+### squish confidence
+
+View or set confidence:
+
+```bash
+squish confidence <memory-id>
+squish confidence <memory-id> certain
+```
+
+### squish tag
+
+Bulk add or remove tags:
+
+```bash
+squish tag add important --search "billing"
+squish tag remove stale --older-than "30 days"
+```
+
+### squish stale
+
+Show stale memories:
+
+```bash
+squish stale --days 30
+```
+
+### squish link
+
+Manage associations:
+
+```bash
+squish link find <memory-id>
+squish link add <from-id> <to-id> related
+squish link list <memory-id>
+```
+
+## Context / Project Discovery
+
+### squish context
+
+Show project context or list registered projects:
+
+```bash
+squish context --list-projects
+squish context
+squish context --include memories,observations,entities
+squish context --json
+```
+
+## System
 
 ### squish health
 
-Check service health.
+Check service health:
 
 ```bash
 squish health
@@ -99,64 +239,19 @@ squish health --json
 
 ### squish stats
 
-Get memory statistics.
+Get memory statistics:
 
 ```bash
 squish stats
 squish stats --project /path/to/project
 ```
 
-### squish --help
-
-Show help information.
-
-```bash
-squish --help
-```
-
-## Output Format
-
-All CLI commands output JSON:
-
-```json
-{
-  "ok": true,
-  "id": "memory-uuid",
-  "content": "...",
-  "type": "observation"
-}
-```
-
-## Environment Variables
-
-```bash
-export SQUISH_MODE=local        # or team
-export SQUISH_DATA_DIR=~/.squish
-export SQUISH_EMBEDDINGS_PROVIDER=local  # or openai
-```
-
 ## Quick Reference
 
-| Command | Purpose | Example |
-|---------|---------|---------|
-| `squish` | Interactive wizard | `squish` |
-| `squish run mcp` | Start MCP server | `squish run mcp` |
-| `squish run web` | Start Web UI | `squish run web` |
-| `squish remember` | Store memory | `squish remember "text"` |
-| `squish search` | Find memories | `squish search "query"` |
-| `squish recall` | Get by ID | `squish recall <id>` |
-| `squish health` | Check status | `squish health` |
-| `squish stats` | View stats | `squish stats` |
-| `squish --help` | Show help | `squish --help` |
-
-## Migration from v0.9.x
-
-**Breaking Changes:**
-- `squish install` removed - use interactive wizard (option 5) instead
-- Added `squish run mcp` and `squish run web` subcommands
-- Interactive wizard is now the default (no args)
-
-**What stays the same:**
-- All CLI commands (`remember`, `search`, `recall`, `health`, `stats`)
-- Environment variables
-- Configuration files
+| Family | Commands |
+|--------|----------|
+| Setup / Runtime | `squish`, `squish config`, `squish install`, `squish run mcp`, `squish run web` |
+| Capture / Retrieval | `squish remember`, `squish note`, `squish learn`, `squish search`, `squish recall`, `squish recent` |
+| Memory Management | `squish update`, `squish forget`, `squish pin`, `squish confidence`, `squish tag`, `squish stale`, `squish link` |
+| Context / Projects | `squish context --list-projects`, `squish context` |
+| System | `squish health`, `squish stats` |
