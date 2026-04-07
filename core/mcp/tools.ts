@@ -93,13 +93,39 @@ export const squishRememberTool: MCPToolDefinition = {
           type: 'string',
           description: 'Project path',
         },
+        // Rich context fields (Agent 4 feedback)
+        source: {
+          type: 'string',
+          description: 'Source of this memory (e.g., "voice", "chat", "document")',
+        },
+        reasoning: {
+          type: 'string',
+          description: 'Why this memory is important',
+        },
+        context: {
+          type: 'string',
+          description: 'What triggered this memory',
+        },
+        examples: {
+          type: 'string',
+          description: 'When to apply this knowledge',
+        },
+        exceptions: {
+          type: 'string',
+          description: 'When NOT to apply this',
+        },
+        tier: {
+          type: 'string',
+          description: 'Memory tier: hot (active) or cold (archived)',
+          enum: ['hot', 'cold'],
+        },
       },
       required: ['content'],
     },
   },
   handler: async (args) => {
     try {
-      const { content, type = 'observation', tags = [], project } = args;
+      const { content, type = 'observation', tags = [], project, source, reasoning, context, examples, exceptions, tier = 'hot' } = args;
 
       if (!content) {
         return errorResult('Content is required');
@@ -110,6 +136,12 @@ export const squishRememberTool: MCPToolDefinition = {
         type,
         tags,
         project,
+        source,
+        reasoning,
+        memoryContext: context,
+        examples,
+        exceptions,
+        tier,
       });
 
       return textResult(`Memory stored: ${memory.id}`);

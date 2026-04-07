@@ -27,6 +27,8 @@ import { getSchema } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import { encrypt, decrypt } from "../core/security/encrypt.js";
 import { existsSync, readFileSync } from "fs";
+import { startWorker, stopWorker } from "../core/worker.js";
+import { initializeScheduler } from "../core/scheduler/cron-scheduler.js";
 
 const SERVER_NAME = "squish-memory";
 const SERVER_VERSION = "1.1.0";
@@ -822,12 +824,34 @@ async function main(): Promise<void> {
       return;
     }
 
-    const { server, toolCount } = createSquishServer();
+const { server, toolCount } = createSquishServer();
 
-    const shutdown = async () => {
-      console.error(`[${SERVER_NAME}] Shutting down...`);
-      process.exit(0);
-    };
+  // Start background worker for lifecycle maintenance, decay, etc.
+  try {
+    await startWorker();
+    console.error(`[${SERVER_NAME}] Background worker started`);
+  } catch (error) {
+    console.error(`[${SERVER_NAME}] Warning: Failed to start background worker:`, error);
+  }
+
+  // Initialize cron scheduler for scheduled jobs
+  try {
+    await initializeScheduler();
+    console.error(`[${SERVER_NAME}] Cron scheduler initialized`);
+  } catch (error) {
+    console.error(`[${SERVER_NAME}] Warning: Failed to initialize scheduler:`, error);
+  }
+
+  const shutdown = async () => {
+    console.error(`[${SERVER_NAME}] Shutting down...`);
+    try {
+      await stopWorker();
+      console.error(`[${SERVER_NAME}] Background worker stopped`);
+    } catch (error) {
+      console.error(`[${SERVER_NAME}] Error stopping worker:`, error);
+    }
+    process.exit(0);
+  };
 
     process.on("SIGINT", shutdown);
     process.on("SIGTERM", shutdown);
