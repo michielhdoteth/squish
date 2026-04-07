@@ -75,26 +75,6 @@ const embeddingsProvider = (() => {
   return 'local';
 })();
 
-// QMD Integration
-const qmdEnabled = process.env.SQUISH_QMD_ENABLED === 'true';
-const qmdCollectionsPath = process.env.SQUISH_QMD_COLLECTIONS ||
-  getDataDir().replace('.squish', 'qmd-collections');
-const VALID_FALLBACK_MODES = new Set(['qmd-only', 'cloud-first', 'hybrid', 'local-only']);
-const qmdFallbackMode = (() => {
-  const mode = process.env.SQUISH_QMD_FALLBACK || 'hybrid';
-  return VALID_FALLBACK_MODES.has(mode) ? mode : 'hybrid';
-})();
-const defaultCollectionMapping = {
-  observation: 'squish-observations',
-  fact: 'squish-facts',
-  decision: 'squish-decisions',
-  context: 'squish-context',
-  preference: 'squish-preferences'
-};
-const qmdCollectionMapping = process.env.SQUISH_QMD_COLLECTION_MAPPING
-  ? JSON.parse(process.env.SQUISH_QMD_COLLECTION_MAPPING)
-  : defaultCollectionMapping;
-
 // OpenAI Configuration
 const openAiApiKey = process.env.SQUISH_OPENAI_API_KEY || process.env.OPENAI_API_KEY || '';
 const openAiApiUrl = getConfig('api.openai.apiUrl', 'SQUISH_OPENAI_API_URL', 'https://api.openai.com/v1/embeddings');
@@ -117,7 +97,6 @@ export const config = {
   dataDir: getDataDir(),
   
   mcpServerPort: parseInt(getConfig('mcp.serverPort', 'SQUISH_MCP_PORT', '8767')),
-  mcpServerEnabled: getConfig('mcp.serverEnabled', 'SQUISH_MCP_SERVER_ENABLED', true) !== false,
   
   embeddingsProvider: embeddingsProvider as 'local' | 'openai' | 'ollama' | 'google' | 'none' | 'auto',
   
@@ -147,8 +126,6 @@ export const config = {
   // Lifecycle Management
   lifecycleEnabled: getConfig('features.lifecycleEnabled', 'SQUISH_LIFECYCLE_ENABLED', true) !== false,
   lifecycleInterval: parseInt(process.env.SQUISH_LIFECYCLE_INTERVAL || '3600000'),
-  // Decay scheduler
-  decayJobCron: getConfig('lifecycle.decayCron', null, '0 * * * *'),
   decayThreshold: parseFloat(process.env.SQUISH_DECAY_THRESHOLD || '0.1'),
 
   // Session Summarization
@@ -167,11 +144,15 @@ export const config = {
   consolidationEnabled: process.env.SQUISH_CONSOLIDATION_ENABLED === 'true',
   consolidationSimilarityThreshold: parseFloat(process.env.SQUISH_CONSOLIDATION_THRESHOLD || '0.8'),
 
-  // QMD Integration
-  qmdEnabled,
-  qmdCollectionsPath,
-  qmdFallbackMode: qmdFallbackMode as 'qmd-only' | 'cloud-first' | 'hybrid' | 'local-only',
-  qmdCollectionMapping,
+  // Obsidian Integration (NEW)
+  obsidianEnabled: process.env.SQUISH_OBSIDIAN_ENABLED === 'true',
+  obsidianVaultPath: process.env.SQUISH_OBSIDIAN_VAULT_PATH || '',
+
+  // DEPRECATED: QMD (kept for backward compat during transition)
+  qmdEnabled: false, // DEPRECATED - use Obsidian integration instead
+  qmdCollectionsPath: '', // DEPRECATED
+  qmdFallbackMode: 'local-only' as const, // DEPRECATED
+  qmdCollectionMapping: {} as Record<string, string>, // DEPRECATED
 
   // Managed Mode
   managedMode: process.env.SQUISH_MANAGED_MODE === 'true',
