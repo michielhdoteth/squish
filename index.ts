@@ -61,6 +61,7 @@ import { storeAgentMemory } from './core/agent-memory.js';
 import { getRelatedMemories, createAssociation } from './core/associations.js';
 import { protectMemory, pinMemory, unpinMemory } from './core/governance.js';
 import { isDatabaseUnavailableError, determineOverallStatus } from './core/utils.js';
+import { runDeduplicationJob, runFullConsolidationJob } from './core/consolidation.js';
 import { searchWithQMD, isQMDAvailable } from './core/search/qmd-search.js';
 import {
   initializeCoreMemory,
@@ -69,6 +70,7 @@ import {
   appendCoreMemorySection,
   getCoreMemoryStats,
 } from './core/core-memory.js';
+import { getNamespaceTree } from './core/namespaces/index.js';
 import {
   loadMemoryToContext,
   evictMemoryFromContext,
@@ -78,8 +80,7 @@ import {
 import { ensureDataDirectory } from './db/bootstrap.js';
 import { getDataDir } from './config.js';
 import { performAutoLoad, shouldAutoLoad, getAutoLoadConfig } from './core/session/auto-load.js';
-import { initializeScheduler, registerJobHandler } from './core/scheduler/cron-scheduler.js';
-import { startHeartbeatChecking, heartbeat } from './core/scheduler/heartbeat.js';
+import { initializeScheduler } from './core/scheduler/cron-scheduler.js';
 import { runNightlyJob, runWeeklyJob } from './core/scheduler/job-runner.js';
 import {
   DEFAULT_CONTEXT_CONFIG,
@@ -303,8 +304,8 @@ CLI Commands (for agents):
   squish remember <content>   Store a memory
   squish note <content>       Save a quick note
   squish learn <type> <text>  Record learning or observations
-  squish search <query>       Search memories
-  squish recall <query>       Search or get by ID
+  squish search <query>       Search memories (--pretty for human output)
+  squish recall <query>       Search or get by ID (--pretty for human output)
   squish recent --period      Recent memories (today/yesterday/thisweek/7days/30days)
   squish update <memoryId>    Update memory
   squish forget <memoryId>    Delete memory (single or bulk with --older-than --search)
@@ -313,13 +314,9 @@ CLI Commands (for agents):
   squish tag <action>         Manage tags
   squish stale                Show stale memories
   squish link <action>        Manage links (find/add/list)
+  squish clean                Dedup + consolidate (maintenance)
   squish context              Show context or list projects
-  squish health               Check service health
   squish stats                View memory statistics
-
-New in v1.2:
-  squish search --pretty      Human-friendly output
-  squish recall --pretty      Human-friendly output
 
 Examples:
   squish run mcp              # Start MCP server (for agents)
@@ -331,7 +328,7 @@ Examples:
   squish learn fix "Patched auth middleware" --target middleware.ts
   squish search "query"       # Search memories
   squish context --list-projects
-  squish context              # Inspect current project context
+  squish clean                # Run deduplication and consolidation
 
 For more info: https://github.com/michielhdoteth/squish
 `);
@@ -587,13 +584,29 @@ async function runCliMode() {
     .option('-t, --type <type>', 'Memory type (observation, fact, decision, context, preference)', 'observation')
     .option('-T, --tags <tags>', 'Comma-separated tags', '')
     .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
+    .option('-s, --source <source>', 'Source of this memory (e.g., "voice", "chat", "document")')
+    .option('-r, --reasoning <reasoning>', 'Why this memory is important')
+    .option('-c, --context <context>', 'What triggered this memory')
+    .option('-e, --examples <examples>', 'When to apply this knowledge')
+    .option('-x, --exceptions <exceptions>', 'When NOT to apply this')
+    .option('-H, --hot', 'Store in hot tier (active, high priority)', false)
+    .option('-C, --cold', 'Store in cold tier (archived, lower priority)', false)
     .action(async (content, options) => {
       try {
+        // Determine tier: default hot, explicit cold overrides
+        const tier = options.cold ? 'cold' : 'hot';
+        
         const result = await rememberMemory({
           content,
           type: options.type,
           tags: options.tags ? options.tags.split(',').map((t: string) => t.trim()) : [],
           project: options.project,
+          source: options.source,
+          reasoning: options.reasoning,
+          memoryContext: options.context,
+          examples: options.examples,
+          exceptions: options.exceptions,
+          tier,
         });
         console.log(JSON.stringify({ ok: true, ...result }, null, 2));
       } catch (error: any) {
@@ -1082,39 +1095,6 @@ program
       }
     });
 
-  // squish health
-  program
-    .command('health')
-    .description('Check service health and configuration')
-    .option('-j, --json', 'Output as JSON', false)
-    .action(async (options) => {
-      try {
-        const status = await buildHealthStatus();
-
-        if (options.json) {
-          console.log(JSON.stringify(status, null, 2));
-        } else {
-          console.log(`\n  Squish Memory v${VERSION}`);
-          console.log(`  ====================`);
-          console.log(`  Mode:     ${status.mode}`);
-          console.log(`  Database: ${status.database}`);
-          console.log(`  Cache:    ${status.cache}`);
-          console.log(`  Data Dir: ${status.dataDirectory}`);
-          console.log(`  Status:   ${status.ok ? 'HEALTHY' : 'UNHEALTHY'}\n`);
-        }
-
-        if (!status.ok) {
-          process.exit(1);
-        }
-      } catch (error: any) {
-        const message = isDatabaseUnavailableError(error)
-          ? error.message
-          : `Health check failed: ${error.message}`;
-        console.log(JSON.stringify({ ok: false, error: message }, null, 2));
-        process.exit(1);
-      }
-    });
-
     // squish stats
     program
       .command('stats')
@@ -1160,64 +1140,77 @@ process.exit(1);
 
 // squish context - Show project context (memories + observations)
 program
-.command('context')
-.description('Show project context or list available projects')
-.option('-p, --project <project>', 'Project path', getDefaultProjectPath())
-.option('-l, --limit <number>', 'Number of items to show', '10')
-.option('-i, --include <items>', 'What to include: memories, observations, entities', 'memories,observations')
-.option('--list-projects', 'List registered projects instead of loading context', false)
-.option('-j, --json', 'Output as JSON', false)
-.action(async (options) => {
-try {
-if (options.listProjects) {
-const projects = await getAllProjects();
-if (options.json) {
-console.log(JSON.stringify({ ok: true, count: projects.length, projects }, null, 2));
-} else {
-console.log(`\n Registered Projects (${projects.length})`);
-console.log(` ================================`);
-for (const project of projects) {
-console.log(`\n ${project.name}`);
-console.log(`   Path: ${project.path}`);
-console.log(`   ID: ${project.id}`);
-}
-console.log('');
-}
-return;
-}
-const include = options.include.split(',').map((i: string) => i.trim());
-const limit = parseInt(options.limit, 10);
-const context: any = await getProjectContext({ project: options.project, include, limit });
-if (options.json) {
-console.log(JSON.stringify({ ok: true, ...context }, null, 2));
-} else {
-console.log(`\n Project Context: ${context.project?.name || 'unknown'}`);
-console.log(` ================================`);
-if (context.memories?.length) {
-console.log(`\n Recent Memories (${context.memories.length}):`);
-for (const m of context.memories.slice(0, 5)) {
-console.log(`   [${m.type}] ${m.content?.substring(0, 60)}...`);
-}
-}
-if (context.observations?.length) {
-console.log(`\n Recent Observations (${context.observations.length}):`);
-for (const o of context.observations.slice(0, 5)) {
-console.log(`   ${(o.summary || o.action)?.substring(0, 60)}...`);
-}
-}
-if (context.entities?.length) {
-console.log(`\n Entities (${context.entities.length}):`);
-for (const e of context.entities.slice(0, 5)) {
-console.log(`   ${e.name} (${e.type})`);
-}
-}
-console.log('');
-}
-} catch (error: any) {
-console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
-process.exit(1);
-}
-});
+  .command('context')
+  .description('Show project context or list available projects')
+  .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
+  .option('-l, --limit <number>', 'Number of items to show', '10')
+  .option('-i, --include <items>', 'What to include: memories, observations, entities', 'memories,observations')
+  .option('--list-projects', 'List registered projects instead of loading context', false)
+  .option('-j, --json', 'Output as JSON', false)
+  .action(async (options) => {
+    try {
+      if (options.listProjects) {
+        const projects = await getAllProjects();
+        if (options.json) {
+          console.log(JSON.stringify({ ok: true, count: projects.length, projects }, null, 2));
+        } else {
+          console.log(`\n Registered Projects (${projects.length})`);
+          console.log(` ================================`);
+          for (const project of projects) {
+            console.log(`\n ${project.name}`);
+            console.log(`   Path: ${project.path}`);
+            console.log(`   ID: ${project.id}`);
+          }
+          console.log('');
+        }
+      }
+    } catch (error: any) {
+      console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
+      process.exit(1);
+    }
+  });
+
+// squish clean - Run deduplication and consolidation
+program
+  .command('clean')
+  .description('Run maintenance: deduplication + consolidation')
+  .option('-t, --threshold <number>', 'Similarity threshold for dedup (0-1)', '0.85')
+  .option('-d, --min-age <days>', 'Minimum age for consolidation', '90')
+  .option('-i, --max-importance <number>', 'Max importance to consolidate (0-100)', '30')
+  .option('-c, --min-cluster <number>', 'Minimum cluster size', '3')
+  .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
+  .option('--dry-run', 'Preview changes without applying', false)
+  .action(async (options) => {
+    try {
+      console.log('Running maintenance: deduplication + consolidation...\n');
+      
+      // Step 1: Deduplication
+      console.log('Step 1: Finding duplicate memories...');
+      const dedupResult = await runDeduplicationJob(options.project);
+      console.log(`  Found ${dedupResult.duplicatesFound} duplicates, merged ${dedupResult.mergedCount}`);
+      
+      // Step 2: Consolidation
+      console.log('\nStep 2: Consolidating old memories...');
+      const consolidateResult = await runFullConsolidationJob(options.project);
+      console.log(`  Clustered ${consolidateResult.clustered}, merged ${consolidateResult.merged}, consolidated ${consolidateResult.consolidated}`);
+      
+      console.log(JSON.stringify({
+        ok: true,
+        dedup: {
+          duplicatesFound: dedupResult.duplicatesFound,
+          mergedCount: dedupResult.mergedCount,
+          tokensRecovered: dedupResult.tokensRecovered
+        },
+        consolidate: {
+          clustered: consolidateResult.clustered,
+          merged: consolidateResult.merged,
+          consolidated: consolidateResult.consolidated
+        }
+      }, null, 2));
+    } catch (error: any) {
+      console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
+    }
+  });
 
 await program.parseAsync(process.argv);
 }
