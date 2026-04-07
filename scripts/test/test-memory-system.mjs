@@ -1,7 +1,7 @@
 import { getDb } from './dist/db/index.js';
 import { rememberMemory, searchMemories } from './dist/features/memory/memories.js';
 import { getCoreMemory, initializeCoreMemory, editCoreMemorySection } from './dist/core/core-memory.js';
-import { ensureProject } from './dist/core/projects.js';
+import { getOrCreateProject } from './dist/core/projects.js';
 
 console.log('=== MEMORY SYSTEM TEST ===\n');
 
@@ -14,7 +14,7 @@ try {
   // Ensure project exists
   console.log('2️⃣  Creating test project...');
   const projectPath = process.cwd();
-  const project = await ensureProject(projectPath);
+  const project = await getOrCreateProject(projectPath);
   console.log(`✅ Project created: ${project.id}\n`);
 
   // Initialize core memory

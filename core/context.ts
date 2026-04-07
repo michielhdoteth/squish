@@ -1,7 +1,8 @@
-import { getProjectByPath } from './projects.js';
+import { requireProject } from './projects.js';
 import { getRecent } from './memory/memories.js';
 import { getObservations } from './observations.js';
 import { getEntitiesForProject } from './search/entities.js';
+import { validateLimit } from './validation.js';
 
 export interface ContextInput {
   project: string;
@@ -10,13 +11,9 @@ export interface ContextInput {
 }
 
 export async function getProjectContext(input: ContextInput): Promise<Record<string, unknown>> {
-  const project = await getProjectByPath(input.project);
+  const project = await requireProject(input.project);
   const include = input.include ?? ['memories', 'observations'];
-  const limit = Math.min(Math.max(input.limit ?? 10, 1), 100);
-
-  if (!project) {
-    return { project: null, memories: [], observations: [] };
-  }
+  const limit = validateLimit(input.limit, 10, 1, 100);
 
   const result: Record<string, unknown> = { project };
 

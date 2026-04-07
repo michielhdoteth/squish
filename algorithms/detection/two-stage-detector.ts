@@ -9,11 +9,9 @@ import type { Memory, MemoryType } from '../../drizzle/schema.js';
 import { getEmbedding, getBatchEmbeddings } from '../../core/embeddings.js';
 import { SimHashFilter, MinHashFilter, findCandidatePairs } from './hash-filters.js';
 import { rankCandidates, analyzePair } from './semantic-ranker.js';
-import { getDb } from '../../db/index.js';
-import { getSchema } from '../../db/schema.js';
-import { createDatabaseClient } from '../../core/database.js';
 import { eq, and } from 'drizzle-orm';
 import * as crypto from 'crypto';
+import { getDbClient } from '../../core/db-client.js';
 
 export interface MemoryPair {
   memory1: Memory;
@@ -50,8 +48,7 @@ export interface DetectionOptions {
 
 export async function detectDuplicates(options: DetectionOptions): Promise<DetectionResult> {
   const startTime = Date.now();
-  const db = createDatabaseClient(await getDb());
-  const schema = await getSchema();
+  const { db, schema } = await getDbClient();
 
   let query: any = db.select().from(schema.memories);
 
@@ -330,17 +327,16 @@ export async function detectDuplicates(options: DetectionOptions): Promise<Detec
 }
 
 export async function analyzeMergePair(
-  memoryId1: string,
-  memoryId2: string
-): Promise<{
-  memory1: Memory;
-  memory2: Memory;
-  analysis: ReturnType<typeof analyzePair>;
-} | null> {
-  const db = createDatabaseClient(await getDb());
-  const schema = await getSchema();
+    memoryId1: string,
+    memoryId2: string
+  ): Promise<{
+    memory1: Memory;
+    memory2: Memory;
+    analysis: ReturnType<typeof analyzePair>;
+  } | null> {
+    const { db, schema } = await getDbClient();
 
-  const [memory1] = await db
+    const [memory1] = await db
     .select()
     .from(schema.memories)
     .where(eq(schema.memories.id, memoryId1));
@@ -403,8 +399,7 @@ export async function getDetectionStats(projectId: string): Promise<{
   canonicalMemories: number;
   memoriesByType: Record<MemoryType, number>;
 }> {
-  const db = createDatabaseClient(await getDb());
-  const schema = await getSchema();
+  const { db, schema } = await getDbClient();
 
   const memories: Memory[] = await db
     .select()

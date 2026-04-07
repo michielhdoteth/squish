@@ -13,10 +13,8 @@
 
 import { eq, and, inArray } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
-import { getDb } from '../db/index.js';
-import { getSchema } from '../db/schema.js';
-import { createDatabaseClient } from './database.js';
 import { getMemory } from './memory/memories.js';
+import { getDbClient } from './db-client.js';
 
 interface LoadedMemory {
   id: string;
@@ -35,8 +33,7 @@ export async function initializeContextSession(
   projectId: string,
   userId?: string
 ): Promise<void> {
-  const db = createDatabaseClient(await getDb());
-  const schema = await getSchema();
+  const { db, schema } = await getDbClient();
   const { contextSessions } = schema;
 
   // Check if session exists
@@ -66,16 +63,15 @@ export async function initializeContextSession(
  * Note: Claude manages its own context - this just tracks what you've loaded
  */
 export async function loadMemoryToContext(
-  sessionId: string,
-  memoryId: string
-): Promise<{
-  success: boolean;
-  message?: string;
-  memory?: LoadedMemory;
-}> {
-  const db = createDatabaseClient(await getDb());
-  const schema = await getSchema();
-  const { contextSessions } = schema;
+    sessionId: string,
+    memoryId: string
+  ): Promise<{
+    success: boolean;
+    message?: string;
+    memory?: LoadedMemory;
+  }> {
+    const { db, schema } = await getDbClient();
+    const { contextSessions } = schema;
 
   // Get session
   const session = await db
@@ -145,15 +141,14 @@ export async function loadMemoryToContext(
  * Evict a memory from working set
  */
 export async function evictMemoryFromContext(
-  sessionId: string,
-  memoryId: string
-): Promise<{
-  success: boolean;
-  message?: string;
-}> {
-  const db = createDatabaseClient(await getDb());
-  const schema = await getSchema();
-  const { contextSessions } = schema;
+    sessionId: string,
+    memoryId: string
+  ): Promise<{
+    success: boolean;
+    message?: string;
+  }> {
+    const { db, schema } = await getDbClient();
+    const { contextSessions } = schema;
 
   // Get session
   const session = await db
@@ -209,15 +204,14 @@ export async function evictMemoryFromContext(
  * View all memories in working set
  */
 export async function viewLoadedMemories(
-  sessionId: string
-): Promise<{
-  success: boolean;
-  memories: LoadedMemory[];
-  count: number;
-}> {
-  const db = createDatabaseClient(await getDb());
-  const schema = await getSchema();
-  const { contextSessions } = schema;
+    sessionId: string
+  ): Promise<{
+    success: boolean;
+    memories: LoadedMemory[];
+    count: number;
+  }> {
+    const { db, schema } = await getDbClient();
+    const { contextSessions } = schema;
 
   // Get session
   const session = await db
@@ -272,32 +266,31 @@ export async function viewLoadedMemories(
  * Note: Claude manages its own context/tokens - this just shows WHAT you have loaded
  */
 export async function getContextStatus(
-  sessionId: string,
-  projectId: string
-): Promise<{
-  success: boolean;
-  coreMemory: {
-    sizeBytes: number;
-    maxBytes: number;
-    usagePercent: number;
-  };
-  workingSet: {
-    loadedCount: number;
-    loadedMemories: Array<{
-      id: string;
-      type: string;
-      contentLength: number;
-    }>;
-  };
-  available: {
-    totalMemories: number;
-    totalObservations: number;
-  };
-  note: string;
-}> {
-  const db = createDatabaseClient(await getDb());
-  const schema = await getSchema();
-  const { contextSessions, memories, observations } = schema;
+    sessionId: string,
+    projectId: string
+  ): Promise<{
+    success: boolean;
+    coreMemory: {
+      sizeBytes: number;
+      maxBytes: number;
+      usagePercent: number;
+    };
+    workingSet: {
+      loadedCount: number;
+      loadedMemories: Array<{
+        id: string;
+        type: string;
+        contentLength: number;
+      }>;
+    };
+    available: {
+      totalMemories: number;
+      totalObservations: number;
+    };
+    note: string;
+  }> {
+    const { db, schema } = await getDbClient();
+    const { contextSessions, memories, observations } = schema;
 
   // Get session
   const session = await db
@@ -370,12 +363,11 @@ export async function getContextStatus(
  * Clear all loaded memories from working set
  */
 export async function clearLoadedMemories(sessionId: string): Promise<{
-  success: boolean;
-  message?: string;
-}> {
-  const db = createDatabaseClient(await getDb());
-  const schema = await getSchema();
-  const { contextSessions } = schema;
+    success: boolean;
+    message?: string;
+  }> {
+    const { db, schema } = await getDbClient();
+    const { contextSessions } = schema;
 
   await db
     .update(contextSessions)
@@ -395,11 +387,10 @@ export async function clearLoadedMemories(sessionId: string): Promise<{
  * Get all memories currently marked as in-context for a session
  */
 export async function getInContextMemories(
-  sessionId: string
-): Promise<LoadedMemory[]> {
-  const db = createDatabaseClient(await getDb());
-  const schema = await getSchema();
-  const { contextSessions } = schema;
+    sessionId: string
+  ): Promise<LoadedMemory[]> {
+    const { db, schema } = await getDbClient();
+    const { contextSessions } = schema;
 
   // Get session to find project
   const session = await db
@@ -442,8 +433,7 @@ export async function getOutOfContextMemories(
   projectId: string,
   limit: number = 10
 ): Promise<LoadedMemory[]> {
-  const db = createDatabaseClient(await getDb());
-  const schema = await getSchema();
+  const { db, schema } = await getDbClient();
   const { memories } = schema;
 
   // Get out-of-context memories, ordered by last accessed

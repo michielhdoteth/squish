@@ -6,7 +6,7 @@
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
 import { config } from '../../config.js';
-import { getProjectByPath } from '../../core/projects.js';
+import { requireProject } from '../../core/projects.js';
 import { createDatabaseClient } from '../../core/database.js';
 
 export interface MemoryStats {
@@ -35,7 +35,7 @@ export async function getMemoryStats(projectPath: string = process.cwd()): Promi
   }
 
   const schema = await getSchema();
-  const project = await getProjectByPath(projectPath);
+  const project = await requireProject(projectPath);
 
   const stats: MemoryStats = {
     totalMemories: 0,
@@ -54,7 +54,7 @@ export async function getMemoryStats(projectPath: string = process.cwd()): Promi
     const countResult = await db
       .select({ count: schema.memories.id })
       .from(schema.memories)
-      .where(project ? eq(schema.memories.projectId, project.id) : undefined);
+      .where(eq(schema.memories.projectId, project.id));
 
     stats.totalMemories = countResult.length;
 
@@ -64,7 +64,7 @@ export async function getMemoryStats(projectPath: string = process.cwd()): Promi
       const typeCounts = await db.execute(sql`
         SELECT type, COUNT(*) as count
         FROM memories
-        ${project ? sql`WHERE project_id = ${project.id}` : sql``}
+        ${sql`WHERE project_id = ${project.id}`}
         GROUP BY type
       `);
       for (const row of typeCounts.rows) {
@@ -74,8 +74,8 @@ export async function getMemoryStats(projectPath: string = process.cwd()): Promi
       // SQLite - get all and count in memory
       const allMemories = await db
         .select({ type: schema.memories.type })
-        .from(schema.memories)
-        .where(project ? eq(schema.memories.projectId, project.id) : undefined);
+       .from(schema.memories)
+       .where(eq(schema.memories.projectId, project.id));
 
       for (const mem of allMemories) {
         const type = mem.type || 'unknown';
@@ -86,16 +86,16 @@ export async function getMemoryStats(projectPath: string = process.cwd()): Promi
     // Get oldest and newest
     const oldest = await db
       .select({ createdAt: schema.memories.createdAt })
-      .from(schema.memories)
-      .where(project ? eq(schema.memories.projectId, project.id) : undefined)
-      .orderBy(asc(schema.memories.createdAt))
+       .from(schema.memories)
+       .where(eq(schema.memories.projectId, project.id))
+       .orderBy(asc(schema.memories.createdAt))
       .limit(1);
 
     const newest = await db
       .select({ createdAt: schema.memories.createdAt })
-      .from(schema.memories)
-      .where(project ? eq(schema.memories.projectId, project.id) : undefined)
-      .orderBy(desc(schema.memories.createdAt))
+       .from(schema.memories)
+       .where(eq(schema.memories.projectId, project.id))
+       .orderBy(desc(schema.memories.createdAt))
       .limit(1);
 
     if (oldest.length > 0 && oldest[0].createdAt) {
@@ -108,8 +108,8 @@ export async function getMemoryStats(projectPath: string = process.cwd()): Promi
     // ===== NOTES (observations) =====
     const allObservations = await db
       .select({ category: schema.observations.category, type: schema.observations.type })
-      .from(schema.observations)
-      .where(project ? eq(schema.observations.projectId, project.id) : undefined);
+       .from(schema.observations)
+       .where(eq(schema.observations.projectId, project.id));
 
     stats.totalNotes = allObservations.length;
     for (const obs of allObservations) {

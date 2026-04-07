@@ -28,30 +28,85 @@ export interface MergedMemory {
 }
 
 /**
- * FACT strategy: Union of information, remove exact duplicates.
- * Combines all unique facts into a unified statement with provenance tracking.
+ * Base implementation of MergeStrategy with common functionality.
+ * Reduces code duplication across specific merge strategies.
  */
-class FactMergeStrategy implements MergeStrategy {
-  type: MemoryType = 'fact';
+export abstract class BaseMergeStrategy implements MergeStrategy {
+  abstract type: MemoryType;
 
   canMerge(sources: Memory[]): { ok: boolean; reason?: string } {
-    // Facts can almost always be merged
     if (sources.length < 2) {
       return { ok: false, reason: 'Need at least 2 memories to merge' };
     }
     return { ok: true };
   }
 
+  protected validateSources(sources: Memory[]): boolean {
+    return sources.length >= 2;
+  }
+
+  protected handleEmptySources(): MergedMemory {
+    return {
+      content: '',
+      summary: null,
+      tags: [],
+      metadata: {},
+      mergeReason: 'Empty source set',
+      conflictWarnings: [],
+    };
+  }
+
+  protected mergeTags(sources: Memory[]): string[] {
+    const tagSet = new Set<string>();
+    for (const source of sources) {
+      for (const tag of source.tags || []) {
+        tagSet.add(tag);
+      }
+    }
+    return Array.from(tagSet);
+  }
+
+  protected buildBaseMetadata(
+    sources: Memory[],
+    extra?: Record<string, unknown>
+  ): Record<string, unknown> {
+    return {
+      mergedFrom: sources.map((m) => m.id),
+      mergeCount: sources.length,
+      ...extra,
+    };
+  }
+
+  protected sortByDate(
+    sources: Memory[],
+    order: 'asc' | 'desc' = 'desc'
+  ): Memory[] {
+    const sorted = [...sources].sort(
+      (a, b) => new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime()
+    );
+    return order === 'asc' ? [...sorted].reverse() : sorted;
+  }
+
+  protected sortChronologically(sources: Memory[]): Memory[] {
+    return [...sources].sort(
+      (a, b) => new Date(a.createdAt!).getTime() - new Date(b.createdAt!).getTime()
+    );
+  }
+
+  // Abstract method each subclass must implement
+  abstract merge(sources: Memory[]): MergedMemory;
+}
+
+/**
+ * FACT strategy: Union of information, remove exact duplicates.
+ * Combines all unique facts into a unified statement with provenance tracking.
+ */
+class FactMergeStrategy extends BaseMergeStrategy {
+  type: MemoryType = 'fact';
+
   merge(sources: Memory[]): MergedMemory {
     if (sources.length === 0) {
-      return {
-        content: '',
-        summary: null,
-        tags: [],
-        metadata: {},
-        mergeReason: 'Empty source set',
-        conflictWarnings: [],
-      };
+      return this.handleEmptySources();
     }
 
     // Split content into sentences and deduplicate
@@ -78,29 +133,15 @@ class FactMergeStrategy implements MergeStrategy {
     const mergedSentences = Array.from(sentenceSet).sort();
     const content = mergedSentences.join('. ') + (mergedSentences.length > 0 ? '.' : '');
 
-    // Merge tags (union)
-    const tagSet = new Set<string>();
-    for (const source of sources) {
-      for (const tag of source.tags || []) {
-        tagSet.add(tag);
-      }
-    }
-
-    // Create merged metadata with provenance
-    const metadata: Record<string, unknown> = {
-      mergedFrom: sources.map((m) => ({
-        id: m.id,
-        createdAt: m.createdAt,
-        source: m.source,
-      })),
-      mergeCount: sources.length,
+    // Build merged metadata with provenance
+    const metadata = this.buildBaseMetadata(sources, {
       timestamps: timestamps.sort(),
-    };
+    });
 
     return {
       content,
       summary: null,
-      tags: Array.from(tagSet),
+      tags: this.mergeTags(sources),
       metadata,
       mergeReason: `Merged ${sources.length} facts by combining all unique statements`,
       conflictWarnings: [],
@@ -112,32 +153,16 @@ class FactMergeStrategy implements MergeStrategy {
  * PREFERENCE strategy: Keep latest by timestamp, track evolution history.
  * Warns if preferences conflict, indicating user changed their mind.
  */
-class PreferenceMergeStrategy implements MergeStrategy {
+class PreferenceMergeStrategy extends BaseMergeStrategy {
   type: MemoryType = 'preference';
-
-  canMerge(sources: Memory[]): { ok: boolean; reason?: string } {
-    if (sources.length < 2) {
-      return { ok: false, reason: 'Need at least 2 memories to merge' };
-    }
-    return { ok: true };
-  }
 
   merge(sources: Memory[]): MergedMemory {
     if (sources.length === 0) {
-      return {
-        content: '',
-        summary: null,
-        tags: [],
-        metadata: {},
-        mergeReason: 'Empty source set',
-        conflictWarnings: [],
-      };
+      return this.handleEmptySources();
     }
 
     // Sort by creation date (newest first)
-    const sorted = [...sources].sort(
-      (a, b) => new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime()
-    );
+    const sorted = this.sortByDate(sources);
 
     const latest = sorted[0];
     const warnings: string[] = [];
@@ -157,12 +182,10 @@ class PreferenceMergeStrategy implements MergeStrategy {
       source: m.source,
     }));
 
-    const metadata: Record<string, unknown> = {
-      mergedFrom: sources.map((m) => m.id),
+    const metadata = this.buildBaseMetadata(sources, {
       preferenceHistory: history,
-      mergeCount: sources.length,
       latestAt: latest.createdAt,
-    };
+    });
 
     const summary =
       sources.length > 1
@@ -184,32 +207,16 @@ class PreferenceMergeStrategy implements MergeStrategy {
  * DECISION strategy: Keep latest decision, link to previous ones in timeline.
  * Warns if decisions contradict, preserving rationale history.
  */
-class DecisionMergeStrategy implements MergeStrategy {
+class DecisionMergeStrategy extends BaseMergeStrategy {
   type: MemoryType = 'decision';
-
-  canMerge(sources: Memory[]): { ok: boolean; reason?: string } {
-    if (sources.length < 2) {
-      return { ok: false, reason: 'Need at least 2 memories to merge' };
-    }
-    return { ok: true };
-  }
 
   merge(sources: Memory[]): MergedMemory {
     if (sources.length === 0) {
-      return {
-        content: '',
-        summary: null,
-        tags: [],
-        metadata: {},
-        mergeReason: 'Empty source set',
-        conflictWarnings: [],
-      };
+      return this.handleEmptySources();
     }
 
     // Sort by creation date (newest first)
-    const sorted = [...sources].sort(
-      (a, b) => new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime()
-    );
+    const sorted = this.sortByDate(sources);
 
     const latest = sorted[0];
     const warnings: string[] = [];
@@ -230,13 +237,11 @@ class DecisionMergeStrategy implements MergeStrategy {
       rationale: m.summary || 'No rationale recorded',
     }));
 
-    const metadata: Record<string, unknown> = {
-      mergedFrom: sources.map((m) => m.id),
+    const metadata = this.buildBaseMetadata(sources, {
       decisionTimeline: timeline,
-      mergeCount: sources.length,
       currentDecisionAt: latest.createdAt,
       supersedes: sorted.slice(1).map((m) => m.id),
-    };
+    });
 
     const summary = sources.length > 1 ? `Decided: ${latest.content} (${sources.length} decisions)` : null;
 
@@ -255,38 +260,21 @@ class DecisionMergeStrategy implements MergeStrategy {
  * OBSERVATION strategy: Aggregate observations in chronological order.
  * Preserves temporal patterns and frequency information.
  */
-class ObservationMergeStrategy implements MergeStrategy {
+class ObservationMergeStrategy extends BaseMergeStrategy {
   type: MemoryType = 'observation';
-
-  canMerge(sources: Memory[]): { ok: boolean; reason?: string } {
-    if (sources.length < 2) {
-      return { ok: false, reason: 'Need at least 2 memories to merge' };
-    }
-    return { ok: true };
-  }
 
   merge(sources: Memory[]): MergedMemory {
     if (sources.length === 0) {
-      return {
-        content: '',
-        summary: null,
-        tags: [],
-        metadata: {},
-        mergeReason: 'Empty source set',
-        conflictWarnings: [],
-      };
+      return this.handleEmptySources();
     }
 
     // Sort chronologically
-    const sorted = [...sources].sort(
-      (a, b) => new Date(a.createdAt!).getTime() - new Date(b.createdAt!).getTime()
-    );
+    const sorted = this.sortChronologically(sources);
 
     // Create observation summary
     const observations = sorted.map((m) => `• ${m.content}`).join('\n');
 
-    const metadata: Record<string, unknown> = {
-      mergedFrom: sources.map((m) => m.id),
+    const metadata = this.buildBaseMetadata(sources, {
       observationCount: sources.length,
       timeSpan: {
         start: sorted[0].createdAt,
@@ -297,20 +285,12 @@ class ObservationMergeStrategy implements MergeStrategy {
         content: m.content,
         createdAt: m.createdAt,
       })),
-    };
-
-    // Merge tags
-    const tagSet = new Set<string>();
-    for (const source of sources) {
-      for (const tag of source.tags || []) {
-        tagSet.add(tag);
-      }
-    }
+    });
 
     return {
       content: `Observations (${sources.length} total):\n${observations}`,
       summary: `${sources.length} observations over time period`,
-      tags: Array.from(tagSet),
+      tags: this.mergeTags(sources),
       metadata,
       mergeReason: `Merged ${sources.length} observations chronologically`,
       conflictWarnings: [],
@@ -322,26 +302,12 @@ class ObservationMergeStrategy implements MergeStrategy {
  * CONTEXT strategy: Union of unique context, remove exact duplicates.
  * Preserves all distinct context items.
  */
-class ContextMergeStrategy implements MergeStrategy {
+class ContextMergeStrategy extends BaseMergeStrategy {
   type: MemoryType = 'context';
-
-  canMerge(sources: Memory[]): { ok: boolean; reason?: string } {
-    if (sources.length < 2) {
-      return { ok: false, reason: 'Need at least 2 memories to merge' };
-    }
-    return { ok: true };
-  }
 
   merge(sources: Memory[]): MergedMemory {
     if (sources.length === 0) {
-      return {
-        content: '',
-        summary: null,
-        tags: [],
-        metadata: {},
-        mergeReason: 'Empty source set',
-        conflictWarnings: [],
-      };
+      return this.handleEmptySources();
     }
 
     // Deduplicate by content (exact matches)
@@ -358,25 +324,16 @@ class ContextMergeStrategy implements MergeStrategy {
       .map((content) => `• ${content}`)
       .join('\n');
 
-    const metadata: Record<string, unknown> = {
-      mergedFrom: sources.map((m) => m.id),
+    const metadata = this.buildBaseMetadata(sources, {
       uniqueContextCount: uniqueContexts.size,
       totalContextCount: sources.length,
       deduplicatedEntries: sources.length - uniqueContexts.size,
-    };
-
-    // Merge tags
-    const tagSet = new Set<string>();
-    for (const source of sources) {
-      for (const tag of source.tags || []) {
-        tagSet.add(tag);
-      }
-    }
+    });
 
     return {
       content: contextList,
       summary: `${uniqueContexts.size} context items (${sources.length} total)`,
-      tags: Array.from(tagSet),
+      tags: this.mergeTags(sources),
       metadata,
       mergeReason: `Merged ${sources.length} context records into ${uniqueContexts.size} unique items`,
       conflictWarnings: [],

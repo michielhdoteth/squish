@@ -5,7 +5,7 @@ import { config } from '../../config.js';
 import { initializeCoreMemory, getCoreMemory } from '../core-memory.js';
 import { search } from '../memory/memories.js';
 import { getProjectContext } from '../context.js';
-import { ensureProject } from '../projects.js';
+import { getOrCreateProject } from '../projects.js';
 import { AutoLoadConfig, AutoLoadResult, DEFAULT_AUTO_LOAD_CONFIG } from './types.js';
 
 function estimateTokens(text: string): number {
@@ -34,7 +34,7 @@ export async function performAutoLoad(
   }
 
   try {
-    const project = await ensureProject(projectPath);
+    const project = await getOrCreateProject(projectPath);
     if (!project) {
       result.warnings.push(`Failed to create/find project: ${projectPath}`);
       result.duration = Date.now() - startTime;

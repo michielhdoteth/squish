@@ -2,8 +2,8 @@ import { desc, eq } from 'drizzle-orm';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
 import { config } from '../../config.js';
-import { getProjectByPath } from '../../core/projects.js';
-import { fromSqliteJson } from '../../core/memory/serialization.js';
+import { requireProject } from '../../core/projects.js';
+import { deserializeMetadata } from '../../core/memory/serialization.js';
 import { createDatabaseClient } from '../../core/database.js';
 import { normalizeTimestamp } from '../../core/utils.js';
 
@@ -21,8 +21,7 @@ export interface EntityRecord {
 export async function getEntitiesForProject(projectPath: string, limit: number): Promise<EntityRecord[]> {
   const db = createDatabaseClient(await getDb());
   const schema = await getSchema();
-  const project = await getProjectByPath(projectPath);
-  if (!project) return [];
+  const project = await requireProject(projectPath);
 
   const rows = await db.select().from(schema.entities)
     .where(eq(schema.entities.projectId, project.id))
@@ -33,7 +32,7 @@ export async function getEntitiesForProject(projectPath: string, limit: number):
 }
 
 function normalizeEntity(row: any): EntityRecord {
-  const properties = config.isTeamMode ? row.properties : fromSqliteJson<Record<string, unknown>>(row.properties ?? null);
+  const properties = deserializeMetadata(row.properties ?? null);
   return {
     id: row.id,
     projectId: row.projectId ?? row.project_id ?? null,

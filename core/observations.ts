@@ -1,14 +1,12 @@
 import { randomUUID } from 'crypto';
 import { desc, eq } from 'drizzle-orm';
-import { getDb } from '../db/index.js';
-import { getSchema } from '../db/schema.js';
 import { config } from '../config.js';
 import { getEmbedding } from './embeddings.js';
-import { ensureProject, getProjectByPath } from './projects.js';
-import { fromSqliteJson, toSqliteJson } from './memory/serialization.js';
-import { createDatabaseClient } from './database.js';
+import { getOrCreateProject, requireProject } from './projects.js';
+import { serializeMetadata, deserializeMetadata } from './memory/serialization.js';
 import { normalizeTimestamp, prepareEmbedding } from './utils.js';
 import { logger } from './logger.js';
+import { getDbClient } from './db-client.js';
 
 export type ObservationType = 'tool_use' | 'file_change' | 'error' | 'pattern' | 'insight' | 'success' | 'failure' | 'fix';
 
@@ -73,9 +71,8 @@ export interface ObservationRecord {
 }
 
 export async function addObservation(input: ObservationInput): Promise<ObservationRecord> {
-  const db = createDatabaseClient(await getDb());
-  const schema = await getSchema();
-  const project = await ensureProject(input.project);
+  const { db, schema } = await getDbClient();
+  const project = await getOrCreateProject(input.project);
   const embedding = await getEmbedding(input.summary);
   const id = randomUUID();
 
@@ -89,7 +86,7 @@ export async function addObservation(input: ObservationInput): Promise<Observati
   };
 
   const embeddingValues = prepareEmbedding(embedding);
-  const detailsValue = config.isTeamMode ? input.details ?? null : toSqliteJson(input.details ?? null);
+  const detailsValue = serializeMetadata(input.details);
 
   await db.insert(schema.observations).values({
     ...baseValues,
@@ -112,10 +109,8 @@ export async function addObservation(input: ObservationInput): Promise<Observati
 
 export async function getObservations(projectPath: string, limit: number): Promise<ObservationRecord[]> {
   try {
-    const db = createDatabaseClient(await getDb());
-    const schema = await getSchema();
-    const project = await getProjectByPath(projectPath);
-    if (!project) return [];
+    const { db, schema } = await getDbClient();
+    const project = await requireProject(projectPath);
 
     const rows = await db.select().from(schema.observations)
       .where(eq(schema.observations.projectId, project.id))
@@ -130,10 +125,8 @@ export async function getObservations(projectPath: string, limit: number): Promi
 
 export async function getRecentObservations(projectPath: string, limit: number = 10): Promise<ObservationRecord[]> {
   try {
-    const db = createDatabaseClient(await getDb());
-    const schema = await getSchema();
-    const project = await getProjectByPath(projectPath);
-    if (!project) return [];
+    const { db, schema } = await getDbClient();
+    const project = await requireProject(projectPath);
 
     const rows = await db.select().from(schema.observations)
       .where(eq(schema.observations.projectId, project.id))
@@ -149,9 +142,7 @@ export async function getRecentObservations(projectPath: string, limit: number =
 
 export async function getObservationById(observationId: string): Promise<ObservationRecord | null> {
   try {
-    const db = createDatabaseClient(await getDb());
-    const schema = await getSchema();
-
+    const { db, schema } = await getDbClient();
     const rows = await db.select().from(schema.observations)
       .where(eq(schema.observations.id, observationId))
       .limit(1);
@@ -165,7 +156,7 @@ export async function getObservationById(observationId: string): Promise<Observa
 }
 
 function normalizeObservation(row: any): ObservationRecord {
-  const details = config.isTeamMode ? row.details : fromSqliteJson<Record<string, unknown>>(row.details ?? null);
+  const details = deserializeMetadata(row.details ?? null);
   return {
     id: row.id,
     projectId: row.projectId ?? row.project_id ?? null,

@@ -2,7 +2,7 @@ import { eq, and, sql } from 'drizzle-orm';
 import { getDb } from '../db/index.js';
 import { getSchema } from '../db/schema.js';
 import { createDatabaseClient } from './database.js';
-import { ensureProject } from './projects.js';
+import { requireProject } from './projects.js';
 
 export interface ContextWindowConfig {
   maxTokens: number;
@@ -42,10 +42,7 @@ export function estimateTokens(content: string): number {
 }
 
 export async function getTokenUsage(projectPath: string): Promise<TokenUsageStats> {
-  const project = await ensureProject(projectPath);
-  if (!project) {
-    throw new Error('Project not found');
-  }
+  const project = await requireProject(projectPath);
   const projectId = project.id;
   const db = createDatabaseClient(await getDb());
   const schema = await getSchema();
@@ -127,9 +124,7 @@ export async function checkContextLimit(
 export async function getOptimizationSuggestions(
   projectPath: string
 ): Promise<OptimizationSuggestion[]> {
-  const project = await ensureProject(projectPath);
-  if (!project) return [];
-
+  const project = await requireProject(projectPath);
   const projectId = project.id;
   const db = createDatabaseClient(await getDb());
   const schema = await getSchema();
@@ -209,12 +204,8 @@ export async function getContextWindowStatus(projectPath: string): Promise<{
   memoryCount: number;
   coreMemorySections: number;
 }> {
-  const project = await ensureProject(projectPath);
-  if (!project) {
-    throw new Error('Project not found');
-  }
-
-  const projectId = project.id;
+   const project = await requireProject(projectPath);
+   const projectId = project.id;
   const db = createDatabaseClient(await getDb());
   const schema = await getSchema();
 

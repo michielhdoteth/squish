@@ -19,7 +19,7 @@ import { getEmbedding, getBatchEmbeddings } from "../core/embeddings.js";
 import { getQMDClient } from "../core/embeddings/qmd-client.js";
 import { createAssociation, getRelatedMemories, trackCoactivation, type AssociationType } from "../core/associations.js";
 import { addObservation, getObservations, createLearning, type ObservationType, type LearningType } from "../core/observations.js";
-import { ensureProject, getProjectByPath, getAllProjects } from "../core/projects.js";
+import { requireProject, getAllProjects } from "../core/projects.js";
 import { getMemoryStats } from "../core/memory/stats.js";
 import { logger } from "../core/logger.js";
 import { getDb } from "../db/index.js";
@@ -29,6 +29,7 @@ import { encrypt, decrypt } from "../core/security/encrypt.js";
 import { existsSync, readFileSync } from "fs";
 import { startWorker, stopWorker } from "../core/worker.js";
 import { initializeScheduler } from "../core/scheduler/cron-scheduler.js";
+import { serializeTags } from "../core/memory/serialization.js";
 
 const SERVER_NAME = "squish-memory";
 const SERVER_VERSION = "1.1.0";
@@ -219,7 +220,7 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
       
       const updates: Record<string, any> = {};
       if (content) updates.content = content;
-      if (tags) updates.tags = config.isTeamMode ? tags : JSON.stringify(tags);
+      if (tags) updates.tags = serializeTags(tags);
       if (type) updates.type = type;
 
       if (Object.keys(updates).length === 0) {
@@ -308,10 +309,7 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
         return { content: [{ type: "text", text: "Error: project is required unless listProjects=true" }], isError: true };
       }
 
-      const projectRecord = await getProjectByPath(project);
-      if (!projectRecord) {
-        return { content: [{ type: "text", text: `Project not found: ${project}` }], isError: true };
-      }
+      const projectRecord = await requireProject(project);
 
       const recentMemories = await searchMemories({ query: "", project, limit });
       const observations = await getObservations(project, 5);
@@ -703,7 +701,7 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
           ? [...new Set([...currentTags, tag])]
           : currentTags.filter((t: string) => t !== tag);
         
-        await sqliteDb.update(schema.memories).set({ tags: config.isTeamMode ? newTags : JSON.stringify(newTags) }).where(eq(schema.memories.id, mem.id));
+         await sqliteDb.update(schema.memories).set({ tags: serializeTags(newTags) }).where(eq(schema.memories.id, mem.id));
         tagged.push(mem.id);
       }
       

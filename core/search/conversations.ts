@@ -2,8 +2,8 @@ import { and, desc, eq, gte, lte } from 'drizzle-orm';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
 import { config } from '../../config.js';
-import { getProjectByPath } from '../../core/projects.js';
-import { fromSqliteJson } from '../../core/memory/serialization.js';
+import { requireProject } from '../../core/projects.js';
+import { deserializeMetadata } from '../../core/memory/serialization.js';
 import { createDatabaseClient } from '../../core/database.js';
 import { normalizeTimestamp, clampLimit } from '../../core/utils.js';
 
@@ -46,12 +46,10 @@ export async function getRecentConversations(input: RecentConversationsInput): P
   const limit = clampLimit(input.n, 3, 1, 50);
   const whereParts = [] as any[];
 
-  if (input.project) {
-    const project = await getProjectByPath(input.project);
-    if (project) {
-      whereParts.push(eq(schema.conversations.projectId, project.id));
-    }
-  }
+   if (input.project) {
+     const project = await requireProject(input.project);
+     whereParts.push(eq(schema.conversations.projectId, project.id));
+   }
 
   if (input.before) {
     whereParts.push(lte(schema.conversations.startedAt, new Date(input.before)));
@@ -153,7 +151,7 @@ async function searchConversationsPostgres(input: ConversationSearchInput, limit
 }
 
 function normalizeConversation(row: any): ConversationRecord {
-  const metadata = config.isTeamMode ? row.metadata : fromSqliteJson<Record<string, unknown>>(row.metadata ?? null);
+  const metadata = deserializeMetadata(row.metadata ?? null);
   return {
     id: row.id,
     projectId: row.projectId ?? row.project_id ?? null,

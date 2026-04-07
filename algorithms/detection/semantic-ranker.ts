@@ -4,7 +4,7 @@
  */
 
 import type { Memory } from '../../drizzle/schema.js';
-import { cosineSimilarity } from '../../core/local-embeddings.js';
+import { cosineSimilarity } from '../../core/utils/vector-operations.js';
 
 export interface RankedCandidate {
   memoryId1: string;

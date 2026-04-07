@@ -11,22 +11,36 @@ export function normalizeTimestamp(value: any): string | null {
   if (value instanceof Date) return value.toISOString();
   if (typeof value === 'number') {
     try {
-      const date = new Date(value);
-      if (!isNaN(date.getTime())) return date.toISOString();
-      const dateSec = new Date(value * 1000);
-      if (!isNaN(dateSec.getTime())) return dateSec.toISOString();
-      const dateMs = new Date(value / 1000);
-      if (!isNaN(dateMs.getTime())) return dateMs.toISOString();
-    } catch { return null; }
+      // Handle different timestamp formats using magnitude thresholds
+      // Microseconds: > 100000000000000 (e.g., 1700000000000000)
+      // Milliseconds: > 1000000000000 (e.g., 1700000000000)
+      // Seconds: <= 1000000000000 (e.g., 1700000000)
+      if (value > 100000000000000) {
+        return new Date(value / 1000).toISOString();
+      } else if (value > 1000000000000) {
+        return new Date(value).toISOString();
+      } else if (value >= 0) {
+        return new Date(value * 1000).toISOString();
+      }
+      return null;
+    } catch {
+      return null;
+    }
   }
   if (typeof value === 'string') {
     try {
       const parsed = new Date(value);
       if (!isNaN(parsed.getTime())) return parsed.toISOString();
-    } catch { return value; }
-    return value;
+      return null;
+    } catch {
+      return null;
+    }
   }
   return null;
+}
+
+export function now(): string {
+  return new Date().toISOString();
 }
 
 export function isDatabaseUnavailableError(error: any): boolean {
