@@ -148,7 +148,7 @@ export class QMDMemorySync {
    * @returns QMD collection name
    */
   private getCollectionForMemory(memory: MemoryRecord): string {
-    const mapping = config.qmdCollectionMapping || {};
+    const mapping = config.qmdCollectionMapping || {} as Record<string, string>;
     return mapping[memory.type] || 'squish-default';
   }
 

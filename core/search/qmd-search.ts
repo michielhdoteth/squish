@@ -164,7 +164,7 @@ function getCollectionForType(type?: string): string {
     return 'squish-all';
   }
 
-  const mapping = config.qmdCollectionMapping || {};
+  const mapping = config.qmdCollectionMapping || {} as Record<string, string>;
   return mapping[type] || `squish-${type}`;
 }
 
