@@ -64,6 +64,9 @@ temp/
 *.db
 *.db-journal
 
+# Local bin scripts (installation helpers)
+bin/
+
 # References and opencode directories
 references/
 opencode/
@@ -82,3 +85,6 @@ docs/ROADMAP.md
 
 # Claude context file (local only, do not commit)
 CLAUDE.md
+
+# Generated MCP configs (local only)
+generated/mcp/

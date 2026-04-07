@@ -2,13 +2,14 @@ import express from 'express';
 import type { Server } from 'node:http';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
-import { logger } from '../../core/logger.js';
-import { getRecent } from '../../core/memory/memories.js';
-import { getObservations } from '../../core/observations.js';
-import { getAllProjects, getProjectByPath } from '../../core/projects.js';
-import { checkDatabaseHealth, getDb } from '../../db/index.js';
-import { config } from '../../config.js';
-import { isDatabaseUnavailableError } from '../../core/utils.js';
+import { logger } from '../core/logger.js';
+import { getRecent } from '../core/memory/memories.js';
+import { getObservations } from '../core/observations.js';
+import { getAllProjects, requireProject } from '../core/projects.js';
+import { checkDatabaseHealth, getDb } from '../db/index.js';
+import { config } from '../config.js';
+import { isDatabaseUnavailableError } from '../core/utils.js';
+import { validateLimit } from '../core/validation.js';
 
 const app = express();
 const PORT = Number(process.env.SQUISH_WEB_PORT || 37777);
@@ -83,43 +84,37 @@ app.get('/api/health', async (req, res) => {
 
 // Get recent memories
 app.get('/api/memories', async (req, res) => {
-  try {
-    const projectPath = req.query.projectPath as string || process.cwd();
-    const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 20, 1), 100);
-    
-    const project = await getProjectByPath(projectPath);
-    if (!project) {
-      return res.json({ status: 'ok', data: [], count: 0, message: 'Project not found' });
-    }
-
-     const memories = await getRecent(projectPath, limit);
+   try {
+     const projectPath = req.query.projectPath as string || process.cwd();
+     const limit = validateLimit(req.query.limit as string, 20, 1, 100);
      
-     res.json({
-       status: 'ok',
-       data: memories,
-       count: memories.length,
-       project: { id: project.id, name: project.name, path: project.path }
-     });
-   } catch (error: any) {
-     if (!isDatabaseUnavailableError(error)) {
-       logger.error('Failed to get memories:', error.message);
-     }
-     res.status(isDatabaseUnavailableError(error) ? 503 : 500).json({ status: 'error', message: error.message });
-   }
+     const project = await requireProject(projectPath);
+    
+       const memories = await getRecent(projectPath, limit);
+      
+      res.json({
+        status: 'ok',
+        data: memories,
+        count: memories.length,
+        project: { id: project.id, name: project.name, path: project.path }
+      });
+    } catch (error: any) {
+      if (!isDatabaseUnavailableError(error)) {
+        logger.error('Failed to get memories:', error.message);
+      }
+      res.status(isDatabaseUnavailableError(error) ? 503 : 500).json({ status: 'error', message: error.message });
+    }
 });
 
 // Get observations for project
 app.get('/api/observations', async (req, res) => {
   try {
     const projectPath = req.query.projectPath as string || process.cwd();
-    const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 20, 1), 100);
+    const limit = validateLimit(req.query.limit as string, 20, 1, 100);
     
-    const project = await getProjectByPath(projectPath);
-    if (!project) {
-      return res.json({ status: 'ok', data: [], count: 0, message: 'Project not found' });
-    }
-
-    const observations = await getObservations(projectPath, limit);
+     const project = await requireProject(projectPath);
+    
+     const observations = await getObservations(projectPath, limit);
     
     res.json({
       status: 'ok',
@@ -127,12 +122,12 @@ app.get('/api/observations', async (req, res) => {
       count: observations.length,
       project: { id: project.id, name: project.name, path: project.path }
      });
-   } catch (error: any) {
-     if (!isDatabaseUnavailableError(error)) {
-       logger.error('Failed to get observations:', error.message);
-     }
-     res.status(isDatabaseUnavailableError(error) ? 503 : 500).json({ status: 'error', message: error.message });
-   }
+  } catch (error: any) {
+    if (!isDatabaseUnavailableError(error)) {
+      logger.error('Failed to get observations:', error.message);
+    }
+    res.status(isDatabaseUnavailableError(error) ? 503 : 500).json({ status: 'error', message: error.message });
+  }
 });
 
 // Get project context
@@ -159,20 +154,9 @@ app.get('/api/context', async (req, res) => {
       });
     }
     
-    const project = await getProjectByPath(projectPath);
-    if (!project) {
-      return res.json({ 
-        status: 'ok', 
-        project: { id: 'unknown', name: 'Project Not Found', path: projectPath },
-        projects: allProjects,
-        memories: [], 
-        observations: [], 
-        totalCount: 0,
-        message: 'Project not found in database'
-      });
-    }
-
-    const memories = await getRecent(projectPath, 20);
+     const project = await requireProject(projectPath);
+    
+     const memories = await getRecent(projectPath, 20);
     const observations = await getObservations(projectPath, 20);
 
      res.json({

@@ -41,13 +41,13 @@ import { getSchema } from './db/schema.js';
 import { eq } from 'drizzle-orm';
 import { checkRedisHealth, closeCache } from './core/cache.js';
 import { rememberMemory, getMemory, search, getRecent, setConfidence } from './core/memory/memories.js';
-import { toSqliteTags } from './core/memory/serialization.js';
+import { serializeTags } from './core/memory/serialization.js';
 import { searchConversations, getRecentConversations } from './core/search/conversations.js';
 import { addObservation, getObservations, createLearning, type LearningType } from './core/observations.js';
 import { getProjectContext } from './core/context.js';
 import { getMemoryStats } from './core/memory/stats.js';
 import { ensureProject, getAllProjects } from './core/projects.js';
-import { startWebServer } from './api/web/web.js';
+import { startWebServer } from './webui/server.js';
 import { handleDetectDuplicates } from './algorithms/handlers/detect-duplicates.js';
 import { handleListProposals } from './algorithms/handlers/list-proposals.js';
 import { handlePreviewMerge } from './algorithms/handlers/preview-merge.js';
@@ -60,7 +60,8 @@ import { summarizeSession } from './core/summarization.js';
 import { storeAgentMemory } from './core/agent-memory.js';
 import { getRelatedMemories, createAssociation } from './core/associations.js';
 import { protectMemory, pinMemory, unpinMemory } from './core/governance.js';
-import { isDatabaseUnavailableError, determineOverallStatus } from './core/utils.js';
+ import { isDatabaseUnavailableError, determineOverallStatus } from './core/utils.js';
+ import { validateLimit } from './core/validation.js';
 import { runDeduplicationJob, runFullConsolidationJob } from './core/consolidation.js';
 import { searchWithQMD, isQMDAvailable } from './core/search/qmd-search.js';
 import {
@@ -630,11 +631,11 @@ async function runCliMode() {
         const results = await search({
           query,
           type: options.type,
-          limit: parseInt(options.limit, 10) * 2,
+          limit: validateLimit(options.limit, 10, 1, 100) * 2,
           project: options.project,
         });
         const filtered = filterByDateRange(results, options.since, options.until);
-        const limited = filtered.slice(0, parseInt(options.limit, 10));
+        const limited = filtered.slice(0, validateLimit(options.limit, 10, 1, 100));
         
         if (options.pretty) {
           console.log(`\n  Search: "${query}"`);
@@ -680,9 +681,9 @@ program
         process.exit(1);
       }
       
-      const query = options.search || '';
-      const limit = parseInt(options.limit, 10);
-      const results = await search({ query, type: options.type, limit, project: options.project });
+       const query = options.search || '';
+       const limit = validateLimit(options.limit, 100, 1, 100);
+       const results = await search({ query, type: options.type, limit, project: options.project });
       
       let filtered = results;
       if (options.olderThan) {
@@ -722,8 +723,8 @@ program
           console.log(JSON.stringify({ ok: false, error: 'Usage: squish link find <memoryId> [--depth N] [--min-weight N]' }, null, 2));
           process.exit(1);
         }
-        const depth = parseInt(args[1]) || 2;
-        const minWeight = parseFloat(args[2]) || 0.3;
+         const depth = validateLimit(args[1], 2, 1, 5);
+         const minWeight = parseFloat(args[2]) || 0.3;
         const related = await getRelatedMemories(memoryId, depth * 5);
         const filtered = related.filter((r: any) => r.weight >= minWeight);
         console.log(JSON.stringify({ ok: true, count: filtered.length, related: filtered }, null, 2));
@@ -808,7 +809,7 @@ program
       const updates: Record<string, any> = {};
       if (options.content) updates.content = options.content;
       if (options.type) updates.type = options.type;
-      if (options.tags) updates.tags = config.isTeamMode ? options.tags : JSON.stringify(options.tags.split(','));
+       if (options.tags) updates.tags = serializeTags(options.tags.split(','));
       
       const db = await getDb();
       const schema = await getSchema();
@@ -844,15 +845,15 @@ program
         } else {
           console.log(JSON.stringify({ ok: true, found: !!memory, memory }, null, 2));
         }
-      } else {
-        const results = await search({
-          query,
-          type: options.type,
-          limit: parseInt(options.limit, 10) * 2,
-          project: options.project,
-        });
-        const filtered = filterByDateRange(results, options.since, options.until);
-        const limited = filtered.slice(0, parseInt(options.limit, 10));
+       } else {
+         const results = await search({
+           query,
+           type: options.type,
+           limit: validateLimit(options.limit, 5, 1, 100) * 2,
+           project: options.project,
+         });
+         const filtered = filterByDateRange(results, options.since, options.until);
+         const limited = filtered.slice(0, validateLimit(options.limit, 5, 1, 100));
         
         if (options.pretty) {
           console.log(`\n  Recall: "${query}"`);
@@ -916,9 +917,9 @@ program
         }
       }
       
-      const results = await getRecent(options.project, 100);
-      const filtered = filterByDateRange(results, since, until);
-      const limited = filtered.slice(0, parseInt(options.limit, 10));
+       const results = await getRecent(options.project, 100);
+       const filtered = filterByDateRange(results, since, until);
+       const limited = filtered.slice(0, validateLimit(options.limit, 10, 1, 100));
       console.log(JSON.stringify({ ok: true, period: options.period, since, until, count: limited.length, results: limited }, null, 2));
     } catch (error: any) {
       console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
@@ -994,8 +995,8 @@ program
           process.exit(1);
         }
         
-        const limit = parseInt(options.limit, 10);
-        let results: any[];
+         const limit = validateLimit(options.limit, 50, 1, 100);
+         let results: any[];
         const searchInput: any = { query: options.search, limit, project: options.project };
         if (options.type) searchInput.type = options.type;
         
@@ -1020,9 +1021,9 @@ program
               const tags = new Set((mem.tags || []) as string[]);
               if (!tags.has(tag)) {
                 tags.add(tag);
-                await (db as any).update(schema.memories)
-                  .set({ tags: toSqliteTags(Array.from(tags)), updatedAt: new Date() })
-                  .where(eq(schema.memories.id, mem.id));
+                 await (db as any).update(schema.memories)
+                   .set({ tags: serializeTags(Array.from(tags)), updatedAt: new Date() })
+                   .where(eq(schema.memories.id, mem.id));
                 updated.push(mem.id);
               }
             } catch (e: any) {
@@ -1037,9 +1038,9 @@ program
             const tags = new Set((mem.tags || []) as string[]);
             if (tags.has(tag)) {
               tags.delete(tag);
-              await (db as any).update(schema.memories)
-                .set({ tags: toSqliteTags(Array.from(tags)), updatedAt: new Date() })
-                .where(eq(schema.memories.id, mem.id));
+               await (db as any).update(schema.memories)
+                 .set({ tags: serializeTags(Array.from(tags)), updatedAt: new Date() })
+                 .where(eq(schema.memories.id, mem.id));
               updated.push(mem.id);
             }
           }
@@ -1063,23 +1064,23 @@ program
     .option('-l, --limit <number>', 'Max results', '20')
     .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
     .action(async (options) => {
-      try {
-        const days = parseInt(options.days, 10);
-        const cutoffDate = new Date(Date.now() - days * 86400000);
-        
-        // Get recent memories - larger limit to find stale ones
-        const results = await getRecent(options.project, 500);
-        
-        const stale = results.filter((m: any) => {
-          const created = m.createdAt ? new Date(m.createdAt) : null;
-          const isOld = created && created < cutoffDate;
-          const isLowConfidence = m.confidenceLevel === 'outdated' || m.confidenceLevel === 'speculative';
-          const hasLowImportance = (m.importance || 50) < 40;
-          
-          return isOld || isLowConfidence || hasLowImportance;
-        });
-        
-        const limited = stale.slice(0, parseInt(options.limit, 10));
+       try {
+         const days = validateLimit(options.days, 30, 1, 365);
+         const cutoffDate = new Date(Date.now() - days * 86400000);
+         
+         // Get recent memories - larger limit to find stale ones
+         const results = await getRecent(options.project, 500);
+         
+         const stale = results.filter((m: any) => {
+           const created = m.createdAt ? new Date(m.createdAt) : null;
+           const isOld = created && created < cutoffDate;
+           const isLowConfidence = m.confidenceLevel === 'outdated' || m.confidenceLevel === 'speculative';
+           const hasLowImportance = (m.importance || 50) < 40;
+           
+           return isOld || isLowConfidence || hasLowImportance;
+         });
+         
+         const limited = stale.slice(0, validateLimit(options.limit, 20, 1, 100));
         
         const summary = {
           totalStale: stale.length,
