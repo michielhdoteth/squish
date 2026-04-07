@@ -1,0 +1,90 @@
+# Squish Universal - Docker Compose
+# 
+# Local deployment for universal API + MCP server
+# Supports any AI agent via HTTP API or MCP
+
+services:
+  # PostgreSQL for persistent storage
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: squish-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-squish}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-squish_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-squish}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - squish_postgres_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-squish}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis for caching and queue
+  redis:
+    image: redis:7-alpine
+    container_name: squish-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - squish_redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Squish Universal API Server
+  squish-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: squish-universal
+    restart: unless-stopped
+    ports:
+      - "${SQUISH_API_PORT:-3456}:3456"
+      - "${SQUISH_MCP_PORT:-3100}:3100"
+    environment:
+      # Database
+      DATABASE_URL: postgres://${POSTGRES_USER:-squish}:${POSTGRES_PASSWORD:-squish_dev}@postgres:5432/${POSTGRES_DB:-squish}
+      
+      # Redis
+      REDIS_URL: redis://redis:6379
+      
+      # API Configuration
+      SQUISH_API_PORT: 3456
+      SQUISH_API_KEY: ${SQUISH_API_KEY:-}
+      
+      # MCP Configuration  
+      SQUISH_MCP_PORT: 3100
+      
+      # Embeddings (optional)
+      SQUISH_EMBEDDINGS_PROVIDER: ${SQUISH_EMBEDDINGS_PROVIDER:-local}
+      SQUISH_OPENAI_API_KEY: ${SQUISH_OPENAI_API_KEY:-}
+      
+      # Data directory
+      SQUISH_DATA_DIR: /data
+      CLAUDE_WORKING_DIRECTORY: /data
+    volumes:
+      - squish_data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3456/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  squish_postgres_data:
+  squish_redis_data:
+  squish_data:
