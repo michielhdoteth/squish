@@ -6,7 +6,7 @@ import { runLifecycleMaintenance } from '../lifecycle.js';
 import { logger } from '../logger.js';
 import { config } from '../../config.js';
 import { getDb } from '../../db/index.js';
-import { maintenanceJobs, maintenanceJobHistory } from '../../drizzle/schema-sqlite.js';
+import { maintenanceJobs, maintenanceJobHistory } from '../../db/drizzle/schema-sqlite.js';
 import { eq } from 'drizzle-orm';
 
 export type JobType = 'nightly' | 'weekly' | 'hourly';

@@ -1,7 +1,7 @@
-import { MCPClient } from "../mcp/client.js";
-import { config } from "../../config.js";
-import { logger } from "../logger.js";
-import { search, rememberMemory } from "../memory/memories.js";
+import { MCPClient } from '../../core/mcp/client.js';
+import { config } from '../../config.js';
+import { logger } from '../../core/logger.js';
+import { search, rememberMemory } from '../../core/memory/memories.js';
 
 export class ManagedSync {
   private client: MCPClient;

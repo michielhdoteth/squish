@@ -34,13 +34,13 @@ import { getProjectContext } from './core/context/context.js';
 import { getMemoryStats } from './core/memory/stats.js';
 import { ensureProject, getAllProjects } from './core/projects.js';
 import { startWebServer } from './webui/server.js';
-import { handleDetectDuplicates } from './algorithms/handlers/detect-duplicates.js';
-import { handleListProposals } from './algorithms/handlers/list-proposals.js';
-import { handlePreviewMerge } from './algorithms/handlers/preview-merge.js';
-import { handleApproveMerge } from './algorithms/handlers/approve-merge.js';
-import { handleRejectMerge } from './algorithms/handlers/reject-merge.js';
-import { handleReverseMerge } from './algorithms/handlers/reverse-merge.js';
-import { handleGetMergeStats } from './algorithms/handlers/get-stats.js';
+import { handleDetectDuplicates } from './core/algorithms/handlers/detect-duplicates.js';
+import { handleListProposals } from './core/algorithms/handlers/list-proposals.js';
+import { handlePreviewMerge } from './core/algorithms/handlers/preview-merge.js';
+import { handleApproveMerge } from './core/algorithms/handlers/approve-merge.js';
+import { handleRejectMerge } from './core/algorithms/handlers/reject-merge.js';
+import { handleReverseMerge } from './core/algorithms/handlers/reverse-merge.js';
+import { handleGetMergeStats } from './core/algorithms/handlers/get-stats.js';
 import { forceLifecycleMaintenance } from './core/worker.js';
 import { summarizeSession } from './core/summarization.js';
 import { storeAgentMemory } from './core/ingestion/agent-memory.js';
@@ -1202,6 +1202,6 @@ program
 await program.parseAsync(process.argv);
 }
 
-// MCP server: commands/mcp-server.ts
+// MCP server: core/commands/mcp-server.ts
 // Run with: npx squish-mcp
 // ============================================================================

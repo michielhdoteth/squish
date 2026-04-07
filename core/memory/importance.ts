@@ -3,7 +3,7 @@
  * Calculates and manages memory importance scores (0-100) with temporal decay
  */
 
-import type { Memory } from '../../drizzle/schema.js';
+import type { Memory } from '../../db/drizzle/schema.js';
 import { eq } from 'drizzle-orm';
 import { cosineSimilarity as vectorCosineSimilarity } from '../utils/vector-operations.js';
 import { getDbClient } from '../lib/db-client.js';

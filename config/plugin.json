@@ -9,8 +9,8 @@
   "license": "MIT",
   "homepage": "https://github.com/michielhdoteth/squish#readme",
   "repository": "https://github.com/michielhdoteth/squish.git",
-  "commands": "./commands/",
-  "mcpServers": "./mcp.json.example",
+   "commands": "./core/commands/",
+   "mcpServers": "./mcp.json.example",
   "keywords": [
     "claude",
     "claude-code",

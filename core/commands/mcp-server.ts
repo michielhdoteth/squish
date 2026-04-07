@@ -13,29 +13,26 @@ import { z } from "zod";
 import { config } from "../../config.js";
 import { writeFileSync } from "fs";
 import { join } from "path";
-import { hybridSearch } from "../memory/hybrid-retrieval.js";
-import { rememberMemory, search as searchMemories, getMemory, getRecent, type MemoryType } from "../memory/memories.js";
-import { loadMemory } from "../memory/loader.js";
-import { getEmbedding, getBatchEmbeddings } from "../embeddings.js";
-import { getQMDClient } from "../embeddings/qmd-client.js";
-import { createAssociation, getRelatedMemories, trackCoactivation, type AssociationType } from "../associations.js";
-import { addObservation, getObservations, createLearning, type ObservationType, type LearningType } from "../ingestion/observations.js";
-import { requireProject, getAllProjects } from "../projects.js";
-import { getMemoryStats } from "../memory/stats.js";
-import { logger } from "../logger.js";
+import { hybridSearch } from "../../core/memory/hybrid-retrieval.js";
+import { rememberMemory, search as searchMemories, getMemory, getRecent, type MemoryType } from "../../core/memory/memories.js";
+import { getEmbedding, getBatchEmbeddings } from "../../core/embeddings.js";
+import { getQMDClient } from "../../core/embeddings/qmd-client.js";
+import { createAssociation, getRelatedMemories, trackCoactivation, type AssociationType } from "../../core/associations.js";
+import { addObservation, getObservations, createLearning, type ObservationType, type LearningType } from "../../core/ingestion/observations.js";
+import { requireProject, getAllProjects } from "../../core/projects.js";
+import { getMemoryStats } from "../../core/memory/stats.js";
+import { logger } from "../../core/logger.js";
 import { getDb } from "../../db/index.js";
 import { getSchema } from "../../db/schema.js";
 import { eq } from "drizzle-orm";
-import { encrypt, decrypt } from "../security/encrypt.js";
+import { encrypt, decrypt } from "../../core/security/encrypt.js";
 import { existsSync, readFileSync } from "fs";
-import { startWorker, stopWorker } from "../worker.js";
-import { initializeScheduler } from "../scheduler/cron-scheduler.js";
-import { serializeTags } from "../memory/serialization.js";
-import { formatMcpError } from "../error-handling.js";
-import { ResponseFormatter } from "../responses.js";
+import { startWorker, stopWorker } from "../../core/worker.js";
+import { initializeScheduler } from "../../core/scheduler/cron-scheduler.js";
+import { serializeTags } from "../../core/memory/serialization.js";
 
 const SERVER_NAME = "squish-memory";
-const SERVER_VERSION = "1.1.5";
+const SERVER_VERSION = "1.1.0";
 
 function parseArgs(): { mode: "stdio" | "http"; port: number; health: boolean } {
   const args = process.argv.slice(2);
@@ -89,70 +86,70 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
 
   console.error(`[MCP] Starting tool registration...`);
 
-   if (safeRegisterTool(
-     server,
-     "squish_search",
-     {
-       description: "Hybrid search across QMD, SQLite DB, and embeddings with graph expansion",
-       inputSchema: {
-         query: z.string().describe("Search query"),
-         limit: z.number().min(1).max(100).default(5).describe("Maximum results"),
-         project: z.string().optional().describe("Project path filter"),
-         mode: z.enum(["hybrid", "qmd", "db", "semantic"]).default("hybrid").describe("Search mode")
-       }
-     },
-     async ({ query, limit = 5, project, mode = "hybrid" }: { query: string; limit?: number; project?: string; mode?: "hybrid" | "qmd" | "db" | "semantic" }) => {
-       const results = await hybridSearch({
-         query,
-         limit,
-         project,
-         candidateLimit: 50,
-         resultLimit: limit
-       });
-
-       const formatted = results.map((r, i) =>
-         `${i + 1}. [${r.type || "memory"}] ${r.content?.substring(0, 200)}... (score: ${r.hybridScore?.toFixed(2)})`
-       ).join("\n");
-
-       return ResponseFormatter.mcp({ count: results.length, memories: results, formatted }, `Found ${results.length} memories`);
-     }
-   )) toolCount++;
-
-   if (safeRegisterTool(
-     server,
-     "squish_remember",
-     {
-       description: "Store a new memory in Squish with automatic embedding",
-       inputSchema: {
-         content: z.string().describe("Memory content to store"),
-         type: z.enum(["observation", "fact", "decision", "context", "preference"]).default("observation").describe("Memory type"),
-         tags: z.array(z.string()).optional().describe("Optional tags"),
-         project: z.string().optional().describe("Project path")
-       }
-     },
-     async ({ content, type = "observation", tags = [], project }: { content: string; type?: MemoryType; tags?: string[]; project?: string }) => {
-       const memory = await rememberMemory({ content, type: type as MemoryType, tags, project });
-       return ResponseFormatter.mcp({ memoryId: memory.id }, `Memory stored: ${memory.id}`);
-     }
-   )) toolCount++;
-
-   if (safeRegisterTool(
-     server,
-     "squish_recall",
-     {
-       description: "Retrieve a specific memory by ID",
-       inputSchema: {
-         memoryId: z.string().uuid().describe("Memory ID to retrieve")
-       }
-     },
-      async ({ memoryId }: { memoryId: string }) => {
-        const memory = await getMemory(memoryId);
-        if (!memory) {
-          ResponseFormatter.mcpError(new Error(`Memory not found: ${memoryId}`), 'squish_recall');
-        }
-        return ResponseFormatter.mcp(memory, `Memory retrieved: ${memoryId}`);
+  if (safeRegisterTool(
+    server,
+    "squish_search",
+    {
+      description: "Hybrid search across QMD, SQLite DB, and embeddings with graph expansion",
+      inputSchema: {
+        query: z.string().describe("Search query"),
+        limit: z.number().min(1).max(100).default(5).describe("Maximum results"),
+        project: z.string().optional().describe("Project path filter"),
+        mode: z.enum(["hybrid", "qmd", "db", "semantic"]).default("hybrid").describe("Search mode")
       }
-   )) toolCount++;
+    },
+    async ({ query, limit = 5, project, mode = "hybrid" }: { query: string; limit?: number; project?: string; mode?: "hybrid" | "qmd" | "db" | "semantic" }) => {
+      const results = await hybridSearch({
+        query,
+        limit,
+        project,
+        candidateLimit: 50,
+        resultLimit: limit
+      });
+
+      const formatted = results.map((r, i) =>
+        `${i + 1}. [${r.type || "memory"}] ${r.content?.substring(0, 200)}... (score: ${r.hybridScore?.toFixed(2)})`
+      ).join("\n");
+
+      return { content: [{ type: "text", text: `Found ${results.length} memories:\n\n${formatted}` }] };
+    }
+  )) toolCount++;
+
+  if (safeRegisterTool(
+    server,
+    "squish_remember",
+    {
+      description: "Store a new memory in Squish with automatic embedding",
+      inputSchema: {
+        content: z.string().describe("Memory content to store"),
+        type: z.enum(["observation", "fact", "decision", "context", "preference"]).default("observation").describe("Memory type"),
+        tags: z.array(z.string()).optional().describe("Optional tags"),
+        project: z.string().optional().describe("Project path")
+      }
+    },
+    async ({ content, type = "observation", tags = [], project }: { content: string; type?: MemoryType; tags?: string[]; project?: string }) => {
+      const memory = await rememberMemory({ content, type: type as MemoryType, tags, project });
+      return { content: [{ type: "text", text: `Memory stored: ${memory.id}` }] };
+    }
+  )) toolCount++;
+
+  if (safeRegisterTool(
+    server,
+    "squish_recall",
+    {
+      description: "Retrieve a specific memory by ID",
+      inputSchema: {
+        memoryId: z.string().uuid().describe("Memory ID to retrieve")
+      }
+    },
+    async ({ memoryId }: { memoryId: string }) => {
+      const memory = await getMemory(memoryId);
+      if (!memory) {
+        return { content: [{ type: "text", text: `Memory not found: ${memoryId}` }], isError: true };
+      }
+      return { content: [{ type: "text", text: JSON.stringify(memory, null, 2) }] };
+    }
+  )) toolCount++;
 
   if (safeRegisterTool(
     server,
@@ -169,73 +166,73 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
         project: z.string().optional().describe("Project path (defaults to current)")
       }
     },
-     async ({ memoryId, olderThan, search, type, confirm = false, limit = 100, project }: { memoryId?: string; olderThan?: string; search?: string; type?: string; confirm?: boolean; limit?: number; project?: string }) => {
-       const db = await getDb();
-       const schema = await getSchema();
-       const sqliteDb = db as any;
-       const proj = project || process.cwd();
-       
-       // Single memory deletion
-       if (memoryId) {
-         await sqliteDb.delete(schema.memories).where(eq(schema.memories.id, memoryId));
-         return ResponseFormatter.mcp({ memoryId }, `Memory deleted: ${memoryId}`);
-       }
-       
-       // Bulk deletion
-       if (!olderThan && !search) {
-         ResponseFormatter.mcpError(new Error('Provide memoryId or use --older-than / --search for bulk delete'), 'squish_forget');
-       }
-       
-       const results = await searchMemories({ query: search || '', type: type as MemoryType, limit, project: proj });
-       
-       let filtered = results;
-       if (olderThan) {
-         filtered = filterByDateRange(results, '', olderThan);
-       }
-       
-       const deleted = [];
-       if (confirm) {
-         for (const mem of filtered) {
-           await sqliteDb.delete(schema.memories).where(eq(schema.memories.id, mem.id));
-           deleted.push(mem.id);
-         }
-       }
-       
-       return ResponseFormatter.mcp({ matched: filtered.length, deleted: deleted.length, dryRun: !confirm }, `Deleted ${deleted.length} memories`);
-     }
+    async ({ memoryId, olderThan, search, type, confirm = false, limit = 100, project }: { memoryId?: string; olderThan?: string; search?: string; type?: string; confirm?: boolean; limit?: number; project?: string }) => {
+      const db = await getDb();
+      const schema = await getSchema();
+      const sqliteDb = db as any;
+      const proj = project || process.cwd();
+      
+      // Single memory deletion
+      if (memoryId) {
+        await sqliteDb.delete(schema.memories).where(eq(schema.memories.id, memoryId));
+        return { content: [{ type: "text", text: `Memory deleted: ${memoryId}` }] };
+      }
+      
+      // Bulk deletion
+      if (!olderThan && !search) {
+        return { content: [{ type: "text", text: "Error: Provide memoryId or use --older-than / --search for bulk delete" }], isError: true };
+      }
+      
+      const results = await searchMemories({ query: search || '', type: type as MemoryType, limit, project: proj });
+      
+      let filtered = results;
+      if (olderThan) {
+        filtered = filterByDateRange(results, '', olderThan);
+      }
+      
+      const deleted = [];
+      if (confirm) {
+        for (const mem of filtered) {
+          await sqliteDb.delete(schema.memories).where(eq(schema.memories.id, mem.id));
+          deleted.push(mem.id);
+        }
+      }
+      
+      return { content: [{ type: "text", text: JSON.stringify({ ok: true, matched: filtered.length, deleted: deleted.length, dryRun: !confirm }, null, 2) }] };
+    }
   )) toolCount++;
 
-   if (safeRegisterTool(
-     server,
-     "squish_update",
-     {
-       description: "Update an existing memory",
-       inputSchema: {
-         memoryId: z.string().uuid().describe("Memory ID to update"),
-         content: z.string().optional().describe("New content"),
-         tags: z.array(z.string()).optional().describe("New tags"),
-         type: z.enum(["observation", "fact", "decision", "context", "preference"]).optional().describe("New type")
-       }
-     },
-     async ({ memoryId, content, tags, type }: { memoryId: string; content?: string; tags?: string[]; type?: MemoryType }) => {
-       const db = await getDb();
-       const schema = await getSchema();
-       
-       const updates: Record<string, any> = {};
-       if (content) updates.content = content;
-       if (tags) updates.tags = serializeTags(tags);
-       if (type) updates.type = type;
-
-        if (Object.keys(updates).length === 0) {
-          ResponseFormatter.mcpError(new Error('No updates provided'), 'squish_update');
-        }
-
-        // Cast to any to handle Drizzle ORM union type issue
-        const sqliteDb2 = db as any;
-        await sqliteDb2.update(schema.memories).set(updates).where(eq(schema.memories.id, memoryId));
-        return ResponseFormatter.mcp({ memoryId }, `Memory updated: ${memoryId}`);
+  if (safeRegisterTool(
+    server,
+    "squish_update",
+    {
+      description: "Update an existing memory",
+      inputSchema: {
+        memoryId: z.string().uuid().describe("Memory ID to update"),
+        content: z.string().optional().describe("New content"),
+        tags: z.array(z.string()).optional().describe("New tags"),
+        type: z.enum(["observation", "fact", "decision", "context", "preference"]).optional().describe("New type")
       }
-   )) toolCount++;
+    },
+    async ({ memoryId, content, tags, type }: { memoryId: string; content?: string; tags?: string[]; type?: MemoryType }) => {
+      const db = await getDb();
+      const schema = await getSchema();
+      
+      const updates: Record<string, any> = {};
+      if (content) updates.content = content;
+      if (tags) updates.tags = serializeTags(tags);
+      if (type) updates.type = type;
+
+      if (Object.keys(updates).length === 0) {
+        return { content: [{ type: "text", text: "No updates provided" }], isError: true };
+      }
+
+      // Cast to any to handle Drizzle ORM union type issue
+      const sqliteDb2 = db as any;
+      await sqliteDb2.update(schema.memories).set(updates).where(eq(schema.memories.id, memoryId));
+      return { content: [{ type: "text", text: `Memory updated: ${memoryId}` }] };
+    }
+  )) toolCount++;
 
   // squish_link - Unified graph operations (find related, add links, list)
   if (safeRegisterTool(
@@ -254,37 +251,37 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
         minWeight: z.number().min(0).max(1).default(0.3).describe("Minimum weight (for find action)")
       }
     },
-     async ({ action, memoryId, fromMemoryId, toMemoryId, type = "relates_to", weight = 0.5, depth = 2, minWeight = 0.3 }: { action: "find" | "add" | "list"; memoryId?: string; fromMemoryId?: string; toMemoryId?: string; type?: string; weight?: number; depth?: number; minWeight?: number }) => {
-       if (action === "find") {
-         if (!memoryId) {
-           formatMcpError(new Error('memoryId required for find action'));
-         }
-         const related = await getRelatedMemories(memoryId, depth * 5);
-         const filtered = related.filter((r: any) => r.weight >= minWeight);
-         const formatted = filtered.map((r: any, i: number) =>
-           `${i + 1}. [${r.type || "memory"}] ${r.content?.substring(0, 100)}... (weight: ${r.weight?.toFixed(2)})`
-         ).join("\n");
-         return { content: [{ type: "text", text: `Found ${filtered.length} related memories:\n\n${formatted}` }] };
-       }
-       
-       if (action === "add") {
-         if (!fromMemoryId || !toMemoryId) {
-           formatMcpError(new Error('fromMemoryId and toMemoryId required for add action'));
-         }
-         await createAssociation(fromMemoryId, toMemoryId, type as AssociationType, weight);
-         return { content: [{ type: "text", text: `Association created: ${fromMemoryId} -> ${toMemoryId} (${type})` }] };
-       }
-       
-       if (action === "list") {
-         const db = await getDb();
-         const schema = await getSchema();
-         const sqliteDb = db as any;
-         const associations = await sqliteDb.select().from(schema.memoryAssociations).limit(100);
-         return { content: [{ type: "text", text: JSON.stringify({ ok: true, count: associations.length, associations }, null, 2) }] };
-       }
-       
-       formatMcpError(new Error('invalid action. Use find, add, or list'));
-     }
+    async ({ action, memoryId, fromMemoryId, toMemoryId, type = "relates_to", weight = 0.5, depth = 2, minWeight = 0.3 }: { action: "find" | "add" | "list"; memoryId?: string; fromMemoryId?: string; toMemoryId?: string; type?: string; weight?: number; depth?: number; minWeight?: number }) => {
+      if (action === "find") {
+        if (!memoryId) {
+          return { content: [{ type: "text", text: "Error: memoryId required for find action" }], isError: true };
+        }
+        const related = await getRelatedMemories(memoryId, depth * 5);
+        const filtered = related.filter((r: any) => r.weight >= minWeight);
+        const formatted = filtered.map((r: any, i: number) =>
+          `${i + 1}. [${r.type || "memory"}] ${r.content?.substring(0, 100)}... (weight: ${r.weight?.toFixed(2)})`
+        ).join("\n");
+        return { content: [{ type: "text", text: `Found ${filtered.length} related memories:\n\n${formatted}` }] };
+      }
+      
+      if (action === "add") {
+        if (!fromMemoryId || !toMemoryId) {
+          return { content: [{ type: "text", text: "Error: fromMemoryId and toMemoryId required for add action" }], isError: true };
+        }
+        await createAssociation(fromMemoryId, toMemoryId, type as AssociationType, weight);
+        return { content: [{ type: "text", text: `Association created: ${fromMemoryId} -> ${toMemoryId} (${type})` }] };
+      }
+      
+      if (action === "list") {
+        const db = await getDb();
+        const schema = await getSchema();
+        const sqliteDb = db as any;
+        const associations = await sqliteDb.select().from(schema.memoryAssociations).limit(100);
+        return { content: [{ type: "text", text: JSON.stringify({ ok: true, count: associations.length, associations }, null, 2) }] };
+      }
+      
+      return { content: [{ type: "text", text: "Error: invalid action. Use find, add, or list" }], isError: true };
+    }
   )) toolCount++;
 
   if (safeRegisterTool(
@@ -306,13 +303,13 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
         ).join("\n\n");
 
         return { content: [{ type: "text", text: `Found ${projects.length} projects:\n\n${formatted}` }] };
-       }
+      }
 
-       if (!project) {
-         formatMcpError(new Error('project is required unless listProjects=true'));
-       }
+      if (!project) {
+        return { content: [{ type: "text", text: "Error: project is required unless listProjects=true" }], isError: true };
+      }
 
-       const projectRecord = await requireProject(project);
+      const projectRecord = await requireProject(project);
 
       const recentMemories = await searchMemories({ query: "", project, limit });
       const observations = await getObservations(project, 5);
@@ -342,13 +339,13 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
         project: z.string().optional().describe("Project path")
       }
     },
-     async ({ type, content, context, action, observationType, target, project }: { type: LearningType; content: string; context?: string; action?: string; observationType?: Exclude<ObservationType, "success" | "failure" | "fix">; target?: string; project?: string }) => {
-       if (type === "observation" && !action) {
-         formatMcpError(new Error('action is required when type=observation'));
-       }
-       const learning = await createLearning({ type, content, context, action, observationType, target, project });
-       return { content: [{ type: "text", text: `Learning recorded: ${learning.id}\nType: ${type}\nContent: ${content}` }] };
-     }
+    async ({ type, content, context, action, observationType, target, project }: { type: LearningType; content: string; context?: string; action?: string; observationType?: Exclude<ObservationType, "success" | "failure" | "fix">; target?: string; project?: string }) => {
+      if (type === "observation" && !action) {
+        return { content: [{ type: "text", text: "Error: action is required when type=observation" }], isError: true };
+      }
+      const learning = await createLearning({ type, content, context, action, observationType, target, project });
+      return { content: [{ type: "text", text: `Learning recorded: ${learning.id}\nType: ${type}\nContent: ${content}` }] };
+    }
   )) toolCount++;
 
   if (safeRegisterTool(
@@ -410,191 +407,12 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
         return { content: [{ type: "text", text: `Confidence set to ${level} for memory ${memoryId}` }] };
       }
       
-      // Use loadMemory with normalize=false to get raw row including confidence field
-      const result = await loadMemory(memoryId, { incrementAccess: false, normalize: false });
-      if (!result) {
+      const sqliteDb2 = db as any;
+      const result = await sqliteDb2.select().from(schema.memories).where(eq(schema.memories.id, memoryId));
+      if (result.length === 0) {
         return { content: [{ type: "text", text: `Memory not found: ${memoryId}` }], isError: true };
       }
-      return { content: [{ type: "text", text: `Confidence for memory ${memoryId}: ${result.confidence}` }] };
-    }
-  )) toolCount++;
-
-  // Autosave tools
-  if (safeRegisterTool(
-    server,
-    "squish_autosave_status",
-    {
-      description: "Get current autosave configuration and status",
-      inputSchema: {}
-    },
-    async () => {
-      const { getDefaultAutosaveHook, createAutosaveConfig } = await import('../autosave.js');
-      const hook = getDefaultAutosaveHook();
-      const config = createAutosaveConfig();
-      const messageCount = hook.getMessageCount();
-      
-      return { content: [{ type: "text", text: JSON.stringify({
-        enabled: config.enabled,
-        messageCount: config.messageCount,
-        hooks: config.hooks,
-        currentCount: messageCount,
-        threshold: config.messageCount,
-        progress: `${messageCount}/${config.messageCount}`
-      }, null, 2) }] };
-    }
-  )) toolCount++;
-
-  if (safeRegisterTool(
-    server,
-    "squish_autosave_configure",
-    {
-      description: "Configure autosave hooks",
-      inputSchema: {
-        enabled: z.boolean().optional().describe("Enable/disable autosave"),
-        messageCount: z.number().min(1).max(100).optional().describe("Messages before autosave triggers"),
-        hooks: z.array(z.enum(['topics', 'decisions', 'quotes', 'code_changes'])).optional().describe("Which hooks to run")
-      }
-    },
-    async ({ enabled, messageCount, hooks }: { enabled?: boolean; messageCount?: number; hooks?: string[] }) => {
-      const { getDefaultAutosaveHook } = await import('../autosave.js');
-      const hook = getDefaultAutosaveHook();
-      
-      if (enabled !== undefined || messageCount !== undefined || hooks !== undefined) {
-        hook.updateConfig({
-          enabled,
-          messageCount,
-          hooks: hooks as any,
-        });
-      }
-      
-      const config = hook.getConfig();
-      return { content: [{ type: "text", text: `Autosave configured: ${JSON.stringify(config, null, 2)}` }] };
-    }
-  )) toolCount++;
-
-  // TOON compression tools
-  if (safeRegisterTool(
-    server,
-    "squish_toon_compress",
-    {
-      description: "Compress JSON content to TOON format for LLM context",
-      inputSchema: {
-        content: z.string().describe("JSON content to compress")
-      }
-    },
-    async ({ content }: { content: string }) => {
-      const { compressForContext } = await import('../toon.js');
-      const compressed = compressForContext(content);
-      return { content: [{ type: "text", text: compressed }] };
-    }
-  )) toolCount++;
-
-  if (safeRegisterTool(
-    server,
-    "squish_toon_decompress",
-    {
-      description: "Decompress TOON content back to JSON",
-      inputSchema: {
-        content: z.string().describe("TOON content to decompress")
-      }
-    },
-    async ({ content }: { content: string }) => {
-      const { decompressFromContext } = await import('../toon.js');
-      const decompressed = decompressFromContext(content);
-      return { content: [{ type: "text", text: decompressed }] };
-    }
-  )) toolCount++;
-
-  if (safeRegisterTool(
-    server,
-    "squish_toon_stats",
-    {
-      description: "Get compression statistics for content",
-      inputSchema: {
-        content: z.string().describe("Content to analyze")
-      }
-    },
-    async ({ content }: { content: string }) => {
-      const { estimateCompressionRatio, isJson, isToon } = await import('../toon.js');
-      const ratio = estimateCompressionRatio(content);
-      const isJsonContent = isJson(content);
-      const isToonContent = isToon(content);
-      
-      return { content: [{ type: "text", text: JSON.stringify({
-        originalLength: content.length,
-        estimatedTokenReduction: `${Math.round(ratio * 100)}%`,
-        isJson: isJsonContent,
-        isToon: isToonContent,
-        wouldCompress: ratio > 0.1
-      }, null, 2) }] };
-    }
-  )) toolCount++;
-
-  // Domain/Topic (Hierarchical Memory) tools
-  if (safeRegisterTool(
-    server,
-    "squish_domain_create",
-    {
-      description: "Create a domain (top-level namespace for hierarchical memory)",
-      inputSchema: {
-        project: z.string().optional().describe("Project path"),
-        domainName: z.string().describe("Domain name"),
-        description: z.string().optional().describe("Domain description")
-      }
-    },
-    async ({ project, domainName, description }: { project?: string; domainName: string; description?: string }) => {
-      // createDomain not yet implemented - namespaces use createNamespace instead
-      const projectPath = project || process.cwd();
-      return { content: [{ type: "text", text: `Domain '${domainName}' created (use squish namespace for full setup)` }] };
-    }
-  )) toolCount++;
-
-  if (safeRegisterTool(
-    server,
-    "squish_domain_list",
-    {
-      description: "List all domains for a project",
-      inputSchema: {
-        project: z.string().optional().describe("Project path")
-      }
-    },
-    async ({ project }: { project?: string }) => {
-      const { listNamespaces } = await import('../namespaces/index.js');
-      return { content: [{ type: "text", text: `Use squish namespaces list for available namespaces` }] };
-    }
-  )) toolCount++;
-
-  if (safeRegisterTool(
-    server,
-    "squish_domain_get_briefings",
-    {
-      description: "Get briefing memories for a domain",
-      inputSchema: {
-        project: z.string().optional().describe("Project path"),
-        domainName: z.string().describe("Domain name"),
-        topicName: z.string().optional().describe("Optional topic name")
-      }
-    },
-    async ({ project, domainName, topicName }: { project?: string; domainName: string; topicName?: string }) => {
-      // getBriefingsForDomain not yet implemented
-      return { content: [{ type: "text", text: `Get briefings for domain '${domainName}'${topicName ? `, topic '${topicName}'` : ''}` }] };
-    }
-  )) toolCount++;
-
-  if (safeRegisterTool(
-    server,
-    "squish_domain_add_memory",
-    {
-      description: "Add a memory to a domain",
-      inputSchema: {
-        domainId: z.string().describe("Domain namespace ID"),
-        memoryId: z.string().uuid().describe("Memory ID to add"),
-        memoryType: z.enum(['briefing', 'raw']).default('briefing').describe("Memory type")
-      }
-    },
-    async ({ domainId, memoryId, memoryType }: { domainId: string; memoryId: string; memoryType?: string }) => {
-      // addMemoryToDomain not yet implemented - use namespaces API
-      return { content: [{ type: "text", text: `Memory ${memoryId} added to domain ${domainId} as ${memoryType || 'briefing'}` }] };
+      return { content: [{ type: "text", text: `Confidence for memory ${memoryId}: ${result[0].confidence}` }] };
     }
   )) toolCount++;
 
@@ -618,6 +436,83 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
         .where(eq(schema.memories.id, memoryId));
       
       return { content: [{ type: "text", text: `Memory ${memoryId} ${pinned ? 'pinned' : 'unpinned'}` }] };
+    }
+  )) toolCount++;
+
+  // Register tool to set encryption passphrase
+  if (safeRegisterTool(
+    server,
+    "squish_set_passphrase",
+    {
+      description: "Set the client-side encryption passphrase (writes to .env in data directory)",
+      inputSchema: {
+        passphrase: z.string().min(1).describe("Encryption passphrase to store")
+      }
+    },
+    async ({ passphrase }: { passphrase: string }) => {
+      const envPath = join(config.dataDir, ".env");
+      try {
+        writeFileSync(envPath, `SQUISH_ENCRYPTION_PASSPHRASE=${passphrase}\n`, { flag: "w" });
+        return { content: [{ type: "text", text: `Passphrase written to ${envPath}` }] };
+      } catch (error) {
+        return { content: [{ type: "text", text: `Failed to write passphrase: ${error}` }], isError: true };
+      }
+    }
+  )) toolCount++;
+
+  // Register tool to rotate encryption passphrase (re-encrypt all encrypted memories)
+  if (safeRegisterTool(
+    server,
+    "squish_rotate_key",
+    {
+      description: "Rotate the encryption passphrase - re-encrypts all memories with a new passphrase",
+      inputSchema: {
+        oldPassphrase: z.string().min(1).describe("Current encryption passphrase"),
+        newPassphrase: z.string().min(1).describe("New encryption passphrase")
+      }
+    },
+    async ({ oldPassphrase, newPassphrase }: { oldPassphrase: string; newPassphrase: string }) => {
+      try {
+        const db = await getDb();
+        const schema = await getSchema();
+        
+        // Fetch all encrypted memories
+        const sqliteDb = db as any;
+        const encryptedMemories = await sqliteDb
+          .select()
+          .from(schema.memories)
+          .where(eq(schema.memories.isEncrypted, true));
+        
+        let rotated = 0;
+        for (const mem of encryptedMemories) {
+          try {
+            // Decrypt with old passphrase
+            const decrypted = decrypt(mem.encryptedContent!, mem.encryptionNonce!, oldPassphrase);
+            // Re-encrypt with new passphrase
+            const { ciphertext, nonce } = encrypt(decrypted, newPassphrase);
+            
+            // Update memory
+            await sqliteDb
+              .update(schema.memories)
+              .set({ 
+                encryptedContent: ciphertext, 
+                encryptionNonce: nonce 
+              })
+              .where(eq(schema.memories.id, mem.id));
+            rotated++;
+          } catch (e) {
+            // Skip memories that fail to decrypt (wrong passphrase)
+          }
+        }
+        
+        // Update .env file with new passphrase
+        const envPath = join(config.dataDir, ".env");
+        writeFileSync(envPath, `SQUISH_ENCRYPTION_PASSPHRASE=${newPassphrase}\n`, { flag: "w" });
+        
+        return { content: [{ type: "text", text: `Rotated encryption key for ${rotated} memories. New passphrase saved to ${envPath}` }] };
+      } catch (error: any) {
+        return { content: [{ type: "text", text: `Failed to rotate key: ${error.message}` }], isError: true };
+      }
     }
   )) toolCount++;
 

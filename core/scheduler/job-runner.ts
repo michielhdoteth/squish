@@ -7,7 +7,7 @@ import { runLifecycleMaintenance } from '../lifecycle.js';
 import { pruneWeakAssociations } from '../associations.js';
 import { pruneOldSummaries } from '../summarization.js';
 import { getDb } from '../../db/index.js';
-import { memories, memoryFeedback } from '../../drizzle/schema-sqlite.js';
+import { memories, memoryFeedback } from '../../db/drizzle/schema-sqlite.js';
 import { eq, and, gt, lt } from 'drizzle-orm';
 
 export async function runNightlyJob(context: JobExecutionContext): Promise<{

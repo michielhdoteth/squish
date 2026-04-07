@@ -4,14 +4,14 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { BaseMergeStrategy } from '../../algorithms/strategies/merge-strategies.js';
+import { BaseMergeStrategy } from '../../core/algorithms/strategies/merge-strategies.js';
 import type { Memory } from '../../drizzle/schema.js';
 
 // Concrete implementation for testing
 class TestMergeStrategy extends BaseMergeStrategy {
   type: 'test' = 'test';
 
-  merge(sources: Memory[]): import('../../algorithms/strategies/merge-strategies.js').MergedMemory {
+  merge(sources: Memory[]): import('../../core/algorithms/strategies/merge-strategies.js').MergedMemory {
     // Simple test implementation
     return {
       content: 'test',

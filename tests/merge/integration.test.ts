@@ -6,11 +6,11 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { Memory } from '../../drizzle/schema';
-import { detectDuplicates } from '../../algorithms/detection/two-stage-detector.js';
-import { runSafetyChecks } from '../../algorithms/safety/safety-checks.js';
-import { mergeMemories, getMergeStrategy } from '../../algorithms/strategies/merge-strategies.js';
-import { estimateTokensSaved } from '../../algorithms/analytics/token-estimator.js';
-import { SimHashFilter, MinHashFilter } from '../../algorithms/detection/hash-filters.js';
+import { detectDuplicates } from '../../core/algorithms/detection/two-stage-detector.js';
+import { runSafetyChecks } from '../../core/algorithms/safety/safety-checks.js';
+import { mergeMemories, getMergeStrategy } from '../../core/algorithms/strategies/merge-strategies.js';
+import { estimateTokensSaved } from '../../core/algorithms/analytics/token-estimator.js';
+import { SimHashFilter, MinHashFilter } from '../../core/algorithms/detection/hash-filters.js';
 
 describe('Memory Merging Feature', () => {
   describe('Detection System', () => {

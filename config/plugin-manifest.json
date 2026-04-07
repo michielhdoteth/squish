@@ -79,10 +79,10 @@
     "@tobilu/qmd": "2.0.1",
     "@modelcontextprotocol/sdk": "1.27.1"
   },
-  "entry": {
-    "mcp": "dist/commands/mcp-server.js",
-    "cli": "dist/index.js"
-  },
+   "entry": {
+     "mcp": "dist/core/commands/mcp-server.js",
+     "cli": "dist/index.js"
+   },
   "compatibility": {
     "minNodeVersion": "18.0.0",
     "clients": [

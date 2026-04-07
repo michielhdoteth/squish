@@ -2,7 +2,7 @@
 
 import { logger } from '../logger.js';
 import { getDb } from '../../db/index.js';
-import { messages, conversations } from '../../drizzle/schema-sqlite.js';
+import { messages, conversations } from '../../db/drizzle/schema-sqlite.js';
 import { eq, desc } from 'drizzle-orm';
 
 export interface ContextMessage {

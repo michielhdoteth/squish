@@ -18,6 +18,6 @@ export async function createSupabaseClient() {
   });
 
   // Dynamically import the schema module to avoid circular dependencies.
-  const schemaModule = await import('../drizzle/schema.js');
+  const schemaModule = await import('./drizzle/schema.js');
   return drizzle(pool, { schema: schemaModule });
 }
