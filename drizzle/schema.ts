@@ -102,15 +102,15 @@ export const memories = pgTable(
     hasSecrets: boolean('has_secrets').default(false),
     relevanceScore: integer('relevance_score').default(50), // 0-100
 
-    // v0.3.0: Lifecycle Management
-    sector: text('sector').default('episodic').$type<'episodic' | 'semantic' | 'procedural' | 'autobiographical' | 'working'>(),
-    tier: text('tier').default('hot').$type<'hot' | 'warm' | 'cold'>(),
-    status: text('status').notNull().default('active'),
-    decay_rate: numeric('decay_rate').default('0.03'),
-    encrypted_content: text('encrypted_content'),
-    encryption_nonce: text('encryption_nonce'),
-    is_encrypted: boolean('is_encrypted').default(false),
-    decayRate: integer('decay_rate').default(30), // days until decay
+// v0.3.0: Lifecycle Management
+  sector: text('sector').default('episodic').$type<'episodic' | 'semantic' | 'procedural' | 'autobiographical' | 'working'>(),
+  tier: text('tier').default('hot').$type<'hot' | 'warm' | 'cold'>(),
+  status: text('status').notNull().default('active'),
+  encrypted_content: text('encrypted_content'),
+  encryption_nonce: text('encryption_nonce'),
+  is_encrypted: boolean('is_encrypted').default(false),
+  // Per-memory decay rate (integer percentage, e.g., 30 = 30% decay per cycle)
+  decayRate: integer('decay_rate').default(30),
     coactivationScore: integer('coactivation_score').default(0), // 0-100
     lastDecayAt: timestamp('last_decay_at').defaultNow(),
 

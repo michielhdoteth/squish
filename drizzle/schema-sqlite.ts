@@ -106,19 +106,19 @@ export const memories = sqliteTable(
     consolidatedAt: integer('consolidated_at', { mode: 'timestamp' }),
     isConsolidated: integer('is_consolidated', { mode: 'boolean' }).default(false),
 
-    // v0.3.0: Memory Lifecycle Management
-    sector: text('sector').$type<'episodic' | 'semantic' | 'procedural' | 'autobiographical' | 'working'>().default('episodic'),
-    tier: text('tier').$type<'hot' | 'warm' | 'cold'>().default('hot'),
-    status: text('status').notNull().default('active'),
-    decay_rate: text('decay_rate').default('0.03'),
-    encrypted_content: text('encrypted_content'),
-    encryption_nonce: text('encryption_nonce'),
-    is_encrypted: integer('is_encrypted', { mode: 'boolean' }).default(false),
+// v0.3.0: Memory Lifecycle Management
+  sector: text('sector').$type<'episodic' | 'semantic' | 'procedural' | 'autobiographical' | 'working'>().default('episodic'),
+  tier: text('tier').$type<'hot' | 'warm' | 'cold'>().default('hot'),
+  status: text('status').notNull().default('active'),
+  encrypted_content: text('encrypted_content'),
+  encryption_nonce: text('encryption_nonce'),
+  is_encrypted: integer('is_encrypted', { mode: 'boolean' }).default(false),
 
-    // v0.5.0: Context Status - Track whether memory is in active context or archived
-    contextStatus: text('context_status').$type<'in-context' | 'out-of-context' | 'archived'>().default('out-of-context'),
+  // v0.5.0: Context Status - Track whether memory is in active context or archived
+  contextStatus: text('context_status').$type<'in-context' | 'out-of-context' | 'archived'>().default('out-of-context'),
 
-    decayRate: integer('decay_rate').default(30),
+  // Per-memory decay rate (integer percentage, e.g., 30 = 30% decay per cycle)
+  decayRate: integer('decay_rate').default(30),
     coactivationScore: integer('coactivation_score').default(0),
     lastDecayAt: integer('last_decay_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`),
 
@@ -344,10 +344,10 @@ export const namespaces: any = sqliteTable('namespaces', {
 
   name: text('name').notNull(),
   parentId: text('parent_id').references(() => namespaces.id, { onDelete: 'set null' }),
-  type: text('type').notNull().$type<'root' | 'user' | 'agent' | 'project' | 'custom'>(),
+  type: text('type'),
   description: text('description'),
 
-  path: text('path').notNull(),
+  path: text('path'),
 
   createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
