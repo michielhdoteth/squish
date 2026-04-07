@@ -33,7 +33,7 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "prepublishOnly": "npm run clean && npm run build",
-    "prepare": "npm run build",
+    "prepare": "husky",
     "postinstall": "node scripts/init-dirs.mjs",
     "release": "./scripts/build-release.sh && ./scripts/github-release.sh",
     "check:secrets": "node scripts/check-secrets.js"
