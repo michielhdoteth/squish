@@ -27,6 +27,15 @@ export interface RememberInput {
   project?: string;
   metadata?: Record<string, unknown>;
   source?: string;
+  // Rich context fields (Agent 4 feedback)
+  reasoning?: string;    // Why it's true/important
+  memoryContext?: string; // What triggered this memory
+  examples?: string;      // When to apply this knowledge
+  exceptions?: string;    // When NOT to apply
+  // Hot/Cold tier (replaces isHighRes)
+  tier?: 'hot' | 'cold';  // Memory tier: hot = active, cold = archived
+  // Namespace for grouping
+  namespaceId?: string;   // Assign to namespace
 }
 
 export interface SearchInput {
@@ -107,6 +116,11 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
    // Build enriched metadata with memory signals
    const enrichedMetadata: Record<string, unknown> = {
      ...(input.metadata ?? {}),
+     // Rich context fields (Agent 4 feedback)
+     reasoning: input.reasoning,
+     memoryContext: input.memoryContext,
+     examples: input.examples,
+     exceptions: input.exceptions,
      memorySignals: {
        explicitTriggers: signals.explicitTriggers,
        implicit: signals.implicit,
@@ -132,8 +146,18 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
     tokensEstimate,
     createdAt: new Date(),
     status: 'active',
-    tier: 'hot',
+    tier: input.tier || 'hot', // Default to hot tier
   };
+
+  // Add namespace if specified
+  if (input.namespaceId) {
+    insertValues.namespaceId = input.namespaceId;
+  }
+
+  // For cold tier, store original content in metadata
+  if (input.tier === 'cold') {
+    enrichedMetadata.originalContent = input.content;
+  }
 
   if (config.clientEncryptionEnabled) {
     const { ciphertext, nonce } = encrypt(input.content);
@@ -149,21 +173,23 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
 
   await db.insert(schema.memories).values(insertValues);
 
-  // Write to QMD hot-tier storage (if enabled and tier is hot)
-  if (config.qmdEnabled && insertValues.tier === 'hot') {
+  // Append to Obsidian vault if enabled and hot tier (NEW)
+  if (config.obsidianEnabled && config.obsidianVaultPath && insertValues.tier === 'hot') {
     try {
-      await writeQMDMemory({
-        id,
+      const { appendToObsidianVault } = await import('../obsidian-vault.js');
+      await appendToObsidianVault({
         content: input.content,
+        id,
         type,
         tags,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        tier: 'hot',
-        projectPath: input.project,
-      });
+        reasoning: input.reasoning,
+        memoryContext: input.memoryContext,
+        examples: input.examples,
+        exceptions: input.exceptions,
+        source: input.source,
+      }, config.obsidianVaultPath);
     } catch (error) {
-      logger.warn(`[QMD] Failed to write hot memory to QMD: ${error}`);
+      logger.warn(`[Obsidian] Failed to append to vault: ${error}`);
     }
   }
 
@@ -280,28 +306,7 @@ export async function search(input: SearchInput): Promise<SearchResult[]> {
   const limit = clampLimit(input.limit, 10, 1, 100);
   const tags = normalizeTags(input.tags);
 
-  // First, query QMD hot-tier for fast results
-  let qmdResults: SearchResult[] = [];
-  if (config.qmdEnabled && input.query) {
-    try {
-      const { searchMemories: qmdSearch } = await import('../qmd-shortterm.js');
-      const qmdMemories = await qmdSearch(input.query, input.project, { limit, tier: 'hot' });
-      qmdResults = qmdMemories.map(m => ({
-        id: m.id,
-        content: m.content,
-        type: m.type as MemoryType,
-        tags: m.tags,
-        createdAt: m.createdAt,
-        similarity: 1.0,
-        projectId: '',
-        source: 'qmd',
-      }));
-    } catch (error) {
-      logger.warn(`[QMD] Search failed: ${error}`);
-    }
-  }
-
-  // Get results from database
+  // Get results from database (hybrid search: BM25 + vectors with RRF)
   let dbResults: SearchResult[];
   if (config.isTeamMode) {
     dbResults = await searchMemoriesPostgres(input, tags, limit);
@@ -310,15 +315,7 @@ export async function search(input: SearchInput): Promise<SearchResult[]> {
     dbResults = await hybridSearchImpl(input, { limit });
   }
 
-  // Merge QMD results with DB results (QMD first for hot memories)
-  const merged = [...qmdResults];
-  for (const result of dbResults) {
-    if (!merged.find(r => r.id === result.id)) {
-      merged.push(result);
-    }
-  }
-
-  return merged.slice(0, limit);
+  return dbResults.slice(0, limit);
 }
 
 /**

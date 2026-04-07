@@ -12,6 +12,11 @@ import { createDatabaseClient } from '../../core/database.js';
 export interface MemoryStats {
   totalMemories: number;
   byType: Record<string, number>;
+  totalNotes: number;
+  notesByCategory: Record<string, number>;
+  totalLearnings: number;
+  learningsByType: Record<string, number>;
+  totalLinks: number;
   oldestMemory?: string;
   newestMemory?: string;
   projectPath: string;
@@ -35,6 +40,11 @@ export async function getMemoryStats(projectPath: string = process.cwd()): Promi
   const stats: MemoryStats = {
     totalMemories: 0,
     byType: {},
+    totalNotes: 0,
+    notesByCategory: {},
+    totalLearnings: 0,
+    learningsByType: {},
+    totalLinks: 0,
     projectPath,
     mode: config.isTeamMode ? 'team' : 'local'
   };
@@ -93,6 +103,55 @@ export async function getMemoryStats(projectPath: string = process.cwd()): Promi
     }
     if (newest.length > 0 && newest[0].createdAt) {
       stats.newestMemory = newest[0].createdAt;
+    }
+
+    // ===== NOTES (observations) =====
+    const allObservations = await db
+      .select({ category: schema.observations.category, type: schema.observations.type })
+      .from(schema.observations)
+      .where(project ? eq(schema.observations.projectId, project.id) : undefined);
+
+    stats.totalNotes = allObservations.length;
+    for (const obs of allObservations) {
+      const cat = obs.category || 'uncategorized';
+      stats.notesByCategory[cat] = (stats.notesByCategory[cat] || 0) + 1;
+    }
+
+    // ===== LEARNINGS (observations with learning types) =====
+    const learningTypes = ['success', 'failure', 'fix', 'observation'];
+    const learningObservations = allObservations.filter((o: any) => {
+      const type = o.type || '';
+      return learningTypes.includes(type.toLowerCase());
+    });
+    stats.totalLearnings = learningObservations.length;
+    // Count by type
+    for (const obs of learningObservations) {
+      const type = (obs as any).type || 'unknown';
+      stats.learningsByType[type] = (stats.learningsByType[type] || 0) + 1;
+    }
+
+    // ===== LINKS (memory_associations) =====
+    // Links are scoped via their associated memories
+    if (config.isTeamMode) {
+      // PostgreSQL - use raw query to join through memories
+      const linksCount = await db.execute(sql`
+        SELECT COUNT(*) as count FROM memory_associations ma
+        JOIN memories m1 ON ma.from_memory_id = m1.id
+        JOIN memories m2 ON ma.to_memory_id = m2.id
+        ${project ? sql`WHERE m1.project_id = ${project.id} OR m2.project_id = ${project.id}` : sql``}
+      `);
+      stats.totalLinks = Number(linksCount.rows[0]?.count || 0);
+    } else {
+      // SQLite - get all and filter in memory
+      const allLinks = await db
+        .select({
+          fromProjectId: schema.memories.projectId,
+          toProjectId: schema.memories.projectId
+        })
+        .from(schema.memoryAssociations)
+        .innerJoin(schema.memories, eq(schema.memoryAssociations.fromMemoryId, schema.memories.id))
+        .where(project ? eq(schema.memories.projectId, project.id) : undefined);
+      stats.totalLinks = allLinks.length;
     }
 
   } catch (error) {
