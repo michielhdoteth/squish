@@ -184,7 +184,6 @@ async function applyDecay(projectId: string | undefined, stats: LifecycleStats):
 
 /**
  * Update memory tiers based on recency, coactivation, and salience
- * OPTIMIZED: Uses batched updates instead of individual UPDATE queries
  */
 async function updateTiers(projectId: string | undefined, stats: LifecycleStats): Promise<void> {
   try {

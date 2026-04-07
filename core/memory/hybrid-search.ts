@@ -1,11 +1,6 @@
 /**
  * Hybrid Search - Combines BM25 keyword search with vector semantic search
- * Uses Reciprocal Rank Fusion (RRF) for intelligent result merging
- *
- * Based on research showing 40-60% improvement over pure vector search:
- * - BM25 excels at exact keyword matches
- * - Vector search captures semantic similarity
- * - RRF merges both without score calibration issues
+ * Uses Reciprocal Rank Fusion (RRF) for result merging
  */
 
 import type { SearchResult, SearchInput } from './memories.js';

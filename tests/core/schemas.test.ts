@@ -6,7 +6,7 @@ import {
   memoryIdSchema,
   paginationSchema,
   searchQuerySchema,
-} from '../../core/schemas.js';
+} from '../../core/lib/schemas.js';
 
 describe('limitSchema', () => {
   test('accepts valid numbers within range', () => {

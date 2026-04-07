@@ -14,7 +14,7 @@ if (!existsSync(testDataDir)) {
 }
 
 // Import after environment setup
-import { getDbClient, withDbClient, DbClient } from '../../core/db-client.js';
+import { getDbClient, withDbClient, DbClient } from '../../core/lib/db-client.js';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
 

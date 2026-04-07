@@ -8,7 +8,7 @@ import {
   validateDate,
   normalizeTags,
   clampLimit,
-} from '../../core/validation.js';
+} from '../../core/lib/validation.js';
 
 describe('validateLimit', () => {
   test('returns default value when input is undefined', () => {

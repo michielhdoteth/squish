@@ -1,14 +1,6 @@
 /**
- * Context Paging Service - Agent-controlled memory loading (Tier 2)
- *
- * Simple memory tracking system that allows agents to:
- * - Load memories into their working set
- * - Evict memories from working set
- * - View what's currently in their working set
- *
- * Note: This does NOT track tokens - Claude is context-aware and manages
- * its own token budget. This just tracks WHAT memories are in the agent's
- * current working set for visibility and management.
+ * Context Paging Service - Agent-controlled memory loading
+ * Allows agents to load/evict memories from working set
  */
 
 import { eq, and, inArray } from 'drizzle-orm';
@@ -60,7 +52,6 @@ export async function initializeContextSession(
 
 /**
  * Load a memory into working set
- * Note: Claude manages its own context - this just tracks what you've loaded
  */
 export async function loadMemoryToContext(
     sessionId: string,
@@ -263,7 +254,6 @@ export async function viewLoadedMemories(
 
 /**
  * Get context status - what's in your working set and what's available
- * Note: Claude manages its own context/tokens - this just shows WHAT you have loaded
  */
 export async function getContextStatus(
     sessionId: string,

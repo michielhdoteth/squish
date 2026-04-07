@@ -1,18 +1,6 @@
 /**
  * QMD Memory Synchronization
- *
- * Syncs Squish memories to QMD collections for hybrid search.
- * Writes memories as markdown files to QMD collection directories.
- *
- * QMD automatically indexes files in collection directories, so we just
- * need to write files to the right location.
- *
- * Collection Structure:
- * - qmd-collections/squish-observations/ - Observation memories
- * - qmd-collections/squish-facts/ - Fact memories
- * - qmd-collections/squish-decisions/ - Decision memories
- * - qmd-collections/squish-context/ - Context memories
- * - qmd-collections/squish-preferences/ - Preference memories
+ * Syncs Squish memories to QMD collections for hybrid search
  */
 
 import { mkdir, writeFile } from 'fs/promises';

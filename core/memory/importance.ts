@@ -1,15 +1,6 @@
 /**
  * Importance Scoring System
- *
- * Calculates and manages memory importance scores (0-100) with temporal decay.
- * Based on research from Mnemosyne architecture and ReMe (Memory Replay).
- *
- * Scoring factors:
- * - Base score: 50 (neutral)
- * - Recency boost: decays over time (exponential decay)
- * - Access frequency: more frequently accessed = higher importance
- * - Type weighting: decisions > facts > preferences > context > observations
- * - User flags: pinned/protected memories get maximum importance
+ * Calculates and manages memory importance scores (0-100) with temporal decay
  */
 
 import type { Memory } from '../../drizzle/schema.js';

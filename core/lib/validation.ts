@@ -8,12 +8,6 @@ import { normalizeTags } from '../memory/serialization.js';
 
 /**
  * Validate and normalize a limit value with bounds checking
- *
- * @param value - The limit value to validate (number, string, or undefined)
- * @param defaultValue - Default value if input is undefined/null/empty (default: 20)
- * @param min - Minimum allowed value (default: 1)
- * @param max - Maximum allowed value (default: 100)
- * @returns Validated number within bounds, or NaN if input is invalid non-numeric string
  */
 export function validateLimit(
   value: number | string | undefined,
@@ -50,13 +44,6 @@ export function validateLimit(
 
 /**
  * Parse an integer with bounds checking
- * Similar to validateLimit but explicitly for integer parsing
- *
- * @param value - The value to parse (number, string, or undefined)
- * @param defaultValue - Default value if input is undefined/null/empty
- * @param min - Minimum allowed value
- * @param max - Maximum allowed value
- * @returns Parsed and bounded integer, or NaN if input is invalid non-numeric string
  */
 export function parseIntBounded(
   value: number | string | undefined,
@@ -69,13 +56,6 @@ export function parseIntBounded(
 
 /**
  * Validate a project path
- *
- * @param path - The project path to validate
- * @param options - Validation options
- * @param options.createIfMissing - Create the project if it doesn't exist (default: false)
- * @param options.require - Throw error if project doesn't exist (default: false)
- * @returns The validated project path (absolute path)
- * @throws Error if project doesn't exist and require=true
  */
 export async function validateProjectPath(
   path: string | undefined,
@@ -125,9 +105,6 @@ export async function validateProjectPath(
 
 /**
  * Validate a UUID
- *
- * @param id - The UUID to validate
- * @returns true if valid UUID, false otherwise
  */
 export function validateUuid(id: string): boolean {
   if (typeof id !== 'string' || !id) {
@@ -141,10 +118,6 @@ export function validateUuid(id: string): boolean {
 
 /**
  * Require a valid UUID, throws if invalid
- *
- * @param id - The UUID to validate
- * @returns The UUID if valid
- * @throws Error if UUID is invalid
  */
 export function requireUuid(id: string): string {
   if (!validateUuid(id)) {

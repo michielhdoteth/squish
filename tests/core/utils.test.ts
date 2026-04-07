@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { normalizeTimestamp, now } from '../../core/utils.js';
+import { normalizeTimestamp, now } from '../../core/lib/utils.js';
 
 describe('normalizeTimestamp', () => {
   test('returns null for null/undefined/empty values', () => {
