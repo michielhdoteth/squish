@@ -49,6 +49,7 @@ config/mcporter.json
 
 # OpenCode
 .opencode/
+.iter/
 
 # Test coverage
 coverage/
