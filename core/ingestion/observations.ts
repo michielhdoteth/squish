@@ -1,12 +1,12 @@
 import { randomUUID } from 'crypto';
 import { desc, eq } from 'drizzle-orm';
-import { config } from '../config.js';
-import { getEmbedding } from './embeddings.js';
-import { getOrCreateProject, requireProject } from './projects.js';
-import { serializeMetadata, deserializeMetadata } from './memory/serialization.js';
-import { normalizeTimestamp, prepareEmbedding } from './utils.js';
-import { logger } from './logger.js';
-import { getDbClient } from './db-client.js';
+import { config } from '../../config.js';
+import { getEmbedding } from '../embeddings.js';
+import { getOrCreateProject, requireProject } from '../projects.js';
+import { serializeMetadata, deserializeMetadata } from '../memory/serialization.js';
+import { normalizeTimestamp, prepareEmbedding } from '../lib/utils.js';
+import { logger } from '../logger.js';
+import { getDbClient } from '../lib/db-client.js';
 
 export type ObservationType = 'tool_use' | 'file_change' | 'error' | 'pattern' | 'insight' | 'success' | 'failure' | 'fix';
 

@@ -28,11 +28,11 @@
  * ```
  */
 
-import { getDb } from '../db/index.js';
-import { getSchema } from '../db/schema.js';
-import { createDatabaseClient } from './database.js';
-import type { DatabaseClient } from './database.js';
-import type { SchemaModule } from '../db/schema.js';
+import { getDb } from '../../db/index.js';
+import { getSchema } from '../../db/schema.js';
+import { createDatabaseClient } from '../storage/database.js';
+import type { DatabaseClient } from '../storage/database.js';
+import type { SchemaModule } from '../../db/schema.js';
 
 /**
  * Unified database client interface combining:

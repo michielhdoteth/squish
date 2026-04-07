@@ -6,7 +6,7 @@ import type { Memory, MemoryMergeProposal, MemoryMergeHistory } from '../../driz
 import { randomUUID } from 'crypto';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
-import { createDatabaseClient } from '../../core/database.js';
+import { createDatabaseClient } from '../../core/storage/database.js';
 import { eq, inArray } from 'drizzle-orm';
 import { mergeMemories } from '../strategies/merge-strategies.js';
 import { estimateTokensSaved } from '../analytics/token-estimator.js';

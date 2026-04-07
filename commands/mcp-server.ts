@@ -18,7 +18,7 @@ import { rememberMemory, search as searchMemories, getMemory, getRecent, type Me
 import { getEmbedding, getBatchEmbeddings } from "../core/embeddings.js";
 import { getQMDClient } from "../core/embeddings/qmd-client.js";
 import { createAssociation, getRelatedMemories, trackCoactivation, type AssociationType } from "../core/associations.js";
-import { addObservation, getObservations, createLearning, type ObservationType, type LearningType } from "../core/observations.js";
+import { addObservation, getObservations, createLearning, type ObservationType, type LearningType } from "../core/ingestion/observations.js";
 import { requireProject, getAllProjects } from "../core/projects.js";
 import { getMemoryStats } from "../core/memory/stats.js";
 import { logger } from "../core/logger.js";

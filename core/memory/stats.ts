@@ -7,7 +7,7 @@ import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
 import { config } from '../../config.js';
 import { requireProject } from '../../core/projects.js';
-import { createDatabaseClient } from '../../core/database.js';
+import { createDatabaseClient } from '../storage/database.js';
 
 export interface MemoryStats {
   totalMemories: number;
@@ -105,7 +105,7 @@ export async function getMemoryStats(projectPath: string = process.cwd()): Promi
       stats.newestMemory = newest[0].createdAt;
     }
 
-    // ===== NOTES (observations) =====
+    // Notes
     const allObservations = await db
       .select({ category: schema.observations.category, type: schema.observations.type })
        .from(schema.observations)
@@ -117,7 +117,7 @@ export async function getMemoryStats(projectPath: string = process.cwd()): Promi
       stats.notesByCategory[cat] = (stats.notesByCategory[cat] || 0) + 1;
     }
 
-    // ===== LEARNINGS (observations with learning types) =====
+    // Learnings
     const learningTypes = ['success', 'failure', 'fix', 'observation'];
     const learningObservations = allObservations.filter((o: any) => {
       const type = o.type || '';
@@ -130,7 +130,7 @@ export async function getMemoryStats(projectPath: string = process.cwd()): Promi
       stats.learningsByType[type] = (stats.learningsByType[type] || 0) + 1;
     }
 
-    // ===== LINKS (memory_associations) =====
+    // Links
     // Links are scoped via their associated memories
     if (config.isTeamMode) {
       // PostgreSQL - use raw query to join through memories

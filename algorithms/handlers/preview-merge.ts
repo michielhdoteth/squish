@@ -5,7 +5,7 @@
 import type { Memory, MemoryMergeProposal } from '../../drizzle/schema.js';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
-import { createDatabaseClient } from '../../core/database.js';
+import { createDatabaseClient } from '../../core/storage/database.js';
 import { eq } from 'drizzle-orm';
 import { estimateMergeSavingsPreview } from '../analytics/token-estimator.js';
 import { mergeMemories } from '../strategies/merge-strategies.js';

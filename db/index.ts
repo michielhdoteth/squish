@@ -1,7 +1,7 @@
 import { createDb } from './adapter.js';
 import { config } from '../config.js';
 import { logger } from '../core/logger.js';
-import { isDatabaseUnavailableError } from '../core/utils.js';
+import { isDatabaseUnavailableError } from '../core/lib/utils.js';
 
 let db: Awaited<ReturnType<typeof createDb>> | null = null;
 let dbError: string | null = null;

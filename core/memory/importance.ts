@@ -15,7 +15,7 @@
 import type { Memory } from '../../drizzle/schema.js';
 import { eq } from 'drizzle-orm';
 import { cosineSimilarity as vectorCosineSimilarity } from '../utils/vector-operations.js';
-import { getDbClient } from '../db-client.js';
+import { getDbClient } from '../lib/db-client.js';
 
 export interface ImportanceScore {
   score: number; // 0-100

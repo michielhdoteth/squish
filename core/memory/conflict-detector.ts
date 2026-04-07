@@ -1,7 +1,7 @@
 import { eq, and, sql } from 'drizzle-orm';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
-import { createDatabaseClient } from '../../core/database.js';
+import { createDatabaseClient } from '../storage/database.js';
 import { MemoryRecord } from './memories.js';
 
 export interface Conflict {

@@ -2,9 +2,9 @@
 
 import { logger } from '../logger.js';
 import { config } from '../../config.js';
-import { initializeCoreMemory, getCoreMemory } from '../core-memory.js';
+import { initializeCoreMemory, getCoreMemory } from '../ingestion/core-memory.js';
 import { search } from '../memory/memories.js';
-import { getProjectContext } from '../context.js';
+import { getProjectContext } from '../context/context.js';
 import { getOrCreateProject } from '../projects.js';
 import { AutoLoadConfig, AutoLoadResult, DEFAULT_AUTO_LOAD_CONFIG } from './types.js';
 

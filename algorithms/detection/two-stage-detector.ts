@@ -11,7 +11,7 @@ import { SimHashFilter, MinHashFilter, findCandidatePairs } from './hash-filters
 import { rankCandidates, analyzePair } from './semantic-ranker.js';
 import { eq, and } from 'drizzle-orm';
 import * as crypto from 'crypto';
-import { getDbClient } from '../../core/db-client.js';
+import { getDbClient } from '../../core/lib/db-client.js';
 
 export interface MemoryPair {
   memory1: Memory;

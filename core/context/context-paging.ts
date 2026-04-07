@@ -13,8 +13,8 @@
 
 import { eq, and, inArray } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
-import { getMemory } from './memory/memories.js';
-import { getDbClient } from './db-client.js';
+import { getMemory } from '../memory/memories.js';
+import { getDbClient } from '../lib/db-client.js';
 
 interface LoadedMemory {
   id: string;
@@ -312,7 +312,7 @@ export async function getContextStatus(
   const currentSession = session[0];
 
   // Get core memory stats
-  const { getCoreMemoryStats } = await import('./core-memory.js');
+  const { getCoreMemoryStats } = await import('../ingestion/core-memory.js');
   const coreStats = await getCoreMemoryStats(projectId);
 
   // Get loaded memories

@@ -13,7 +13,7 @@ import { mergeMemories } from '../strategies/merge-strategies.js';
 import { estimateTokensSaved } from '../analytics/token-estimator.js';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
-import { createDatabaseClient } from '../../core/database.js';
+import { createDatabaseClient } from '../../core/storage/database.js';
 import { eq } from 'drizzle-orm';
 import { buildSuccessResponse, buildErrorResponse } from '../utils/response-builder.js';
 

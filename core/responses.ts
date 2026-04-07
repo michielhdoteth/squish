@@ -52,9 +52,7 @@ export class ResponseFormatter {
     };
   }
 
-  // ============================================================================
   // CLI Formatters
-  // ============================================================================
 
   /**
    * Format response for CLI output (pretty-printed JSON)
@@ -73,9 +71,7 @@ export class ResponseFormatter {
     process.exit(1);
   }
 
-  // ============================================================================
   // Web API Formatters
-  // ============================================================================
 
   /**
    * Format successful response for Web API
@@ -118,9 +114,7 @@ export class ResponseFormatter {
     return { status: statusCode, body };
   }
 
-  // ============================================================================
   // MCP Formatters
-  // ============================================================================
 
   /**
    * Format response for MCP tools
@@ -157,12 +151,10 @@ export class ResponseFormatter {
     }
   }
 
-  // ============================================================================
   // Algorithm Handler Formatters
-  // ============================================================================
 
   /**
-   * Format response for algorithm handlers (backward compatible with existing pattern)
+   * Format response for algorithm handlers
    */
   static algorithm<T>(
     data: T,

@@ -10,12 +10,12 @@
 
 import type { SearchResult, SearchInput } from './memories.js';
 import { getDb } from '../../db/index.js';
-import { createDatabaseClient } from '../../core/database.js';
+import { createDatabaseClient } from '../storage/database.js';
 import { getEmbedding } from '../../core/embeddings.js';
 import { requireProject } from '../../core/projects.js';
 import { deserializeTags, deserializeMetadata, normalizeTags } from './serialization.js';
 import { computeGraphBoost } from '../search/graph-boost.js';
-import { normalizeTimestamp } from '../../core/utils.js';
+import { normalizeTimestamp } from '../lib/utils.js';
 import { cosineSimilarity } from '../utils/vector-operations.js';
 import config from '../../config.js';
 

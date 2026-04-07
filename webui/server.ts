@@ -4,12 +4,12 @@ import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import { logger } from '../core/logger.js';
 import { getRecent } from '../core/memory/memories.js';
-import { getObservations } from '../core/observations.js';
+import { getObservations } from '../core/ingestion/observations.js';
 import { getAllProjects, requireProject } from '../core/projects.js';
 import { checkDatabaseHealth, getDb } from '../db/index.js';
 import { config } from '../config.js';
-import { isDatabaseUnavailableError } from '../core/utils.js';
-import { validateLimit } from '../core/validation.js';
+import { isDatabaseUnavailableError } from '../core/lib/utils.js';
+import { validateLimit } from '../core/lib/validation.js';
 
 const app = express();
 const PORT = Number(process.env.SQUISH_WEB_PORT || 37777);

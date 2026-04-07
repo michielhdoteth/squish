@@ -4,11 +4,11 @@
  */
 
 import { eq, inArray } from 'drizzle-orm';
-import { getDbClient } from '../db-client.js';
+import { getDbClient } from '../lib/db-client.js';
 import { decrypt } from '../security/encrypt.js';
 import { normalizeMemory, type MemoryRecord } from './normalization.js';
-import { requireUuid } from '../validation.js';
-import { withDatabaseErrorHandling } from '../utils.js';
+import { requireUuid } from '../lib/validation.js';
+import { withDatabaseErrorHandling } from '../lib/utils.js';
 
 export interface LoadMemoryOptions {
   incrementAccess?: boolean;

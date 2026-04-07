@@ -6,7 +6,7 @@
 
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
-import { createDatabaseClient } from '../../core/database.js';
+import { createDatabaseClient } from '../../core/storage/database.js';
 import { eq } from 'drizzle-orm';
 
 interface RejectMergeInput {

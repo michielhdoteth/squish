@@ -4,7 +4,7 @@
  */
 
 import { deserializeTags, deserializeMetadata } from './serialization.js';
-import { normalizeTimestamp } from '../utils.js';
+import { normalizeTimestamp } from '../lib/utils.js';
 
 export interface MemoryRecord {
   id: string;

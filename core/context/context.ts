@@ -1,8 +1,8 @@
-import { requireProject } from './projects.js';
-import { getRecent } from './memory/memories.js';
-import { getObservations } from './observations.js';
-import { getEntitiesForProject } from './search/entities.js';
-import { validateLimit } from './validation.js';
+import { requireProject } from '../projects.js';
+import { getRecent } from '../memory/memories.js';
+import { getObservations } from '../ingestion/observations.js';
+import { getEntitiesForProject } from '../search/entities.js';
+import { validateLimit } from '../lib/validation.js';
 
 export interface ContextInput {
   project: string;

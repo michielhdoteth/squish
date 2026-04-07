@@ -4,8 +4,8 @@ import { getSchema } from '../../db/schema.js';
 import { config } from '../../config.js';
 import { requireProject } from '../../core/projects.js';
 import { deserializeMetadata } from '../../core/memory/serialization.js';
-import { createDatabaseClient } from '../../core/database.js';
-import { normalizeTimestamp, clampLimit } from '../../core/utils.js';
+import { createDatabaseClient } from '../storage/database.js';
+import { normalizeTimestamp, clampLimit } from '../lib/utils.js';
 
 export interface ConversationRecord {
   id: string;

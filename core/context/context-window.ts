@@ -1,8 +1,8 @@
 import { eq, and, sql } from 'drizzle-orm';
-import { getDb } from '../db/index.js';
-import { getSchema } from '../db/schema.js';
-import { createDatabaseClient } from './database.js';
-import { requireProject } from './projects.js';
+import { getDb } from '../../db/index.js';
+import { getSchema } from '../../db/schema.js';
+import { createDatabaseClient } from '../storage/database.js';
+import { requireProject } from '../projects.js';
 
 export interface ContextWindowConfig {
   maxTokens: number;

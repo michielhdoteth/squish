@@ -4,12 +4,12 @@
  */
 
 import { eq } from 'drizzle-orm';
-import { getDb } from '../db/index.js';
-import { getSchema } from '../db/schema.js';
-import { config } from '../config.js';
-import { performMemoryOperation } from './utils/memory-operations.js';
-import { logger } from './logger.js';
-import { createDatabaseClient } from './database.js';
+import { getDb } from '../../db/index.js';
+import { getSchema } from '../../db/schema.js';
+import { config } from '../../config.js';
+import { performMemoryOperation } from '../utils/memory-operations.js';
+import { logger } from '../logger.js';
+import { createDatabaseClient } from '../storage/database.js';
 
 /**
  * Mark a memory as protected (cannot be evicted)

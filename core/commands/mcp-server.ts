@@ -19,7 +19,7 @@ import { loadMemory } from "../memory/loader.js";
 import { getEmbedding, getBatchEmbeddings } from "../embeddings.js";
 import { getQMDClient } from "../embeddings/qmd-client.js";
 import { createAssociation, getRelatedMemories, trackCoactivation, type AssociationType } from "../associations.js";
-import { addObservation, getObservations, createLearning, type ObservationType, type LearningType } from "../observations.js";
+import { addObservation, getObservations, createLearning, type ObservationType, type LearningType } from "../ingestion/observations.js";
 import { requireProject, getAllProjects } from "../projects.js";
 import { getMemoryStats } from "../memory/stats.js";
 import { logger } from "../logger.js";

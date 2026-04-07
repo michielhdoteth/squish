@@ -6,10 +6,10 @@
  */
 
 import { eq, and, sql } from 'drizzle-orm';
-import { getDb } from '../db/index.js';
-import { getSchema, type SchemaModule } from '../db/schema.js';
-import { createDatabaseClient } from './database.js';
-import config from '../config.js';
+import { getDb } from '../../db/index.js';
+import { getSchema, type SchemaModule } from '../../db/schema.js';
+import { createDatabaseClient } from '../storage/database.js';
+import config from '../../config.js';
 
 type CoreMemorySection = 'persona' | 'user_info' | 'project_context' | 'working_notes';
 

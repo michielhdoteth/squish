@@ -1,9 +1,9 @@
-import { config } from '../config.js';
-import { logger } from './logger.js';
+import { config } from '../../config.js';
+import { logger } from '../logger.js';
 
 let redis: any = null;
 
-// v0.4.2: LRU Cache with configurable size limits and TTL
+// LRU Cache with configurable size limits and TTL
 interface CacheEntry<T> {
   value: T;
   expires: number;

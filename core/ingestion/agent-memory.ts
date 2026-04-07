@@ -5,11 +5,11 @@
 
 import { and, eq, inArray, or } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
-import { getDb } from '../db/index.js';
-import { getSchema } from '../db/schema.js';
-import { config } from '../config.js';
-import { getEmbedding } from './embeddings.js';
-import { logger } from './logger.js';
+import { getDb } from '../../db/index.js';
+import { getSchema } from '../../db/schema.js';
+import { config } from '../../config.js';
+import { getEmbedding } from '../embeddings.js';
+import { logger } from '../logger.js';
 
 export type VisibilityScope = 'private' | 'project' | 'team' | 'global';
 
@@ -89,9 +89,7 @@ export async function storeAgentMemory(
 
 
 
-// ============================================================================
 // Helper Functions
-// ============================================================================
 
 function calculateReadScope(context: AgentContext, visibility: VisibilityScope): string[] {
   switch (visibility) {

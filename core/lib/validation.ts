@@ -4,7 +4,7 @@
  */
 
 import { clampLimit as originalClampLimit } from './utils.js';
-import { normalizeTags } from './memory/serialization.js';
+import { normalizeTags } from '../memory/serialization.js';
 
 /**
  * Validate and normalize a limit value with bounds checking
@@ -101,7 +101,7 @@ export async function validateProjectPath(
     : path;
 
   // Check if project exists in database
-  const { getProjectByPath } = await import('./projects.js');
+  const { getProjectByPath } = await import('../projects.js');
   const existingProject = await getProjectByPath(absolutePath);
 
   if (existingProject) {
@@ -114,7 +114,7 @@ export async function validateProjectPath(
   }
 
   if (createIfMissing) {
-    const { ensureProject } = await import('./projects.js');
+    const { ensureProject } = await import('../projects.js');
     await ensureProject(absolutePath);
     return absolutePath;
   }

@@ -7,7 +7,7 @@ import type { Memory } from '../../drizzle/schema.js';
 import type { MergedMemory } from '../strategies/merge-strategies.js';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
-import { createDatabaseClient } from '../../core/database.js';
+import { createDatabaseClient } from '../../core/storage/database.js';
 import { eq } from 'drizzle-orm';
 
 function estimateTokensSimple(text: string): number {

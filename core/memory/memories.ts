@@ -5,8 +5,8 @@ import { logger } from '../../core/logger.js';
 import { getOrCreateProject, requireProject } from '../../core/projects.js';
 import { getEmbedding } from '../../core/embeddings.js';
 import { normalizeTags, serializeTags, deserializeTags, serializeMetadata, deserializeMetadata } from '../../core/memory/serialization.js';
-import { normalizeTimestamp, clampLimit, prepareEmbedding } from '../../core/utils.js';
-import { validateUuid, requireUuid } from '../../core/validation.js';
+import { normalizeTimestamp, clampLimit, prepareEmbedding } from '../lib/utils.js';
+import { validateUuid, requireUuid } from '../lib/validation.js';
 import { cosineSimilarity } from '../utils/vector-operations.js';
 import { getQMDMemorySync } from '../../core/sync/qmd-sync.js';
 import { hybridSearch as hybridSearchImpl } from './hybrid-search.js';
@@ -14,9 +14,8 @@ import { calculateImportance } from './importance.js';
 import { detectMemorySignals, MemorySignals } from './trigger-detector.js';
 import { resolveContradictions, applySupersession } from './contradiction-resolver.js';
 import { encrypt, decrypt } from '../security/encrypt.js';
-import { estimateTokens } from '../context-window.js';
-import { writeMemory as writeQMDMemory, deleteMemory as deleteQMDMemory } from '../qmd-shortterm.js';
-import { getDbClient } from '../db-client.js';
+import { estimateTokens } from '../context/context-window.js';
+import { getDbClient } from '../lib/db-client.js';
 
 export type MemoryType = 'observation' | 'fact' | 'decision' | 'context' | 'preference' | 'note';
 

@@ -5,7 +5,7 @@ import { getDb } from '../db/index.js';
 import { getSchema } from '../db/schema.js';
 import { serializeMetadata, deserializeMetadata } from './memory/serialization.js';
 import { config } from '../config.js';
-import { createDatabaseClient } from './database.js';
+import { createDatabaseClient } from './storage/database.js';
 
 export interface ProjectRecord {
   id: string;

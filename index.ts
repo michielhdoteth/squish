@@ -1,22 +1,8 @@
 #!/usr/bin/env node
 
 /**
- * Squish v1.1.0 - Universal Memory Plugin System
- * 
- * Modes:
- * - CLI Mode: For any MCP client bash execution (e.g., `squish remember "text"`)
- * - MCP Mode: For AI assistants (Claude Code, OpenClaw, OpenCode, Codex, etc.)
- *
- * Features:
- * - Hybrid Search: BM25 + vector search with RRF + graph boost
- * - Importance Scoring: Auto-score memories with temporal decay
- * - Tier-Based Lifecycle: hot/warm/cold memory tiers
- * - Client-Side Encryption: AES-256-GCM with PBKDF2
- * - Squish Learn: Capture success, failure, and fixes
- * - 18 MCP tools
- * - Local mode: SQLite with FTS5
- * - Team mode: PostgreSQL + pgvector + Supabase
- * - Universal Plugin: Works with 7+ AI assistants
+ * Squish - Universal Memory Plugin System
+ * CLI + MCP server for persistent memory with hybrid search and encryption
  */
 
 import 'dotenv/config';
@@ -39,12 +25,12 @@ import { logger } from './core/logger.js';
 import { checkDatabaseHealth, config, getDb } from './db/index.js';
 import { getSchema } from './db/schema.js';
 import { eq } from 'drizzle-orm';
-import { checkRedisHealth, closeCache } from './core/cache.js';
+import { checkRedisHealth, closeCache } from './core/storage/cache.js';
 import { rememberMemory, getMemory, search, getRecent, setConfidence } from './core/memory/memories.js';
 import { serializeTags } from './core/memory/serialization.js';
 import { searchConversations, getRecentConversations } from './core/search/conversations.js';
-import { addObservation, getObservations, createLearning, type LearningType } from './core/observations.js';
-import { getProjectContext } from './core/context.js';
+import { addObservation, getObservations, createLearning, type LearningType } from './core/ingestion/observations.js';
+import { getProjectContext } from './core/context/context.js';
 import { getMemoryStats } from './core/memory/stats.js';
 import { ensureProject, getAllProjects } from './core/projects.js';
 import { startWebServer } from './webui/server.js';
@@ -57,11 +43,11 @@ import { handleReverseMerge } from './algorithms/handlers/reverse-merge.js';
 import { handleGetMergeStats } from './algorithms/handlers/get-stats.js';
 import { forceLifecycleMaintenance } from './core/worker.js';
 import { summarizeSession } from './core/summarization.js';
-import { storeAgentMemory } from './core/agent-memory.js';
+import { storeAgentMemory } from './core/ingestion/agent-memory.js';
 import { getRelatedMemories, createAssociation } from './core/associations.js';
-import { protectMemory, pinMemory, unpinMemory } from './core/governance.js';
- import { isDatabaseUnavailableError, determineOverallStatus } from './core/utils.js';
- import { validateLimit } from './core/validation.js';
+import { protectMemory, pinMemory, unpinMemory } from './core/security/governance.js';
+ import { isDatabaseUnavailableError, determineOverallStatus } from './core/lib/utils.js';
+ import { validateLimit } from './core/lib/validation.js';
 import { runDeduplicationJob, runFullConsolidationJob } from './core/consolidation.js';
 import { searchWithQMD, isQMDAvailable } from './core/search/qmd-search.js';
 import {
@@ -70,14 +56,14 @@ import {
   editCoreMemorySection,
   appendCoreMemorySection,
   getCoreMemoryStats,
-} from './core/core-memory.js';
+} from './core/ingestion/core-memory.js';
 import { getNamespaceTree } from './core/namespaces/index.js';
 import {
   loadMemoryToContext,
   evictMemoryFromContext,
   viewLoadedMemories,
   getContextStatus,
-} from './core/context-paging.js';
+} from './core/context/context-paging.js';
 import { ensureDataDirectory } from './db/bootstrap.js';
 import { getDataDir } from './config.js';
 import { performAutoLoad, shouldAutoLoad, getAutoLoadConfig } from './core/session/auto-load.js';
@@ -85,7 +71,7 @@ import { initializeScheduler } from './core/scheduler/cron-scheduler.js';
 import { runNightlyJob, runWeeklyJob } from './core/scheduler/job-runner.js';
 import {
   DEFAULT_CONTEXT_CONFIG,
-} from './core/context-window.js';
+} from './core/context/context-window.js';
 const VERSION = '1.1.0';
 
 // Output Formatting Utilities
