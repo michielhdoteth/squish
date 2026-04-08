@@ -112,12 +112,13 @@ const neonServiceKey = process.env.NEON_SERVICE_KEY || '';
 
 // Embeddings providers:
 // - openai: OpenAI API (requires API key)
-// - ollama: Local Ollama server (requires nomic-embed-text)
+// - ollama: Local Ollama server (any model)
+// - lmstudio: LM Studio local server (any model)
 // - local: TF-IDF offline (no dependencies)
 // - none: Disable embeddings (stub)
 // - google: Google Cloud embeddings
 // - auto: Smart fallback (cloud if available, local fallback)
-const VALID_PROVIDERS = new Set(['openai', 'ollama', 'local', 'none', 'google', 'auto']);
+const VALID_PROVIDERS = new Set(['openai', 'ollama', 'lmstudio', 'local', 'none', 'google', 'auto']);
 const embeddingsProvider = (() => {
   const explicit = getConfig('embeddings.provider', 'SQUISH_EMBEDDINGS_PROVIDER', 'local').toLowerCase();
   if (VALID_PROVIDERS.has(explicit)) {
@@ -139,7 +140,11 @@ const googleEmbeddingModel = getConfig('embeddings.models.google.model', 'SQUISH
 
 // Ollama Configuration
 const ollamaUrl = getConfig('api.ollama.url', 'SQUISH_OLLAMA_URL', 'http://localhost:11434');
-const ollamaEmbeddingModel = getConfig('embeddings.models.ollama.model', 'SQUISH_OLLAMA_EMBEDDING_MODEL', 'nomic-embed-text:v1.5');
+const ollamaEmbeddingModel = getConfig('embeddings.models.ollama.model', 'SQUISH_OLLAMA_EMBEDDING_MODEL', '');
+
+// LM Studio Configuration (OpenAI-compatible local server)
+const lmStudioUrl = getConfig('api.lmstudio.url', 'SQUISH_LM_STUDIO_URL', 'http://localhost:1234');
+const lmStudioEmbeddingModel = getConfig('embeddings.models.lmstudio.model', 'SQUISH_LM_STUDIO_EMBEDDING_MODEL', '');
 
 export const config = {
   // Mode detection
@@ -159,7 +164,7 @@ export const config = {
   
   mcpServerPort: parseInt(getConfig('mcp.serverPort', 'SQUISH_MCP_PORT', '8767')),
   
-  embeddingsProvider: embeddingsProvider as 'local' | 'openai' | 'ollama' | 'google' | 'none' | 'auto',
+  embeddingsProvider: embeddingsProvider as 'local' | 'openai' | 'ollama' | 'lmstudio' | 'google' | 'none' | 'auto',
   
   // OpenAI
   openAiApiKey,
@@ -175,6 +180,10 @@ export const config = {
   // Ollama
   ollamaUrl,
   ollamaEmbeddingModel,
+
+  // LM Studio (OpenAI-compatible local)
+  lmStudioUrl,
+  lmStudioEmbeddingModel,
 
   // Supabase configuration
   supabaseUrl: getConfig('supabase.url', 'SUPABASE_URL', ''),

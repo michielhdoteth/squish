@@ -109,9 +109,23 @@ SQUISH_OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 SQUISH_EMBEDDINGS_PROVIDER=ollama
 SQUISH_OLLAMA_URL=http://localhost:11434
 
-# Optional: specify model (default: nomic-embed-text:v1.5)
+# Optional: specify model (leave empty for auto-detect)
 SQUISH_OLLAMA_EMBEDDING_MODEL=nomic-embed-text:v1.5
-# Alternative: mxbai-embed-large
+# Alternative: mxbai-embed-large, etc.
+```
+
+## LM Studio Embeddings (Local)
+
+```bash
+# .env.lmstudio
+
+# Use LM Studio embeddings (OpenAI-compatible API)
+SQUISH_EMBEDDINGS_PROVIDER=lmstudio
+SQUISH_LM_STUDIO_URL=http://localhost:1234
+
+# Optional: specify model (leave empty for auto-detect)
+SQUISH_LM_STUDIO_EMBEDDING_MODEL=text-embedding-nomic-embed-text-v1.5
+# Note: Model name must match what's loaded in LM Studio
 ```
 
 ## Auto Mode (Smart Fallback)
