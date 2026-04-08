@@ -1,23 +1,14 @@
 /**
  * Memory Consolidation System
- *
- * Implements experience replay and memory consolidation for Squish.
- * Based on research from ReMe (Memory Replay) and LIGHT framework.
- *
- * Consolidation process:
- * 1. Find clusters of old, low-importance memories
- * 2. Group related memories by similarity
- * 3. Summarize each cluster using extractive summarization
- * 4. Create consolidated memory with summary
- * 5. Mark originals as consolidated (not deleted - reversible)
+ * Implements experience replay and memory consolidation
  */
 
 import { randomUUID } from 'crypto';
 import { eq, inArray, and } from 'drizzle-orm';
-import { createDatabaseClient } from '../database.js';
+import { createDatabaseClient } from '../storage/database.js';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
-import { getEmbedding } from '../embeddings.js';
+import { getEmbedding } from '../../core/embeddings.js';
 import { cosineSimilarity } from './importance.js';
 import { getLowImportanceMemories } from './importance.js';
 import { rememberMemory } from './memories.js';

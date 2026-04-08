@@ -16,18 +16,14 @@
     "sourceMap": true,
     "noEmit": false
   },
-  "include": [
-    "index.ts",
-    "config.ts",
-    "core/**/*.ts",
-    "features/**/*.ts",
-    "adapters/**/*.ts",
-    "db/**/*.ts",
-    "tools/**/*.ts",
-    "drizzle/**/*.ts",
-    "types/**/*.d.ts",
-    "commands/**/*.ts",
-    "api/web/**/*.ts"
-  ],
+   "include": [
+     "index.ts",
+     "config.ts",
+     "core/**/*.ts",
+     "db/**/*.ts",
+     "types/**/*.d.ts",
+     "core/commands/**/*.ts",
+     "webui/**/*.ts"
+   ],
   "exclude": ["node_modules", "dist", "tests", "benchmark", "docs"]
 }

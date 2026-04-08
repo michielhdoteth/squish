@@ -62,7 +62,7 @@ function wrapSqlJsStatement(stmt: any, sqlite: any, dbPath: string, query: strin
 async function createBunSqliteDb(dbPath: string) {
   // @ts-ignore - bun:sqlite module not found in types but works at runtime
   const { drizzle } = await import('drizzle-orm/bun-sqlite');
-  const schemaModule = await import('../drizzle/schema-sqlite.js');
+  const schemaModule = await import('./drizzle/schema-sqlite.js');
 
   // Bun SQLite doesn't need file path for in-memory, but we'll use file path for persistence
   // @ts-ignore - bun:sqlite module not found in types but works at runtime
@@ -88,7 +88,7 @@ export async function createDb() {
 async function createPostgresDb() {
   const { Pool } = await import('pg');
   const { drizzle } = await import('drizzle-orm/node-postgres');
-  const schemaModule = await import('../drizzle/schema.js');
+  const schemaModule = await import('./drizzle/schema.js');
 
   const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
@@ -145,7 +145,7 @@ async function createBetterSqliteDb(dbPath: string) {
   const DatabaseModule = await import('better-sqlite3');
   const Database = DatabaseModule.default;
   const { drizzle } = await import('drizzle-orm/better-sqlite3');
-  const schemaModule = await import('../drizzle/schema-sqlite.js');
+  const schemaModule = await import('./drizzle/schema-sqlite.js');
 
   const sqlite = new Database(dbPath);
 
@@ -162,7 +162,7 @@ async function createSqlJsDb(dbPath: string) {
   // @ts-ignore - sql.js has no types but works fine
   const initSqlJs = await import('sql.js');
   const { drizzle } = await import('drizzle-orm/sql-js');
-  const schemaModule = await import('../drizzle/schema-sqlite.js');
+  const schemaModule = await import('./drizzle/schema-sqlite.js');
   const wasmPath = resolveSqlJsWasmPath();
   const SQL = await initSqlJs.default({
     locateFile: (file: string) => (file.endsWith('.wasm') ? wasmPath : file),

@@ -56,17 +56,69 @@ function getConfig(path: string, envVar: string | null, defaultValue: any): any 
   return defaultValue;
 }
 
-const isTeamMode = !!process.env.DATABASE_URL?.startsWith('postgres');
+// Mode detection: local (default), team (cloud with own db), remote (integrations)
+// Priority: remote > team > local
+const DATABASE_URL = process.env.DATABASE_URL || '';
+const SUPABASE_URL = process.env.SUPABASE_URL || '';
+const NEON_PROJECT_ID = process.env.NEON_PROJECT_ID || '';
+
+// Determine mode based on environment
+function detectMode(): 'local' | 'team' | 'remote' {
+  // Remote mode: user has their own Supabase or Neon
+  if (SUPABASE_URL || NEON_PROJECT_ID) {
+    return 'remote';
+  }
+  // Team mode: PostgreSQL (self-hosted "local cloud")
+  if (DATABASE_URL.startsWith('postgres')) {
+    return 'team';
+  }
+  // Local mode: default SQLite
+  return 'local';
+}
+
+const detectedMode = detectMode();
+const isTeamMode = detectedMode === 'team';
+const isRemoteMode = detectedMode === 'remote';
+const isLocalMode = detectedMode === 'local';
+
 const isManagedMode = process.env.SQUISH_MANAGED_MODE === 'true';
+
+// Team/Remote backend selection
+const teamBackend = (() => {
+  const explicit = getConfig('team.backend', 'SQUISH_TEAM_BACKEND', '').toLowerCase();
+  if (explicit === 'supabase' || explicit === 'neon' || explicit === 'postgres') {
+    return explicit;
+  }
+  // Auto-detect based on env vars
+  if (SUPABASE_URL) return 'supabase';
+  if (NEON_PROJECT_ID) return 'neon';
+  return 'postgres'; // default to PostgreSQL
+})();
+
+const remoteBackend = (() => {
+  const explicit = getConfig('remote.backend', 'SQUISH_REMOTE_BACKEND', '').toLowerCase();
+  if (explicit === 'supabase' || explicit === 'neon') {
+    return explicit;
+  }
+  // Auto-detect based on env vars
+  if (SUPABASE_URL) return 'supabase';
+  if (NEON_PROJECT_ID) return 'neon';
+  return 'supabase'; // default to Supabase
+})();
+
+// Neon configuration
+const neonProjectId = process.env.NEON_PROJECT_ID || '';
+const neonServiceKey = process.env.NEON_SERVICE_KEY || '';
 
 // Embeddings providers:
 // - openai: OpenAI API (requires API key)
-// - ollama: Local Ollama server (requires nomic-embed-text)
+// - ollama: Local Ollama server (any model)
+// - lmstudio: LM Studio local server (any model)
 // - local: TF-IDF offline (no dependencies)
 // - none: Disable embeddings (stub)
 // - google: Google Cloud embeddings
 // - auto: Smart fallback (cloud if available, local fallback)
-const VALID_PROVIDERS = new Set(['openai', 'ollama', 'local', 'none', 'google', 'auto']);
+const VALID_PROVIDERS = new Set(['openai', 'ollama', 'lmstudio', 'local', 'none', 'google', 'auto']);
 const embeddingsProvider = (() => {
   const explicit = getConfig('embeddings.provider', 'SQUISH_EMBEDDINGS_PROVIDER', 'local').toLowerCase();
   if (VALID_PROVIDERS.has(explicit)) {
@@ -74,26 +126,6 @@ const embeddingsProvider = (() => {
   }
   return 'local';
 })();
-
-// QMD Integration
-const qmdEnabled = process.env.SQUISH_QMD_ENABLED === 'true';
-const qmdCollectionsPath = process.env.SQUISH_QMD_COLLECTIONS ||
-  getDataDir().replace('.squish', 'qmd-collections');
-const VALID_FALLBACK_MODES = new Set(['qmd-only', 'cloud-first', 'hybrid', 'local-only']);
-const qmdFallbackMode = (() => {
-  const mode = process.env.SQUISH_QMD_FALLBACK || 'hybrid';
-  return VALID_FALLBACK_MODES.has(mode) ? mode : 'hybrid';
-})();
-const defaultCollectionMapping = {
-  observation: 'squish-observations',
-  fact: 'squish-facts',
-  decision: 'squish-decisions',
-  context: 'squish-context',
-  preference: 'squish-preferences'
-};
-const qmdCollectionMapping = process.env.SQUISH_QMD_COLLECTION_MAPPING
-  ? JSON.parse(process.env.SQUISH_QMD_COLLECTION_MAPPING)
-  : defaultCollectionMapping;
 
 // OpenAI Configuration
 const openAiApiKey = process.env.SQUISH_OPENAI_API_KEY || process.env.OPENAI_API_KEY || '';
@@ -108,18 +140,31 @@ const googleEmbeddingModel = getConfig('embeddings.models.google.model', 'SQUISH
 
 // Ollama Configuration
 const ollamaUrl = getConfig('api.ollama.url', 'SQUISH_OLLAMA_URL', 'http://localhost:11434');
-const ollamaEmbeddingModel = getConfig('embeddings.models.ollama.model', 'SQUISH_OLLAMA_EMBEDDING_MODEL', 'nomic-embed-text:v1.5');
+const ollamaEmbeddingModel = getConfig('embeddings.models.ollama.model', 'SQUISH_OLLAMA_EMBEDDING_MODEL', '');
+
+// LM Studio Configuration (OpenAI-compatible local server)
+const lmStudioUrl = getConfig('api.lmstudio.url', 'SQUISH_LM_STUDIO_URL', 'http://localhost:1234');
+const lmStudioEmbeddingModel = getConfig('embeddings.models.lmstudio.model', 'SQUISH_LM_STUDIO_EMBEDDING_MODEL', '');
 
 export const config = {
+  // Mode detection
+  mode: detectedMode,
+  isLocalMode,
   isTeamMode,
+  isRemoteMode,
+  
+  // Backend selection
+  teamBackend: teamBackend as 'postgres' | 'supabase' | 'neon',
+  remoteBackend: remoteBackend as 'supabase' | 'neon',
+  
+  // Legacy support
   isManagedMode,
   redisEnabled: !!process.env.REDIS_URL,
   dataDir: getDataDir(),
   
   mcpServerPort: parseInt(getConfig('mcp.serverPort', 'SQUISH_MCP_PORT', '8767')),
-  mcpServerEnabled: getConfig('mcp.serverEnabled', 'SQUISH_MCP_SERVER_ENABLED', true) !== false,
   
-  embeddingsProvider: embeddingsProvider as 'local' | 'openai' | 'ollama' | 'google' | 'none' | 'auto',
+  embeddingsProvider: embeddingsProvider as 'local' | 'openai' | 'ollama' | 'lmstudio' | 'google' | 'none' | 'auto',
   
   // OpenAI
   openAiApiKey,
@@ -136,9 +181,17 @@ export const config = {
   ollamaUrl,
   ollamaEmbeddingModel,
 
+  // LM Studio (OpenAI-compatible local)
+  lmStudioUrl,
+  lmStudioEmbeddingModel,
+
   // Supabase configuration
   supabaseUrl: getConfig('supabase.url', 'SUPABASE_URL', ''),
   supabaseKey: getConfig('supabase.key', 'SUPABASE_SERVICE_KEY', ''),
+
+  // Neon configuration
+  neonProjectId: process.env.NEON_PROJECT_ID || '',
+  neonServiceKey: process.env.NEON_SERVICE_KEY || '',
 
   // Encryption configuration
   clientEncryptionEnabled: getConfig('security.encryptionEnabled', null, false) !== false,
@@ -147,8 +200,6 @@ export const config = {
   // Lifecycle Management
   lifecycleEnabled: getConfig('features.lifecycleEnabled', 'SQUISH_LIFECYCLE_ENABLED', true) !== false,
   lifecycleInterval: parseInt(process.env.SQUISH_LIFECYCLE_INTERVAL || '3600000'),
-  // Decay scheduler
-  decayJobCron: getConfig('lifecycle.decayCron', null, '0 * * * *'),
   decayThreshold: parseFloat(process.env.SQUISH_DECAY_THRESHOLD || '0.1'),
 
   // Session Summarization
@@ -167,11 +218,19 @@ export const config = {
   consolidationEnabled: process.env.SQUISH_CONSOLIDATION_ENABLED === 'true',
   consolidationSimilarityThreshold: parseFloat(process.env.SQUISH_CONSOLIDATION_THRESHOLD || '0.8'),
 
-  // QMD Integration
-  qmdEnabled,
-  qmdCollectionsPath,
-  qmdFallbackMode: qmdFallbackMode as 'qmd-only' | 'cloud-first' | 'hybrid' | 'local-only',
-  qmdCollectionMapping,
+  // Obsidian Integration (NEW)
+  obsidianEnabled: process.env.SQUISH_OBSIDIAN_ENABLED === 'true',
+  obsidianVaultPath: process.env.SQUISH_OBSIDIAN_VAULT_PATH || '',
+
+  // External Folder Memory (QMD Wrapper)
+  externalMemoryEnabled: process.env.SQUISH_EXTERNAL_MEMORY_ENABLED === 'true',
+  externalMemoryPath: process.env.SQUISH_EXTERNAL_MEMORY_PATH || '',
+
+  // DEPRECATED: QMD (kept for backward compat during transition)
+  qmdEnabled: false, // DEPRECATED - use Obsidian integration instead
+  qmdCollectionsPath: '', // DEPRECATED
+  qmdFallbackMode: 'local-only' as const, // DEPRECATED
+  qmdCollectionMapping: {} as Record<string, string>, // DEPRECATED
 
   // Managed Mode
   managedMode: process.env.SQUISH_MANAGED_MODE === 'true',

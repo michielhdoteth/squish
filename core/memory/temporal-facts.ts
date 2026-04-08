@@ -31,6 +31,10 @@ export interface SupersessionResult {
 export async function checkTemporalValidity(memoryId: string): Promise<TemporalValidityCheck> {
   try {
     const db = await getDb();
+    if (!db) {
+      // Graceful fallback when database is unavailable
+      return { isValid: true, confidence: 0.5 };
+    }
     const schema = await getSchema();
     
     const memories = await (db as any)
@@ -101,9 +105,13 @@ export async function supersedeOldTemporalFacts(
     supersededCount: 0,
     newValidFrom: new Date(),
   };
-  
+
   try {
     const db = await getDb();
+    if (!db) {
+      // Graceful fallback when database is unavailable
+      return result;
+    }
     const schema = await getSchema();
     
     // Parse temporal facts from new content
@@ -229,9 +237,13 @@ function isMoreRecent(fact1: TemporalFact, fact2: TemporalFact): boolean {
  */
 export async function cleanupExpiredTemporalFacts(projectId?: string): Promise<number> {
   let expiredCount = 0;
-  
+
   try {
     const db = await getDb();
+    if (!db) {
+      // Graceful fallback when database is unavailable
+      return 0;
+    }
     const schema = await getSchema();
     const now = new Date();
     
@@ -288,6 +300,15 @@ export async function getTemporalFactsStats(projectId?: string): Promise<{
 }> {
   try {
     const db = await getDb();
+    if (!db) {
+      // Graceful fallback when database is unavailable
+      return {
+        totalTemporalFacts: 0,
+        validFacts: 0,
+        expiredFacts: 0,
+        supersededFacts: 0,
+      };
+    }
     const schema = await getSchema();
     const now = new Date();
     

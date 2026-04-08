@@ -1,22 +1,8 @@
 #!/usr/bin/env node
 
 /**
- * Squish v1.1.0 - Universal Memory Plugin System
- * 
- * Modes:
- * - CLI Mode: For any MCP client bash execution (e.g., `squish remember "text"`)
- * - MCP Mode: For AI assistants (Claude Code, OpenClaw, OpenCode, Codex, etc.)
- *
- * Features:
- * - Hybrid Search: BM25 + vector search with RRF + graph boost
- * - Importance Scoring: Auto-score memories with temporal decay
- * - Tier-Based Lifecycle: hot/warm/cold memory tiers
- * - Client-Side Encryption: AES-256-GCM with PBKDF2
- * - Squish Learn: Capture success, failure, and fixes
- * - 18 MCP tools
- * - Local mode: SQLite with FTS5
- * - Team mode: PostgreSQL + pgvector + Supabase
- * - Universal Plugin: Works with 7+ AI assistants
+ * Squish - Universal Memory Plugin System
+ * CLI + MCP server for persistent memory with hybrid search and encryption
  */
 
 import 'dotenv/config';
@@ -39,28 +25,30 @@ import { logger } from './core/logger.js';
 import { checkDatabaseHealth, config, getDb } from './db/index.js';
 import { getSchema } from './db/schema.js';
 import { eq } from 'drizzle-orm';
-import { checkRedisHealth, closeCache } from './core/cache.js';
+import { checkRedisHealth, closeCache } from './core/storage/cache.js';
 import { rememberMemory, getMemory, search, getRecent, setConfidence } from './core/memory/memories.js';
-import { toSqliteTags } from './core/memory/serialization.js';
+import { serializeTags } from './core/memory/serialization.js';
 import { searchConversations, getRecentConversations } from './core/search/conversations.js';
-import { addObservation, getObservations, createLearning, type LearningType } from './core/observations.js';
-import { getProjectContext } from './core/context.js';
+import { createLearning, getLearnings, type LearningType } from './core/ingestion/learnings.js';
+import { getProjectContext } from './core/context/context.js';
 import { getMemoryStats } from './core/memory/stats.js';
 import { ensureProject, getAllProjects } from './core/projects.js';
-import { startWebServer } from './api/web/web.js';
-import { handleDetectDuplicates } from './algorithms/handlers/detect-duplicates.js';
-import { handleListProposals } from './algorithms/handlers/list-proposals.js';
-import { handlePreviewMerge } from './algorithms/handlers/preview-merge.js';
-import { handleApproveMerge } from './algorithms/handlers/approve-merge.js';
-import { handleRejectMerge } from './algorithms/handlers/reject-merge.js';
-import { handleReverseMerge } from './algorithms/handlers/reverse-merge.js';
-import { handleGetMergeStats } from './algorithms/handlers/get-stats.js';
+import { startWebServer } from './webui/server.js';
+import { handleDetectDuplicates } from './core/algorithms/handlers/detect-duplicates.js';
+import { handleListProposals } from './core/algorithms/handlers/list-proposals.js';
+import { handlePreviewMerge } from './core/algorithms/handlers/preview-merge.js';
+import { handleApproveMerge } from './core/algorithms/handlers/approve-merge.js';
+import { handleRejectMerge } from './core/algorithms/handlers/reject-merge.js';
+import { handleReverseMerge } from './core/algorithms/handlers/reverse-merge.js';
+import { handleGetMergeStats } from './core/algorithms/handlers/get-stats.js';
 import { forceLifecycleMaintenance } from './core/worker.js';
 import { summarizeSession } from './core/summarization.js';
-import { storeAgentMemory } from './core/agent-memory.js';
+import { storeAgentMemory } from './core/ingestion/agent-memory.js';
 import { getRelatedMemories, createAssociation } from './core/associations.js';
-import { protectMemory, pinMemory, unpinMemory } from './core/governance.js';
-import { isDatabaseUnavailableError, determineOverallStatus } from './core/utils.js';
+import { protectMemory, pinMemory, unpinMemory } from './core/security/governance.js';
+ import { isDatabaseUnavailableError, determineOverallStatus } from './core/lib/utils.js';
+ import { validateLimit } from './core/lib/validation.js';
+import { runDeduplicationJob, runFullConsolidationJob } from './core/consolidation.js';
 import { searchWithQMD, isQMDAvailable } from './core/search/qmd-search.js';
 import {
   initializeCoreMemory,
@@ -68,22 +56,22 @@ import {
   editCoreMemorySection,
   appendCoreMemorySection,
   getCoreMemoryStats,
-} from './core/core-memory.js';
+} from './core/ingestion/core-memory.js';
+import { getNamespaceTree } from './core/namespaces/index.js';
 import {
   loadMemoryToContext,
   evictMemoryFromContext,
   viewLoadedMemories,
   getContextStatus,
-} from './core/context-paging.js';
+} from './core/context/context-paging.js';
 import { ensureDataDirectory } from './db/bootstrap.js';
 import { getDataDir } from './config.js';
 import { performAutoLoad, shouldAutoLoad, getAutoLoadConfig } from './core/session/auto-load.js';
-import { initializeScheduler, registerJobHandler } from './core/scheduler/cron-scheduler.js';
-import { startHeartbeatChecking, heartbeat } from './core/scheduler/heartbeat.js';
+import { initializeScheduler } from './core/scheduler/cron-scheduler.js';
 import { runNightlyJob, runWeeklyJob } from './core/scheduler/job-runner.js';
 import {
   DEFAULT_CONTEXT_CONFIG,
-} from './core/context-window.js';
+} from './core/context/context-window.js';
 const VERSION = '1.1.0';
 
 // Output Formatting Utilities
@@ -302,9 +290,9 @@ CLI Commands (for agents):
   squish config [action]      Manage Squish configuration
   squish remember <content>   Store a memory
   squish note <content>       Save a quick note
-  squish learn <type> <text>  Record learning or observations
-  squish search <query>       Search memories
-  squish recall <query>       Search or get by ID
+  squish learn <type> <text>  Record learning: success, failure, fix, insight
+  squish search <query>       Search memories (--pretty for human output)
+  squish recall <query>       Search or get by ID (--pretty for human output)
   squish recent --period      Recent memories (today/yesterday/thisweek/7days/30days)
   squish update <memoryId>    Update memory
   squish forget <memoryId>    Delete memory (single or bulk with --older-than --search)
@@ -313,13 +301,10 @@ CLI Commands (for agents):
   squish tag <action>         Manage tags
   squish stale                Show stale memories
   squish link <action>        Manage links (find/add/list)
+  squish migrate              Migrate memories between .squish directories
+  squish clean                Dedup + consolidate (maintenance)
   squish context              Show context or list projects
-  squish health               Check service health
   squish stats                View memory statistics
-
-New in v1.2:
-  squish search --pretty      Human-friendly output
-  squish recall --pretty      Human-friendly output
 
 Examples:
   squish run mcp              # Start MCP server (for agents)
@@ -331,7 +316,7 @@ Examples:
   squish learn fix "Patched auth middleware" --target middleware.ts
   squish search "query"       # Search memories
   squish context --list-projects
-  squish context              # Inspect current project context
+  squish clean                # Run deduplication and consolidation
 
 For more info: https://github.com/michielhdoteth/squish
 `);
@@ -580,6 +565,36 @@ async function runCliMode() {
       }
     });
 
+  // squish mount /path/to/folder - Enable external memory
+  program
+    .command('mount')
+    .description('Mount an external folder as memory storage')
+    .argument('[path]', 'Path to external folder (or "status" or "unmount")')
+    .action(async (pathOrAction) => {
+      const { getExternalMemory } = await import('./core/external-folder/index.js');
+      const externalMemory = getExternalMemory();
+      
+      if (pathOrAction === 'status') {
+        // Show mount status
+        const status = await externalMemory.getStatus();
+        console.log(JSON.stringify({ ok: true, status }, null, 2));
+      } else if (pathOrAction === 'unmount') {
+        // Unmount
+        externalMemory.unmount();
+        console.log(JSON.stringify({ ok: true, message: 'External memory unmounted' }, null, 2));
+      } else if (pathOrAction) {
+        // Mount at path
+        const result = await externalMemory.mount(pathOrAction);
+        if (result.success) {
+          console.log(JSON.stringify({ ok: true, message: `Mounted at ${pathOrAction}` }, null, 2));
+        } else {
+          console.log(JSON.stringify({ ok: false, error: result.error }, null, 2));
+        }
+      } else {
+        console.log(JSON.stringify({ ok: false, error: 'Usage: squish mount <path> or squish mount status' }, null, 2));
+      }
+    });
+
   // squish remember "content" --type fact --tags tag1,tag2
   program
     .command('remember <content>')
@@ -587,13 +602,29 @@ async function runCliMode() {
     .option('-t, --type <type>', 'Memory type (observation, fact, decision, context, preference)', 'observation')
     .option('-T, --tags <tags>', 'Comma-separated tags', '')
     .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
+    .option('-s, --source <source>', 'Source of this memory (e.g., "voice", "chat", "document")')
+    .option('-r, --reasoning <reasoning>', 'Why this memory is important')
+    .option('-c, --context <context>', 'What triggered this memory')
+    .option('-e, --examples <examples>', 'When to apply this knowledge')
+    .option('-x, --exceptions <exceptions>', 'When NOT to apply this')
+    .option('-H, --hot', 'Store in hot tier (active, high priority)', false)
+    .option('-C, --cold', 'Store in cold tier (archived, lower priority)', false)
     .action(async (content, options) => {
       try {
+        // Determine tier: default hot, explicit cold overrides
+        const tier = options.cold ? 'cold' : 'hot';
+        
         const result = await rememberMemory({
           content,
           type: options.type,
           tags: options.tags ? options.tags.split(',').map((t: string) => t.trim()) : [],
           project: options.project,
+          source: options.source,
+          reasoning: options.reasoning,
+          memoryContext: options.context,
+          examples: options.examples,
+          exceptions: options.exceptions,
+          tier,
         });
         console.log(JSON.stringify({ ok: true, ...result }, null, 2));
       } catch (error: any) {
@@ -617,11 +648,11 @@ async function runCliMode() {
         const results = await search({
           query,
           type: options.type,
-          limit: parseInt(options.limit, 10) * 2,
+          limit: validateLimit(options.limit, 10, 1, 100) * 2,
           project: options.project,
         });
         const filtered = filterByDateRange(results, options.since, options.until);
-        const limited = filtered.slice(0, parseInt(options.limit, 10));
+        const limited = filtered.slice(0, validateLimit(options.limit, 10, 1, 100));
         
         if (options.pretty) {
           console.log(`\n  Search: "${query}"`);
@@ -667,9 +698,9 @@ program
         process.exit(1);
       }
       
-      const query = options.search || '';
-      const limit = parseInt(options.limit, 10);
-      const results = await search({ query, type: options.type, limit, project: options.project });
+       const query = options.search || '';
+       const limit = validateLimit(options.limit, 100, 1, 100);
+       const results = await search({ query, type: options.type, limit, project: options.project });
       
       let filtered = results;
       if (options.olderThan) {
@@ -709,8 +740,8 @@ program
           console.log(JSON.stringify({ ok: false, error: 'Usage: squish link find <memoryId> [--depth N] [--min-weight N]' }, null, 2));
           process.exit(1);
         }
-        const depth = parseInt(args[1]) || 2;
-        const minWeight = parseFloat(args[2]) || 0.3;
+         const depth = validateLimit(args[1], 2, 1, 5);
+         const minWeight = parseFloat(args[2]) || 0.3;
         const related = await getRelatedMemories(memoryId, depth * 5);
         const filtered = related.filter((r: any) => r.weight >= minWeight);
         console.log(JSON.stringify({ ok: true, count: filtered.length, related: filtered }, null, 2));
@@ -748,24 +779,20 @@ program
     }
   });
 
-// squish learn <type> <content> - Record learning: success, failure, fix, or observation
+// squish learn <type> <content> - Record learning: success, failure, fix, or insight
 program
   .command('learn <type> <content>')
-  .description('Record learning: success, failure, fix, or observation')
+  .description('Record learning: success, failure, fix, or insight')
   .option('-c, --context <context>', 'Additional context about what happened')
-  .option('-a, --action <action>', 'Action performed (used for observation)')
-  .option('-o, --observation-type <kind>', 'Observation kind: tool_use, file_change, error, pattern, insight', 'insight')
+  .option('-a, --action <action>', 'Action performed')
   .option('-t, --target <target>', 'Target file or resource')
+  .option('-m, --memory-id <memoryId>', 'Optional memory ID to link this learning to')
   .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
   .action(async (type, content, options) => {
     try {
-      const validTypes: LearningType[] = ['success', 'failure', 'fix', 'observation'];
+      const validTypes: LearningType[] = ['success', 'failure', 'fix', 'insight'];
       if (!validTypes.includes(type as LearningType)) {
         console.log(JSON.stringify({ ok: false, error: `Invalid type. Must be: ${validTypes.join(', ')}` }, null, 2));
-        process.exit(1);
-      }
-      if (type === 'observation' && !options.action) {
-        console.log(JSON.stringify({ ok: false, error: '--action is required when type is observation' }, null, 2));
         process.exit(1);
       }
       const learning = await createLearning({
@@ -773,9 +800,9 @@ program
         content,
         context: options.context,
         action: options.action,
-        observationType: options.observationType,
         target: options.target,
         project: options.project,
+        memoryId: options.memoryId,
       });
       console.log(JSON.stringify({ ok: true, learning }, null, 2));
     } catch (error: any) {
@@ -795,7 +822,7 @@ program
       const updates: Record<string, any> = {};
       if (options.content) updates.content = options.content;
       if (options.type) updates.type = options.type;
-      if (options.tags) updates.tags = config.isTeamMode ? options.tags : JSON.stringify(options.tags.split(','));
+       if (options.tags) updates.tags = serializeTags(options.tags.split(','));
       
       const db = await getDb();
       const schema = await getSchema();
@@ -831,15 +858,15 @@ program
         } else {
           console.log(JSON.stringify({ ok: true, found: !!memory, memory }, null, 2));
         }
-      } else {
-        const results = await search({
-          query,
-          type: options.type,
-          limit: parseInt(options.limit, 10) * 2,
-          project: options.project,
-        });
-        const filtered = filterByDateRange(results, options.since, options.until);
-        const limited = filtered.slice(0, parseInt(options.limit, 10));
+       } else {
+         const results = await search({
+           query,
+           type: options.type,
+           limit: validateLimit(options.limit, 5, 1, 100) * 2,
+           project: options.project,
+         });
+         const filtered = filterByDateRange(results, options.since, options.until);
+         const limited = filtered.slice(0, validateLimit(options.limit, 5, 1, 100));
         
         if (options.pretty) {
           console.log(`\n  Recall: "${query}"`);
@@ -903,9 +930,9 @@ program
         }
       }
       
-      const results = await getRecent(options.project, 100);
-      const filtered = filterByDateRange(results, since, until);
-      const limited = filtered.slice(0, parseInt(options.limit, 10));
+       const results = await getRecent(options.project, 100);
+       const filtered = filterByDateRange(results, since, until);
+       const limited = filtered.slice(0, validateLimit(options.limit, 10, 1, 100));
       console.log(JSON.stringify({ ok: true, period: options.period, since, until, count: limited.length, results: limited }, null, 2));
     } catch (error: any) {
       console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
@@ -981,8 +1008,8 @@ program
           process.exit(1);
         }
         
-        const limit = parseInt(options.limit, 10);
-        let results: any[];
+         const limit = validateLimit(options.limit, 50, 1, 100);
+         let results: any[];
         const searchInput: any = { query: options.search, limit, project: options.project };
         if (options.type) searchInput.type = options.type;
         
@@ -1007,9 +1034,9 @@ program
               const tags = new Set((mem.tags || []) as string[]);
               if (!tags.has(tag)) {
                 tags.add(tag);
-                await (db as any).update(schema.memories)
-                  .set({ tags: toSqliteTags(Array.from(tags)), updatedAt: new Date() })
-                  .where(eq(schema.memories.id, mem.id));
+                 await (db as any).update(schema.memories)
+                   .set({ tags: serializeTags(Array.from(tags)), updatedAt: new Date() })
+                   .where(eq(schema.memories.id, mem.id));
                 updated.push(mem.id);
               }
             } catch (e: any) {
@@ -1024,9 +1051,9 @@ program
             const tags = new Set((mem.tags || []) as string[]);
             if (tags.has(tag)) {
               tags.delete(tag);
-              await (db as any).update(schema.memories)
-                .set({ tags: toSqliteTags(Array.from(tags)), updatedAt: new Date() })
-                .where(eq(schema.memories.id, mem.id));
+               await (db as any).update(schema.memories)
+                 .set({ tags: serializeTags(Array.from(tags)), updatedAt: new Date() })
+                 .where(eq(schema.memories.id, mem.id));
               updated.push(mem.id);
             }
           }
@@ -1050,23 +1077,23 @@ program
     .option('-l, --limit <number>', 'Max results', '20')
     .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
     .action(async (options) => {
-      try {
-        const days = parseInt(options.days, 10);
-        const cutoffDate = new Date(Date.now() - days * 86400000);
-        
-        // Get recent memories - larger limit to find stale ones
-        const results = await getRecent(options.project, 500);
-        
-        const stale = results.filter((m: any) => {
-          const created = m.createdAt ? new Date(m.createdAt) : null;
-          const isOld = created && created < cutoffDate;
-          const isLowConfidence = m.confidenceLevel === 'outdated' || m.confidenceLevel === 'speculative';
-          const hasLowImportance = (m.importance || 50) < 40;
-          
-          return isOld || isLowConfidence || hasLowImportance;
-        });
-        
-        const limited = stale.slice(0, parseInt(options.limit, 10));
+       try {
+         const days = validateLimit(options.days, 30, 1, 365);
+         const cutoffDate = new Date(Date.now() - days * 86400000);
+         
+         // Get recent memories - larger limit to find stale ones
+         const results = await getRecent(options.project, 500);
+         
+         const stale = results.filter((m: any) => {
+           const created = m.createdAt ? new Date(m.createdAt) : null;
+           const isOld = created && created < cutoffDate;
+           const isLowConfidence = m.confidenceLevel === 'outdated' || m.confidenceLevel === 'speculative';
+           const hasLowImportance = (m.importance || 50) < 40;
+           
+           return isOld || isLowConfidence || hasLowImportance;
+         });
+         
+         const limited = stale.slice(0, validateLimit(options.limit, 20, 1, 100));
         
         const summary = {
           totalStale: stale.length,
@@ -1078,39 +1105,6 @@ program
         console.log(JSON.stringify({ ok: true, summary, memories: limited }, null, 2));
       } catch (error: any) {
         console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
-        process.exit(1);
-      }
-    });
-
-  // squish health
-  program
-    .command('health')
-    .description('Check service health and configuration')
-    .option('-j, --json', 'Output as JSON', false)
-    .action(async (options) => {
-      try {
-        const status = await buildHealthStatus();
-
-        if (options.json) {
-          console.log(JSON.stringify(status, null, 2));
-        } else {
-          console.log(`\n  Squish Memory v${VERSION}`);
-          console.log(`  ====================`);
-          console.log(`  Mode:     ${status.mode}`);
-          console.log(`  Database: ${status.database}`);
-          console.log(`  Cache:    ${status.cache}`);
-          console.log(`  Data Dir: ${status.dataDirectory}`);
-          console.log(`  Status:   ${status.ok ? 'HEALTHY' : 'UNHEALTHY'}\n`);
-        }
-
-        if (!status.ok) {
-          process.exit(1);
-        }
-      } catch (error: any) {
-        const message = isDatabaseUnavailableError(error)
-          ? error.message
-          : `Health check failed: ${error.message}`;
-        console.log(JSON.stringify({ ok: false, error: message }, null, 2));
         process.exit(1);
       }
     });
@@ -1160,68 +1154,129 @@ process.exit(1);
 
 // squish context - Show project context (memories + observations)
 program
-.command('context')
-.description('Show project context or list available projects')
-.option('-p, --project <project>', 'Project path', getDefaultProjectPath())
-.option('-l, --limit <number>', 'Number of items to show', '10')
-.option('-i, --include <items>', 'What to include: memories, observations, entities', 'memories,observations')
-.option('--list-projects', 'List registered projects instead of loading context', false)
-.option('-j, --json', 'Output as JSON', false)
-.action(async (options) => {
-try {
-if (options.listProjects) {
-const projects = await getAllProjects();
-if (options.json) {
-console.log(JSON.stringify({ ok: true, count: projects.length, projects }, null, 2));
-} else {
-console.log(`\n Registered Projects (${projects.length})`);
-console.log(` ================================`);
-for (const project of projects) {
-console.log(`\n ${project.name}`);
-console.log(`   Path: ${project.path}`);
-console.log(`   ID: ${project.id}`);
-}
-console.log('');
-}
-return;
-}
-const include = options.include.split(',').map((i: string) => i.trim());
-const limit = parseInt(options.limit, 10);
-const context: any = await getProjectContext({ project: options.project, include, limit });
-if (options.json) {
-console.log(JSON.stringify({ ok: true, ...context }, null, 2));
-} else {
-console.log(`\n Project Context: ${context.project?.name || 'unknown'}`);
-console.log(` ================================`);
-if (context.memories?.length) {
-console.log(`\n Recent Memories (${context.memories.length}):`);
-for (const m of context.memories.slice(0, 5)) {
-console.log(`   [${m.type}] ${m.content?.substring(0, 60)}...`);
-}
-}
-if (context.observations?.length) {
-console.log(`\n Recent Observations (${context.observations.length}):`);
-for (const o of context.observations.slice(0, 5)) {
-console.log(`   ${(o.summary || o.action)?.substring(0, 60)}...`);
-}
-}
-if (context.entities?.length) {
-console.log(`\n Entities (${context.entities.length}):`);
-for (const e of context.entities.slice(0, 5)) {
-console.log(`   ${e.name} (${e.type})`);
-}
-}
-console.log('');
-}
-} catch (error: any) {
-console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
-process.exit(1);
-}
-});
+  .command('context')
+  .description('Show project context or list available projects')
+  .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
+  .option('-l, --limit <number>', 'Number of items to show', '10')
+  .option('-i, --include <items>', 'What to include: memories, observations, entities', 'memories,observations')
+  .option('--list-projects', 'List registered projects instead of loading context', false)
+  .option('-j, --json', 'Output as JSON', false)
+  .action(async (options) => {
+    try {
+      if (options.listProjects) {
+        const projects = await getAllProjects();
+        if (options.json) {
+          console.log(JSON.stringify({ ok: true, count: projects.length, projects }, null, 2));
+        } else {
+          console.log(`\n Registered Projects (${projects.length})`);
+          console.log(` ================================`);
+          for (const project of projects) {
+            console.log(`\n ${project.name}`);
+            console.log(`   Path: ${project.path}`);
+            console.log(`   ID: ${project.id}`);
+          }
+          console.log('');
+        }
+      }
+    } catch (error: any) {
+      console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
+      process.exit(1);
+    }
+  });
+
+// squish migrate - Migrate memories between databases
+program
+  .command('migrate')
+  .description('Migrate memories from one .squish directory to another')
+  .option('-f, --from <path>', 'Source .squish directory (read from)', '')
+  .option('-t, --to <path>', 'Target .squish directory (write to)', '')
+  .option('--delete-source', 'Delete source after migration (use with caution)', false)
+  .option('--dry-run', 'Preview migration without applying', false)
+  .action(async (options) => {
+    try {
+      if (!options.from || !options.to) {
+        console.log(JSON.stringify({ 
+          ok: false, 
+          error: 'Usage: squish migrate --from /path/to/old/.squish --to /path/to/new/.squish' 
+        }, null, 2));
+        process.exit(1);
+      }
+
+      const sourcePath = path.join(options.from, 'squish.db');
+      const targetPath = path.join(options.to, 'squish.db');
+      
+      if (!existsSync(sourcePath)) {
+        console.log(JSON.stringify({ ok: false, error: `Source database not found: ${sourcePath}` }, null, 2));
+        process.exit(1);
+      }
+      
+      if (!existsSync(targetPath)) {
+        console.log(JSON.stringify({ ok: false, error: `Target database not found: ${targetPath}` }, null, 2));
+        process.exit(1);
+      }
+
+      console.log(`Migrating memories from:\n  ${options.from}\nto:\n  ${options.to}\n`);
+
+      // Import database modules dynamically
+      const { migrateMemories } = await import('./core/memory/migrate.js');
+      
+      const result = await migrateMemories(options.from, options.to, {
+        dryRun: options.dryRun,
+        deleteSource: options.deleteSource
+      });
+
+      console.log(JSON.stringify({ ok: true, ...result }, null, 2));
+    } catch (error: any) {
+      console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
+      process.exit(1);
+    }
+  });
+
+// squish clean - Run deduplication and consolidation
+program
+  .command('clean')
+  .description('Run maintenance: deduplication + consolidation')
+  .option('-t, --threshold <number>', 'Similarity threshold for dedup (0-1)', '0.85')
+  .option('-d, --min-age <days>', 'Minimum age for consolidation', '90')
+  .option('-i, --max-importance <number>', 'Max importance to consolidate (0-100)', '30')
+  .option('-c, --min-cluster <number>', 'Minimum cluster size', '3')
+  .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
+  .option('--dry-run', 'Preview changes without applying', false)
+  .action(async (options) => {
+    try {
+      console.log('Running maintenance: deduplication + consolidation...\n');
+      
+      // Step 1: Deduplication
+      console.log('Step 1: Finding duplicate memories...');
+      const dedupResult = await runDeduplicationJob(options.project);
+      console.log(`  Found ${dedupResult.duplicatesFound} duplicates, merged ${dedupResult.mergedCount}`);
+      
+      // Step 2: Consolidation
+      console.log('\nStep 2: Consolidating old memories...');
+      const consolidateResult = await runFullConsolidationJob(options.project);
+      console.log(`  Clustered ${consolidateResult.clustered}, merged ${consolidateResult.merged}, consolidated ${consolidateResult.consolidated}`);
+      
+      console.log(JSON.stringify({
+        ok: true,
+        dedup: {
+          duplicatesFound: dedupResult.duplicatesFound,
+          mergedCount: dedupResult.mergedCount,
+          tokensRecovered: dedupResult.tokensRecovered
+        },
+        consolidate: {
+          clustered: consolidateResult.clustered,
+          merged: consolidateResult.merged,
+          consolidated: consolidateResult.consolidated
+        }
+      }, null, 2));
+    } catch (error: any) {
+      console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
+    }
+  });
 
 await program.parseAsync(process.argv);
 }
 
-// MCP server: commands/mcp-server.ts
+// MCP server: core/commands/mcp-server.ts
 // Run with: npx squish-mcp
 // ============================================================================

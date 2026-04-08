@@ -1,20 +1,17 @@
 /**
  * Hybrid Search - Combines BM25 keyword search with vector semantic search
- * Uses Reciprocal Rank Fusion (RRF) for intelligent result merging
- *
- * Based on research showing 40-60% improvement over pure vector search:
- * - BM25 excels at exact keyword matches
- * - Vector search captures semantic similarity
- * - RRF merges both without score calibration issues
+ * Uses Reciprocal Rank Fusion (RRF) for result merging
  */
 
 import type { SearchResult, SearchInput } from './memories.js';
 import { getDb } from '../../db/index.js';
-import { createDatabaseClient } from '../../core/database.js';
+import { createDatabaseClient } from '../storage/database.js';
 import { getEmbedding } from '../../core/embeddings.js';
-import { getProjectByPath, ensureProject } from '../../core/projects.js';
-import { fromSqliteTags, normalizeTags } from './serialization.js';
+import { requireProject } from '../../core/projects.js';
+import { deserializeTags, deserializeMetadata, normalizeTags } from './serialization.js';
 import { computeGraphBoost } from '../search/graph-boost.js';
+import { normalizeTimestamp } from '../lib/utils.js';
+import { cosineSimilarity } from '../utils/vector-operations.js';
 import config from '../../config.js';
 
 /**
@@ -111,12 +108,10 @@ async function bm25Search(
 
     let projectId: string | null = null;
     if (input.project) {
-      const project = await getProjectByPath(input.project);
-      if (project) {
-        projectId = project.id;
-        conditions.push('m.project_id = ?');
-        params.push(project.id);
-      }
+      const project = await requireProject(input.project);
+      projectId = project.id;
+      conditions.push('m.project_id = ?');
+      params.push(project.id);
     }
 
     // For empty query with no filters, use "1=1" to match all
@@ -164,9 +159,9 @@ async function bm25Search(
         type: row.type as any,
         content: row.content,
         summary: row.summary ?? undefined,
-        tags: fromSqliteTags(row.tags ?? null),
-        metadata: row.metadata ? JSON.parse(row.metadata) : null,
-        createdAt: row.createdAt ? new Date((Number(row.createdAt) || 0) * 1000).toISOString() : undefined,
+        tags: deserializeTags(row.tags ?? null),
+        metadata: deserializeMetadata(row.metadata ?? null),
+        createdAt: row.createdAt ? (normalizeTimestamp(Number(row.createdAt)) ?? undefined) : undefined,
       },
     }));
   } catch (error: any) {
@@ -214,12 +209,10 @@ async function vectorSearch(
 
     let projectId: string | null = null;
     if (input.project) {
-      const project = await getProjectByPath(input.project);
-      if (project) {
-        projectId = project.id;
-        conditions.push('m.project_id = ?');
-        params.push(project.id);
-      }
+      const project = await requireProject(input.project);
+      projectId = project.id;
+      conditions.push('m.project_id = ?');
+      params.push(project.id);
     }
 
     const whereClause = conditions.length > 0
@@ -270,9 +263,9 @@ async function vectorSearch(
           type: item.type as any,
           content: item.content,
           summary: item.summary ?? undefined,
-          tags: fromSqliteTags(item.tags ?? null),
-          metadata: item.metadata ? JSON.parse(item.metadata) : null,
-          createdAt: item.createdAt ? new Date((Number(item.createdAt) || 0) * 1000).toISOString() : undefined,
+          tags: deserializeTags(item.tags ?? null),
+          metadata: deserializeMetadata(item.metadata ?? null),
+          createdAt: item.createdAt ? (normalizeTimestamp(Number(item.createdAt)) ?? undefined) : undefined,
           similarity: 0,
         },
       }));
@@ -312,9 +305,9 @@ async function vectorSearch(
         type: item.type as any,
         content: item.content,
         summary: item.summary ?? undefined,
-        tags: fromSqliteTags(item.tags ?? null),
-        metadata: item.metadata ? JSON.parse(item.metadata) : null,
-        createdAt: item.createdAt ? new Date((Number(item.createdAt) || 0) * 1000).toISOString() : undefined,
+        tags: deserializeTags(item.tags ?? null),
+        metadata: deserializeMetadata(item.metadata ?? null),
+        createdAt: item.createdAt ? (normalizeTimestamp(Number(item.createdAt)) ?? undefined) : undefined,
         similarity: item.similarity,
       },
     }));
@@ -460,23 +453,3 @@ function parseEmbedding(embeddingData: any): number[] | null {
   return null;
 }
 
-/**
- * Calculate cosine similarity between two vectors
- */
-function cosineSimilarity(a: number[], b: number[]): number {
-  if (a.length !== b.length) return 0;
-
-  let dotProduct = 0;
-  let normA = 0;
-  let normB = 0;
-
-  for (let i = 0; i < a.length; i++) {
-    dotProduct += a[i] * b[i];
-    normA += a[i] * a[i];
-    normB += b[i] * b[i];
-  }
-
-  if (normA === 0 || normB === 0) return 0;
-
-  return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
-}

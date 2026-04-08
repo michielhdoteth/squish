@@ -2,7 +2,7 @@ import { config } from '../config.js';
 import { getGoogleMultimodalEmbedding, isMultimodalInput, MultimodalInput } from './embeddings/google-multimodal.js';
 import { logger } from './logger.js';
 
-export type EmbeddingProvider = 'local' | 'openai' | 'ollama' | 'google' | 'none' | 'auto';
+export type EmbeddingProvider = 'local' | 'openai' | 'ollama' | 'lmstudio' | 'google' | 'none' | 'auto';
 
 // Retry utility with exponential backoff
 async function withRetry<T>(
@@ -142,33 +142,38 @@ export async function getEmbedding(input: string | MultimodalInput): Promise<num
    }
 
    // Handle text-only input
-   if (!result && typeof input === 'string') {
-     const textInput = input;
+    if (!result && typeof input === 'string') {
+      const textInput = input;
 
-     if (provider === 'none') {
-       result = null;
-     } else if (provider === 'google') {
-       const multimodalResult = await getGoogleMultimodalEmbedding({ text: textInput });
-       result = multimodalResult?.embedding || null;
-     } else if (provider === 'openai') {
-       result = await getOpenAiEmbedding(textInput);
-     } else if (provider === 'ollama') {
-       result = await getOllamaEmbedding(textInput);
-     } else if (provider === 'local') {
-       result = getLocalEmbedding(textInput);
-     } else {
-       // Auto mode: try cloud providers first if configured, then fall back to local
-       if (config.openAiApiKey) {
-         result = await getOpenAiEmbedding(textInput);
-       }
-       if (!result && config.ollamaUrl) {
-         result = await getOllamaEmbedding(textInput);
-       }
-       if (!result) {
-         result = getLocalEmbedding(textInput);
-       }
-     }
-   }
+      if (provider === 'none') {
+        result = null;
+      } else if (provider === 'google') {
+        const multimodalResult = await getGoogleMultimodalEmbedding({ text: textInput });
+        result = multimodalResult?.embedding || null;
+      } else if (provider === 'openai') {
+        result = await getOpenAiEmbedding(textInput);
+      } else if (provider === 'ollama') {
+        result = await getOllamaEmbedding(textInput);
+      } else if (provider === 'lmstudio') {
+        result = await getLmStudioEmbedding(textInput);
+      } else if (provider === 'local') {
+        result = getLocalEmbedding(textInput);
+      } else {
+        // Auto mode: try cloud providers first if configured, then fall back to local
+        if (config.openAiApiKey) {
+          result = await getOpenAiEmbedding(textInput);
+        }
+        if (!result && config.ollamaUrl) {
+          result = await getOllamaEmbedding(textInput);
+        }
+        if (!result && config.lmStudioUrl) {
+          result = await getLmStudioEmbedding(textInput);
+        }
+        if (!result) {
+          result = getLocalEmbedding(textInput);
+        }
+      }
+    }
 
   // Cache the result if valid
   if (result) {
@@ -363,7 +368,7 @@ async function getOllamaEmbedding(input: string): Promise<number[] | null> {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: config.ollamaEmbeddingModel,
+        model: config.ollamaEmbeddingModel || 'nomic-embed-text',
         prompt: input,
       }),
     }, config.ollamaTimeoutMs);
@@ -382,13 +387,39 @@ async function getOllamaEmbedding(input: string): Promise<number[] | null> {
   }
 }
 
+// LM Studio uses OpenAI-compatible API
+async function getLmStudioEmbedding(input: string): Promise<number[] | null> {
+  try {
+    const response = await fetchWithRetryAndTimeout(`${config.lmStudioUrl}/v1/embeddings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: config.lmStudioEmbeddingModel || 'text-embedding-nomic-embed-text-v1.5',
+        input: input,
+      }),
+    }, config.ollamaTimeoutMs); // Reuse Ollama timeout
+
+    if (!response.ok) {
+      const message = await response.text();
+      logger.warn(`LM Studio embeddings failed: ${response.status} ${message}`);
+      return null; // Return null to allow fallback
+    }
+
+    const payload = await response.json() as { data?: Array<{ embedding: number[] }> };
+    return payload.data?.[0]?.embedding ?? null;
+  } catch (error) {
+    logger.warn('LM Studio embeddings error:', { error: error as Error });
+    return null; // Return null to allow fallback
+  }
+}
+
 /**
  * Check health of all configured embedding providers
  * Returns availability and latency for each provider
  */
 export async function checkEmbeddingProviderHealth(): Promise<Map<string, { available: boolean; latencyMs?: number; error?: string }>> {
   const results = new Map<string, { available: boolean; latencyMs?: number; error?: string }>();
-  const providers = ['local', 'openai', 'ollama', 'google', 'none', 'auto'] as const;
+  const providers = ['local', 'openai', 'ollama', 'lmstudio', 'google', 'none', 'auto'] as const;
   
   // Test local provider (always available)
   results.set('local', { available: true, latencyMs: 0 });
@@ -441,6 +472,31 @@ export async function checkEmbeddingProviderHealth(): Promise<Map<string, { avai
     }
   } else {
     results.set('ollama', { available: false, error: 'Not configured' });
+  }
+  
+  // Test LM Studio if configured
+  if (config.lmStudioUrl) {
+    const start = Date.now();
+    try {
+      const testInput = 'health check';
+      const embedding = await withRetry(
+        () => withTimeout(getLmStudioEmbedding(testInput), config.ollamaTimeoutMs),
+        config.embeddingsMaxRetries,
+        config.embeddingsRetryDelayMs
+      );
+      const latency = Date.now() - start;
+      results.set('lmstudio', { 
+        available: embedding !== null && embedding.length > 0, 
+        latencyMs: latency 
+      });
+    } catch (error) {
+      results.set('lmstudio', { 
+        available: false, 
+        error: (error as Error).message 
+      });
+    }
+  } else {
+    results.set('lmstudio', { available: false, error: 'Not configured' });
   }
   
   // Test Google if configured

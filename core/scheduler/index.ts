@@ -1,6 +1,6 @@
 /**
  * Scheduler Module
- * v0.10.0 - Cron-based job scheduling with heartbeat fallback
+ * Cron-based job scheduling with heartbeat fallback
  */
 
 export * from './cron-scheduler.js';

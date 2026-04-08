@@ -1,6 +1,6 @@
 import { getDb } from '../../db/index.js';
 import { config } from '../../config.js';
-import { memories } from '../../drizzle/schema.js';
+import { memories } from '../../db/drizzle/schema.js';
 import { eq } from 'drizzle-orm';
 import { logger } from '../logger.js';
 

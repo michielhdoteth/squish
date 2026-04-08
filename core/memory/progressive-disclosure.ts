@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto';
 import { eq, desc, and, sql } from 'drizzle-orm';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
-import { createDatabaseClient } from '../../core/database.js';
+import { createDatabaseClient } from '../storage/database.js';
 
 export interface LightweightIndex {
   id: string;

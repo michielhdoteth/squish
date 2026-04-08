@@ -6,7 +6,7 @@
 import { eq } from 'drizzle-orm';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
-import { createDatabaseClient } from '../database.js';
+import { createDatabaseClient } from '../storage/database.js';
 import { config } from '../../config.js';
 import { logger } from '../logger.js';
 

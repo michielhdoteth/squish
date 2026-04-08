@@ -3,7 +3,7 @@
 import { logger } from '../logger.js';
 import { config } from '../../config.js';
 import { getDb } from '../../db/index.js';
-import { memoryFeedback, memories, type MemoryFeedback } from '../../drizzle/schema-sqlite.js';
+import { memoryFeedback, memories, type MemoryFeedback } from '../../db/drizzle/schema-sqlite.js';
 import { eq, and } from 'drizzle-orm';
 import { analyzeResponseForMemoryReferences, mightContainMemoryReferences } from './response-analyzer.js';
 

@@ -1,6 +1,6 @@
 /**
  * Session Module
- * v0.10.0 - Session management and auto-load
+ * Session management and auto-load
  */
 
 export * from './types.js';

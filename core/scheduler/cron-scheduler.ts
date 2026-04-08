@@ -2,10 +2,11 @@
 
 import cron from 'node-cron';
 import { selfIterationHandler } from '../session-hooks/self-iteration-job.js';
+import { runLifecycleMaintenance } from '../lifecycle.js';
 import { logger } from '../logger.js';
 import { config } from '../../config.js';
 import { getDb } from '../../db/index.js';
-import { maintenanceJobs, maintenanceJobHistory } from '../../drizzle/schema-sqlite.js';
+import { maintenanceJobs, maintenanceJobHistory } from '../../db/drizzle/schema-sqlite.js';
 import { eq } from 'drizzle-orm';
 
 export type JobType = 'nightly' | 'weekly' | 'hourly';
@@ -43,6 +44,21 @@ export function registerJobHandler(jobName: string, handler: JobHandler): void {
 // Register self-iteration job handler
 registerJobHandler('self_iteration', selfIterationHandler);
 
+// Decay job handler - runs lifecycle maintenance (decay, tier updates, eviction)
+const decayHandler = async (context: JobExecutionContext) => {
+  const stats = await runLifecycleMaintenance();
+  return {
+    recordsProcessed: stats.decayed + stats.expired + stats.evicted,
+    summary: {
+      decayed: stats.decayed,
+      expired: stats.expired,
+      evicted: stats.evicted,
+      tierChanges: stats.tierChanges,
+    },
+  };
+};
+registerJobHandler('decay_maintenance', decayHandler);
+
 export async function initializeScheduler(): Promise<void> {
   if (!config.cronEnabled) {
     logger.info('[Scheduler] Cron scheduling disabled, using heartbeat fallback');
@@ -77,6 +93,13 @@ export async function initializeScheduler(): Promise<void> {
 async function ensureDefaultJobs(db: any): Promise<void> {
   const defaultJobs = [
     {
+      jobName: 'decay_maintenance',
+      jobType: 'hourly' as JobType,
+      cronExpression: '0 * * * *', // Run every hour at :00
+      enabled: true,
+      jobConfig: { applyDecay: true, updateTiers: true, evictOld: true },
+    },
+    {
       jobName: 'nightly_maintenance',
       jobType: 'nightly' as JobType,
       cronExpression: '0 2 * * *',
@@ -93,7 +116,7 @@ async function ensureDefaultJobs(db: any): Promise<void> {
     {
       jobName: 'self_iteration',
       jobType: 'hourly' as JobType,
-      cronExpression: '30 * * * *',  // Run every hour at :30
+      cronExpression: '30 * * * *', // Run every hour at :30
       enabled: true,
       jobConfig: { minMessageCount: 5, maxMessagesToProcess: 50 },
     },

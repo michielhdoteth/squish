@@ -62,8 +62,7 @@ export async function createAssociation(
 }
 
 /**
- * Track co-activation of multiple memories (they were used together)
- * OPTIMIZED: Uses bulk upsert instead of N² individual database operations
+ * Track co-activation of multiple memories (used together)
  */
 export async function trackCoactivation(memoryIds: string[]): Promise<void> {
   if (memoryIds.length < 2) return;

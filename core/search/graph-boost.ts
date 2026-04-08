@@ -1,5 +1,5 @@
 import { getDb } from '../../db/index.js';
-import { memoryAssociations } from '../../drizzle/schema.js';
+import { memoryAssociations } from '../../db/drizzle/schema.js';
 import { inArray } from 'drizzle-orm';
 
 /**

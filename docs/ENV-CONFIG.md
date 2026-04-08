@@ -109,9 +109,23 @@ SQUISH_OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 SQUISH_EMBEDDINGS_PROVIDER=ollama
 SQUISH_OLLAMA_URL=http://localhost:11434
 
-# Optional: specify model (default: nomic-embed-text:v1.5)
+# Optional: specify model (leave empty for auto-detect)
 SQUISH_OLLAMA_EMBEDDING_MODEL=nomic-embed-text:v1.5
-# Alternative: mxbai-embed-large
+# Alternative: mxbai-embed-large, etc.
+```
+
+## LM Studio Embeddings (Local)
+
+```bash
+# .env.lmstudio
+
+# Use LM Studio embeddings (OpenAI-compatible API)
+SQUISH_EMBEDDINGS_PROVIDER=lmstudio
+SQUISH_LM_STUDIO_URL=http://localhost:1234
+
+# Optional: specify model (leave empty for auto-detect)
+SQUISH_LM_STUDIO_EMBEDDING_MODEL=text-embedding-nomic-embed-text-v1.5
+# Note: Model name must match what's loaded in LM Studio
 ```
 
 ## Auto Mode (Smart Fallback)
@@ -176,6 +190,62 @@ SUPABASE_SERVICE_KEY=your-service-key
 
 # Optional: encryption
 SQUISH_ENCRYPTION_PASSPHRASE=your-secure-passphrase
+```
+
+## Neon Backend (v1.2.0)
+
+```bash
+# .env.neon
+
+# Neon serverless PostgreSQL backend
+NEON_PROJECT_ID=your-project-id
+NEON_SERVICE_KEY=your-service-key
+
+# Note: DATABASE_URL is also required for Neon connection
+DATABASE_URL=postgresql://user:password@your-project-id.us-east-1.aws.neon.tech/squish?sslmode=require
+```
+
+## Team Mode (v1.2.0)
+
+Team mode uses cloud backends for shared team access. Auto-detects based on env vars:
+
+```bash
+# .env.team
+
+# Option 1: PostgreSQL (default "local cloud")
+DATABASE_URL=postgresql://user:pass@localhost:5432/squish
+
+# Option 2: Supabase as team backend
+SQUISH_TEAM_BACKEND=supabase
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_KEY=your-service-key
+DATABASE_URL=postgresql://...
+
+# Option 3: Neon as team backend
+SQUISH_TEAM_BACKEND=neon
+NEON_PROJECT_ID=your-project-id
+NEON_SERVICE_KEY=your-service-key
+DATABASE_URL=postgresql://...
+```
+
+## Remote Mode (v1.2.0)
+
+Remote mode connects to user's own cloud databases (Supabase/Neon):
+
+```bash
+# .env.remote
+
+# Option 1: Supabase
+SQUISH_REMOTE_BACKEND=supabase
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_KEY=your-service-key
+DATABASE_URL=postgresql://...
+
+# Option 2: Neon
+SQUISH_REMOTE_BACKEND=neon
+NEON_PROJECT_ID=your-project-id
+NEON_SERVICE_KEY=your-service-key
+DATABASE_URL=postgresql://...
 ```
 
 ## Encryption & Graph Boost (v1.1.0-enhanced)

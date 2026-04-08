@@ -2,7 +2,7 @@
   "mcpServers": {
     "squish": {
       "command": "node",
-      "args": ["dist/commands/mcp-server.js"],
+       "args": ["dist/core/commands/mcp-server.js"],
       "env": {
         "NODE_ENV": "production"
       }

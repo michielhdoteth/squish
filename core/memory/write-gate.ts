@@ -4,7 +4,7 @@
  * Integrates secret detection, trigger detection, and content validation
  */
 
-import { detectSecrets, redactSecrets, SecretMatch } from '../secret-detector.js';
+import { detectSecrets, redactSecrets, SecretMatch } from '../security/secret-detector.js';
 import { detectMemorySignals, MemorySignals } from './trigger-detector.js';
 import { resolveContradictions } from './contradiction-resolver.js';
 import { supersedeOldTemporalFacts } from './temporal-facts.js';

@@ -49,6 +49,7 @@ config/mcporter.json
 
 # OpenCode
 .opencode/
+.iter/
 
 # Test coverage
 coverage/
@@ -63,6 +64,9 @@ temp/
 .squish/
 *.db
 *.db-journal
+
+# Local bin scripts (installation helpers)
+bin/
 
 # References and opencode directories
 references/
@@ -80,5 +84,12 @@ docs/COMPETITIVE-ANALYSIS.md
 docs/POSITIONING.md
 docs/ROADMAP.md
 
+# Developer scripts (not part of published package)
+dev-scripts/
+
 # Claude context file (local only, do not commit)
 CLAUDE.md
+
+# Generated MCP configs (local only)
+generated/mcp/
+benchmarks/

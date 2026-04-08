@@ -11,6 +11,10 @@ export async function createSupabaseClient() {
     throw new Error('Supabase configuration missing (SUPABASE_URL or SUPABASE_SERVICE_KEY)');
   }
 
+  if (!process.env.DATABASE_URL) {
+    throw new Error('DATABASE_URL is required for Supabase connection');
+  }
+
   const { Pool } = await import('pg');
   const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
@@ -18,6 +22,6 @@ export async function createSupabaseClient() {
   });
 
   // Dynamically import the schema module to avoid circular dependencies.
-  const schemaModule = await import('../drizzle/schema.js');
+  const schemaModule = await import('./drizzle/schema.js');
   return drizzle(pool, { schema: schemaModule });
 }

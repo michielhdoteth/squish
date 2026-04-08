@@ -45,8 +45,8 @@ CREATE TABLE IF NOT EXISTS memories (
   embedding_json TEXT,
   embedding BLOB,
   source TEXT,
-  confidence INTEGER DEFAULT 100,
-  confidence_level TEXT DEFAULT 'certain',
+  confidence INTEGER DEFAULT 50,
+  confidence_level TEXT DEFAULT 'speculative',
   tags TEXT,
   metadata TEXT,
   is_private INTEGER DEFAULT 0,
@@ -152,7 +152,8 @@ CREATE INDEX IF NOT EXISTS messages_conversation_idx ON messages(conversation_id
 CREATE INDEX IF NOT EXISTS messages_role_idx ON messages(role);
 CREATE INDEX IF NOT EXISTS messages_created_idx ON messages(created_at);
 
-CREATE TABLE IF NOT EXISTS observations (
+-- Learnings table (renamed from observations)
+CREATE TABLE IF NOT EXISTS learnings (
   id TEXT PRIMARY KEY,
   project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
   conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL,
@@ -163,6 +164,7 @@ CREATE TABLE IF NOT EXISTS observations (
   details TEXT,
   embedding_json TEXT,
   embedding BLOB,
+  memory_id TEXT REFERENCES memories(id) ON DELETE SET NULL,
   folder_path TEXT,
   project_path TEXT,
   is_private INTEGER DEFAULT 0,
@@ -171,12 +173,13 @@ CREATE TABLE IF NOT EXISTS observations (
   category TEXT,
   importance INTEGER DEFAULT 50,
   metadata TEXT,
+  is_imported INTEGER DEFAULT 0,
   created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS observations_project_idx ON observations(project_id);
-CREATE INDEX IF NOT EXISTS observations_type_idx ON observations(type);
-CREATE INDEX IF NOT EXISTS observations_action_idx ON observations(action);
+CREATE INDEX IF NOT EXISTS learnings_project_idx ON learnings(project_id);
+CREATE INDEX IF NOT EXISTS learnings_type_idx ON learnings(type);
+CREATE INDEX IF NOT EXISTS learnings_action_idx ON learnings(action);
 CREATE INDEX IF NOT EXISTS observations_created_idx ON observations(created_at);
 
 CREATE TABLE IF NOT EXISTS entities (
@@ -408,24 +411,66 @@ const postgresStatements = [
   );`,
   `CREATE INDEX IF NOT EXISTS projects_path_idx ON projects(path);`,
 `CREATE TABLE IF NOT EXISTS memories (
-id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
-user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-type TEXT NOT NULL,
-content TEXT NOT NULL,
-summary TEXT,
-embedding vector(1536),
-source TEXT,
-confidence INTEGER DEFAULT 100,
-confidence_level TEXT DEFAULT 'certain',
-tags TEXT[],
-metadata JSONB,
-is_active BOOLEAN DEFAULT TRUE,
-expires_at TIMESTAMPTZ,
-access_count INTEGER DEFAULT 0,
-last_accessed_at TIMESTAMPTZ,
-created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
-updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  type TEXT NOT NULL,
+  content TEXT NOT NULL,
+  summary TEXT,
+  embedding_json TEXT,
+  embedding vector(1536),
+  source TEXT,
+  confidence INTEGER DEFAULT 50,
+  confidence_level TEXT DEFAULT 'speculative',
+  tags TEXT[],
+  metadata JSONB,
+  is_private BOOLEAN DEFAULT FALSE,
+  has_secrets BOOLEAN DEFAULT FALSE,
+  relevance_score INTEGER DEFAULT 50,
+  is_active BOOLEAN DEFAULT TRUE,
+  is_merged BOOLEAN DEFAULT FALSE,
+  merged_into_id UUID,
+  merged_at TIMESTAMPTZ,
+  is_canonical BOOLEAN DEFAULT TRUE,
+  merge_source_ids TEXT[],
+  is_mergeable BOOLEAN DEFAULT TRUE,
+  merge_version INTEGER DEFAULT 1,
+  importance_score INTEGER DEFAULT 50,
+  importance_decay_rate INTEGER DEFAULT 30,
+  last_importance_recalc TIMESTAMPTZ,
+  consolidated_into UUID,
+  consolidated_at TIMESTAMPTZ,
+  is_consolidated BOOLEAN DEFAULT FALSE,
+  sector TEXT DEFAULT 'episodic',
+  tier TEXT DEFAULT 'hot',
+  status TEXT DEFAULT 'active',
+  context_status TEXT DEFAULT 'out-of-context',
+  decay_rate INTEGER DEFAULT 30,
+  coactivation_score INTEGER DEFAULT 0,
+  last_decay_at TIMESTAMPTZ,
+  agent_id TEXT,
+  agent_role TEXT,
+  visibility_scope TEXT DEFAULT 'private',
+  is_protected BOOLEAN DEFAULT FALSE,
+  is_pinned BOOLEAN DEFAULT FALSE,
+  is_immutable BOOLEAN DEFAULT FALSE,
+  write_scope TEXT[],
+  read_scope TEXT[],
+  triggered_by TEXT,
+  capture_reason TEXT,
+  last_used_at TIMESTAMPTZ,
+  usage_count INTEGER DEFAULT 0,
+  tokens_estimate INTEGER DEFAULT 0,
+  valid_from TIMESTAMPTZ,
+  valid_to TIMESTAMPTZ,
+  recorded_at TIMESTAMPTZ DEFAULT NOW(),
+  superseded_by UUID,
+  version INTEGER DEFAULT 1,
+  expires_at TIMESTAMPTZ,
+  access_count INTEGER DEFAULT 0,
+  last_accessed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );`,
   `CREATE INDEX IF NOT EXISTS memories_project_idx ON memories(project_id);`,
   `CREATE INDEX IF NOT EXISTS memories_type_idx ON memories(type);`,
@@ -465,7 +510,8 @@ updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
   `CREATE INDEX IF NOT EXISTS messages_role_idx ON messages(role);`,
   `CREATE INDEX IF NOT EXISTS messages_created_idx ON messages(created_at);`,
   `CREATE INDEX IF NOT EXISTS messages_content_trgm_idx ON messages USING GIN (content gin_trgm_ops);`,
-  `CREATE TABLE IF NOT EXISTS observations (
+  // Learnings table (renamed from observations)
+  `CREATE TABLE IF NOT EXISTS learnings (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
     conversation_id UUID REFERENCES conversations(id) ON DELETE SET NULL,
@@ -475,15 +521,16 @@ updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
     summary TEXT NOT NULL,
     details JSONB,
     embedding vector(1536),
+    memory_id UUID REFERENCES memories(id) ON DELETE SET NULL,
     category TEXT,
     importance INTEGER DEFAULT 50,
     metadata JSONB,
+    is_imported BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
   );`,
-  `CREATE INDEX IF NOT EXISTS observations_project_idx ON observations(project_id);`,
-  `CREATE INDEX IF NOT EXISTS observations_type_idx ON observations(type);`,
-  `CREATE INDEX IF NOT EXISTS observations_action_idx ON observations(action);`,
-  `CREATE INDEX IF NOT EXISTS observations_created_idx ON observations(created_at);`,
+  `CREATE INDEX IF NOT EXISTS learnings_project_idx ON learnings(project_id);`,
+  `CREATE INDEX IF NOT EXISTS learnings_type_idx ON learnings(type);`,
+  `CREATE INDEX IF NOT EXISTS learnings_action_idx ON learnings(action);`,
   `CREATE TABLE IF NOT EXISTS entities (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
@@ -662,10 +709,10 @@ async function runSqliteMigrations(sqlite: Database): Promise<void> {
        { col: 'agent_role', sql: 'ALTER TABLE memories ADD COLUMN agent_role TEXT' },
        { col: 'retrieval_priority', sql: 'ALTER TABLE memories ADD COLUMN retrieval_priority INTEGER DEFAULT 50' },
 
-       // Data governance (v0.9.0)
-       { col: 'recorded_at', sql: 'ALTER TABLE memories ADD COLUMN recorded_at INTEGER DEFAULT (strftime(\'%s\',\'now\'))' },
-       { col: 'confidence', sql: 'ALTER TABLE memories ADD COLUMN confidence INTEGER DEFAULT 100' },
-       { col: 'valid_from', sql: 'ALTER TABLE memories ADD COLUMN valid_from INTEGER' },
+        // Data governance (v0.9.0)
+        { col: 'recorded_at', sql: 'ALTER TABLE memories ADD COLUMN recorded_at INTEGER DEFAULT (strftime(\'%s\',\'now\'))' },
+        { col: 'confidence', sql: 'ALTER TABLE memories ADD COLUMN confidence INTEGER DEFAULT 50' },
+        { col: 'valid_from', sql: 'ALTER TABLE memories ADD COLUMN valid_from INTEGER' },
        { col: 'valid_to', sql: 'ALTER TABLE memories ADD COLUMN valid_to INTEGER' },
        { col: 'superseded_by', sql: 'ALTER TABLE memories ADD COLUMN superseded_by TEXT' },
        { col: 'version', sql: 'ALTER TABLE memories ADD COLUMN version INTEGER DEFAULT 1' },
@@ -701,8 +748,8 @@ async function runSqliteMigrations(sqlite: Database): Promise<void> {
 	// Token tracking (v1.0.x)
 	{ col: 'tokens_estimate', sql: 'ALTER TABLE memories ADD COLUMN tokens_estimate INTEGER DEFAULT 0' },
 
-	// Iteration 3: Confidence flags
-	{ col: 'confidence_level', sql: 'ALTER TABLE memories ADD COLUMN confidence_level TEXT DEFAULT "certain"' },
+	// Iteration 3: Confidence flags (default: speculative)
+	{ col: 'confidence_level', sql: 'ALTER TABLE memories ADD COLUMN confidence_level TEXT DEFAULT "speculative"' },
 
 	// v1.1.0: Status and encryption
 	{ col: 'status', sql: 'ALTER TABLE memories ADD COLUMN status TEXT DEFAULT "active"' },
@@ -759,56 +806,72 @@ async function runSqliteMigrations(sqlite: Database): Promise<void> {
       }
     }
 
-    // Migrations for observations table (v1.1.x)
+    // Migrations for learnings table (v1.2.x) - renamed from observations
+    // First, check if we need to rename observations -> learnings
     const observationsTableCheck = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='observations'").get() as {name: string} | undefined;
-    if (observationsTableCheck) {
-      const observationsInfo = sqlite.prepare("PRAGMA table_info(observations)").all() as Array<{name: string}>;
-      const existingObservationsColumns = new Set(observationsInfo.map(col => col.name));
+    const learningsTableCheck = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='learnings'").get() as {name: string} | undefined;
+    
+    if (observationsTableCheck && !learningsTableCheck) {
+      // Rename observations to learnings
+      try {
+        sqlite.exec("ALTER TABLE observations RENAME TO learnings");
+        logger.info("Migration: Renamed observations table to learnings");
+      } catch (error) {
+        const err = error instanceof Error ? error.message : String(error);
+        logger.warn(`Migration note: Could not rename observations to learnings: ${err}`);
+      }
+    }
 
-      const observationsMigrations = [
-        { col: 'embedding', sql: 'ALTER TABLE observations ADD COLUMN embedding BLOB' },
-        { col: 'folder_path', sql: 'ALTER TABLE observations ADD COLUMN folder_path TEXT' },
-        { col: 'project_path', sql: 'ALTER TABLE observations ADD COLUMN project_path TEXT' },
-        { col: 'is_private', sql: 'ALTER TABLE observations ADD COLUMN is_private INTEGER DEFAULT 0' },
-        { col: 'has_secrets', sql: 'ALTER TABLE observations ADD COLUMN has_secrets INTEGER DEFAULT 0' },
-        { col: 'relevance_score', sql: 'ALTER TABLE observations ADD COLUMN relevance_score INTEGER DEFAULT 50' },
-      ];
+    // Now run migrations on learnings table (whether renamed or new)
+    const learningsInfo = sqlite.prepare("PRAGMA table_info(learnings)").all() as Array<{name: string}>;
+    const existingLearningsColumns = new Set(learningsInfo.map(col => col.name));
 
-      for (const migration of observationsMigrations) {
-        if (!existingObservationsColumns.has(migration.col)) {
-          try {
-            sqlite.exec(migration.sql);
-            logger.info(`Migration: Added column ${migration.col} to observations table`);
-          } catch (error) {
-            const msg = error instanceof Error ? error.message : String(error);
-            if (msg.includes('duplicate column name')) {
-              logger.debug(`Migration skipped for ${migration.col}: column already exists`);
-            } else {
-              logger.warn(`Migration note for ${migration.col}: ${msg}`);
-            }
+    const learningsMigrations = [
+      { col: 'embedding', sql: 'ALTER TABLE learnings ADD COLUMN embedding BLOB' },
+      { col: 'folder_path', sql: 'ALTER TABLE learnings ADD COLUMN folder_path TEXT' },
+      { col: 'project_path', sql: 'ALTER TABLE learnings ADD COLUMN project_path TEXT' },
+      { col: 'is_private', sql: 'ALTER TABLE learnings ADD COLUMN is_private INTEGER DEFAULT 0' },
+      { col: 'has_secrets', sql: 'ALTER TABLE learnings ADD COLUMN has_secrets INTEGER DEFAULT 0' },
+      { col: 'relevance_score', sql: 'ALTER TABLE learnings ADD COLUMN relevance_score INTEGER DEFAULT 50' },
+      { col: 'memory_id', sql: 'ALTER TABLE learnings ADD COLUMN memory_id TEXT REFERENCES memories(id) ON DELETE SET NULL' },
+      { col: 'is_imported', sql: 'ALTER TABLE learnings ADD COLUMN is_imported INTEGER DEFAULT 0' },
+    ];
+
+    for (const migration of learningsMigrations) {
+      if (!existingLearningsColumns.has(migration.col)) {
+        try {
+          sqlite.exec(migration.sql);
+          logger.info(`Migration: Added column ${migration.col} to learnings table`);
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error);
+          if (msg.includes('duplicate column name')) {
+            logger.debug(`Migration skipped for ${migration.col}: column already exists`);
+          } else {
+            logger.warn(`Migration note for ${migration.col}: ${msg}`);
           }
         }
       }
+    }
 
-      // Add indexes if they don't exist
-      const existingIndexes = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='observations'").all() as Array<{name: string}>;
-      const existingIndexNames = new Set(existingIndexes.map(idx => idx.name));
+    // Add indexes if they don't exist
+    const existingIndexes = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='learnings'").all() as Array<{name: string}>;
+    const existingIndexNames = new Set(existingIndexes.map(idx => idx.name));
 
-      const indexMigrations = [
-        { name: 'observations_folder_idx', sql: 'CREATE INDEX IF NOT EXISTS observations_folder_idx ON observations(folder_path)' },
-        { name: 'observations_relevance_idx', sql: 'CREATE INDEX IF NOT EXISTS observations_relevance_idx ON observations(relevance_score)' },
-        { name: 'observations_private_idx', sql: 'CREATE INDEX IF NOT EXISTS observations_private_idx ON observations(is_private)' },
-      ];
+    const indexMigrations = [
+      { name: 'learnings_folder_idx', sql: 'CREATE INDEX IF NOT EXISTS learnings_folder_idx ON learnings(folder_path)' },
+      { name: 'learnings_relevance_idx', sql: 'CREATE INDEX IF NOT EXISTS learnings_relevance_idx ON learnings(relevance_score)' },
+      { name: 'learnings_private_idx', sql: 'CREATE INDEX IF NOT EXISTS learnings_private_idx ON learnings(is_private)' },
+      { name: 'learnings_memory_idx', sql: 'CREATE INDEX IF NOT EXISTS learnings_memory_idx ON learnings(memory_id)' },
+    ];
 
-      for (const idx of indexMigrations) {
-        if (!existingIndexNames.has(idx.name)) {
-          try {
-            sqlite.exec(idx.sql);
-            logger.info(`Migration: Added index ${idx.name} to observations table`);
-          } catch (error) {
-            const msg = error instanceof Error ? error.message : String(error);
-            logger.warn(`Index migration note for ${idx.name}: ${msg}`);
-          }
+    for (const idx of indexMigrations) {
+      if (!existingIndexNames.has(idx.name)) {
+        try {
+          sqlite.exec(idx.sql);
+          logger.info(`Migration: Added index ${idx.name} to learnings table`);
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error);
+          logger.warn(`Index migration note for ${idx.name}: ${msg}`);
         }
       }
     }
