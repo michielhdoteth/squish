@@ -18,7 +18,7 @@ import { rememberMemory, search as searchMemories, getMemory, getRecent, type Me
 import { getEmbedding, getBatchEmbeddings } from "../../core/embeddings.js";
 import { getQMDClient } from "../../core/embeddings/qmd-client.js";
 import { createAssociation, getRelatedMemories, trackCoactivation, type AssociationType } from "../../core/associations.js";
-import { addObservation, getObservations, createLearning, type ObservationType, type LearningType } from "../../core/ingestion/observations.js";
+import { createLearning, getLearnings, getRecentLearnings, type LearningType } from "../../core/ingestion/learnings.js";
 import { requireProject, getAllProjects } from "../../core/projects.js";
 import { getMemoryStats } from "../../core/memory/stats.js";
 import { logger } from "../../core/logger.js";
@@ -312,12 +312,12 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
       const projectRecord = await requireProject(project);
 
       const recentMemories = await searchMemories({ query: "", project, limit });
-      const observations = await getObservations(project, 5);
+      const learnings = await getLearnings(project, 5);
 
       const context = {
         project: projectRecord,
         recentMemories: recentMemories.slice(0, limit),
-        recentObservations: observations
+        recentLearnings: learnings
       };
 
       return { content: [{ type: "text", text: JSON.stringify(context, null, 2) }] };
@@ -328,23 +328,21 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
     server,
     "squish_learn",
     {
-      description: "Record learning or observations: success, failure, fix, or observation",
+      description: "Record learning: success, failure, fix, or insight. Auto-links to similar memories if above 85% similarity.",
       inputSchema: {
-        type: z.enum(["success", "failure", "fix", "observation"]).describe("Learning type"),
+        type: z.enum(["success", "failure", "fix", "insight"]).describe("Learning type (required)"),
         content: z.string().describe("What happened or what was learned"),
         context: z.string().optional().describe("Additional context or result"),
-        action: z.string().optional().describe("Action performed (required for observation)"),
-        observationType: z.enum(["tool_use", "file_change", "error", "pattern", "insight"]).optional().describe("Observation kind when type=observation"),
+        action: z.string().optional().describe("Action performed"),
         target: z.string().optional().describe("Target file or resource"),
+        memoryId: z.string().uuid().optional().describe("Optional memory ID to link this learning to"),
+        autoLink: z.boolean().optional().describe("Auto-link to similar memories (default: true)"),
         project: z.string().optional().describe("Project path")
       }
     },
-    async ({ type, content, context, action, observationType, target, project }: { type: LearningType; content: string; context?: string; action?: string; observationType?: Exclude<ObservationType, "success" | "failure" | "fix">; target?: string; project?: string }) => {
-      if (type === "observation" && !action) {
-        return { content: [{ type: "text", text: "Error: action is required when type=observation" }], isError: true };
-      }
-      const learning = await createLearning({ type, content, context, action, observationType, target, project });
-      return { content: [{ type: "text", text: `Learning recorded: ${learning.id}\nType: ${type}\nContent: ${content}` }] };
+    async ({ type, content, context, action, target, memoryId, autoLink, project }: { type: LearningType; content: string; context?: string; action?: string; target?: string; memoryId?: string; autoLink?: boolean; project?: string }) => {
+      const learning = await createLearning({ type, content, context, action, target, project, memoryId, autoLink });
+      return { content: [{ type: "text", text: `Learning recorded: ${learning.id}\nType: ${type}\nContent: ${content}${memoryId ? '\nLinked to memory: ' + memoryId : ''}` }] };
     }
   )) toolCount++;
 

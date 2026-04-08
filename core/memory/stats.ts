@@ -105,27 +105,27 @@ export async function getMemoryStats(projectPath: string = process.cwd()): Promi
       stats.newestMemory = newest[0].createdAt;
     }
 
-    // Notes
-    const allObservations = await db
-      .select({ category: schema.observations.category, type: schema.observations.type })
-       .from(schema.observations)
-       .where(eq(schema.observations.projectId, project.id));
+    // Learnings
+    const allLearnings = await db
+      .select({ category: schema.learnings.category, type: schema.learnings.type })
+       .from(schema.learnings)
+       .where(eq(schema.learnings.projectId, project.id));
 
-    stats.totalNotes = allObservations.length;
-    for (const obs of allObservations) {
+    stats.totalNotes = allLearnings.length;
+    for (const obs of allLearnings) {
       const cat = obs.category || 'uncategorized';
       stats.notesByCategory[cat] = (stats.notesByCategory[cat] || 0) + 1;
     }
 
-    // Learnings
-    const learningTypes = ['success', 'failure', 'fix', 'observation'];
-    const learningObservations = allObservations.filter((o: any) => {
+    // Learnings by type
+    const learningTypes = ['success', 'failure', 'fix', 'insight'];
+    const learningRecords = allLearnings.filter((o: any) => {
       const type = o.type || '';
       return learningTypes.includes(type.toLowerCase());
     });
-    stats.totalLearnings = learningObservations.length;
+    stats.totalLearnings = learningRecords.length;
     // Count by type
-    for (const obs of learningObservations) {
+    for (const obs of learningRecords) {
       const type = (obs as any).type || 'unknown';
       stats.learningsByType[type] = (stats.learningsByType[type] || 0) + 1;
     }

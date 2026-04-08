@@ -4,7 +4,7 @@ import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import { logger } from '../core/logger.js';
 import { getRecent } from '../core/memory/memories.js';
-import { getObservations } from '../core/ingestion/observations.js';
+import { getObservations } from '../core/ingestion/learnings.js';
 import { getAllProjects, requireProject } from '../core/projects.js';
 import { checkDatabaseHealth, getDb } from '../db/index.js';
 import { config } from '../config.js';

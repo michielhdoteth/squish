@@ -11,6 +11,10 @@ export async function createSupabaseClient() {
     throw new Error('Supabase configuration missing (SUPABASE_URL or SUPABASE_SERVICE_KEY)');
   }
 
+  if (!process.env.DATABASE_URL) {
+    throw new Error('DATABASE_URL is required for Supabase connection');
+  }
+
   const { Pool } = await import('pg');
   const pool = new Pool({
     connectionString: process.env.DATABASE_URL,

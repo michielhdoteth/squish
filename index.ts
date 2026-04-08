@@ -29,7 +29,7 @@ import { checkRedisHealth, closeCache } from './core/storage/cache.js';
 import { rememberMemory, getMemory, search, getRecent, setConfidence } from './core/memory/memories.js';
 import { serializeTags } from './core/memory/serialization.js';
 import { searchConversations, getRecentConversations } from './core/search/conversations.js';
-import { addObservation, getObservations, createLearning, type LearningType } from './core/ingestion/observations.js';
+import { createLearning, getLearnings, type LearningType } from './core/ingestion/learnings.js';
 import { getProjectContext } from './core/context/context.js';
 import { getMemoryStats } from './core/memory/stats.js';
 import { ensureProject, getAllProjects } from './core/projects.js';
@@ -290,7 +290,7 @@ CLI Commands (for agents):
   squish config [action]      Manage Squish configuration
   squish remember <content>   Store a memory
   squish note <content>       Save a quick note
-  squish learn <type> <text>  Record learning or observations
+  squish learn <type> <text>  Record learning: success, failure, fix, insight
   squish search <query>       Search memories (--pretty for human output)
   squish recall <query>       Search or get by ID (--pretty for human output)
   squish recent --period      Recent memories (today/yesterday/thisweek/7days/30days)
@@ -301,6 +301,7 @@ CLI Commands (for agents):
   squish tag <action>         Manage tags
   squish stale                Show stale memories
   squish link <action>        Manage links (find/add/list)
+  squish migrate              Migrate memories between .squish directories
   squish clean                Dedup + consolidate (maintenance)
   squish context              Show context or list projects
   squish stats                View memory statistics
@@ -748,24 +749,20 @@ program
     }
   });
 
-// squish learn <type> <content> - Record learning: success, failure, fix, or observation
+// squish learn <type> <content> - Record learning: success, failure, fix, or insight
 program
   .command('learn <type> <content>')
-  .description('Record learning: success, failure, fix, or observation')
+  .description('Record learning: success, failure, fix, or insight')
   .option('-c, --context <context>', 'Additional context about what happened')
-  .option('-a, --action <action>', 'Action performed (used for observation)')
-  .option('-o, --observation-type <kind>', 'Observation kind: tool_use, file_change, error, pattern, insight', 'insight')
+  .option('-a, --action <action>', 'Action performed')
   .option('-t, --target <target>', 'Target file or resource')
+  .option('-m, --memory-id <memoryId>', 'Optional memory ID to link this learning to')
   .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
   .action(async (type, content, options) => {
     try {
-      const validTypes: LearningType[] = ['success', 'failure', 'fix', 'observation'];
+      const validTypes: LearningType[] = ['success', 'failure', 'fix', 'insight'];
       if (!validTypes.includes(type as LearningType)) {
         console.log(JSON.stringify({ ok: false, error: `Invalid type. Must be: ${validTypes.join(', ')}` }, null, 2));
-        process.exit(1);
-      }
-      if (type === 'observation' && !options.action) {
-        console.log(JSON.stringify({ ok: false, error: '--action is required when type is observation' }, null, 2));
         process.exit(1);
       }
       const learning = await createLearning({
@@ -773,9 +770,9 @@ program
         content,
         context: options.context,
         action: options.action,
-        observationType: options.observationType,
         target: options.target,
         project: options.project,
+        memoryId: options.memoryId,
       });
       console.log(JSON.stringify({ ok: true, learning }, null, 2));
     } catch (error: any) {
@@ -1151,6 +1148,54 @@ program
           console.log('');
         }
       }
+    } catch (error: any) {
+      console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
+      process.exit(1);
+    }
+  });
+
+// squish migrate - Migrate memories between databases
+program
+  .command('migrate')
+  .description('Migrate memories from one .squish directory to another')
+  .option('-f, --from <path>', 'Source .squish directory (read from)', '')
+  .option('-t, --to <path>', 'Target .squish directory (write to)', '')
+  .option('--delete-source', 'Delete source after migration (use with caution)', false)
+  .option('--dry-run', 'Preview migration without applying', false)
+  .action(async (options) => {
+    try {
+      if (!options.from || !options.to) {
+        console.log(JSON.stringify({ 
+          ok: false, 
+          error: 'Usage: squish migrate --from /path/to/old/.squish --to /path/to/new/.squish' 
+        }, null, 2));
+        process.exit(1);
+      }
+
+      const sourcePath = path.join(options.from, 'squish.db');
+      const targetPath = path.join(options.to, 'squish.db');
+      
+      if (!existsSync(sourcePath)) {
+        console.log(JSON.stringify({ ok: false, error: `Source database not found: ${sourcePath}` }, null, 2));
+        process.exit(1);
+      }
+      
+      if (!existsSync(targetPath)) {
+        console.log(JSON.stringify({ ok: false, error: `Target database not found: ${targetPath}` }, null, 2));
+        process.exit(1);
+      }
+
+      console.log(`Migrating memories from:\n  ${options.from}\nto:\n  ${options.to}\n`);
+
+      // Import database modules dynamically
+      const { migrateMemories } = await import('./core/memory/migrate.js');
+      
+      const result = await migrateMemories(options.from, options.to, {
+        dryRun: options.dryRun,
+        deleteSource: options.deleteSource
+      });
+
+      console.log(JSON.stringify({ ok: true, ...result }, null, 2));
     } catch (error: any) {
       console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
       process.exit(1);

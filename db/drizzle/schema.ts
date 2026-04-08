@@ -92,8 +92,8 @@ export const memories = pgTable(
 
 	// Metadata
 	source: text('source'), // Where this memory came from (tool, hook, user)
-	confidence: integer('confidence').default(100), // 0-100 confidence score
-	confidenceLevel: text('confidence_level').default('certain').$type<'certain' | 'speculative' | 'outdated'>(), // Iteration 3: Confidence flags
+	confidence: integer('confidence').default(50), // 0-100 confidence score (default: speculative)
+	confidenceLevel: text('confidence_level').default('speculative').$type<'certain' | 'speculative' | 'outdated'>(), // Iteration 3: Confidence flags (default: speculative)
 	tags: text('tags').array(),
     metadata: jsonb('metadata').$type<Record<string, unknown>>(),
 
@@ -280,17 +280,17 @@ export const messages = pgTable('messages', {
 ]);
 
 /**
- * Observations - auto-captured tool usage and events
+ * Learnings - agent learnings: success, failure, fix, insight
  */
-export const observations = pgTable('observations', {
+export const learnings = pgTable('learnings', {
   id: uuid('id').primaryKey().defaultRandom(),
   projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }),
   conversationId: uuid('conversation_id').references(() => conversations.id, { onDelete: 'set null' }),
 
-  // What happened
-  type: text('type').notNull().$type<'tool_use' | 'file_change' | 'error' | 'pattern' | 'insight' | 'user_prompt'>(),
-  action: text('action').notNull(), // e.g., 'Edit', 'Read', 'Bash'
-  target: text('target'), // e.g., file path, command
+  // Learning type: success, failure, fix, insight
+  type: text('type').notNull().$type<'success' | 'failure' | 'fix' | 'insight'>(),
+  action: text('action').notNull(),
+  target: text('target'),
 
   // Details
   summary: text('summary').notNull(),
@@ -299,29 +299,37 @@ export const observations = pgTable('observations', {
   // Semantic search
   embedding: vector('embedding', { dimensions: 1536 }),
 
-  // v0.2.0: Folder-scoped observations
+  // Optional link to a memory
+  memoryId: uuid('memory_id').references(() => memories.id, { onDelete: 'set null' }),
+
+  // Folder-scoped
   folderPath: text('folder_path'),
   projectPath: text('project_path'),
 
-  // v0.2.0: Privacy and relevance
+  // Privacy and relevance
   isPrivate: boolean('is_private').default(false),
   hasSecrets: boolean('has_secrets').default(false),
-  relevanceScore: integer('relevance_score').default(50), // 0-100
+  relevanceScore: integer('relevance_score').default(50),
 
   // Classification
-  category: text('category'), // e.g., 'refactoring', 'debugging', 'feature'
-  importance: integer('importance').default(50), // 0-100
+  category: text('category'),
+  importance: integer('importance').default(50),
 
   metadata: jsonb('metadata').$type<Record<string, unknown>>(),
+
+  // Migration tracking
+  isImported: boolean('is_imported').default(false),
+
   createdAt: timestamp('created_at').defaultNow().notNull(),
 }, (table) => [
-  index('observations_project_idx').on(table.projectId),
-  index('observations_type_idx').on(table.type),
-  index('observations_action_idx').on(table.action),
-  index('observations_created_idx').on(table.createdAt),
-  index('observations_folder_idx').on(table.folderPath),
-  index('observations_relevance_idx').on(table.relevanceScore),
-  index('observations_private_idx').on(table.isPrivate),
+  index('learnings_project_idx').on(table.projectId),
+  index('learnings_type_idx').on(table.type),
+  index('learnings_action_idx').on(table.action),
+  index('learnings_created_idx').on(table.createdAt),
+  index('learnings_folder_idx').on(table.folderPath),
+  index('learnings_relevance_idx').on(table.relevanceScore),
+  index('learnings_private_idx').on(table.isPrivate),
+  index('learnings_memory_idx').on(table.memoryId),
 ]);
 
 /**
@@ -724,7 +732,7 @@ export const usersRelations = relations(users, ({ many }) => ({
 export const projectsRelations = relations(projects, ({ many }) => ({
   memories: many(memories),
   conversations: many(conversations),
-  observations: many(observations),
+  learnings: many(learnings),
   entities: many(entities),
 }));
 
@@ -749,23 +757,27 @@ export const conversationsRelations = relations(conversations, ({ one, many }) =
     references: [users.id],
   }),
   messages: many(messages),
-  observations: many(observations),
+  learnings: many(learnings),
+}));
+
+export const learningsRelations = relations(learnings, ({ one }) => ({
+  project: one(projects, {
+    fields: [learnings.projectId],
+    references: [projects.id],
+  }),
+  conversation: one(conversations, {
+    fields: [learnings.conversationId],
+    references: [conversations.id],
+  }),
+  memory: one(memories, {
+    fields: [learnings.memoryId],
+    references: [memories.id],
+  }),
 }));
 
 export const messagesRelations = relations(messages, ({ one }) => ({
   conversation: one(conversations, {
     fields: [messages.conversationId],
-    references: [conversations.id],
-  }),
-}));
-
-export const observationsRelations = relations(observations, ({ one }) => ({
-  project: one(projects, {
-    fields: [observations.projectId],
-    references: [projects.id],
-  }),
-  conversation: one(conversations, {
-    fields: [observations.conversationId],
     references: [conversations.id],
   }),
 }));
@@ -882,8 +894,8 @@ export type NewConversation = typeof conversations.$inferInsert;
 export type Message = typeof messages.$inferSelect;
 export type NewMessage = typeof messages.$inferInsert;
 
-export type Observation = typeof observations.$inferSelect;
-export type NewObservation = typeof observations.$inferInsert;
+export type Learning = typeof learnings.$inferSelect;
+export type NewLearning = typeof learnings.$inferInsert;
 
 export type Entity = typeof entities.$inferSelect;
 export type NewEntity = typeof entities.$inferInsert;

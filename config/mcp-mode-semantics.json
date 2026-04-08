@@ -1,21 +1,23 @@
 {
   "canonicalModes": [
     "local",
+    "team",
     "remote"
   ],
   "defaultMode": "local",
   "legacyAliases": {
-    "team": "remote"
+    "team": "team"
   },
-  "legacyPolicy": {
-    "action": "warn-and-map",
-    "untilVersion": "1.0.0"
+  "teamBackends": {
+    "supported": ["postgres", "supabase", "neon"],
+    "default": "postgres"
+  },
+  "remoteBackends": {
+    "supported": ["supabase", "neon"],
+    "default": "supabase"
   },
   "remoteAuth": {
-    "supported": [
-      "oauth",
-      "token"
-    ],
+    "supported": ["oauth", "token"],
     "defaultForCli": "token"
   }
 }

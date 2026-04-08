@@ -56,8 +56,59 @@ function getConfig(path: string, envVar: string | null, defaultValue: any): any 
   return defaultValue;
 }
 
-const isTeamMode = !!process.env.DATABASE_URL?.startsWith('postgres');
+// Mode detection: local (default), team (cloud with own db), remote (integrations)
+// Priority: remote > team > local
+const DATABASE_URL = process.env.DATABASE_URL || '';
+const SUPABASE_URL = process.env.SUPABASE_URL || '';
+const NEON_PROJECT_ID = process.env.NEON_PROJECT_ID || '';
+
+// Determine mode based on environment
+function detectMode(): 'local' | 'team' | 'remote' {
+  // Remote mode: user has their own Supabase or Neon
+  if (SUPABASE_URL || NEON_PROJECT_ID) {
+    return 'remote';
+  }
+  // Team mode: PostgreSQL (self-hosted "local cloud")
+  if (DATABASE_URL.startsWith('postgres')) {
+    return 'team';
+  }
+  // Local mode: default SQLite
+  return 'local';
+}
+
+const detectedMode = detectMode();
+const isTeamMode = detectedMode === 'team';
+const isRemoteMode = detectedMode === 'remote';
+const isLocalMode = detectedMode === 'local';
+
 const isManagedMode = process.env.SQUISH_MANAGED_MODE === 'true';
+
+// Team/Remote backend selection
+const teamBackend = (() => {
+  const explicit = getConfig('team.backend', 'SQUISH_TEAM_BACKEND', '').toLowerCase();
+  if (explicit === 'supabase' || explicit === 'neon' || explicit === 'postgres') {
+    return explicit;
+  }
+  // Auto-detect based on env vars
+  if (SUPABASE_URL) return 'supabase';
+  if (NEON_PROJECT_ID) return 'neon';
+  return 'postgres'; // default to PostgreSQL
+})();
+
+const remoteBackend = (() => {
+  const explicit = getConfig('remote.backend', 'SQUISH_REMOTE_BACKEND', '').toLowerCase();
+  if (explicit === 'supabase' || explicit === 'neon') {
+    return explicit;
+  }
+  // Auto-detect based on env vars
+  if (SUPABASE_URL) return 'supabase';
+  if (NEON_PROJECT_ID) return 'neon';
+  return 'supabase'; // default to Supabase
+})();
+
+// Neon configuration
+const neonProjectId = process.env.NEON_PROJECT_ID || '';
+const neonServiceKey = process.env.NEON_SERVICE_KEY || '';
 
 // Embeddings providers:
 // - openai: OpenAI API (requires API key)
@@ -91,7 +142,17 @@ const ollamaUrl = getConfig('api.ollama.url', 'SQUISH_OLLAMA_URL', 'http://local
 const ollamaEmbeddingModel = getConfig('embeddings.models.ollama.model', 'SQUISH_OLLAMA_EMBEDDING_MODEL', 'nomic-embed-text:v1.5');
 
 export const config = {
+  // Mode detection
+  mode: detectedMode,
+  isLocalMode,
   isTeamMode,
+  isRemoteMode,
+  
+  // Backend selection
+  teamBackend: teamBackend as 'postgres' | 'supabase' | 'neon',
+  remoteBackend: remoteBackend as 'supabase' | 'neon',
+  
+  // Legacy support
   isManagedMode,
   redisEnabled: !!process.env.REDIS_URL,
   dataDir: getDataDir(),
@@ -118,6 +179,10 @@ export const config = {
   // Supabase configuration
   supabaseUrl: getConfig('supabase.url', 'SUPABASE_URL', ''),
   supabaseKey: getConfig('supabase.key', 'SUPABASE_SERVICE_KEY', ''),
+
+  // Neon configuration
+  neonProjectId: process.env.NEON_PROJECT_ID || '',
+  neonServiceKey: process.env.NEON_SERVICE_KEY || '',
 
   // Encryption configuration
   clientEncryptionEnabled: getConfig('security.encryptionEnabled', null, false) !== false,

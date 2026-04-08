@@ -56,8 +56,8 @@ export const memories = sqliteTable(
 
 	// Metadata
 	source: text('source'),
-	confidence: integer('confidence').default(100),
-	confidenceLevel: text('confidence_level').$type<'certain' | 'speculative' | 'outdated'>().default('certain'), // Iteration 3: Confidence flags
+	confidence: integer('confidence').default(50), // 0-100 confidence score (default: speculative)
+	confidenceLevel: text('confidence_level').$type<'certain' | 'speculative' | 'outdated'>().default('speculative'), // Iteration 3: Confidence flags (default: speculative)
 	tags: text('tags').$type<string[]>(),
     metadata: text('metadata').$type<Record<string, unknown>>(),
 
@@ -271,46 +271,53 @@ export const messages = sqliteTable('messages', {
 ]);
 
 /**
- * Observations - user observations and insights
+ * Learnings - agent learnings: success, failure, fix, insight
  */
-export const observations = sqliteTable('observations', {
+export const learnings = sqliteTable('learnings', {
   id: text('id').primaryKey().$default(() => crypto.randomUUID()),
   projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }),
   conversationId: text('conversation_id').references(() => conversations.id, { onDelete: 'set null' }),
 
-  type: text('type').notNull(),
+  // Learning type: success, failure, fix, insight
+  type: text('type').notNull().$type<'success' | 'failure' | 'fix' | 'insight'>(),
   action: text('action').notNull(),
   target: text('target'),
   summary: text('summary').notNull(),
   details: text('details').$type<Record<string, unknown>>(),
 
+  // Embeddings
   embeddingJson: text('embedding_json'),
-
-  // v0.2.0: Vector embedding for local search
   embedding: blob('embedding'),
 
-  // v0.2.0: Folder-scoped observations
+  // Optional link to a memory (for bidirectional linking)
+  memoryId: text('memory_id').references(() => memories.id, { onDelete: 'set null' }),
+
+  // Folder-scoped
   folderPath: text('folder_path'),
   projectPath: text('project_path'),
 
-  // v0.2.0: Privacy and relevance
+  // Privacy and relevance
   isPrivate: integer('is_private', { mode: 'boolean' }).default(false),
   hasSecrets: integer('has_secrets', { mode: 'boolean' }).default(false),
-  relevanceScore: integer('relevance_score').default(50), // 0-100
+  relevanceScore: integer('relevance_score').default(50),
 
   category: text('category'),
   importance: integer('importance').default(50),
   metadata: text('metadata').$type<Record<string, unknown>>(),
 
+  // Migration tracking
+  isImported: integer('is_imported', { mode: 'boolean' }).default(false),
+
   createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
-  index('observations_project_idx').on(table.projectId),
-  index('observations_type_idx').on(table.type),
-  index('observations_action_idx').on(table.action),
-  index('observations_created_idx').on(table.createdAt),
-  index('observations_folder_idx').on(table.folderPath),
-  index('observations_relevance_idx').on(table.relevanceScore),
-  index('observations_private_idx').on(table.isPrivate),
+  index('learnings_project_idx').on(table.projectId),
+  index('learnings_type_idx').on(table.type),
+  index('learnings_action_idx').on(table.action),
+  index('learnings_created_idx').on(table.createdAt),
+  index('learnings_folder_idx').on(table.folderPath),
+  index('learnings_relevance_idx').on(table.relevanceScore),
+  index('learnings_private_idx').on(table.isPrivate),
+  index('learnings_memory_idx').on(table.memoryId),
 ]);
 
 /**
@@ -667,8 +674,8 @@ export type NewConversation = typeof conversations.$inferInsert;
 export type Message = typeof messages.$inferSelect;
 export type NewMessage = typeof messages.$inferInsert;
 
-export type Observation = typeof observations.$inferSelect;
-export type NewObservation = typeof observations.$inferInsert;
+export type Learning = typeof learnings.$inferSelect;
+export type NewLearning = typeof learnings.$inferInsert;
 
 export type Entity = typeof entities.$inferSelect;
 export type NewEntity = typeof entities.$inferInsert;

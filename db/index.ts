@@ -3,7 +3,9 @@ import { config } from '../config.js';
 import { logger } from '../core/logger.js';
 import { isDatabaseUnavailableError } from '../core/lib/utils.js';
 
-let db: Awaited<ReturnType<typeof createDb>> | null = null;
+// Use any for db to avoid type conflicts between different drivers
+// The actual type will be determined at runtime based on mode
+let db: any = null;
 let dbError: string | null = null;
 
 export async function getDb() {
@@ -13,10 +15,30 @@ export async function getDb() {
 
 if (!db) {
       try {
-        if (config.supabaseUrl && config.supabaseKey) {
-          const { createSupabaseClient } = await import('./supabase.js');
-          db = await createSupabaseClient();
+        // Priority: remote (user's Supabase/Neon) > team (PostgreSQL) > local (SQLite)
+        if (config.isRemoteMode) {
+          if (config.remoteBackend === 'neon' && config.neonProjectId && config.neonServiceKey) {
+            const { createNeonClient } = await import('./neon.js');
+            db = await createNeonClient();
+          } else if (config.supabaseUrl && config.supabaseKey) {
+            const { createSupabaseClient } = await import('./supabase.js');
+            db = await createSupabaseClient();
+          } else {
+            throw new Error('Remote backend not configured (need SUPABASE_URL or NEON_PROJECT_ID)');
+          }
+        } else if (config.isTeamMode) {
+          // Team mode: PostgreSQL (or Supabase/Neon if explicitly configured)
+          if (config.teamBackend === 'supabase' && config.supabaseUrl && config.supabaseKey) {
+            const { createSupabaseClient } = await import('./supabase.js');
+            db = await createSupabaseClient();
+          } else if (config.teamBackend === 'neon' && config.neonProjectId && config.neonServiceKey) {
+            const { createNeonClient } = await import('./neon.js');
+            db = await createNeonClient();
+          } else {
+            db = await createDb();
+          }
         } else {
+          // Local mode: SQLite
           db = await createDb();
         }
       } catch (error) {

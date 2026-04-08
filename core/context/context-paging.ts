@@ -280,7 +280,7 @@ export async function getContextStatus(
     note: string;
   }> {
     const { db, schema } = await getDbClient();
-    const { contextSessions, memories, observations } = schema;
+    const { contextSessions, memories, learnings } = schema;
 
   // Get session
   const session = await db
@@ -327,8 +327,8 @@ export async function getContextStatus(
 
   const totalObservations = await db
     .select()
-    .from(observations)
-    .where(eq(observations.projectId, projectId as any));
+    .from(learnings)
+    .where(eq(learnings.projectId, projectId as any));
 
   return {
     success: true,

@@ -1,6 +1,6 @@
 import { requireProject } from '../projects.js';
 import { getRecent } from '../memory/memories.js';
-import { getObservations } from '../ingestion/observations.js';
+import { getObservations } from '../ingestion/learnings.js';
 import { getEntitiesForProject } from '../search/entities.js';
 import { validateLimit } from '../lib/validation.js';
 

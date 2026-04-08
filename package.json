@@ -4,19 +4,19 @@
   "description": "Two-tier memory for AI agents: QMD-based fast file search (short-term) + SQLite/Postgres (long-term). Works out-of-the-box, no setup required.",
   "main": "dist/index.js",
   "type": "module",
-   "bin": {
-     "squish": "dist/index.js",
-     "squish-mcp": "dist/core/commands/mcp-server.js",
-     "squish-add": "bin/squish-add.mjs",
-     "squish-rm": "bin/squish-rm.mjs"
-   },
-   "scripts": {
-     "build": "tsc && node scripts/copy-runtime-assets.mjs",
-     "start": "node dist/index.js",
-     "mcp": "node dist/core/commands/mcp-server.js",
-     "dev": "bun --hot index.ts",
-     "dev:mcp": "bun --hot core/commands/mcp-server.ts",
-     "verify:mcp": "node scripts/verify-mcp.mjs",
+  "bin": {
+    "squish": "dist/index.js",
+    "squish-mcp": "dist/core/commands/mcp-server.js",
+    "squish-add": "bin/squish-add.mjs",
+    "squish-rm": "bin/squish-rm.mjs"
+  },
+  "scripts": {
+    "build": "tsc && node scripts/copy-runtime-assets.mjs",
+    "start": "node dist/index.js",
+    "mcp": "node dist/core/commands/mcp-server.js",
+    "dev": "bun --hot index.ts",
+    "dev:mcp": "bun --hot core/commands/mcp-server.ts",
+    "verify:mcp": "node scripts/verify-mcp.mjs",
     "preflight:remote": "node scripts/remote-preflight.mjs",
     "fallback:dry": "node scripts/squish-fallback.mjs --op health --simulate-mcp-failure --dry-run",
     "deps:check": "node scripts/dependency-manager.mjs",
@@ -36,7 +36,16 @@
     "prepare": "husky",
     "postinstall": "node scripts/init-dirs.mjs",
     "release": "./scripts/build-release.sh && ./scripts/github-release.sh",
-    "check:secrets": "node scripts/check-secrets.js"
+    "check:secrets": "node scripts/check-secrets.js",
+    "dev:db:init": "node dev-scripts/db/init-db.mjs",
+    "dev:db:check": "node dev-scripts/db/check-db.mjs",
+    "dev:db:recreate": "node dev-scripts/db/recreate-db.mjs",
+    "dev:db:fix": "node dev-scripts/db/fix-schema.mjs",
+    "dev:db:fix-full": "node dev-scripts/db/fix-schema-full.mjs",
+    "dev:db:fix-all": "node dev-scripts/db/fix-schema-all.mjs",
+    "dev:db:fix-columns": "node dev-scripts/db/fix-all-columns.mjs",
+    "dev:migrate": "bun dev-scripts/migrate.ts",
+    "dev:start": "dev-scripts/start.bat"
   },
   "repository": {
     "type": "git",
@@ -121,6 +130,7 @@
   "dependencies": {
     "@clack/prompts": "^0.7.0",
     "@modelcontextprotocol/sdk": "^1.27.1",
+    "@neondatabase/serverless": "^1.0.2",
     "better-sqlite3": "12.6.2",
     "bull": "^4.16.0",
     "commander": "^12.0.0",

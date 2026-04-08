@@ -178,6 +178,62 @@ SUPABASE_SERVICE_KEY=your-service-key
 SQUISH_ENCRYPTION_PASSPHRASE=your-secure-passphrase
 ```
 
+## Neon Backend (v1.2.0)
+
+```bash
+# .env.neon
+
+# Neon serverless PostgreSQL backend
+NEON_PROJECT_ID=your-project-id
+NEON_SERVICE_KEY=your-service-key
+
+# Note: DATABASE_URL is also required for Neon connection
+DATABASE_URL=postgresql://user:password@your-project-id.us-east-1.aws.neon.tech/squish?sslmode=require
+```
+
+## Team Mode (v1.2.0)
+
+Team mode uses cloud backends for shared team access. Auto-detects based on env vars:
+
+```bash
+# .env.team
+
+# Option 1: PostgreSQL (default "local cloud")
+DATABASE_URL=postgresql://user:pass@localhost:5432/squish
+
+# Option 2: Supabase as team backend
+SQUISH_TEAM_BACKEND=supabase
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_KEY=your-service-key
+DATABASE_URL=postgresql://...
+
+# Option 3: Neon as team backend
+SQUISH_TEAM_BACKEND=neon
+NEON_PROJECT_ID=your-project-id
+NEON_SERVICE_KEY=your-service-key
+DATABASE_URL=postgresql://...
+```
+
+## Remote Mode (v1.2.0)
+
+Remote mode connects to user's own cloud databases (Supabase/Neon):
+
+```bash
+# .env.remote
+
+# Option 1: Supabase
+SQUISH_REMOTE_BACKEND=supabase
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_KEY=your-service-key
+DATABASE_URL=postgresql://...
+
+# Option 2: Neon
+SQUISH_REMOTE_BACKEND=neon
+NEON_PROJECT_ID=your-project-id
+NEON_SERVICE_KEY=your-service-key
+DATABASE_URL=postgresql://...
+```
+
 ## Encryption & Graph Boost (v1.1.0-enhanced)
 
 ```bash

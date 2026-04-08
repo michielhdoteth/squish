@@ -11,7 +11,7 @@ export { memoriesTable } from './tables/memories.js';
 export { memoryAssociationsTable } from './tables/memory-associations.js';
 export { conversationsTable } from './tables/conversations.js';
 export { messagesTable } from './tables/messages.js';
-export { observationsTable } from './tables/observations.js';
+export { learningsTable } from './tables/learnings.js';
 export { entitiesTable } from './tables/entities.js';
 export { entityRelationsTable } from './tables/entity-relations.js';
 export { contextSessionsTable } from './tables/context-sessions.js';
@@ -27,7 +27,7 @@ import { memoriesTable } from './tables/memories.js';
 import { memoryAssociationsTable } from './tables/memory-associations.js';
 import { conversationsTable } from './tables/conversations.js';
 import { messagesTable } from './tables/messages.js';
-import { observationsTable } from './tables/observations.js';
+import { learningsTable } from './tables/learnings.js';
 import { entitiesTable } from './tables/entities.js';
 import { entityRelationsTable } from './tables/entity-relations.js';
 import { contextSessionsTable } from './tables/context-sessions.js';
@@ -47,7 +47,7 @@ const SQLITE_TABLE_ORDER = [
   memoriesTable,
   memoryAssociationsTable,
   messagesTable,
-  observationsTable,
+  learningsTable,
   entitiesTable,
   entityRelationsTable,
   contextSessionsTable,
@@ -65,7 +65,7 @@ const POSTGRES_TABLE_ORDER = [
   memoriesTable,
   memoryAssociationsTable,
   messagesTable,
-  observationsTable,
+  learningsTable,
   entitiesTable,
   entityRelationsTable,
   contextSessionsTable,

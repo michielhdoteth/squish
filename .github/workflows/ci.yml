@@ -67,13 +67,10 @@ jobs:
 
       - name: Installer dry-run checks
         run: |
-          node scripts/install-mcp.mjs --client claude-code --dry-run
-          node scripts/install-mcp.mjs --client opencode --dry-run
-          node scripts/install-mcp.mjs --client codex --dry-run
-          node scripts/install-mcp.mjs --client openclaw --dry-run
-
-      - name: OpenClaw bootstrap dry-run
-        run: node scripts/openclaw-bootstrap.mjs --dry-run --skip-tool-check
+          node scripts/install-plugin.mjs --client=claude-code --dry-run
+          node scripts/install-plugin.mjs --client=opencode --dry-run
+          node scripts/install-plugin.mjs --client=codex --dry-run
+          node scripts/install-plugin.mjs --client=openclaw --dry-run --skip-tool-check
 
   mcp-tests:
     runs-on: ubuntu-latest
@@ -92,4 +89,4 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: MCP script tests
-        run: bunx vitest run tests/mcp/universal-contract.test.ts tests/mcp/mode-semantics.test.ts tests/mcp/remote-auth-contract.test.ts tests/mcp/generate-mcp-universal.test.ts tests/mcp/install-mcp.test.ts tests/mcp/openclaw-bootstrap.test.ts tests/mcp/verify-mcp.test.ts
+        run: bunx vitest run tests/mcp/universal-contract.test.ts tests/mcp/mode-semantics.test.ts tests/mcp/remote-auth-contract.test.ts tests/mcp/generate-mcp-universal.test.ts tests/mcp/verify-mcp.test.ts

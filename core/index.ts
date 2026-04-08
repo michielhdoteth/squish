@@ -5,7 +5,7 @@ export * from './storage/database.js';
 export * from './embeddings.js';
 // Note: local-embeddings exports duplicate of embeddings, import directly when needed
 // export * from './local-embeddings.js';
-export * from './ingestion/observations.js';
+export * from './ingestion/learnings.js';
 export * from './security/privacy.js';
 export * from './projects.js';
 // Note: redis exports duplicates of cache, import directly when needed
