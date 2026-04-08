@@ -565,6 +565,36 @@ async function runCliMode() {
       }
     });
 
+  // squish mount /path/to/folder - Enable external memory
+  program
+    .command('mount')
+    .description('Mount an external folder as memory storage')
+    .argument('[path]', 'Path to external folder (or "status" or "unmount")')
+    .action(async (pathOrAction) => {
+      const { getExternalMemory } = await import('./core/external-folder/index.js');
+      const externalMemory = getExternalMemory();
+      
+      if (pathOrAction === 'status') {
+        // Show mount status
+        const status = await externalMemory.getStatus();
+        console.log(JSON.stringify({ ok: true, status }, null, 2));
+      } else if (pathOrAction === 'unmount') {
+        // Unmount
+        externalMemory.unmount();
+        console.log(JSON.stringify({ ok: true, message: 'External memory unmounted' }, null, 2));
+      } else if (pathOrAction) {
+        // Mount at path
+        const result = await externalMemory.mount(pathOrAction);
+        if (result.success) {
+          console.log(JSON.stringify({ ok: true, message: `Mounted at ${pathOrAction}` }, null, 2));
+        } else {
+          console.log(JSON.stringify({ ok: false, error: result.error }, null, 2));
+        }
+      } else {
+        console.log(JSON.stringify({ ok: false, error: 'Usage: squish mount <path> or squish mount status' }, null, 2));
+      }
+    });
+
   // squish remember "content" --type fact --tags tag1,tag2
   program
     .command('remember <content>')

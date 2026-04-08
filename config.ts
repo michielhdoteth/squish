@@ -222,6 +222,10 @@ export const config = {
   obsidianEnabled: process.env.SQUISH_OBSIDIAN_ENABLED === 'true',
   obsidianVaultPath: process.env.SQUISH_OBSIDIAN_VAULT_PATH || '',
 
+  // External Folder Memory (QMD Wrapper)
+  externalMemoryEnabled: process.env.SQUISH_EXTERNAL_MEMORY_ENABLED === 'true',
+  externalMemoryPath: process.env.SQUISH_EXTERNAL_MEMORY_PATH || '',
+
   // DEPRECATED: QMD (kept for backward compat during transition)
   qmdEnabled: false, // DEPRECATED - use Obsidian integration instead
   qmdCollectionsPath: '', // DEPRECATED
