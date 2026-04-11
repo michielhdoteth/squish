@@ -1,7 +1,7 @@
 {
   "id": "squish-memory",
   "name": "Squish Memory",
-  "version": "1.1.0",
+  "version": "1.1.5",
   "description": "Universal two-tier memory system for AI agents with hybrid search, core memory, and MCP-first architecture",
   "capabilities": ["mcp", "cli", "web"],
   "targets": {

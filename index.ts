@@ -72,7 +72,7 @@ import { runNightlyJob, runWeeklyJob } from './core/scheduler/job-runner.js';
 import {
   DEFAULT_CONTEXT_CONFIG,
 } from './core/context/context-window.js';
-const VERSION = '1.1.0';
+const VERSION = '1.1.5';
 
 // Output Formatting Utilities
 // ============================================================================

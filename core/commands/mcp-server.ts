@@ -32,7 +32,7 @@ import { initializeScheduler } from "../../core/scheduler/cron-scheduler.js";
 import { serializeTags } from "../../core/memory/serialization.js";
 
 const SERVER_NAME = "squish-memory";
-const SERVER_VERSION = "1.1.0";
+const SERVER_VERSION = "1.1.5";
 
 function parseArgs(): { mode: "stdio" | "http"; port: number; health: boolean } {
   const args = process.argv.slice(2);

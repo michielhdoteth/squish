@@ -2,6 +2,20 @@
 
 All notable changes to Squish will be documented in this file.
 
+## [1.1.5] - 2026-04-11
+
+### Added - Release Prep Enhancements
+- **New environment variables**: SQUISH_ENCRYPTION_PASSPHRASE, SQUISH_DECAY_THRESHOLD, SQUISH_LIFECYCLE_DECAY_CRON, SUPABASE_URL, SUPABASE_SERVICE_KEY, NEON_PROJECT_ID, NEON_SERVICE_KEY, SQUISH_WEIGHT_GRAPH_BOOST
+- **PostgreSQL schema**: Added memory_associations, namespaces, and maintenance_jobs tables for full parity with SQLite
+- **Release workflow**: Fixed test step to skip when no tests configured
+
+### Added - Wiki Storage
+- **Wiki storage module**: New core/wiki/wiki-storage.ts for wiki-style memory organization
+- **Memory hooks**: New core/memory/hooks.ts for memory lifecycle hooks
+
+### Changed - Version Bump
+- Updated all version references from 1.1.0 to 1.1.5
+
 ## [1.1.0] - 2026-03-28
 
 ### Changed - Launch Surface Cleanup

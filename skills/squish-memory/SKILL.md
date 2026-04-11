@@ -1,13 +1,13 @@
 ---
 name: squish-memory
 description: Squish - Persistent memory system for AI assistants. Store facts, decisions, context, and notes with CLI and MCP workflows.
-version: 1.1.0
+version: 1.1.5
 author: michielhdoteth
 tags: [memory, persistence, search, semantic-search, ai-assistant, mcp, cli]
 emoji: brain
 ---
 
-# Squish Memory v1.1.0
+# Squish Memory v1.1.5
 
 Persistent memory for AI coding assistants with local SQLite/Postgres storage, hybrid retrieval, and MCP integration.
 
