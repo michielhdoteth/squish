@@ -634,7 +634,61 @@ const postgresStatements = [
     last_updated TIMESTAMPTZ DEFAULT NOW() NOT NULL
   );`,
   `CREATE INDEX IF NOT EXISTS memory_hash_cache_project_id_idx ON memory_hash_cache(project_id);`,
-  `CREATE INDEX IF NOT EXISTS memory_hash_cache_simhash_idx ON memory_hash_cache(simhash);`
+  `CREATE INDEX IF NOT EXISTS memory_hash_cache_simhash_idx ON memory_hash_cache(simhash);`,
+  // memory_associations table (v1.1.0+)
+  `CREATE TABLE IF NOT EXISTS memory_associations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    from_memory_id UUID NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+    to_memory_id UUID NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+    association_type TEXT NOT NULL,
+    weight REAL DEFAULT 1,
+    coactivation_count INTEGER DEFAULT 1,
+    metadata TEXT,
+    last_coactivated_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+    UNIQUE(from_memory_id, to_memory_id)
+  );`,
+  `CREATE INDEX IF NOT EXISTS associations_graph_traversal_idx ON memory_associations(from_memory_id, to_memory_id, weight, association_type);`,
+  // namespaces table
+  `CREATE TABLE IF NOT EXISTS namespaces (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    path TEXT NOT NULL,
+    description TEXT,
+    parent_id UUID REFERENCES namespaces(id) ON DELETE SET NULL,
+    metadata TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+  );`,
+  `CREATE INDEX IF NOT EXISTS namespaces_project_idx ON namespaces(project_id);`,
+  `CREATE INDEX IF NOT EXISTS namespaces_parent_idx ON namespaces(parent_id);`,
+  // maintenance_jobs table
+  `CREATE TABLE IF NOT EXISTS maintenance_jobs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
+    job_name TEXT NOT NULL,
+    job_type TEXT NOT NULL,
+    description TEXT,
+    enabled BOOLEAN DEFAULT TRUE,
+    cron_expression TEXT,
+    interval_ms INTEGER,
+    next_run_at TIMESTAMPTZ,
+    last_run_at TIMESTAMPTZ,
+    last_run_duration INTEGER,
+    last_run_status TEXT,
+    last_run_error TEXT,
+    total_runs INTEGER DEFAULT 0,
+    success_count INTEGER DEFAULT 0,
+    failure_count INTEGER DEFAULT 0,
+    job_config TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+  );`,
+  `CREATE INDEX IF NOT EXISTS maintenance_jobs_name_idx ON maintenance_jobs(job_name);`,
+  `CREATE INDEX IF NOT EXISTS maintenance_jobs_next_run_idx ON maintenance_jobs(next_run_at);`,
+  `CREATE INDEX IF NOT EXISTS maintenance_jobs_type_idx ON maintenance_jobs(job_type);`,
+  `CREATE INDEX IF NOT EXISTS maintenance_jobs_enabled_idx ON maintenance_jobs(enabled);`
 ];
 
 /**
