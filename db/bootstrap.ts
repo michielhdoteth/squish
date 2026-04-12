@@ -174,6 +174,10 @@ CREATE TABLE IF NOT EXISTS learnings (
   importance INTEGER DEFAULT 50,
   metadata TEXT,
   is_imported INTEGER DEFAULT 0,
+  -- UAM: Agent integration columns
+  agent_id TEXT,
+  tool_name TEXT,
+  session_id TEXT,
   created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL
 );
 
@@ -526,6 +530,10 @@ const postgresStatements = [
     importance INTEGER DEFAULT 50,
     metadata JSONB,
     is_imported BOOLEAN DEFAULT FALSE,
+    -- UAM: Agent integration columns
+    agent_id TEXT,
+    tool_name TEXT,
+    session_id TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
   );`,
   `CREATE INDEX IF NOT EXISTS learnings_project_idx ON learnings(project_id);`,

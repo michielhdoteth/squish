@@ -115,6 +115,40 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
     }
   )) toolCount++;
 
+  // squish_timeline - 3-layer progressive disclosure
+  if (safeRegisterTool(
+    server,
+    "squish_timeline",
+    {
+      description: "3-layer progressive disclosure - index (~50 tokens), timeline (~200 tokens), detail (~2000 tokens)",
+      inputSchema: {
+        query: z.string().describe("Search query"),
+        depth: z.enum(["index", "timeline", "detail"]).default("index").describe("Progressive disclosure depth"),
+        limit: z.number().min(1).max(100).default(10).describe("Max results"),
+        project: z.string().optional().describe("Project path")
+      }
+    },
+    async ({ query, depth = "index", limit = 10, project }: { query: string; depth?: "index" | "timeline" | "detail"; limit?: number; project?: string }) => {
+      const { getTimeline } = await import('../../core/adapters/timeline.js');
+      const result = await getTimeline(query, depth, limit, project);
+      
+      const formatted = result.results.map((r: any, i: number) => {
+        if (depth === "index") {
+          return `${i + 1}. ${r.title}`;
+        } else if (depth === "timeline") {
+          return `${i + 1}. [${r.type}] ${r.content} (${r.tags?.join(', ') || 'no tags'})`;
+        } else {
+          return `${i + 1}. [${r.type}] ${r.content?.substring(0, 200)}...`;
+        }
+      }).join("\n");
+      
+      return { content: [{ type: "text", text: `Timeline (${depth}, ~${result.tokenEstimate} tokens):\n\n${formatted}` }] };
+    }
+  )) toolCount++;
+
+  // Note: For session context, use squish_context tool (already exists)
+  // It provides project memories + observations + entities
+  
   if (safeRegisterTool(
     server,
     "squish_remember",
