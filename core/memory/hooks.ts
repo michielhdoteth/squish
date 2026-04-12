@@ -2,7 +2,7 @@
  * Memory Lifecycle Hooks
  * 
  * Provides event hooks for memory operations:
- * - memoryCreated: When a memory is stored (DB or wiki)
+  * - memoryCreated: When a memory is stored (DB or markdown files)
  * - memoryUpdated: When a memory is updated
  * - memoryDeleted: When a memory is deleted
  * - tierChange: When memory tier changes (hot/warm/cold)
@@ -113,7 +113,7 @@ export function listHooks(): { event: HookEvent; priority: number }[] {
 
 /**
  * Trigger memoryCreated hooks
- * Called when a memory is stored in DB or wiki
+ * Called when a memory is stored in DB or markdown files
  */
 export async function triggerMemoryCreated(context: MemoryHookContext): Promise<void> {
   const handlers = getHooks('memoryCreated');
@@ -210,21 +210,21 @@ export async function triggerDecayApplied(context: DecayContext): Promise<void> 
 }
 
 /**
- * Built-in hook: Auto-save to wiki when storing to DB
+ * Built-in hook: Auto-save to memory files when storing to DB
  * Use this to have dual storage (DB + markdown files)
  */
-export function createWikiAutoSyncHook() {
-  return async function wikiAutoSync(context: MemoryHookContext) {
+export function createMarkdownAutoSyncHook() {
+  return async function markdownAutoSync(context: MemoryHookContext) {
     if (context.tier === 'hot') {
-      const { saveToWiki } = await import('../wiki/wiki-storage.js');
-      await saveToWiki({
+      const { saveToMarkdown } = await import('./markdown/markdown-storage.js');
+      await saveToMarkdown({
         content: context.content,
         type: context.type as any,
         tags: context.tags,
         project: context.project,
         source: context.source,
       });
-      logger.info('[Hooks] Auto-synced memory to wiki: ' + context.memoryId);
+      logger.info('[Hooks] Auto-synced memory to markdown: ' + context.memoryId);
     }
   };
 }

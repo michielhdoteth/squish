@@ -10,7 +10,7 @@ All notable changes to Squish will be documented in this file.
 - **Release workflow**: Fixed test step to skip when no tests configured
 
 ### Added - Wiki Storage
-- **Wiki storage module**: New core/wiki/wiki-storage.ts for wiki-style memory organization
+- **Memory storage module**: New core/memory/markdown/markdown-storage.ts for memory file storage
 - **Memory hooks**: New core/memory/hooks.ts for memory lifecycle hooks
 
 ### Changed - Version Bump

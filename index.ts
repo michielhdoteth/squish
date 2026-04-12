@@ -607,15 +607,15 @@ async function runCliMode() {
     .option('-c, --context <context>', 'What triggered this memory')
     .option('-e, --examples <examples>', 'When to apply this knowledge')
     .option('-x, --exceptions <exceptions>', 'When NOT to apply this')
-    .option('-h, --wiki', 'Store as markdown file in .squish/wiki/raw/ (not in database)', false)
+    .option('-m, --memory', 'Store as markdown file in .squish/memory/ (not in database)', false)
     .option('-H, --hot', 'Store in hot tier (active, high priority) in database', false)
     .option('-C, --cold', 'Store in cold tier (archived, lower priority) in database', false)
     .action(async (content, options) => {
       try {
-        // Wiki file storage (not in database)
-        if (options.wiki) {
-          const { saveToWiki } = await import('./core/wiki/wiki-storage.js');
-          const wikiMemory = await saveToWiki({
+        // Markdown file storage (not in database)
+        if (options.memory) {
+          const { saveToMarkdown } = await import('./core/memory/markdown/markdown-storage.js');
+          const memoryFile = await saveToMarkdown({
             content,
             type: options.type as any,
             tags: options.tags ? options.tags.split(',').map((t: string) => t.trim()) : [],
@@ -630,16 +630,16 @@ async function runCliMode() {
           // Trigger hooks
           const { triggerMemoryCreated } = await import('./core/memory/hooks.js');
           await triggerMemoryCreated({
-            memoryId: wikiMemory.id,
-            content: wikiMemory.content,
-            type: wikiMemory.type,
-            tags: wikiMemory.tags,
-            project: wikiMemory.project,
-            source: wikiMemory.source,
+            memoryId: memoryFile.id,
+            content: memoryFile.content,
+            type: memoryFile.type,
+            tags: memoryFile.tags,
+            project: memoryFile.project,
+            source: memoryFile.source,
             tier: 'hot',
           });
           
-          console.log(JSON.stringify({ ok: true, wiki: true, ...wikiMemory }, null, 2));
+          console.log(JSON.stringify({ ok: true, memory: true, ...memoryFile }, null, 2));
           return;
         }
         
@@ -688,33 +688,33 @@ async function runCliMode() {
     .option('-s, --since <date>', 'Filter: created after this date (e.g., "3 days ago", "2026-01-01")')
     .option('-u, --until <date>', 'Filter: created before this date (e.g., "yesterday", "2026-01-15")')
     .option('-P, --pretty', 'Human-friendly output', false)
-    .option('-w, --wiki', 'Search wiki files instead of database', false)
+    .option('-m, --memory', 'Search memory files instead of database', false)
     .action(async (query, options) => {
       try {
-        // Wiki file search
-        if (options.wiki) {
-          const { getWikiMemories } = await import('./core/wiki/wiki-storage.js');
-          const wikiMemories = await getWikiMemories({
+        // Markdown file search
+        if (options.memory) {
+          const { getMarkdownMemories } = await import('./core/memory/markdown/markdown-storage.js');
+          const memoryFiles = await getMarkdownMemories({
             type: options.type as any,
             project: options.project,
           });
           
           // Simple text search (can be enhanced with QMD later)
           const searchLower = query.toLowerCase();
-          const filtered = wikiMemories.filter(m => 
+          const filtered = memoryFiles.filter(m => 
             m.content.toLowerCase().includes(searchLower) ||
             m.tags.some(t => t.toLowerCase().includes(searchLower))
           ).slice(0, validateLimit(options.limit, 10, 1, 100));
           
           if (options.pretty) {
-            console.log(`\n  Wiki Search: "${query}"`);
+            console.log(`\n  Memory Search: "${query}"`);
             console.log(`  Found ${filtered.length} results:\n`);
             filtered.forEach((r: any, i: number) => {
               console.log(`  ${i + 1}. [${r.type || 'memory'}] ${(r.content || '').substring(0, 60)}...`);
             });
             console.log('');
           } else {
-            console.log(JSON.stringify({ ok: true, query, source: 'wiki', count: filtered.length, results: filtered }, null, 2));
+            console.log(JSON.stringify({ ok: true, query, source: 'memory', count: filtered.length, results: filtered }, null, 2));
           }
           return;
         }
@@ -1229,19 +1229,19 @@ program
       .command('stats')
       .description('View statistics')
       .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
-      .option('-w, --wiki', 'Show wiki storage stats instead of database', false)
+      .option('-m, --memory', 'Show memory file storage stats instead of database', false)
       .action(async (options) => {
         try {
-          // Wiki stats
-          if (options.wiki) {
-            const { getWikiStats, isWikiStorageAvailable } = await import('./core/wiki/wiki-storage.js');
-            const available = isWikiStorageAvailable();
+          // Memory file stats
+          if (options.memory) {
+            const { getMemoryStats, isMemoryStorageAvailable } = await import('./core/memory/markdown/markdown-storage.js');
+            const available = isMemoryStorageAvailable();
             if (!available) {
-              console.log(JSON.stringify({ ok: false, error: 'Wiki storage not available' }, null, 2));
+              console.log(JSON.stringify({ ok: false, error: 'Memory file storage not available' }, null, 2));
               process.exit(1);
             }
-            const stats = await getWikiStats();
-            console.log(JSON.stringify({ ok: true, source: 'wiki', ...stats }, null, 2));
+            const stats = await getMemoryStats();
+            console.log(JSON.stringify({ ok: true, source: 'memory', ...stats }, null, 2));
             return;
           }
           

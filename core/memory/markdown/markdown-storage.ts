@@ -1,10 +1,10 @@
 /**
- * Wiki Folder Storage
+ * Memory Markdown Storage
  * 
- * Stores memories as markdown files in .squish/wiki/raw/
- * Following Karpathy LLM Wiki pattern:
+ * Stores memories as markdown files in .squish/memory/
+ * Following Karpathy LLM Memory pattern:
  * - raw/ : Append-only memory files (never edit)
- * - wiki/ : LLM-generated articles (future)
+ * - processed/ : LLM-generated articles (future)
  * - outputs/ : Query responses (future)
  * 
  * Each memory = one .md file with YAML frontmatter
@@ -13,11 +13,11 @@
 import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, unlinkSync } from 'fs';
 import { join, dirname } from 'path';
 import { randomUUID } from 'crypto';
-import { logger } from '../logger.js';
-import { getDataDir } from '../../config.js';
-import type { MemoryType } from '../memory/memories.js';
+import { logger } from '../../logger.js';
+import { getDataDir } from '../../../config.js';
+import type { MemoryType } from '../memories.js';
 
-export interface WikiMemoryInput {
+export interface MarkdownMemoryInput {
   content: string;
   type?: MemoryType;
   tags?: string[];
@@ -29,7 +29,7 @@ export interface WikiMemoryInput {
   project?: string;
 }
 
-export interface WikiMemoryFile {
+export interface MarkdownMemoryFile {
   id: string;
   type: MemoryType;
   content: string;
@@ -44,28 +44,28 @@ export interface WikiMemoryFile {
 }
 
 /**
- * Get the wiki base path (.squish/wiki/)
+ * Get the memory base path (.squish/memory/)
  */
-function getWikiPath(): string {
-  return join(getDataDir(), 'wiki');
+function getMemoryPath(): string {
+  return join(getDataDir(), 'memory');
 }
 
 /**
- * Get the raw memories path (.squish/wiki/raw/)
+ * Get the raw memories path (.squish/memory/raw/)
  */
 function getRawPath(): string {
-  return join(getWikiPath(), 'raw');
+  return join(getMemoryPath(), 'raw');
 }
 
 /**
- * Ensure wiki directory structure exists
+ * Ensure memory directory structure exists
  */
-function ensureWikiStructure(): void {
-  const dirs = [getWikiPath(), getRawPath()];
+function ensureMemoryStructure(): void {
+  const dirs = [getMemoryPath(), getRawPath()];
   for (const dir of dirs) {
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
-      logger.info(`[WikiStorage] Created directory: ${dir}`);
+      logger.info(`[MemoryStorage] Created directory: ${dir}`);
     }
   }
 }
@@ -73,7 +73,7 @@ function ensureWikiStructure(): void {
 /**
  * Format memory as markdown with YAML frontmatter
  */
-function formatMemoryAsMarkdown(memory: WikiMemoryFile): string {
+function formatMemoryAsMarkdown(memory: MarkdownMemoryFile): string {
   const lines: string[] = [];
   
   // YAML frontmatter
@@ -116,9 +116,9 @@ function formatMemoryAsMarkdown(memory: WikiMemoryFile): string {
 }
 
 /**
- * Parse markdown file to WikiMemoryFile
+ * Parse markdown file to MarkdownMemoryFile
  */
-function parseMarkdownFile(filePath: string): WikiMemoryFile | null {
+function parseMarkdownFile(filePath: string): MarkdownMemoryFile | null {
   try {
     const content = readFileSync(filePath, 'utf-8');
     const match = content.match(/^---\n([\s\S]*?)\n---/);
@@ -150,23 +150,23 @@ function parseMarkdownFile(filePath: string): WikiMemoryFile | null {
       }
     }
     
-    return memory as WikiMemoryFile;
+    return memory as MarkdownMemoryFile;
   } catch (error) {
-    logger.warn(`[WikiStorage] Failed to parse ${filePath}: ${error}`);
+    logger.warn(`[MemoryStorage] Failed to parse ${filePath}: ${error}`);
     return null;
   }
 }
 
 /**
- * Save a memory to wiki raw folder
+ * Save a memory to memory raw folder
  */
-export async function saveToWiki(input: WikiMemoryInput): Promise<WikiMemoryFile> {
-  ensureWikiStructure();
+export async function saveToMarkdown(input: MarkdownMemoryInput): Promise<MarkdownMemoryFile> {
+  ensureMemoryStructure();
   
   const id = randomUUID();
   const createdAt = new Date().toISOString();
   
-  const memory: WikiMemoryFile = {
+  const memory: MarkdownMemoryFile = {
     id,
     type: input.type || 'observation',
     content: input.content,
@@ -183,25 +183,25 @@ export async function saveToWiki(input: WikiMemoryInput): Promise<WikiMemoryFile
   const filePath = join(getRawPath(), `${id}.md`);
   writeFileSync(filePath, formatMemoryAsMarkdown(memory), 'utf-8');
   
-  logger.info(`[WikiStorage] Saved memory to ${filePath}`);
+  logger.info(`[MemoryStorage] Saved memory to ${filePath}`);
   
   return memory;
 }
 
 /**
- * Get all memories from wiki raw folder
+ * Get all memories from memory raw folder
  */
-export async function getWikiMemories(options?: {
+export async function getMarkdownMemories(options?: {
   since?: Date;
   until?: Date;
   tags?: string[];
   type?: MemoryType;
   project?: string;
-}): Promise<WikiMemoryFile[]> {
-  ensureWikiStructure();
+}): Promise<MarkdownMemoryFile[]> {
+  ensureMemoryStructure();
   
   const files = readdirSync(getRawPath()).filter(f => f.endsWith('.md'));
-  const memories: WikiMemoryFile[] = [];
+  const memories: MarkdownMemoryFile[] = [];
   
   for (const file of files) {
     const filePath = join(getRawPath(), file);
@@ -239,7 +239,7 @@ export async function getWikiMemories(options?: {
 /**
  * Get a specific memory by ID
  */
-export async function getWikiMemory(id: string): Promise<WikiMemoryFile | null> {
+export async function getMarkdownMemory(id: string): Promise<MarkdownMemoryFile | null> {
   const filePath = join(getRawPath(), `${id}.md`);
   
   if (!existsSync(filePath)) {
@@ -250,9 +250,9 @@ export async function getWikiMemory(id: string): Promise<WikiMemoryFile | null> 
 }
 
 /**
- * Delete a memory from wiki
+ * Delete a memory from memory
  */
-export async function deleteWikiMemory(id: string): Promise<boolean> {
+export async function deleteMarkdownMemory(id: string): Promise<boolean> {
   const filePath = join(getRawPath(), `${id}.md`);
   
   if (!existsSync(filePath)) {
@@ -260,21 +260,21 @@ export async function deleteWikiMemory(id: string): Promise<boolean> {
   }
   
   unlinkSync(filePath);
-  logger.info(`[WikiStorage] Deleted memory ${id}`);
+  logger.info(`[MemoryStorage] Deleted memory ${id}`);
   
   return true;
 }
 
 /**
- * Get wiki storage stats
+ * Get memory storage stats
  */
-export async function getWikiStats(): Promise<{
+export async function getMemoryStats(): Promise<{
   totalMemories: number;
   byType: Record<string, number>;
   byTag: Record<string, number>;
   storageSizeBytes: number;
 }> {
-  ensureWikiStructure();
+  ensureMemoryStructure();
   
   const files = readdirSync(getRawPath()).filter(f => f.endsWith('.md'));
   
@@ -306,11 +306,11 @@ export async function getWikiStats(): Promise<{
 }
 
 /**
- * Check if wiki storage is available
+ * Check if memory storage is available
  */
-export function isWikiStorageAvailable(): boolean {
+export function isMemoryStorageAvailable(): boolean {
   try {
-    ensureWikiStructure();
+    ensureMemoryStructure();
     return existsSync(getRawPath());
   } catch {
     return false;
