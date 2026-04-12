@@ -762,7 +762,26 @@ program
         const db = await getDb();
         const schema = await getSchema();
         const sqliteDb = db as any;
+        
+        // Get memory content before deleting for hook
+        const [memory] = await sqliteDb.select().from(schema.memories).where(eq(schema.memories.id, memoryId));
+        
         await sqliteDb.delete(schema.memories).where(eq(schema.memories.id, memoryId));
+        
+        // Trigger memoryDeleted hook
+        if (memory) {
+          const { triggerMemoryDeleted } = await import('./core/memory/hooks.js');
+          await triggerMemoryDeleted({
+            memoryId: memory.id,
+            content: memory.content,
+            type: memory.type,
+            tags: typeof memory.tags === 'string' ? memory.tags.split(',') : [],
+            project: memory.projectId || undefined,
+            source: memory.source || undefined,
+            tier: memory.tier,
+          });
+        }
+        
         console.log(JSON.stringify({ ok: true, message: `Memory ${memoryId} deleted` }, null, 2));
         return;
       }
@@ -902,7 +921,28 @@ program
       const db = await getDb();
       const schema = await getSchema();
       const sqliteDb = db as any;
+      
+      // Get old memory for hook
+      const [oldMemory] = await sqliteDb.select().from(schema.memories).where(eq(schema.memories.id, memoryId));
+      
       await sqliteDb.update(schema.memories).set(updates).where(eq(schema.memories.id, memoryId));
+      
+      // Trigger memoryUpdated hook
+      if (oldMemory) {
+        const { triggerMemoryUpdated } = await import('./core/memory/hooks.js');
+        const newContent = options.content || oldMemory.content;
+        await triggerMemoryUpdated({
+          memoryId: oldMemory.id,
+          content: newContent,
+          type: options.type || oldMemory.type,
+          tags: options.tags ? options.tags.split(',') : (typeof oldMemory.tags === 'string' ? oldMemory.tags.split(',') : []),
+          project: oldMemory.projectId || undefined,
+          source: oldMemory.source || undefined,
+          tier: oldMemory.tier,
+          importance: oldMemory.importanceScore || oldMemory.relevanceScore || 50,
+        }, oldMemory.content);
+      }
+      
       console.log(JSON.stringify({ ok: true, message: `Memory ${memoryId} updated` }, null, 2));
     } catch (error: any) {
       console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));

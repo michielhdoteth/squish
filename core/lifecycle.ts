@@ -14,6 +14,7 @@ import { getDb } from '../db/index.js';
 import { getSchema } from '../db/schema.js';
 import { config } from '../config.js';
 import { logger } from './logger.js';
+import { triggerTierChange, triggerDecayApplied } from './memory/hooks.js';
 
 /**
  * Default decay intervals by sector (days until decay check)
@@ -159,6 +160,24 @@ async function applyDecay(projectId: string | undefined, stats: LifecycleStats):
           })
           .where(eq(schema.memories.id, memory.id));
         decayed++;
+        
+        // Trigger decay applied hook
+        try {
+          await triggerDecayApplied({
+            memoryId: memory.id,
+            content: memory.content,
+            type: memory.type,
+            tags: typeof memory.tags === 'string' ? memory.tags.split(',') : [],
+            project: memory.projectId || undefined,
+            source: memory.source || undefined,
+            tier: memory.tier,
+            importance: newScore,
+            oldScore: currentScore,
+            newScore: newScore,
+          });
+        } catch (hookError) {
+          logger.error('Error triggering decayApplied hook', hookError);
+        }
       }
     }
 
@@ -264,6 +283,31 @@ async function updateTiers(projectId: string | undefined, stats: LifecycleStats)
         .update(schema.memories)
         .set({ tier: 'cold', updatedAt: now })
         .where(inArray(schema.memories.id, coldIds));
+    }
+
+    // Trigger tier change hooks for each memory that changed tier
+    if (tierAssignments.size > 0) {
+      for (const memory of memories) {
+        const newTier = tierAssignments.get(memory.id);
+        if (newTier && newTier !== memory.tier) {
+          try {
+            await triggerTierChange({
+              memoryId: memory.id,
+              content: memory.content,
+              type: memory.type,
+              tags: typeof memory.tags === 'string' ? memory.tags.split(',') : [],
+              project: memory.projectId || undefined,
+              source: memory.source || undefined,
+              tier: newTier,
+              importance: memory.importanceScore || memory.relevanceScore || 50,
+              oldTier: memory.tier,
+              newTier: newTier,
+            });
+          } catch (hookError) {
+            logger.error('Error triggering tierChange hook', hookError);
+          }
+        }
+      }
     }
 
     // Update stats
