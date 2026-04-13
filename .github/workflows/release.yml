@@ -61,7 +61,7 @@ jobs:
 
       - name: Create GitHub Release
         if: contains(github.ref, 'tags/v')
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.ref }}
           name: Squish v${{ steps.version.outputs.version }}
