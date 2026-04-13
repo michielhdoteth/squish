@@ -1,7 +1,7 @@
 ---
 name: squish-cli
 description: Squish CLI commands for OpenClaw and other CLI-based agents. Use for bash execution, scripting, and automation.
-version: 1.1.5
+version: 1.1.6
 author: michielhdoteth
 tags: [cli, memory, persistence, command-line, openclaw, bash, automation]
 emoji: terminal
@@ -21,7 +21,7 @@ bun add -g @squish/memory
 
 ## Overview
 
-Squish v1.1.5 introduces a new interaction model:
+Squish v1.1.6 introduces a new interaction model:
 - **Default (`squish`)**: Interactive wizard/menu
 - **Server modes**: `squish run mcp` and `squish run web`
 - **CLI commands**: For agents and scripting (unchanged)

@@ -87,7 +87,7 @@ import {
   getFullWalkingContext,
   type PlaceType,
 } from './core/places/index.js';
-const VERSION = '1.1.5';
+const VERSION = '1.1.6';
 
 // Output Formatting Utilities
 // ============================================================================

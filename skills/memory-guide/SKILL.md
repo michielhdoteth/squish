@@ -1,13 +1,13 @@
 ---
 name: memory-guide
 description: Practical guide for using the current Squish memory system across CLI and MCP workflows.
-version: 1.1.5
+version: 1.1.6
 author: michielhdoteth
 tags: [memory, persistence, squish, guide, mcp, ai-assistant]
 emoji: book
 ---
 
-# Squish Memory Guide v1.1.5
+# Squish Memory Guide v1.1.6
 
 Use Squish to keep durable project context, user preferences, decisions, and working notes across sessions.
 
