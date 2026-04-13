@@ -96,3 +96,8 @@ CLAUDE.md
 # Generated MCP configs (local only)
 generated/mcp/
 benchmarks/
+
+# Release artifacts
+squish-v1.1.5-*.tar.gz
+squish-v1.1.5-*.zip
+release-assets/
