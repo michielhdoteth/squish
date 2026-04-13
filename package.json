@@ -128,27 +128,27 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
-    "@clack/prompts": "^0.7.0",
-    "@modelcontextprotocol/sdk": "^1.27.1",
+    "@clack/prompts": "^1.2.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@neondatabase/serverless": "^1.0.2",
-    "better-sqlite3": "12.6.2",
+    "better-sqlite3": "12.9.0",
     "bull": "^4.16.0",
-    "commander": "^12.0.0",
+    "commander": "^14.0.3",
     "cors": "2.8.6",
-    "dotenv": "^16.4.0",
-    "drizzle-orm": "^0.38.0",
+    "dotenv": "^17.4.2",
+    "drizzle-orm": "^0.45.2",
     "express": "^5.2.1",
-    "express-rate-limit": "^8.3.1",
-    "hono": "^4.12.8",
-    "node-cron": "^3.0.0",
+    "express-rate-limit": "^8.3.2",
+    "hono": "^4.12.12",
+    "node-cron": "^4.2.1",
     "pg": "^8.20.0",
     "pgvector": "^0.2.0",
     "picocolors": "^1.0.0",
     "redis": "^5.11.0",
     "sql.js": "^1.14.1",
     "uuid": "^13.0.0",
-    "ws": "^8.18.0",
-    "zod": "^3.24.0"
+    "ws": "^8.20.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
@@ -158,8 +158,8 @@
     "@types/node-cron": "^3.0.11",
     "@types/pg": "^8.11.10",
     "@types/ws": "^8.5.13",
-    "drizzle-kit": "^0.30.0",
+    "drizzle-kit": "^0.31.10",
     "pkg": "^5.8.1",
-    "typescript": "^5.7.0"
+    "typescript": "^6.0.2"
   }
 }
