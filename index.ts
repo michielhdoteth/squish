@@ -619,7 +619,7 @@ async function runCliMode() {
     .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
     .option('-T, --tags <tags>', 'Comma-separated tags', '')
     .option('-t, --tier <tier>', 'Memory tier: hot (active) or cold (archived)', 'hot')
-    .option('-T, --type <type>', 'Memory type: observation, fact, decision, context, preference, note (auto-detected if not provided)')
+    .option('-y, --type <type>', 'Memory type: observation, fact, decision, context, preference, note (auto-detected if not provided)')
     .option('-l, --learning-type <type>', 'Learning type when routing to learning storage: success, failure, fix, insight')
     .option('-c, --confidence <level>', 'Confidence level 0-100 (default: auto-calculated)')
     .option('-s, --source <source>', 'Source: cli, voice, chat, document (default: cli)')
