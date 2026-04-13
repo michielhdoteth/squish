@@ -39,7 +39,7 @@
     "check:secrets": "node scripts/check-secrets.js",
     "dev:db:init": "node scripts/init-db.mjs",
     "dev:db:check": "node scripts/check-db.mjs",
-    "dev:db:recreate": "node scripts/recreate-db.mjs",
+    "dev:db:recreate": "node scripts/recreate-db.mjs"
   },
   "repository": {
     "type": "git",
