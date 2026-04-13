@@ -57,4 +57,4 @@ This directory contains essential build, installation, verification, and release
 
 ## Developer Scripts
 
-Development and debugging utilities are located in `dev-scripts/` (not published). See `dev-scripts/README.md` for details.
+Development and debugging utilities are in scripts/ for build/dev workflows.

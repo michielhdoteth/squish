@@ -85,7 +85,6 @@ docs/POSITIONING.md
 docs/ROADMAP.md
 
 # Developer scripts (not part of published package)
-dev-scripts/
 
 # Claude context file (local only, do not commit)
 CLAUDE.md

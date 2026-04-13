@@ -37,15 +37,9 @@
     "postinstall": "node scripts/init-dirs.mjs",
     "release": "./scripts/build-release.sh && ./scripts/github-release.sh",
     "check:secrets": "node scripts/check-secrets.js",
-    "dev:db:init": "node dev-scripts/db/init-db.mjs",
-    "dev:db:check": "node dev-scripts/db/check-db.mjs",
-    "dev:db:recreate": "node dev-scripts/db/recreate-db.mjs",
-    "dev:db:fix": "node dev-scripts/db/fix-schema.mjs",
-    "dev:db:fix-full": "node dev-scripts/db/fix-schema-full.mjs",
-    "dev:db:fix-all": "node dev-scripts/db/fix-schema-all.mjs",
-    "dev:db:fix-columns": "node dev-scripts/db/fix-all-columns.mjs",
-    "dev:migrate": "bun dev-scripts/migrate.ts",
-    "dev:start": "dev-scripts/start.bat"
+    "dev:db:init": "node scripts/init-db.mjs",
+    "dev:db:check": "node scripts/check-db.mjs",
+    "dev:db:recreate": "node scripts/recreate-db.mjs",
   },
   "repository": {
     "type": "git",
