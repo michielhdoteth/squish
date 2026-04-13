@@ -28,31 +28,35 @@ squish run web
 | Skill | Description | Install |
 |-------|-------------|---------|
 | `squish-memory` | Overview and quick start | `npx skills add michielhdoteth/squish --skill squish-memory` |
-| `squish-mcp` | Current MCP tool reference (19 tools) | `npx skills add michielhdoteth/squish --skill squish-mcp` |
 | `squish-cli` | CLI command reference | `npx skills add michielhdoteth/squish --skill squish-cli` |
 | `memory-guide` | Usage patterns and best practices | `npx skills add michielhdoteth/squish --skill memory-guide` |
 
-## MCP Tools (19)
+## MCP Tools (17) - Unified Write Path
 
-- `squish_capture` - **RECOMMENDED** - Capture any memory/learning with auto-detection
-- `squish_remember` - [DEPRECATED - use capture] Store memory
-- `squish_search` - Search memories
-- `squish_recall` - Fetch memory by ID
-- `squish_forget` - Delete memory
-- `squish_update` - Update memory
-- `squish_link` - Find, add, or list associations
-- `squish_context` - Load project context or list projects
-- `squish_learn` - Record success, failure, fix, or observation
-- `squish_health` - Check health
-- `squish_stats` - View stats
-- `squish_confidence` - Get or set confidence
-- `squish_pin` - Pin or unpin memory
-- `squish_set_passphrase` - Configure encryption passphrase
-- `squish_rotate_key` - Rotate encryption key
-- `squish_recent` - List recent memories
-- `squish_stale` - Show stale memories
-- `squish_note` - Save a quick note
-- `squish_tag` - Bulk tag operations
+**THE memory write tool for agents: `squish_remember`**
+- Auto-detects memory vs learning routing
+- Supports hot/cold tiers
+- Handles all memory types
+
+| Tool | Purpose | Typical Input |
+|------|---------|---------------|
+| `squish_remember` | **RECOMMENDED** - Unified memory write with auto-detection | `content`, `project`, `tags`, `tier`, `type`, `route` |
+| `squish_search` | Search memories | `query`, optional `limit`, `project`, `mode` |
+| `squish_recall` | Fetch memory by ID | `memoryId` |
+| `squish_forget` | Delete memory | `memoryId` or bulk filters |
+| `squish_update` | Update memory | `memoryId`, changed fields |
+| `squish_link` | Graph operations | `action`, memory IDs |
+| `squish_context` | Load project context | `project`, `limit` |
+| `squish_health` | Check health | - |
+| `squish_stats` | View stats | `project` |
+| `squish_confidence` | Get or set confidence | `memoryId`, `level` |
+| `squish_pin` | Pin or unpin memory | `memoryId`, `pinned` |
+| `squish_set_passphrase` | Configure encryption | `passphrase` |
+| `squish_rotate_key` | Rotate encryption key | - |
+| `squish_recent` | List recent memories | `project`, `limit` |
+| `squish_stale` | Show stale memories | `project` |
+| `squish_tag` | Bulk tag operations | - |
+| `squish_timeline` | Progressive disclosure | `query`, `depth` |
 
 ## CLI Commands
 
@@ -60,9 +64,7 @@ squish run web
 - `squish run mcp` - Start MCP server
 - `squish run web` - Start web UI
 - `squish config` - View or update config
-- `squish remember` - Store memory
-- `squish note` - Save quick note
-- `squish learn` - Record learnings and observations
+- `squish remember` - **RECOMMENDED** - Store memory/learning with auto-detection
 - `squish search` - Search memories
 - `squish recall` - Search or fetch by ID
 - `squish recent` - Show recent memories
@@ -73,7 +75,6 @@ squish run web
 - `squish tag` - Bulk tag management
 - `squish stale` - Show stale memories
 - `squish link` - Graph operations
-- `squish context --list-projects` - List projects
 - `squish context` - Load project context
 - `squish health` - Check service health
 - `squish stats` - View statistics
@@ -81,9 +82,12 @@ squish run web
 ## Example Workflow
 
 ```bash
+# Unified remember - auto-detects routing
+squish remember "Failed because the API returned 404" --project /myproject
 squish remember "User prefers TypeScript over JavaScript" --type preference
-squish note "Revisit caching strategy after launch"
-squish learn observation "Updated auth flow" --action edit
+squish remember "Important decision made" --tier hot --type decision
+
+# Search and retrieve
 squish search "coding preferences"
 squish context --list-projects
 squish context

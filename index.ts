@@ -610,25 +610,31 @@ async function runCliMode() {
       }
     });
 
-  // squish capture "content" - NEW: Single smart capture path (v1.2.0)
-  // Auto-detects intent and routes to memory or learning
+  // squish remember "content" - UNIFIED MEMORY WRITE (v1.2.0)
+  // Single smart write path: auto-detects intent and routes to memory or learning
+  // Replaces deprecated separate remember/learn/note commands
   program
-    .command('capture <content>')
-    .description('Capture any memory or learning. System auto-detects type and routes appropriately. RECOMMENDED over remember/learn/note')
+    .command('remember <content>')
+    .description('Store any memory or learning. System auto-detects type and routes appropriately. This is THE memory write command for agents - handles hot/cold tiers and all memory types.')
     .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
     .option('-T, --tags <tags>', 'Comma-separated tags', '')
-    .option('-o, --override <type>', 'Force routing: auto, memory, learning, note', 'auto')
+    .option('-t, --tier <tier>', 'Memory tier: hot (active) or cold (archived)', 'hot')
+    .option('-T, --type <type>', 'Memory type: observation, fact, decision, context, preference, note (auto-detected if not provided)')
+    .option('-l, --learning-type <type>', 'Learning type when routing to learning storage: success, failure, fix, insight')
+    .option('-c, --confidence <level>', 'Confidence level 0-100 (default: auto-calculated)')
+    .option('-s, --source <source>', 'Source: cli, voice, chat, document (default: cli)')
+    .option('-o, --route <route>', 'Force routing: auto, memory, learning, note', 'auto')
     .action(async (content, options) => {
       try {
         const { detectMemorySignals } = await import('./core/memory/trigger-detector.js');
         const signals = detectMemorySignals(content);
 
         let routing: "memory" | "learning" | "note" = "memory";
-        let inferredType = signals.suggestedType;
+        let inferredType = options.type || signals.suggestedType;
         let routingReason = "";
 
         // Check for learning patterns if auto mode
-        if (options.override === "auto") {
+        if (options.route === "auto") {
           const hasLessonPattern = /(\bfailed\s+because\b|\blesson\s+learned\b|\bnext\s+time\b|\broot\s+cause\b|\bsuccess\b.*\bbecause\b|\bi\s+learned\b|\binsight\b)/i.test(content);
           const hasLearningType = /(\bsuccess\b|\bfailure\b|\bfix\b|\binsight\b)/i.test(content);
           
@@ -640,12 +646,12 @@ async function runCliMode() {
             routingReason = "Detected note pattern";
           } else {
             routing = "memory";
-            routingReason = `Detected as ${signals.suggestedType}`;
+            routingReason = `Detected as ${inferredType}`;
           }
-        } else if (options.override === "learning") {
+        } else if (options.route === "learning") {
           routing = "learning";
           routingReason = "Override: forced to learning";
-        } else if (options.override === "note") {
+        } else if (options.route === "note") {
           routing = "note";
           routingReason = "Override: forced to note";
         } else {
@@ -655,13 +661,18 @@ async function runCliMode() {
 
         let result: any;
         const tags = options.tags ? options.tags.split(',').map((t: string) => t.trim()) : [];
+        const tier = options.tier === "cold" ? "cold" : "hot";
 
         if (routing === "learning") {
-          // Determine learning type from content
+          // Determine learning type from content or override
           let learningType: "success" | "failure" | "fix" | "insight" = "insight";
-          if (/(\bsuccess\b|\bworked\b|\bfinished\b)/i.test(content)) learningType = "success";
-          else if (/(\bfailed\b|\berror\b|\bbroke\b)/i.test(content)) learningType = "failure";
-          else if (/(\bfix\b|\b workaround\b|\bsolved\b)/i.test(content)) learningType = "fix";
+          if (options.learningType) {
+            learningType = options.learningType as any;
+          } else {
+            if (/(\bsuccess\b|\bworked\b|\bfinished\b)/i.test(content)) learningType = "success";
+            else if (/(\bfailed\b|\berror\b|\bbroke\b)/i.test(content)) learningType = "failure";
+            else if (/(\bfix\b|\b workaround\b|\bsolved\b)/i.test(content)) learningType = "fix";
+          }
 
           const { createLearning } = await import('./core/ingestion/learnings.js');
           const learning = await createLearning({ 
@@ -672,14 +683,16 @@ async function runCliMode() {
           });
           result = { id: learning.id, type: "learning", learningType, content };
         } else {
-          // Store as memory
+          // Store as memory with all options
           const memory = await rememberMemory({ 
             content, 
-            type: signals.suggestedType, 
+            type: inferredType as any, 
             tags, 
-            project: options.project 
+            project: options.project,
+            tier,
+            source: options.source || 'cli'
           });
-          result = { id: memory.id, type: "memory", memoryType: signals.suggestedType, content };
+          result = { id: memory.id, type: "memory", memoryType: inferredType, tier, content };
         }
 
         console.log(JSON.stringify({ 
@@ -687,92 +700,9 @@ async function runCliMode() {
           id: result.id,
           routing,
           type: routing === "learning" ? result.learningType : result.memoryType,
-          reason: routingReason,
-          message: "Consider using 'squish capture' for simpler agent workflows"
+          tier: routing === "memory" ? tier : 'N/A',
+          reason: routingReason
         }, null, 2));
-      } catch (error: any) {
-        console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
-        process.exit(1);
-      }
-    });
-
-  // squish remember "content" --type fact --tags tag1,tag2 (DEPRECATED - use capture)
-  program
-    .command('remember <content>')
-    .description('[DEPRECATED - use "squish capture" instead] Store a memory')
-    .option('-t, --type <type>', 'Memory type (observation, fact, decision, context, preference)', 'observation')
-    .option('-T, --tags <tags>', 'Comma-separated tags', '')
-    .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
-    .option('-s, --source <source>', 'Source of this memory (e.g., "voice", "chat", "document")')
-    .option('-r, --reasoning <reasoning>', 'Why this memory is important')
-    .option('-c, --context <context>', 'What triggered this memory')
-    .option('-e, --examples <examples>', 'When to apply this knowledge')
-    .option('-x, --exceptions <exceptions>', 'When NOT to apply this')
-    .option('-m, --memory', 'Store as markdown file in .squish/memory/ (not in database)', false)
-    .option('-H, --hot', 'Store in hot tier (active, high priority) in database', false)
-    .option('-C, --cold', 'Store in cold tier (archived, lower priority) in database', false)
-    .action(async (content, options) => {
-      try {
-        // Markdown file storage (not in database)
-        if (options.memory) {
-          const { saveToMarkdown } = await import('./core/memory/markdown/markdown-storage.js');
-          const memoryFile = await saveToMarkdown({
-            content,
-            type: options.type as any,
-            tags: options.tags ? options.tags.split(',').map((t: string) => t.trim()) : [],
-            project: options.project,
-            source: options.source,
-            reasoning: options.reasoning,
-            memoryContext: options.context,
-            examples: options.examples,
-            exceptions: options.exceptions,
-          });
-          
-          // Trigger hooks
-          const { triggerMemoryCreated } = await import('./core/memory/hooks.js');
-          await triggerMemoryCreated({
-            memoryId: memoryFile.id,
-            content: memoryFile.content,
-            type: memoryFile.type,
-            tags: memoryFile.tags,
-            project: memoryFile.project,
-            source: memoryFile.source,
-            tier: 'hot',
-          });
-          
-          console.log(JSON.stringify({ ok: true, memory: true, ...memoryFile }, null, 2));
-          return;
-        }
-        
-        // Database storage: determine tier
-        const tier = options.cold ? 'cold' : 'hot';
-        
-        const result = await rememberMemory({
-          content,
-          type: options.type,
-          tags: options.tags ? options.tags.split(',').map((t: string) => t.trim()) : [],
-          project: options.project,
-          source: options.source,
-          reasoning: options.reasoning,
-          memoryContext: options.context,
-          examples: options.examples,
-          exceptions: options.exceptions,
-          tier,
-        });
-        
-        // Trigger hooks for DB storage
-        const { triggerMemoryCreated } = await import('./core/memory/hooks.js');
-        await triggerMemoryCreated({
-          memoryId: result.id,
-          content: result.content,
-          type: result.type,
-          tags: result.tags,
-          project: result.projectId || undefined,
-          source: options.source || 'cli',
-          tier,
-        });
-        
-        console.log(JSON.stringify({ ok: true, ...result }, null, 2));
       } catch (error: any) {
         console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
         process.exit(1);
@@ -1435,27 +1365,10 @@ program
       await spawnInstallerWizard();
     });
 
-// squish note "my thought here" - quick brain dump (DEPRECATED - use capture)
-program
-.command('note <content>')
-.description('[DEPRECATED - use "squish capture" instead] Quick brain dump - store a raw memory to process later')
-.option('-p, --project <project>', 'Project path', getDefaultProjectPath())
-.action(async (content, options) => {
-try {
-const result = await rememberMemory({
-content,
-type: 'observation',
-tags: ['note', 'quick'],
-project: options.project,
-});
-console.log(JSON.stringify({ ok: true, message: 'Note saved', id: result.id }, null, 2));
-} catch (error: any) {
-console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
-process.exit(1);
-}
-});
+  // squish note is now DEPRECATED - use "squish remember" instead
+  // The unified remember tool handles note auto-detection
 
-// squish context - Show project context (memories + observations + places)
+  // squish context - Show project context (memories + observations + places)
 program
   .command('context')
   .description('Show project context or list available projects')
