@@ -1,0 +1,30 @@
+{
+  "name": "squish-hooks-windsurf",
+  "version": "1.0.0",
+  "description": "Squish memory hooks for Windsurf",
+  "agent": "windsurf",
+  "hooks": {
+    "sessionStart": {
+      "enabled": true,
+      "command": "squish hooks session-start --agent windsurf"
+    },
+    "postToolUse": {
+      "enabled": true,
+      "captureFilter": {
+        "tools": ["Write", "Edit", "Bash", "Task"],
+        "exclude": ["Read", "Glob", "Grep"]
+      },
+      "command": "squish hooks post-tool-use --agent windsurf"
+    },
+    "sessionEnd": {
+      "enabled": true,
+      "command": "squish hooks session-end --agent windsurf"
+    }
+  },
+  "mcpServers": {
+    "squish": {
+      "command": "squish",
+      "args": ["run", "mcp"]
+    }
+  }
+}

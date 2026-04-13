@@ -389,6 +389,57 @@ CREATE INDEX IF NOT EXISTS maintenance_jobs_name_idx ON maintenance_jobs(job_nam
 CREATE INDEX IF NOT EXISTS maintenance_jobs_next_run_idx ON maintenance_jobs(next_run_at);
 CREATE INDEX IF NOT EXISTS maintenance_jobs_type_idx ON maintenance_jobs(job_type);
 CREATE INDEX IF NOT EXISTS maintenance_jobs_enabled_idx ON maintenance_jobs(enabled);
+
+-- Places table (v1.1.5) - Spatial memory organization
+CREATE TABLE IF NOT EXISTS places (
+  id TEXT PRIMARY KEY,
+  project_id TEXT REFERENCES projects(id) ON DELETE CASCADE NOT NULL,
+  name TEXT NOT NULL,
+  place_type TEXT NOT NULL,
+  parent_id TEXT REFERENCES places(id) ON DELETE SET NULL,
+  loci_index INTEGER DEFAULT 0,
+  position_x INTEGER DEFAULT 0,
+  position_y INTEGER DEFAULT 0,
+  description TEXT,
+  purpose TEXT,
+  memory_count INTEGER DEFAULT 0,
+  created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL,
+  updated_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL
+);
+CREATE INDEX IF NOT EXISTS places_project_idx ON places(project_id);
+CREATE INDEX IF NOT EXISTS places_type_idx ON places(place_type);
+CREATE INDEX IF NOT EXISTS places_parent_idx ON places(parent_id);
+CREATE INDEX IF NOT EXISTS places_loci_idx ON places(project_id, loci_index);
+
+-- Memory-Place assignments
+CREATE TABLE IF NOT EXISTS memory_places (
+  id TEXT PRIMARY KEY,
+  memory_id TEXT REFERENCES memories(id) ON DELETE CASCADE NOT NULL,
+  place_id TEXT REFERENCES places(id) ON DELETE CASCADE NOT NULL,
+  is_manual INTEGER DEFAULT 0,
+  rule_id TEXT,
+  created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL
+);
+CREATE INDEX IF NOT EXISTS memory_places_memory_idx ON memory_places(memory_id);
+CREATE INDEX IF NOT EXISTS memory_places_place_idx ON memory_places(place_id);
+
+-- Place auto-assignment rules
+CREATE TABLE IF NOT EXISTS place_rules (
+  id TEXT PRIMARY KEY,
+  project_id TEXT REFERENCES projects(id) ON DELETE CASCADE NOT NULL,
+  name TEXT NOT NULL,
+  place_type TEXT NOT NULL,
+  match_tool TEXT,
+  match_keyword TEXT,
+  match_tag TEXT,
+  match_memory_type TEXT,
+  priority INTEGER DEFAULT 0,
+  enabled INTEGER DEFAULT 1,
+  created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL,
+  updated_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL
+);
+CREATE INDEX IF NOT EXISTS place_rules_project_idx ON place_rules(project_id);
+CREATE INDEX IF NOT EXISTS place_rules_type_idx ON place_rules(place_type);
 `;
 
 const postgresStatements = [
@@ -696,7 +747,55 @@ const postgresStatements = [
   `CREATE INDEX IF NOT EXISTS maintenance_jobs_name_idx ON maintenance_jobs(job_name);`,
   `CREATE INDEX IF NOT EXISTS maintenance_jobs_next_run_idx ON maintenance_jobs(next_run_at);`,
   `CREATE INDEX IF NOT EXISTS maintenance_jobs_type_idx ON maintenance_jobs(job_type);`,
-  `CREATE INDEX IF NOT EXISTS maintenance_jobs_enabled_idx ON maintenance_jobs(enabled);`
+  `CREATE INDEX IF NOT EXISTS maintenance_jobs_enabled_idx ON maintenance_jobs(enabled);`,
+  // places table (v1.1.5) - Spatial memory organization
+  `CREATE TABLE IF NOT EXISTS places (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id UUID REFERENCES projects(id) ON DELETE CASCADE NOT NULL,
+    name TEXT NOT NULL,
+    place_type TEXT NOT NULL,
+    parent_id UUID REFERENCES places(id) ON DELETE SET NULL,
+    loci_index INTEGER DEFAULT 0,
+    position_x INTEGER DEFAULT 0,
+    position_y INTEGER DEFAULT 0,
+    description TEXT,
+    purpose TEXT,
+    memory_count INTEGER DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+  );`,
+  `CREATE INDEX IF NOT EXISTS places_project_idx ON places(project_id);`,
+  `CREATE INDEX IF NOT EXISTS places_type_idx ON places(place_type);`,
+  `CREATE INDEX IF NOT EXISTS places_parent_idx ON places(parent_id);`,
+  `CREATE INDEX IF NOT EXISTS places_loci_idx ON places(project_id, loci_index);`,
+  // memory_places table
+  `CREATE TABLE IF NOT EXISTS memory_places (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    memory_id UUID REFERENCES memories(id) ON DELETE CASCADE NOT NULL,
+    place_id UUID REFERENCES places(id) ON DELETE CASCADE NOT NULL,
+    is_manual BOOLEAN DEFAULT FALSE,
+    rule_id UUID,
+    created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+  );`,
+  `CREATE INDEX IF NOT EXISTS memory_places_memory_idx ON memory_places(memory_id);`,
+  `CREATE INDEX IF NOT EXISTS memory_places_place_idx ON memory_places(place_id);`,
+  // place_rules table
+  `CREATE TABLE IF NOT EXISTS place_rules (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id UUID REFERENCES projects(id) ON DELETE CASCADE NOT NULL,
+    name TEXT NOT NULL,
+    place_type TEXT NOT NULL,
+    match_tool TEXT,
+    match_keyword TEXT,
+    match_tag TEXT,
+    match_memory_type TEXT,
+    priority INTEGER DEFAULT 0,
+    enabled BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+  );`,
+  `CREATE INDEX IF NOT EXISTS place_rules_project_idx ON place_rules(project_id);`,
+  `CREATE INDEX IF NOT EXISTS place_rules_type_idx ON place_rules(place_type);`
 ];
 
 /**
@@ -803,9 +902,13 @@ async function runSqliteMigrations(sqlite: Database): Promise<void> {
        { col: 'has_l1_overview', sql: 'ALTER TABLE memories ADD COLUMN has_l1_overview INTEGER DEFAULT 0' },
        { col: 'last_layer_update', sql: 'ALTER TABLE memories ADD COLUMN last_layer_update INTEGER' },
 
-       // Namespace support (v1.0.x)
-       { col: 'namespace_id', sql: 'ALTER TABLE memories ADD COLUMN namespace_id TEXT REFERENCES namespaces(id) ON DELETE SET NULL' },
-       { col: 'namespace_path', sql: 'ALTER TABLE memories ADD COLUMN namespace_path TEXT' },
+        // Namespace support (v1.0.x)
+        { col: 'namespace_id', sql: 'ALTER TABLE memories ADD COLUMN namespace_id TEXT REFERENCES namespaces(id) ON DELETE SET NULL' },
+        { col: 'namespace_path', sql: 'ALTER TABLE memories ADD COLUMN namespace_path TEXT' },
+
+        // Places support (v1.1.5) - Spatial memory organization
+        { col: 'place_id', sql: 'ALTER TABLE memories ADD COLUMN place_id TEXT REFERENCES places(id) ON DELETE SET NULL' },
+        { col: 'place_loci_index', sql: 'ALTER TABLE memories ADD COLUMN place_loci_index INTEGER' },
 
 	// Token tracking (v1.0.x)
 	{ col: 'tokens_estimate', sql: 'ALTER TABLE memories ADD COLUMN tokens_estimate INTEGER DEFAULT 0' },
@@ -817,7 +920,11 @@ async function runSqliteMigrations(sqlite: Database): Promise<void> {
 	{ col: 'status', sql: 'ALTER TABLE memories ADD COLUMN status TEXT DEFAULT "active"' },
 	{ col: 'encrypted_content', sql: 'ALTER TABLE memories ADD COLUMN encrypted_content TEXT' },
 	{ col: 'encryption_nonce', sql: 'ALTER TABLE memories ADD COLUMN encryption_nonce TEXT' },
-	{ col: 'is_encrypted', sql: 'ALTER TABLE memories ADD COLUMN is_encrypted INTEGER DEFAULT 0' },
+        { col: 'is_encrypted', sql: 'ALTER TABLE memories ADD COLUMN is_encrypted INTEGER DEFAULT 0' },
+
+        // Places support (v1.1.5) - Spatial memory organization
+        { col: 'place_id', sql: 'ALTER TABLE memories ADD COLUMN place_id UUID REFERENCES places(id) ON DELETE SET NULL' },
+        { col: 'place_loci_index', sql: 'ALTER TABLE memories ADD COLUMN place_loci_index INTEGER' }
 ];
    
    // Get existing columns for memories table

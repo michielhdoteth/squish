@@ -32,7 +32,7 @@ import { searchConversations, getRecentConversations } from './core/search/conve
 import { createLearning, getLearnings, type LearningType } from './core/ingestion/learnings.js';
 import { getProjectContext } from './core/context/context.js';
 import { getMemoryStats } from './core/memory/stats.js';
-import { ensureProject, getAllProjects } from './core/projects.js';
+import { ensureProject, getAllProjects, getOrCreateProject } from './core/projects.js';
 import { startWebServer } from './webui/server.js';
 import { handleDetectDuplicates } from './core/algorithms/handlers/detect-duplicates.js';
 import { handleListProposals } from './core/algorithms/handlers/list-proposals.js';
@@ -72,6 +72,21 @@ import { runNightlyJob, runWeeklyJob } from './core/scheduler/job-runner.js';
 import {
   DEFAULT_CONTEXT_CONFIG,
 } from './core/context/context-window.js';
+import {
+  handleSessionStart,
+  handlePostToolUse,
+  handleSessionEnd,
+  handlePreCompact,
+} from './core/hooks/agent-hooks.js';
+import {
+  initializeDefaultPlaces,
+  getProjectPlaces,
+  walkPlace,
+  walkAllPlaces,
+  quickTour,
+  getFullWalkingContext,
+  type PlaceType,
+} from './core/places/index.js';
 const VERSION = '1.1.5';
 
 // Output Formatting Utilities
@@ -678,7 +693,7 @@ async function runCliMode() {
       }
     });
 
-  // squish search "query" --type fact --limit 10 --since "3 days ago"
+  // squish search "query" --type fact --limit 10 --since "3 days ago" --place workshop
   program
     .command('search <query>')
     .description('Search memories')
@@ -689,6 +704,7 @@ async function runCliMode() {
     .option('-u, --until <date>', 'Filter: created before this date (e.g., "yesterday", "2026-01-15")')
     .option('-P, --pretty', 'Human-friendly output', false)
     .option('-m, --memory', 'Search memory files instead of database', false)
+    .option('--place <type>', 'Filter by place type: entry_hall, library, workshop, lab, office, garden, archive')
     .action(async (query, options) => {
       try {
         // Markdown file search
@@ -727,17 +743,53 @@ async function runCliMode() {
           project: options.project,
         });
         const filtered = filterByDateRange(results, options.since, options.until);
-        const limited = filtered.slice(0, validateLimit(options.limit, 10, 1, 100));
+        let limited = filtered.slice(0, validateLimit(options.limit, 10, 1, 100));
+        
+        // Add place info to results
+        const { getMemoryPlace } = await import('./core/places/index.js');
+        const limitedWithPlace = await Promise.all(limited.map(async (r: any) => {
+          const placeId = await getMemoryPlace(r.id);
+          return { ...r, placeId };
+        }));
+        
+        // Filter by place if specified
+        if (options.place) {
+          const placeFiltered = [];
+          for (const r of limitedWithPlace) {
+            if (r.placeId) {
+              const { getPlace } = await import('./core/places/index.js');
+              const place = await getPlace(r.placeId);
+              if (place && place.placeType === options.place) {
+                placeFiltered.push({ ...r, place: place.name || null, placeType: place.placeType || null });
+              }
+            }
+          }
+          limited = placeFiltered;
+        } else if (limitedWithPlace.length > 0) {
+          // Add place info to results even without filter
+          for (const r of limitedWithPlace) {
+            if (r.placeId) {
+              const { getPlace } = await import('./core/places/index.js');
+              const place = await getPlace(r.placeId);
+              if (place) {
+                r.place = place.name || null;
+                r.placeType = place.placeType || null;
+              }
+            }
+          }
+          limited = limitedWithPlace;
+        }
         
         if (options.pretty) {
           console.log(`\n  Search: "${query}"`);
           console.log(`  Found ${limited.length} results:\n`);
           limited.forEach((r: any, i: number) => {
-            console.log(`  ${i + 1}. [${r.type || 'memory'}] ${(r.content || '').substring(0, 60)}...`);
+            const placeTag = r.place ? ` (${r.place})` : '';
+            console.log(`  ${i + 1}. [${r.type || 'memory'}] ${(r.content || '').substring(0, 60)}...${placeTag}`);
           });
           console.log('');
         } else {
-          console.log(JSON.stringify({ ok: true, query, count: limited.length, since: options.since, until: options.until, results: limited }, null, 2));
+          console.log(JSON.stringify({ ok: true, query, count: limited.length, since: options.since, until: options.until, placeFilter: options.place || null, results: limited }, null, 2));
         }
       } catch (error: any) {
         console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
@@ -960,34 +1012,67 @@ program
   .option('-s, --since <date>', 'Filter: created after this date (e.g., "3 days ago", "yesterday")')
   .option('-u, --until <date>', 'Filter: created before this date (e.g., "today", "2026-01-15")')
   .option('-P, --pretty', 'Human-friendly output', false)
+  .option('--place <type>', 'Filter by place type: entry_hall, library, workshop, lab, office, garden, archive')
   .action(async (query, options) => {
     try {
       const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(query);
       
       if (isUUID) {
         const memory = await getMemory(query);
+        // Add place info to single memory retrieval
+        if (memory) {
+          const { getMemoryPlace, getPlace } = await import('./core/places/index.js');
+          const placeId = await getMemoryPlace(memory.id);
+          if (placeId) {
+            const place = await getPlace(placeId);
+            (memory as any).place = place?.name || null;
+            (memory as any).placeType = place?.placeType || null;
+          }
+        }
         if (options.pretty && memory) {
+          const placeInfo = (memory as any).place ? ` (${(memory as any).place})` : '';
           console.log(`\n  Memory: ${memory.id}`);
           console.log(`  Type: ${memory.type}`);
           console.log(`  Content: ${memory.content}\n`);
+          if (placeInfo) console.log(`  Place: ${(memory as any).place}\n`);
         } else {
           console.log(JSON.stringify({ ok: true, found: !!memory, memory }, null, 2));
         }
        } else {
-         const results = await search({
-           query,
-           type: options.type,
-           limit: validateLimit(options.limit, 5, 1, 100) * 2,
-           project: options.project,
-         });
-         const filtered = filterByDateRange(results, options.since, options.until);
-         const limited = filtered.slice(0, validateLimit(options.limit, 5, 1, 100));
-        
+          const results = await search({
+            query,
+            type: options.type,
+            limit: validateLimit(options.limit, 5, 1, 100) * 2,
+            project: options.project,
+          });
+          const filtered = filterByDateRange(results, options.since, options.until);
+          let limited = filtered.slice(0, validateLimit(options.limit, 5, 1, 100));
+          
+          // Add place info to results
+          const { getMemoryPlace, getPlace } = await import('./core/places/index.js');
+          const limitedWithPlace = await Promise.all(limited.map(async (r: any) => {
+            const placeId = await getMemoryPlace(r.id);
+            let placeInfo: any = {};
+            if (placeId) {
+              const place = await getPlace(placeId);
+              placeInfo = { place: place?.name || null, placeType: place?.placeType || null };
+            }
+            return { ...r, ...placeInfo };
+          }));
+          
+          // Filter by place if specified
+          if (options.place) {
+            limited = limitedWithPlace.filter((r: any) => r.placeType === options.place);
+          } else {
+            limited = limitedWithPlace;
+          }
+         
         if (options.pretty) {
           console.log(`\n  Recall: "${query}"`);
           console.log(`  Found ${limited.length} matches:\n`);
           limited.forEach((r: any, i: number) => {
-            console.log(`  ${i + 1}. [${r.type || 'memory'}] ${(r.content || '').substring(0, 60)}... (${(r.similarity ?? 0).toFixed(2)})`);
+            const placeTag = r.place ? ` (${r.place})` : '';
+            console.log(`  ${i + 1}. [${r.type || 'memory'}] ${(r.content || '').substring(0, 60)}...${placeTag} (${(r.similarity ?? 0).toFixed(2)})`);
           });
           console.log('');
         } else {
@@ -997,8 +1082,10 @@ program
             type: r.type,
             content: r.content.length > 200 ? r.content.slice(0, 200) + '...' : r.content,
             tags: r.tags,
+            place: r.place,
+            placeType: r.placeType,
           }));
-          console.log(JSON.stringify({ ok: true, query, count: matches.length, since: options.since, until: options.until, matches }, null, 2));
+          console.log(JSON.stringify({ ok: true, query, count: matches.length, since: options.since, until: options.until, placeFilter: options.place || null, matches }, null, 2));
         }
       }
     } catch (error: any) {
@@ -1282,17 +1369,35 @@ process.exit(1);
 }
 });
 
-// squish context - Show project context (memories + observations)
+// squish context - Show project context (memories + observations + places)
 program
   .command('context')
   .description('Show project context or list available projects')
   .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
   .option('-l, --limit <number>', 'Number of items to show', '10')
-  .option('-i, --include <items>', 'What to include: memories, observations, entities', 'memories,observations')
+  .option('-i, --include <items>', 'What to include: memories, observations, entities, places', 'memories,observations,places')
   .option('--list-projects', 'List registered projects instead of loading context', false)
   .option('-j, --json', 'Output as JSON', false)
+  .option('--place <type>', 'Filter by place type: entry_hall, library, workshop, lab, office, garden, archive')
+  .option('--tier <level>', 'Disclosure level: quick (place names), medium (top 3), full (all)', 'medium')
+  .option('--has-memories', 'Only show places with memories', true)
+  .option('--sync', 'Recalculate memory counts for all places', false)
+  .option('--archive', 'Move memories > 30 days to Archive place', false)
+  .option('--task <description>', 'Task description for auto-place detection (e.g., "fix bug", "design API")')
   .action(async (options) => {
     try {
+      // Auto-detect place from task if provided
+      let placeFilter = options.place || null;
+      if (options.task && !placeFilter) {
+        // Simple keyword detection
+        const task = options.task.toLowerCase();
+        if (task.includes('fix') || task.includes('bug') || task.includes('error')) placeFilter = 'workshop';
+        else if (task.includes('design') || task.includes('plan') || task.includes('api')) placeFilter = 'library';
+        else if (task.includes('task') || task.includes('todo') || task.includes('manage')) placeFilter = 'office';
+        else if (task.includes('test') || task.includes('experiment')) placeFilter = 'lab';
+        if (placeFilter) console.log(`Auto-detected place: ${placeFilter}`);
+      }
+      
       if (options.listProjects) {
         const projects = await getAllProjects();
         if (options.json) {
@@ -1305,6 +1410,152 @@ program
             console.log(`   Path: ${project.path}`);
             console.log(`   ID: ${project.id}`);
           }
+          console.log('');
+        }
+        return;
+      }
+
+      // Get project context
+      const projectPath = resolveProjectPath(options.project);
+      await ensureProject(projectPath);
+      const project = await getOrCreateProject(projectPath);
+      
+      if (!project) {
+        console.log(JSON.stringify({ ok: false, error: 'Project not found' }, null, 2));
+        process.exit(1);
+      }
+
+      const limit = parseInt(options.limit);
+      const include = (options.include || 'memories,observations,places').split(',');
+      const tier = options.tier || 'full';
+      const hasMemoriesOnly = options.hasMemories !== false;  // Default true now
+      const existingPlaceFilter = options.place || null;
+      
+      const result: any = { project: project.name, tier };
+
+      // Get memories
+      if (include.includes('memories')) {
+        const memories = await getRecent(projectPath, limit);
+        result.memories = memories.map((m: any) => ({
+          id: m.id,
+          type: m.type,
+          content: m.content?.substring(0, 100),
+          tags: m.tags,
+        }));
+      }
+
+      // Get observations (learnings)
+      if (include.includes('observations')) {
+        const { getObservations } = await import('./core/ingestion/learnings.js');
+        const observations = await getObservations(projectPath, limit);
+        result.observations = observations.map((o: any) => ({
+          id: o.id,
+          type: o.type,
+          content: o.content?.substring(0, 100),
+        }));
+      }
+
+      // Get places (spatial memory) with filtering
+      if (include.includes('places')) {
+        const { initializeDefaultPlaces, getProjectPlaces, walkPlace, getPlaceByType, syncAllPlaceMemoryCounts } = await import('./core/places/index.js');
+        await initializeDefaultPlaces(project.id);
+        
+        // Sync memory counts if requested
+        if (options.sync) {
+          await syncAllPlaceMemoryCounts(project.id);
+          console.log('Synced memory counts for all places.');
+        }
+        
+        // Auto-archive old memories if requested
+        if (options.archive) {
+          const { autoArchiveOldMemories } = await import('./core/places/index.js');
+          const archiveResult = await autoArchiveOldMemories(project.id, 30);
+          console.log(`Archived ${archiveResult.archived} old memories to Archive (${archiveResult.failed} failed).`);
+        }
+        
+        let places = await getProjectPlaces(project.id);
+        
+        // Apply --has-memories filter
+        if (hasMemoriesOnly) {
+          places = places.filter((p: any) => p.memoryCount > 0);
+        }
+        
+        // Apply --place filter (from --place or --task auto-detect)
+        if (placeFilter) {
+          const filtered = places.filter((p: any) => p.placeType === placeFilter);
+          if (filtered.length > 0) {
+            places = filtered;
+          }
+        }
+        
+        // Format places based on tier
+        if (tier === 'quick') {
+          // Just place names (~50 tokens)
+          result.places = places.map((p: any) => ({
+            name: p.name,
+            type: p.placeType,
+          }));
+        } else if (tier === 'medium') {
+          // Top 3 memories per place (~170 tokens)
+          const placesWithMemories = [];
+          for (const p of places) {
+            if (p.memoryCount > 0) {
+              const walkResult = await walkPlace(project.id, p.placeType, {
+                tokenBudget: 170,
+                maxMemoriesPerPlace: 3,
+                compressWithToon: false,
+              });
+              placesWithMemories.push({
+                name: p.name,
+                type: p.placeType,
+                purpose: p.purpose,
+                memories: p.memoryCount,
+                preview: walkResult?.memories.slice(0, 3).map((m: any) => m.content?.substring(0, 80)) || [],
+              });
+            }
+          }
+          result.places = placesWithMemories;
+        } else {
+          // Full - all memories (~500 tokens)
+          result.places = places.map((p: any) => ({
+            name: p.name,
+            type: p.placeType,
+            purpose: p.purpose,
+            memories: p.memoryCount,
+          }));
+        }
+      }
+
+      if (options.json) {
+        console.log(JSON.stringify({ ok: true, ...result }, null, 2));
+      } else {
+        // Human readable output
+        console.log(`\n=== ${project.name} Context ===\n`);
+        
+        if (result.places && result.places.length > 0) {
+          console.log('Spatial Memory Places:');
+          result.places.forEach((p: any) => {
+            if (tier === 'quick') {
+              console.log(`  ${p.name} (${p.type})`);
+            } else if (tier === 'medium') {
+              console.log(`  ${p.name} (${p.memories} memories) - ${p.purpose}`);
+              if (p.preview && p.preview.length > 0) {
+                p.preview.forEach((m: string) => {
+                  console.log(`    - ${m}...`);
+                });
+              }
+            } else {
+              console.log(`  ${p.name} (${p.memories} memories) - ${p.purpose}`);
+            }
+          });
+          console.log('');
+        }
+
+        if (result.memories && result.memories.length > 0) {
+          console.log('Recent Memories:');
+          result.memories.slice(0, 5).forEach((m: any) => {
+            console.log(`  [${m.type}] ${m.content}`);
+          });
           console.log('');
         }
       }
@@ -1401,6 +1652,169 @@ program
       }, null, 2));
     } catch (error: any) {
       console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
+    }
+  });
+
+// squish hooks session-start --agent claude-code --mode startup
+program
+  .command('hooks')
+  .description('Handle agent hooks (session-start, post-tool-use, session-end, pre-compact)')
+  .argument('<event>', 'Event type: session-start, post-tool-use, session-end, pre-compact')
+  .option('-a, --agent <agent>', 'Agent type: claude-code, opencode, cursor, windsurf', 'claude-code')
+  .option('-m, --mode <mode>', 'Mode for session-start: startup, resume, compact', 'startup')
+  .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
+  .option('-t, --tool <tool>', 'Tool name for post-tool-use')
+  .option('--tool-input <json>', 'Tool input as JSON string')
+  .option('--tool-result <json>', 'Tool result as JSON string')
+  .option('--wip <work>', 'Work in progress for session-end')
+  .action(async (event, options) => {
+    try {
+      const agentType = options.agent as 'claude-code' | 'opencode' | 'cursor' | 'windsurf';
+      const projectPath = options.project;
+      
+      let result: any;
+      
+      switch (event) {
+        case 'session-start':
+          result = await handleSessionStart({
+            projectPath,
+            mode: options.mode as 'startup' | 'resume' | 'compact',
+            agentType,
+          });
+          console.log(JSON.stringify({ ok: true, ...result }, null, 2));
+          break;
+          
+        case 'post-tool-use':
+          if (!options.tool) {
+            console.log(JSON.stringify({ ok: false, error: '--tool required for post-tool-use' }, null, 2));
+            process.exit(1);
+          }
+          const toolInput = options.toolInput ? JSON.parse(options.toolInput) : {};
+          const toolResult = options.toolResult ? JSON.parse(options.toolResult) : {};
+          result = await handlePostToolUse({
+            toolName: options.tool,
+            toolInput,
+            toolResult,
+            projectPath,
+            agentType,
+          });
+          console.log(JSON.stringify({ ok: true, ...result }, null, 2));
+          break;
+          
+        case 'session-end':
+          result = await handleSessionEnd({
+            projectPath,
+            agentType,
+            workInProgress: options.wip,
+          });
+          console.log(JSON.stringify({ ok: true, ...result }, null, 2));
+          break;
+          
+        case 'pre-compact':
+          result = await handlePreCompact({
+            projectPath,
+            agentType,
+          });
+          console.log(JSON.stringify({ ok: true, ...result }, null, 2));
+          break;
+          
+        default:
+          console.log(JSON.stringify({ ok: false, error: `Unknown event: ${event}` }, null, 2));
+          process.exit(1);
+      }
+    } catch (error: any) {
+      console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
+      process.exit(1);
+    }
+  });
+
+// squish walk - Walk through spatial memory places
+program
+  .command('walk [place]')
+  .description('Walk through spatial memory places (entry_hall, library, workshop, lab, office, garden, archive, or --all)')
+  .option('-a, --all', 'Walk all places in order', false)
+  .option('-t, --tokens <number>', 'Max tokens budget (default: 170)', '170')
+  .option('-m, --max <number>', 'Max memories per place', '10')
+  .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
+  .option('-q, --quick', 'Quick tour (place names only)', false)
+  .option('-j, --json', 'Output as JSON', false)
+  .action(async (place, options) => {
+    try {
+      const projectPath = resolveProjectPath(options.project);
+      await ensureProject(projectPath);
+      const project = await getOrCreateProject(projectPath);
+      
+      if (!project) {
+        console.log(JSON.stringify({ ok: false, error: 'Project not found' }, null, 2));
+        process.exit(1);
+      }
+
+      // Ensure places are initialized
+      await initializeDefaultPlaces(project.id);
+
+      if (options.quick) {
+        const tour = await quickTour(project.id);
+        if (options.json) {
+          console.log(JSON.stringify({ ok: true, ...tour }, null, 2));
+        } else {
+          console.log(`\n=== Spatial Memory Tour ===\n`);
+          console.log(`Total Memories: ${tour.totalMemories}\n`);
+          for (const p of tour.places) {
+            console.log(`${p.name} (${p.memoryCount} memories)`);
+            console.log(`  ${p.purpose}\n`);
+          }
+        }
+        return;
+      }
+
+      const tokenBudget = parseInt(options.tokens);
+      const maxMemories = parseInt(options.max);
+
+      if (options.all) {
+        const results = await walkAllPlaces(project.id, {
+          tokenBudget: Math.floor(tokenBudget / 7),
+          maxMemoriesPerPlace: maxMemories,
+          compressWithToon: true,
+        });
+        
+        if (options.json) {
+          console.log(JSON.stringify({ ok: true, places: results }, null, 2));
+        } else {
+          console.log(`\n=== Walking All Places ===\n`);
+          for (const r of results) {
+            console.log(`## ${r.place.name} (${r.memories.length} memories, ~${r.totalTokens} tokens)`);
+            r.memories.forEach((m, i) => {
+              console.log(`  ${i + 1}. ${m.content.substring(0, 60)}...`);
+            });
+            console.log('');
+          }
+        }
+      } else if (place) {
+        const validPlaces = ['entry_hall', 'library', 'workshop', 'lab', 'office', 'garden', 'archive'];
+        const placeType = validPlaces.includes(place) ? place as PlaceType : 'workshop';
+        
+        const result = await walkPlace(project.id, placeType, {
+          tokenBudget,
+          maxMemoriesPerPlace: maxMemories,
+          compressWithToon: true,
+        });
+        
+        if (options.json) {
+          console.log(JSON.stringify({ ok: true, ...result }, null, 2));
+        } else if (result) {
+          console.log(`\n=== ${result.place.name} ===\n`);
+          console.log(`Purpose: ${result.place.purpose || 'N/A'}\n`);
+          result.memories.forEach((m, i) => {
+            console.log(`${i + 1}. [${m.type}] ${m.content.substring(0, 80)}`);
+          });
+          console.log(`\n~${result.totalTokens} tokens`);
+        } else {
+          console.log(JSON.stringify({ ok: false, error: `Place not found: ${place}` }, null, 2));
+        }
+      }
+    } catch (error: any) {
+      console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
+      process.exit(1);
     }
   });
 

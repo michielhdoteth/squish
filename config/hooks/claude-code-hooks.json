@@ -1,0 +1,39 @@
+{
+  "name": "squish-hooks-claude-code",
+  "version": "1.0.0",
+  "description": "Squish memory hooks for Claude Code",
+  "agent": "claude-code",
+  "hooks": {
+    "sessionStart": {
+      "enabled": true,
+      "matchers": ["startup", "resume", "compact"],
+      "command": "squish hooks session-start --agent claude-code"
+    },
+    "postToolUse": {
+      "enabled": true,
+      "captureFilter": {
+        "tools": ["Write", "Edit", "MultiEdit", "Bash", "Task", "TodoWrite"],
+        "exclude": ["Read", "Glob", "grep", "WebSearch", "WebFetch"]
+      },
+      "command": "squish hooks post-tool-use --agent claude-code"
+    },
+    "sessionEnd": {
+      "enabled": true,
+      "command": "squish hooks session-end --agent claude-code"
+    },
+    "preCompact": {
+      "enabled": true,
+      "matchers": ["auto"],
+      "command": "squish hooks pre-compact --agent claude-code"
+    }
+  },
+  "mcpServers": {
+    "squish-memory": {
+      "command": "squish",
+      "args": ["run", "mcp"],
+      "env": {
+        "SQUISH_PROJECT_DIR": "${CLAUDE_PROJECT_DIR}"
+      }
+    }
+  }
+}

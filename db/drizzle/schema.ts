@@ -158,6 +158,10 @@ export const memories = pgTable(
     namespaceId: uuid('namespace_id').references(() => namespaces.id, { onDelete: 'set null' }),
     namespacePath: text('namespace_path'),
 
+    // v1.1.5: Places support (spatial memory organization)
+    placeId: uuid('place_id').references(() => places.id, { onDelete: 'set null' }),
+    placeLociIndex: integer('place_loci_index'),
+
     // v0.4.3: Layer support
     hasL0Abstract: boolean('has_l0_abstract').default(false),
     hasL1Overview: boolean('has_l1_overview').default(false),
@@ -375,6 +379,74 @@ export const namespaces: any = pgTable('namespaces', {
 }, (table) => [
   index('namespaces_project_idx').on(table.projectId),
   index('namespaces_parent_idx').on(table.parentId),
+]);
+
+/**
+ * Places - Spatial memory organization (Method of Loci)
+ */
+export const places: any = pgTable('places', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }).notNull(),
+  
+  name: text('name').notNull(),
+  placeType: text('place_type').notNull(),
+  parentId: uuid('parent_id').references(() => places.id, { onDelete: 'set null' }),
+  
+  lociIndex: integer('loci_index').default(0),
+  positionX: integer('position_x').default(0),
+  positionY: integer('position_y').default(0),
+  description: text('description'),
+  purpose: text('purpose'),
+  memoryCount: integer('memory_count').default(0),
+  
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => [
+  index('places_project_idx').on(table.projectId),
+  index('places_type_idx').on(table.placeType),
+  index('places_parent_idx').on(table.parentId),
+  index('places_loci_idx').on(table.projectId, table.lociIndex),
+]);
+
+/**
+ * Memory-Place assignments
+ */
+export const memoryPlaces: any = pgTable('memory_places', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  memoryId: uuid('memory_id').references(() => memories.id, { onDelete: 'cascade' }).notNull(),
+  placeId: uuid('place_id').references(() => places.id, { onDelete: 'cascade' }).notNull(),
+  isManual: boolean('is_manual').default(false),
+  ruleId: uuid('rule_id'),
+  
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => [
+  index('memory_places_memory_idx').on(table.memoryId),
+  index('memory_places_place_idx').on(table.placeId),
+]);
+
+/**
+ * Place auto-assignment rules
+ */
+export const placeRules: any = pgTable('place_rules', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }).notNull(),
+  
+  name: text('name').notNull(),
+  placeType: text('place_type').notNull(),
+  
+  matchTool: text('match_tool'),
+  matchKeyword: text('match_keyword'),
+  matchTag: text('match_tag'),
+  matchMemoryType: text('match_memory_type'),
+  
+  priority: integer('priority').default(0),
+  enabled: boolean('enabled').default(true),
+  
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => [
+  index('place_rules_project_idx').on(table.projectId),
+  index('place_rules_type_idx').on(table.placeType),
 ]);
 
 /**

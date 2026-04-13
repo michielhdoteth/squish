@@ -1,0 +1,30 @@
+{
+  "name": "squish-hooks-opencode",
+  "version": "1.0.0",
+  "description": "Squish memory hooks for OpenCode",
+  "agent": "opencode",
+  "hooks": {
+    "sessionStart": {
+      "enabled": true,
+      "command": "squish hooks session-start --agent opencode"
+    },
+    "postToolUse": {
+      "enabled": true,
+      "captureFilter": {
+        "tools": ["Write", "Edit", "Bash", "Task"],
+        "exclude": ["Read", "Glob", "grep"]
+      },
+      "command": "squish hooks post-tool-use --agent opencode"
+    },
+    "sessionEnd": {
+      "enabled": true,
+      "command": "squish hooks session-end --agent opencode"
+    }
+  },
+  "mcpServers": {
+    "squish": {
+      "command": "squish",
+      "args": ["run", "mcp"]
+    }
+  }
+}
