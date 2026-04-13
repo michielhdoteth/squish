@@ -28,13 +28,14 @@ squish run web
 | Skill | Description | Install |
 |-------|-------------|---------|
 | `squish-memory` | Overview and quick start | `npx skills add michielhdoteth/squish --skill squish-memory` |
-| `squish-mcp` | Current MCP tool reference (18 tools) | `npx skills add michielhdoteth/squish --skill squish-mcp` |
+| `squish-mcp` | Current MCP tool reference (19 tools) | `npx skills add michielhdoteth/squish --skill squish-mcp` |
 | `squish-cli` | CLI command reference | `npx skills add michielhdoteth/squish --skill squish-cli` |
 | `memory-guide` | Usage patterns and best practices | `npx skills add michielhdoteth/squish --skill memory-guide` |
 
-## MCP Tools (18)
+## MCP Tools (19)
 
-- `squish_remember` - Store memory
+- `squish_capture` - **RECOMMENDED** - Capture any memory/learning with auto-detection
+- `squish_remember` - [DEPRECATED - use capture] Store memory
 - `squish_search` - Search memories
 - `squish_recall` - Fetch memory by ID
 - `squish_forget` - Delete memory

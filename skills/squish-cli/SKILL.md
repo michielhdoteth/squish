@@ -25,10 +25,28 @@ Squish v1.1.6 introduces a new interaction model:
 - **Default (`squish`)**: Interactive wizard/menu
 - **Server modes**: `squish run mcp` and `squish run web`
 - **CLI commands**: For agents and scripting (unchanged)
+- **NEW**: Use `squish capture` for simpler agent workflows
 
 ## Commands
 
-### squish remember
+### squish capture (RECOMMENDED)
+
+Capture any memory or learning with auto-detection. System automatically routes to memory or learning storage based on content analysis.
+
+```bash
+squish capture "Failed because the API returned 404"
+squish capture "User prefers TypeScript over JavaScript"
+squish capture "Next time use connection pooling" --project /path/to/project
+```
+
+Options:
+- `-p, --project <project>` - Project path (default: current directory)
+- `-T, --tags <tags>` - Comma-separated tags
+- `-o, --override <type>` - Force routing: auto, memory, learning, note (default: auto)
+
+This is the RECOMMENDED command for agents - simpler than choosing between remember/learn/note.
+
+### squish remember [DEPRECATED - use capture]
 
 Store a memory.
 

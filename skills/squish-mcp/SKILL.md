@@ -1,13 +1,13 @@
 ---
 name: squish-mcp
-description: Squish MCP tools for Claude Code, OpenCode, Cursor and other MCP clients. Current release exposes 18 tools for memory storage, retrieval, and maintenance.
+description: Squish MCP tools for Claude Code, OpenCode, Cursor and other MCP clients. Current release exposes 19 tools for memory storage, retrieval, and maintenance.
 version: 1.1.6
 author: michielhdoteth
 tags: [mcp, memory, persistence, search, semantic-search, claude-code, opencode, cursor]
 emoji: plug
 ---
 
-# Squish MCP Tools v1.1.6 (18 Tools)
+# Squish MCP Tools v1.1.6 (19 Tools)
 
 Use these MCP tools when working with Claude Code, OpenCode, Cursor, or any MCP-compatible client.
 
@@ -30,14 +30,15 @@ The MCP command is `squish-mcp`. The web UI runs separately via `squish run web`
 
 | Tool | Purpose | Typical Input |
 |------|---------|---------------|
-| `squish_remember` | Store a memory | `content`, optional `type`, `tags`, `project` |
+| `squish_capture` | **RECOMMENDED** - Capture any memory or learning with auto-detection | `content`, optional `project`, `tags`, `overrideType` |
+| `squish_remember` | [DEPRECATED - use capture] Store a memory | `content`, optional `type`, `tags`, `project` |
 | `squish_search` | Search memories | `query`, optional `limit`, `project`, `mode` |
 | `squish_recall` | Fetch memory by ID | `memoryId` |
 | `squish_forget` | Delete one or many memories | `memoryId` or bulk filters |
 | `squish_update` | Update memory fields | `memoryId`, changed fields |
 | `squish_link` | Find, add, or list associations | `action`, plus memory IDs when needed |
 | `squish_context` | Load project context or list projects | `project`, `limit`, `listProjects` |
-| `squish_learn` | Record success, failure, fix, or observation | `type`, `content`, optional `action`, `context` |
+| `squish_learn` | [DEPRECATED - use capture] Record success, failure, fix, or observation | `type`, `content`, optional `action`, `context` |
 | `squish_health` | Check system health | no input |
 | `squish_stats` | Get memory statistics | optional `project` |
 | `squish_confidence` | Get or set confidence | `memoryId`, optional `level` |

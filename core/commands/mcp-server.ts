@@ -146,6 +146,91 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
     }
   )) toolCount++;
 
+  // squish_capture - NEW PRIMARY TOOL (v1.2.0)
+  // Single smart capture path: auto-detects intent and routes to memory or learning
+  if (safeRegisterTool(
+    server,
+    "squish_capture",
+    {
+      description: "Capture any memory or learning. System auto-detects type and routes appropriately. RECOMMENDED over remember/learn/note - simpler for agents.",
+      inputSchema: {
+        content: z.string().describe("What to capture - can be a fact, decision, lesson, observation, or note"),
+        project: z.string().optional().describe("Project path (auto-detected if not provided)"),
+        tags: z.array(z.string()).optional().describe("Optional tags for organization"),
+        overrideType: z.enum(["auto", "memory", "learning", "note"]).default("auto").describe("Force routing: auto=detect, memory=store as memory, learning=store as learning")
+      }
+    },
+    async ({ content, project, tags = [], overrideType = "auto" }: { content: string; project?: string; tags?: string[]; overrideType?: "auto" | "memory" | "learning" | "note" }) => {
+      // Import detection function
+      const { detectMemorySignals } = await import('../../core/memory/trigger-detector.js');
+      const signals = detectMemorySignals(content);
+
+      let routing: "memory" | "learning" | "note" = "memory";
+      let inferredType = signals.suggestedType;
+      let routingReason = "";
+
+      // Check for learning patterns if auto mode
+      if (overrideType === "auto") {
+        const hasLessonPattern = /(\bfailed\s+because\b|\blesson\s+learned\b|\bnext\s+time\b|\broot\s+cause\b|\bsuccess\b.*\bbecause\b|\bi\s+learned\b|\binsight\b)/i.test(content);
+        const hasLearningType = /(\bsuccess\b|\bfailure\b|\bfix\b|\binsight\b)/i.test(content);
+        
+        if (hasLessonPattern || hasLearningType) {
+          routing = "learning";
+          routingReason = "Detected learning pattern in content";
+        } else if (signals.suggestedType === 'observation' && /\b(note|note\s+that|log|remember)\b/i.test(content)) {
+          routing = "note";
+          routingReason = "Detected note pattern";
+        } else {
+          routing = "memory";
+          routingReason = `Detected as ${signals.suggestedType}`;
+        }
+      } else if (overrideType === "learning") {
+        routing = "learning";
+        routingReason = "Override: forced to learning";
+      } else if (overrideType === "note") {
+        routing = "note";
+        routingReason = "Override: forced to note";
+      } else {
+        routing = "memory";
+        routingReason = "Override: forced to memory";
+      }
+
+      let result: any;
+
+      if (routing === "learning") {
+        // Determine learning type from content
+        let learningType: "success" | "failure" | "fix" | "insight" = "insight";
+        if (/(\bsuccess\b|\bworked\b|\bfinished\b)/i.test(content)) learningType = "success";
+        else if (/(\bfailed\b|\berror\b|\bbroke\b)/i.test(content)) learningType = "failure";
+        else if (/(\bfix\b|\b workaround\b|\bsolved\b)/i.test(content)) learningType = "fix";
+
+        const learning = await createLearning({ 
+          type: learningType, 
+          content, 
+          project,
+          autoLink: true 
+        });
+        result = { id: learning.id, type: "learning", learningType, content };
+      } else {
+        // Store as memory
+        const memory = await rememberMemory({ 
+          content, 
+          type: signals.suggestedType, 
+          tags, 
+          project 
+        });
+        result = { id: memory.id, type: "memory", memoryType: signals.suggestedType, content };
+      }
+
+      return { 
+        content: [{ 
+          type: "text", 
+          text: `Captured: ${result.id}\nRouting: ${routing}\nType: ${routing === "learning" ? result.learningType : result.memoryType}\nReason: ${routingReason}\n\n${content.substring(0, 100)}${content.length > 100 ? '...' : ''}` 
+        }] 
+      };
+    }
+  )) toolCount++;
+
   // Note: For session context, use squish_context tool (already exists)
   // It provides project memories + observations + entities
   
@@ -153,7 +238,7 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
     server,
     "squish_remember",
     {
-      description: "Store a new memory in Squish with automatic embedding",
+      description: "[DEPRECATED - use squish_capture instead] Store a new memory in Squish with automatic embedding",
       inputSchema: {
         content: z.string().describe("Memory content to store"),
         type: z.enum(["observation", "fact", "decision", "context", "preference"]).default("observation").describe("Memory type"),
@@ -163,7 +248,7 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
     },
     async ({ content, type = "observation", tags = [], project }: { content: string; type?: MemoryType; tags?: string[]; project?: string }) => {
       const memory = await rememberMemory({ content, type: type as MemoryType, tags, project });
-      return { content: [{ type: "text", text: `Memory stored: ${memory.id}` }] };
+      return { content: [{ type: "text", text: `Memory stored: ${memory.id} (NOTE: Consider using squish_capture for simpler agent workflows)` }] };
     }
   )) toolCount++;
 
@@ -362,7 +447,7 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
     server,
     "squish_learn",
     {
-      description: "Record learning: success, failure, fix, or insight. Auto-links to similar memories if above 85% similarity.",
+      description: "[DEPRECATED - use squish_capture instead] Record learning: success, failure, fix, or insight. Auto-links to similar memories if above 85% similarity.",
       inputSchema: {
         type: z.enum(["success", "failure", "fix", "insight"]).describe("Learning type (required)"),
         content: z.string().describe("What happened or what was learned"),

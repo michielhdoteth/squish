@@ -20,7 +20,18 @@ Use Squish to keep durable project context, user preferences, decisions, and wor
 
 ## Core MCP Flows
 
-### Store memory
+### Capture memory/learning (RECOMMENDED)
+
+```typescript
+// Auto-detects routing - use this for simplest agent workflow
+squish_capture({
+  content: "Failed because the API returned 404 - need to check endpoint",
+  project: "/path/to/project"
+})
+// System auto-routes to learning if it detects lesson patterns
+```
+
+### Store memory (DEPRECATED - use capture)
 
 ```typescript
 squish_remember({

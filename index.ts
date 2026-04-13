@@ -610,10 +610,96 @@ async function runCliMode() {
       }
     });
 
-  // squish remember "content" --type fact --tags tag1,tag2
+  // squish capture "content" - NEW: Single smart capture path (v1.2.0)
+  // Auto-detects intent and routes to memory or learning
+  program
+    .command('capture <content>')
+    .description('Capture any memory or learning. System auto-detects type and routes appropriately. RECOMMENDED over remember/learn/note')
+    .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
+    .option('-T, --tags <tags>', 'Comma-separated tags', '')
+    .option('-o, --override <type>', 'Force routing: auto, memory, learning, note', 'auto')
+    .action(async (content, options) => {
+      try {
+        const { detectMemorySignals } = await import('./core/memory/trigger-detector.js');
+        const signals = detectMemorySignals(content);
+
+        let routing: "memory" | "learning" | "note" = "memory";
+        let inferredType = signals.suggestedType;
+        let routingReason = "";
+
+        // Check for learning patterns if auto mode
+        if (options.override === "auto") {
+          const hasLessonPattern = /(\bfailed\s+because\b|\blesson\s+learned\b|\bnext\s+time\b|\broot\s+cause\b|\bsuccess\b.*\bbecause\b|\bi\s+learned\b|\binsight\b)/i.test(content);
+          const hasLearningType = /(\bsuccess\b|\bfailure\b|\bfix\b|\binsight\b)/i.test(content);
+          
+          if (hasLessonPattern || hasLearningType) {
+            routing = "learning";
+            routingReason = "Detected learning pattern in content";
+          } else if (signals.suggestedType === 'observation' && /\b(note|note\s+that|log|remember)\b/i.test(content)) {
+            routing = "note";
+            routingReason = "Detected note pattern";
+          } else {
+            routing = "memory";
+            routingReason = `Detected as ${signals.suggestedType}`;
+          }
+        } else if (options.override === "learning") {
+          routing = "learning";
+          routingReason = "Override: forced to learning";
+        } else if (options.override === "note") {
+          routing = "note";
+          routingReason = "Override: forced to note";
+        } else {
+          routing = "memory";
+          routingReason = "Override: forced to memory";
+        }
+
+        let result: any;
+        const tags = options.tags ? options.tags.split(',').map((t: string) => t.trim()) : [];
+
+        if (routing === "learning") {
+          // Determine learning type from content
+          let learningType: "success" | "failure" | "fix" | "insight" = "insight";
+          if (/(\bsuccess\b|\bworked\b|\bfinished\b)/i.test(content)) learningType = "success";
+          else if (/(\bfailed\b|\berror\b|\bbroke\b)/i.test(content)) learningType = "failure";
+          else if (/(\bfix\b|\b workaround\b|\bsolved\b)/i.test(content)) learningType = "fix";
+
+          const { createLearning } = await import('./core/ingestion/learnings.js');
+          const learning = await createLearning({ 
+            type: learningType, 
+            content, 
+            project: options.project,
+            autoLink: true 
+          });
+          result = { id: learning.id, type: "learning", learningType, content };
+        } else {
+          // Store as memory
+          const memory = await rememberMemory({ 
+            content, 
+            type: signals.suggestedType, 
+            tags, 
+            project: options.project 
+          });
+          result = { id: memory.id, type: "memory", memoryType: signals.suggestedType, content };
+        }
+
+        console.log(JSON.stringify({ 
+          ok: true, 
+          id: result.id,
+          routing,
+          type: routing === "learning" ? result.learningType : result.memoryType,
+          reason: routingReason,
+          message: "Consider using 'squish capture' for simpler agent workflows"
+        }, null, 2));
+      } catch (error: any) {
+        console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
+        process.exit(1);
+      }
+    });
+
+  // squish remember "content" --type fact --tags tag1,tag2 (DEPRECATED - use capture)
   program
     .command('remember <content>')
-    .description('Store a memory')
+    .description('[DEPRECATED - use "squish capture" instead] Store a memory')
     .option('-t, --type <type>', 'Memory type (observation, fact, decision, context, preference)', 'observation')
     .option('-T, --tags <tags>', 'Comma-separated tags', '')
     .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
@@ -1349,10 +1435,10 @@ program
       await spawnInstallerWizard();
     });
 
-// squish note "my thought here" - quick brain dump
+// squish note "my thought here" - quick brain dump (DEPRECATED - use capture)
 program
 .command('note <content>')
-.description('Quick brain dump - store a raw memory to process later')
+.description('[DEPRECATED - use "squish capture" instead] Quick brain dump - store a raw memory to process later')
 .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
 .action(async (content, options) => {
 try {
