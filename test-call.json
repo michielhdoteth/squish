@@ -1,0 +1,9 @@
+{
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "id": 3,
+  "params": {
+    "name": "squish_health",
+    "arguments": {}
+  }
+}

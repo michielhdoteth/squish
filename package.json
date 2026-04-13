@@ -122,6 +122,7 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
+    "qmd": "^0.4.0",
     "@clack/prompts": "^1.2.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@neondatabase/serverless": "^1.0.2",

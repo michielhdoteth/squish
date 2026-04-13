@@ -7,7 +7,7 @@ console.info = console.error;
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import express from "express";
 import { z } from "zod";
 import { config } from "../../config.js";
@@ -777,52 +777,140 @@ async function runStdio(server: McpServer, toolCount: number): Promise<void> {
 }
 
 async function runHttp(server: McpServer, port: number): Promise<void> {
-  console.error(`[MCP] Starting in HTTP mode on port ${port}...`);
+  console.error(`[MCP] Starting in Streamable HTTP mode on port ${port}...`);
 
   const app = express();
-  app.use(express.json());
+  app.use(express.json({ strict: false }));
 
-  const transports = new Map<string, SSEServerTransport>();
+  // Store transports by session ID
+  const transports = new Map<string, StreamableHTTPServerTransport>();
 
+  // Helper to check if request is an initialization request
+  function isInitializeRequest(body: any): boolean {
+    return body?.method === 'initialize';
+  }
+
+  // Health check endpoint
   app.get("/health", (req, res) => {
     res.json({ status: "ok", server: SERVER_NAME, version: SERVER_VERSION });
   });
 
-  app.get("/sse", async (req, res) => {
-    const transport = new SSEServerTransport("/message", res);
-    const sessionId = Math.random().toString(36).substring(7);
-    transports.set(sessionId, transport);
+  // Streamable HTTP POST endpoint
+  app.post("/mcp", async (req, res) => {
+    const sessionId = req.headers["mcp-session-id"] as string | undefined;
+    const body = req.body;
     
-    console.error(`[MCP] SSE connection established: ${sessionId}`);
+    let transport: StreamableHTTPServerTransport | undefined;
+    let serverToUse: McpServer | undefined;
     
-    await server.connect(transport);
-
-    req.on("close", () => {
-      console.error(`[MCP] SSE connection closed: ${sessionId}`);
-      transports.delete(sessionId);
-    });
-  });
-
-  app.post("/message", async (req, res) => {
-    const sessionId = req.headers["mcp-session-id"] as string || "default";
-    const transport = transports.get(sessionId);
+    // Check if we have an existing transport for this session
+    if (sessionId && transports.has(sessionId)) {
+      transport = transports.get(sessionId);
+      serverToUse = server;
+    }
     
+    // If no existing transport, create new one (only for initialize requests)
     if (!transport) {
-      res.status(400).json({ error: "No active session" });
-      return;
+      if (!isInitializeRequest(body)) {
+        res.status(400).json({
+          jsonrpc: '2.0',
+          error: { code: -32000, message: 'Bad Request: No valid session ID and not an initialize request' },
+          id: body?.id || null
+        });
+        return;
+      }
+      
+      // Create a NEW server instance for this transport
+      const { server: newServer } = createSquishServer();
+      serverToUse = newServer;
+      
+      // Create new transport with JSON response mode
+      transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: () => crypto.randomUUID(),
+        enableJsonResponse: true,
+        onsessioninitialized: (newSessionId) => {
+          console.error(`[MCP] Session initialized: ${newSessionId}`);
+          transports.set(newSessionId, transport!);
+        }
+      });
+      
+      // Connect the NEW server to this transport
+      try {
+        await serverToUse.connect(transport);
+      } catch (connectError: any) {
+        console.error(`[MCP] Connect error (may be expected):`, connectError.message);
+      }
+      
+      // Set up onclose handler
+      transport.onclose = () => {
+        const sid = transport?.sessionId;
+        if (sid) {
+          console.error(`[MCP] Session closed: ${sid}`);
+          transports.delete(sid);
+        }
+      };
+      
+      transport.onerror = (error) => {
+        console.error(`[MCP] Transport error:`, error);
+      };
     }
 
     try {
-      await transport.handlePostMessage(req, res);
+      // Handle the request with the parsed body
+      await transport.handleRequest(req, res, body);
     } catch (error) {
-      console.error(`[MCP] Error handling message:`, error);
-      res.status(500).json({ error: "Internal server error" });
+      console.error(`[MCP] Error handling request:`, error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: "Internal server error" });
+      }
+    }
+  });
+
+  // Streamable HTTP GET endpoint (for SSE)
+  app.get("/mcp", async (req, res) => {
+    const sessionId = req.headers["mcp-session-id"] as string | undefined;
+    
+    if (!sessionId || !transports.has(sessionId)) {
+      res.status(400).send('Invalid or missing session ID');
+      return;
+    }
+
+    const transport = transports.get(sessionId)!;
+    
+    try {
+      await transport.handleRequest(req, res);
+    } catch (error) {
+      console.error(`[MCP] Error handling GET request:`, error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: "Internal server error" });
+      }
+    }
+  });
+
+  // DELETE endpoint to close session
+  app.delete("/mcp", async (req, res) => {
+    const sessionId = req.headers["mcp-session-id"] as string | undefined;
+    
+    if (!sessionId || !transports.has(sessionId)) {
+      res.status(400).send('Invalid or missing session ID');
+      return;
+    }
+
+    const transport = transports.get(sessionId)!;
+    
+    try {
+      await transport.handleRequest(req, res);
+    } catch (error) {
+      console.error(`[MCP] Error handling DELETE request:`, error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: "Internal server error" });
+      }
     }
   });
 
   await new Promise<void>((resolve) => app.listen(port, () => {
     console.error(`[MCP] HTTP server listening on port ${port}`);
-    console.error(`[MCP] SSE endpoint: http://localhost:${port}/sse`);
+    console.error(`[MCP] Streamable HTTP endpoint: http://localhost:${port}/mcp`);
     console.error(`[MCP] Health: http://localhost:${port}/health`);
     resolve();
   }));
