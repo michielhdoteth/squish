@@ -190,9 +190,21 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
         const hasLessonPattern = /(\bfailed\s+because\b|\blesson\s+learned\b|\bnext\s+time\b|\broot\s+cause\b|\bsuccess\b.*\bbecause\b|\bi\s+learned\b|\binsight\b)/i.test(content);
         const hasLearningType = /(\bsuccess\b|\bfailure\b|\bfix\b|\binsight\b)/i.test(content);
         
-        if (hasLessonPattern || hasLearningType) {
+        // New: Enhanced learning detection from rationale patterns
+        const hasHackPattern = /(\bHACK\b|\bworkaround\b|\btemporary\s+fix\b)/i.test(content);
+        const hasFixmePattern = /(\bFIXME\b|\bXXX\b|\bbug\b.*\bfix\b)/i.test(content);
+        
+        if (hasLessonPattern || hasLearningType || hasHackPattern || hasFixmePattern) {
           routing = "learning";
-          routingReason = "Detected learning pattern in content";
+          if (hasHackPattern || hasFixmePattern) {
+            routingReason = "Detected code pattern (HACK/FIXME)";
+          } else {
+            routingReason = "Detected learning pattern in content";
+          }
+        } else if (signals.suggestedType === 'task') {
+          // TODO patterns - store as memory with task type
+          routing = "memory";
+          routingReason = "Detected TODO pattern";
         } else if (signals.suggestedType === 'observation' && /\b(note|note\s+that|log|remember)\b/i.test(content)) {
           routing = "note";
           routingReason = "Detected note pattern";
@@ -245,7 +257,7 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
       return { 
         content: [{ 
           type: "text", 
-          text: `Remembered: ${result.id}\nRouting: ${routing}\nType: ${routing === "learning" ? result.learningType : result.memoryType}\nTier: ${routing === "memory" ? tier : 'N/A'}\nReason: ${routingReason}\n\n${content.substring(0, 100)}${content.length > 100 ? '...' : ''}` 
+          text: `Remembered: ${result.id}\nRouting: ${routing}\nType: ${routing === "learning" ? result.learningType : result.memoryType}\nTier: ${routing === "memory" ? tier : 'N/A'}\nPriority: ${signals.priority}\nConfidence: ${signals.confidence}\nReason: ${routingReason}\n\n${content.substring(0, 100)}${content.length > 100 ? '...' : ''}` 
         }] 
       };
     }

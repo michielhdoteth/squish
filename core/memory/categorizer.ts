@@ -106,6 +106,7 @@ export async function categorizeMemory(
     context: 0,
     preference: 0,
     note: 0,
+    task: 0,
   };
 
   for (const { type, patterns, weight } of MEMORY_TYPE_PATTERNS) {

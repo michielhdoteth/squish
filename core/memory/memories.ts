@@ -17,7 +17,7 @@ import { encrypt, decrypt } from '../security/encrypt.js';
 import { estimateTokens } from '../context/context-window.js';
 import { getDbClient } from '../lib/db-client.js';
 
-export type MemoryType = 'observation' | 'fact' | 'decision' | 'context' | 'preference' | 'note';
+export type MemoryType = 'observation' | 'fact' | 'decision' | 'context' | 'preference' | 'note' | 'task';
 
 export interface RememberInput {
   content: string;

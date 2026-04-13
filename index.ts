@@ -638,9 +638,20 @@ async function runCliMode() {
           const hasLessonPattern = /(\bfailed\s+because\b|\blesson\s+learned\b|\bnext\s+time\b|\broot\s+cause\b|\bsuccess\b.*\bbecause\b|\bi\s+learned\b|\binsight\b)/i.test(content);
           const hasLearningType = /(\bsuccess\b|\bfailure\b|\bfix\b|\binsight\b)/i.test(content);
           
-          if (hasLessonPattern || hasLearningType) {
+          // New: Enhanced learning detection from rationale patterns
+          const hasHackPattern = /(\bHACK\b|\bworkaround\b|\btemporary\s+fix\b)/i.test(content);
+          const hasFixmePattern = /(\bFIXME\b|\bXXX\b|\bbug\b.*\bfix\b)/i.test(content);
+          
+          if (hasLessonPattern || hasLearningType || hasHackPattern || hasFixmePattern) {
             routing = "learning";
-            routingReason = "Detected learning pattern in content";
+            if (hasHackPattern || hasFixmePattern) {
+              routingReason = "Detected code pattern (HACK/FIXME)";
+            } else {
+              routingReason = "Detected learning pattern in content";
+            }
+          } else if (signals.suggestedType === 'task') {
+            routing = "memory";
+            routingReason = "Detected TODO pattern";
           } else if (signals.suggestedType === 'observation' && /\b(note|note\s+that|log|remember)\b/i.test(content)) {
             routing = "note";
             routingReason = "Detected note pattern";
@@ -701,6 +712,8 @@ async function runCliMode() {
           routing,
           type: routing === "learning" ? result.learningType : result.memoryType,
           tier: routing === "memory" ? tier : 'N/A',
+          priority: signals.priority,
+          confidence: signals.confidence,
           reason: routingReason
         }, null, 2));
       } catch (error: any) {

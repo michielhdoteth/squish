@@ -6,9 +6,18 @@ export interface MemorySignals {
     preference: boolean;
     workflowRule: boolean;
     lesson: boolean;
+    // New: Code rationale patterns
+    note: boolean;
+    important: boolean;
+    hack: boolean;
+    why: boolean;
+    todo: boolean;
+    fixme: boolean;
   };
-  suggestedType: 'observation' | 'fact' | 'decision' | 'context' | 'preference';
+  suggestedType: 'observation' | 'fact' | 'decision' | 'context' | 'preference' | 'task';
   priority: 'normal' | 'high';
+  // New: Confidence indicator
+  confidence: 'certain' | 'speculative' | 'inferred';
 }
 
 const EXPLICIT_TRIGGER_PATTERNS: Array<{ label: string; regex: RegExp }> = [
@@ -21,6 +30,15 @@ const EXPLICIT_TRIGGER_PATTERNS: Array<{ label: string; regex: RegExp }> = [
   { label: 'save-this', regex: /\bsave\s+this\b/i },
   { label: 'log-this', regex: /\blog\s+this\b/i },
   { label: 'important', regex: /\bimportant\s*:/i },
+  // New: Rationale comment triggers
+  { label: 'NOTE', regex: /NOTE:/i },
+  { label: 'IMPORTANT', regex: /IMPORTANT:/i },
+  { label: 'HACK', regex: /HACK:/i },
+  { label: 'WHY', regex: /WHY:/i },
+  { label: 'TODO', regex: /TODO:/i },
+  { label: 'FIXME', regex: /FIXME:/i },
+  { label: 'XXX', regex: /XXX:/i },
+  { label: 'DEPRECATED', regex: /DEPRECATED:/i },
 ];
 
 export function detectMemorySignals(content: string): MemorySignals {
@@ -38,22 +56,49 @@ export function detectMemorySignals(content: string): MemorySignals {
     workflowRule: /\b(?:let'?s\s+always\s+do\s+it\s+this\s+way|standard\s+workflow|runbook)\b/i.test(text),
     lesson:
       /\b(?:failed\s+because|lesson\s+learned|next\s+time|do\s+not\s+repeat|root\s+cause)\b/i.test(text),
+    // New: Rationale patterns from code comments
+    note: /NOTE:/i.test(text),
+    important: /IMPORTANT:/i.test(text),
+    hack: /HACK:/i.test(text),
+    why: /WHY:/i.test(text),
+    todo: /TODO:/i.test(text),
+    fixme: /FIXME:/i.test(text),
   };
 
   let suggestedType: MemorySignals['suggestedType'] = 'observation';
-  if (implicit.preference) suggestedType = 'preference';
+  
+  // Priority order: decision > preference > lesson > workflowRule > rationale > fact
   if (implicit.decision) suggestedType = 'decision';
-  if (implicit.workflowRule || implicit.lesson) suggestedType = 'context';
-  if (!implicit.decision && !implicit.preference && /\b(?:is|are|was|were|uses|has|have)\b/i.test(text)) {
+  else if (implicit.preference) suggestedType = 'preference';
+  else if (implicit.workflowRule || implicit.lesson) suggestedType = 'context';
+  else if (implicit.todo) suggestedType = 'task';
+  else if (!implicit.decision && !implicit.preference && /\b(?:is|are|was|were|uses|has|have)\b/i.test(text)) {
     suggestedType = 'fact';
   }
+  
+  // Override for specific rationale markers
+  if (implicit.note || implicit.important) suggestedType = 'observation';
+  if (implicit.why) suggestedType = 'context';
 
-  const priority: MemorySignals['priority'] = explicitTriggers.length > 0 || implicit.correction ? 'high' : 'normal';
+  // Determine confidence based on signal strength
+  let confidence: MemorySignals['confidence'] = 'certain';
+  if (implicit.note || implicit.todo) confidence = 'speculative';
+  if (implicit.hack || implicit.fixme) confidence = 'certain';  // Known issues are certain
+
+  const priority: MemorySignals['priority'] = 
+    explicitTriggers.length > 0 || 
+    implicit.correction || 
+    implicit.important || 
+    implicit.hack || 
+    implicit.fixme 
+      ? 'high' 
+      : 'normal';
 
   return {
     explicitTriggers,
     implicit,
     suggestedType,
     priority,
+    confidence,
   };
 }
