@@ -1,9 +1,0 @@
-node_modules/
-dist/
-.squish/
-.env.local
-.env
-*.log
-data/
-coverage/
-.nyc_output/
