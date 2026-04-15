@@ -144,10 +144,10 @@ export function isCompressed(content: string): boolean {
 
 /**
  * Count tokens (rough estimate)
+ * Import from context-window.ts - single source of truth
  */
-export function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4);
-}
+import { estimateTokens } from '../context/context-window.js';
+export { estimateTokens };
 
 /**
  * Truncate to token budget

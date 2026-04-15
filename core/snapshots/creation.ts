@@ -8,12 +8,10 @@ import { randomUUID } from 'crypto';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
 import { logger } from '../logger.js';
+import { MemoryDiff, calculateDiff } from './comparison.js';
 
-export interface MemoryDiff {
-  added?: string[];
-  removed?: string[];
-  changed?: Record<string, { from: unknown; to: unknown }>;
-}
+// Re-export for convenience
+export { MemoryDiff, calculateDiff };
 
 export async function createBeforeSnapshot(memoryId: string): Promise<string> {
   try {
@@ -137,21 +135,5 @@ function extractMetadata(memory: any): Record<string, unknown> {
     relevanceScore: memory.relevanceScore,
     tags: memory.tags,
     agentId: memory.agentId,
-  };
-}
-
-function calculateDiff(before: string, after: string): MemoryDiff {
-  const beforeLines = before.split('\n');
-  const afterLines = after.split('\n');
-
-  const beforeSet = new Set(beforeLines);
-  const afterSet = new Set(afterLines);
-
-  const added = afterLines.filter(line => !beforeSet.has(line));
-  const removed = beforeLines.filter(line => !afterSet.has(line));
-
-  return {
-    added: added.length > 0 ? added : undefined,
-    removed: removed.length > 0 ? removed : undefined,
   };
 }
