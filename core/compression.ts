@@ -64,7 +64,7 @@ export function compressForContext(content: string): string {
  */
 export function decompressFromContext(toonString: string): string {
   // Check if it's TOON format
-  if (!isToon(toonString)) {
+  if (!isCompressed(toonString)) {
     return toonString;
   }
 
@@ -126,16 +126,16 @@ export function isJson(content: string): boolean {
 }
 
 /**
- * Check if content is TOON format
+ * Check if content is compressed format
  */
-export function isToon(content: string): boolean {
+export function isCompressed(content: string): boolean {
   if (!content.startsWith('{') || !content.endsWith('}')) {
     return false;
   }
   
   try {
     const parsed = JSON.parse(content);
-    // Has TOON markers
+    // Has compressed markers
     return parsed.m !== undefined || parsed.c !== undefined;
   } catch {
     return false;

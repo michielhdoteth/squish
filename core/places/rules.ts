@@ -53,33 +53,33 @@ export interface RuleMatchInput {
  * Default auto-assignment rules
  */
 export const DEFAULT_RULES: Omit<PlaceRuleCreateInput, 'projectId'>[] = [
-  // Workshop - Implementation, code, fixes
-  { name: 'Write to Workshop', placeType: 'workshop', matchTool: 'Write', priority: 100 },
-  { name: 'Edit to Workshop', placeType: 'workshop', matchTool: 'Edit', priority: 100 },
-  { name: 'MultiEdit to Workshop', placeType: 'workshop', matchTool: 'MultiEdit', priority: 100 },
-  { name: 'Fix keyword to Workshop', placeType: 'workshop', matchKeyword: 'fix', priority: 80 },
-  { name: 'Bug keyword to Workshop', placeType: 'workshop', matchKeyword: 'bug', priority: 80 },
+  // WIP - Implementation, code, fixes
+  { name: 'Write to WIP', placeType: 'wip', matchTool: 'Write', priority: 100 },
+  { name: 'Edit to WIP', placeType: 'wip', matchTool: 'Edit', priority: 100 },
+  { name: 'MultiEdit to WIP', placeType: 'wip', matchTool: 'MultiEdit', priority: 100 },
+  { name: 'Fix keyword to WIP', placeType: 'wip', matchKeyword: 'fix', priority: 80 },
+  { name: 'Bug keyword to WIP', placeType: 'wip', matchKeyword: 'bug', priority: 80 },
   
-  // Lab - Experiments, tests
-  { name: 'Test to Lab', placeType: 'lab', matchTool: 'Bash', matchKeyword: 'test', priority: 90 },
-  { name: 'Test tag to Lab', placeType: 'lab', matchTag: 'test', priority: 85 },
+  // Sandbox - Experiments, tests
+  { name: 'Test to Sandbox', placeType: 'sandbox', matchTool: 'Bash', matchKeyword: 'test', priority: 90 },
+  { name: 'Test tag to Sandbox', placeType: 'sandbox', matchTag: 'test', priority: 85 },
   
-  // Office - Decisions, planning
-  { name: 'Task to Office', placeType: 'office', matchTool: 'Task', priority: 100 },
-  { name: 'TodoWrite to Office', placeType: 'office', matchTool: 'TodoWrite', priority: 100 },
-  { name: 'Decision keyword to Office', placeType: 'office', matchKeyword: 'decided', priority: 70 },
-  { name: 'Planning keyword to Office', placeType: 'office', matchKeyword: 'will implement', priority: 70 },
+  // Board - Decisions, planning
+  { name: 'Task to Board', placeType: 'board', matchTool: 'Task', priority: 100 },
+  { name: 'TodoWrite to Board', placeType: 'board', matchTool: 'TodoWrite', priority: 100 },
+  { name: 'Decision keyword to Board', placeType: 'board', matchKeyword: 'decided', priority: 70 },
+  { name: 'Planning keyword to Board', placeType: 'board', matchKeyword: 'will implement', priority: 70 },
   
-  // Library - Research, patterns
-  { name: 'Search to Library', placeType: 'library', matchTool: 'grep', priority: 90 },
-  { name: 'WebFetch to Library', placeType: 'library', matchTool: 'WebFetch', priority: 85 },
-  { name: 'Research keyword to Library', placeType: 'library', matchKeyword: 'research', priority: 80 },
-  { name: 'Pattern keyword to Library', placeType: 'library', matchKeyword: 'pattern', priority: 75 },
+  // Ref - Research, patterns
+  { name: 'Search to Ref', placeType: 'ref', matchTool: 'grep', priority: 90 },
+  { name: 'WebFetch to Ref', placeType: 'ref', matchTool: 'WebFetch', priority: 85 },
+  { name: 'Research keyword to Ref', placeType: 'ref', matchKeyword: 'research', priority: 80 },
+  { name: 'Pattern keyword to Ref', placeType: 'ref', matchKeyword: 'pattern', priority: 75 },
   
-  // Garden - Ideas, future
-  { name: 'Idea keyword to Garden', placeType: 'garden', matchKeyword: 'idea', priority: 80 },
-  { name: 'Explore keyword to Garden', placeType: 'garden', matchKeyword: 'explore', priority: 75 },
-  { name: 'Future keyword to Garden', placeType: 'garden', matchKeyword: 'will add', priority: 70 },
+  // Sparks - Ideas, future
+  { name: 'Idea keyword to Sparks', placeType: 'sparks', matchKeyword: 'idea', priority: 80 },
+  { name: 'Explore keyword to Sparks', placeType: 'sparks', matchKeyword: 'explore', priority: 75 },
+  { name: 'Future keyword to Sparks', placeType: 'sparks', matchKeyword: 'will add', priority: 70 },
 ];
 
 /**

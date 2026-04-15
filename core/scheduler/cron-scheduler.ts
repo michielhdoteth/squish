@@ -1,7 +1,7 @@
 /** Cron Scheduler - Persistent cron-based job scheduling with fallback support */
 
 import cron from 'node-cron';
-import { selfIterationHandler } from '../session-hooks/self-iteration-job.js';
+import { selfIterationHandler } from '../session/self-iteration-job.js';
 import { runLifecycleMaintenance } from '../lifecycle.js';
 import { logger } from '../logger.js';
 import { config } from '../../config.js';
@@ -9,7 +9,7 @@ import { getDb } from '../../db/index.js';
 import { maintenanceJobs, maintenanceJobHistory } from '../../db/drizzle/schema-sqlite.js';
 import { eq } from 'drizzle-orm';
 
-export type JobType = 'nightly' | 'weekly' | 'hourly';
+export type JobType = 'nightly' | 'weekly' | 'hourly' | 'daily';
 export type JobStatus = 'success' | 'failed' | 'skipped';
 
 export interface ScheduledJob {
@@ -58,6 +58,67 @@ const decayHandler = async (context: JobExecutionContext) => {
   };
 };
 registerJobHandler('decay_maintenance', decayHandler);
+
+// Auto-clean handler - deletes stale memories automatically
+const autoCleanHandler = async (context: JobExecutionContext) => {
+  const { getStaleMemories, deleteMemoryPermanently } = await import('../memory/stale-cleaner.js');
+  const { getAllProjects } = await import('../projects.js');
+  
+  const jobConfig = context.config as {
+    enabled?: boolean;
+    olderThanDays?: number;
+    confidenceLevel?: string[];
+    minImportance?: number;
+    dryRun?: boolean;
+  };
+  
+  if (jobConfig.enabled === false) {
+    return { recordsProcessed: 0, summary: { skipped: true, reason: 'auto-clean disabled' } };
+  }
+  
+  const olderThanDays = jobConfig.olderThanDays || 30;
+  const confidenceLevels = jobConfig.confidenceLevel || ['outdated', 'speculative'];
+  const minImportance = jobConfig.minImportance || 40;
+  const dryRun = jobConfig.dryRun !== undefined ? jobConfig.dryRun : true; // Default to dry-run for safety
+  
+  const projects = await getAllProjects();
+  let totalStale = 0;
+  let totalDeleted = 0;
+  
+  for (const project of projects) {
+    const stale = await getStaleMemories({
+      olderThanDays,
+      confidenceLevels,
+      minImportance,
+      projectId: project.id,
+    });
+    
+    totalStale += stale.length;
+    
+    if (dryRun) {
+      logger.info(`[AutoClean] Would delete ${stale.length} stale memories in ${project.path}`);
+    } else {
+      for (const memory of stale) {
+        if (!memory.isPinned) {
+          await deleteMemoryPermanently(memory.id);
+          totalDeleted++;
+        }
+      }
+      logger.info(`[AutoClean] Deleted ${stale.length} stale memories in ${project.path}`);
+    }
+  }
+  
+  return {
+    recordsProcessed: dryRun ? totalStale : totalDeleted,
+    summary: {
+      mode: dryRun ? 'dry-run' : 'deleted',
+      projectsScanned: projects.length,
+      memoriesAffected: dryRun ? totalStale : totalDeleted,
+      criteria: { olderThanDays, confidenceLevels, minImportance },
+    },
+  };
+};
+registerJobHandler('auto_clean', autoCleanHandler);
 
 export async function initializeScheduler(): Promise<void> {
   if (!config.cronEnabled) {
@@ -119,6 +180,19 @@ async function ensureDefaultJobs(db: any): Promise<void> {
       cronExpression: '30 * * * *', // Run every hour at :30
       enabled: true,
       jobConfig: { minMessageCount: 5, maxMessagesToProcess: 50 },
+    },
+    {
+      jobName: 'auto_clean',
+      jobType: 'daily' as JobType,
+      cronExpression: '0 3 * * *', // Run daily at 3 AM
+      enabled: true,
+      jobConfig: { 
+        enabled: true,
+        olderThanDays: 30,
+        confidenceLevel: ['outdated', 'speculative'],
+        minImportance: 40,
+        dryRun: true, // Start with dry-run for safety
+      },
     },
   ];
 
@@ -215,7 +289,6 @@ export async function scheduleJob(job: ScheduledJob): Promise<void> {
   const task = cron.schedule(job.cronExpression, async () => {
     await executeJob(job);
   }, {
-    scheduled: true,
     timezone: 'UTC',
   });
 

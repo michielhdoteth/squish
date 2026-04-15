@@ -184,7 +184,7 @@ CREATE TABLE IF NOT EXISTS learnings (
 CREATE INDEX IF NOT EXISTS learnings_project_idx ON learnings(project_id);
 CREATE INDEX IF NOT EXISTS learnings_type_idx ON learnings(type);
 CREATE INDEX IF NOT EXISTS learnings_action_idx ON learnings(action);
-CREATE INDEX IF NOT EXISTS observations_created_idx ON observations(created_at);
+CREATE INDEX IF NOT EXISTS learnings_created_idx ON learnings(created_at);
 
 CREATE TABLE IF NOT EXISTS entities (
   id TEXT PRIMARY KEY,
@@ -397,7 +397,7 @@ CREATE TABLE IF NOT EXISTS places (
   name TEXT NOT NULL,
   place_type TEXT NOT NULL,
   parent_id TEXT REFERENCES places(id) ON DELETE SET NULL,
-  loci_index INTEGER DEFAULT 0,
+  sort_order INTEGER DEFAULT 0,
   position_x INTEGER DEFAULT 0,
   position_y INTEGER DEFAULT 0,
   description TEXT,
@@ -409,7 +409,7 @@ CREATE TABLE IF NOT EXISTS places (
 CREATE INDEX IF NOT EXISTS places_project_idx ON places(project_id);
 CREATE INDEX IF NOT EXISTS places_type_idx ON places(place_type);
 CREATE INDEX IF NOT EXISTS places_parent_idx ON places(parent_id);
-CREATE INDEX IF NOT EXISTS places_loci_idx ON places(project_id, loci_index);
+CREATE INDEX IF NOT EXISTS places_sort_order_idx ON places(project_id, sort_order);
 
 -- Memory-Place assignments
 CREATE TABLE IF NOT EXISTS memory_places (
@@ -771,7 +771,7 @@ const postgresStatements = [
     name TEXT NOT NULL,
     place_type TEXT NOT NULL,
     parent_id UUID REFERENCES places(id) ON DELETE SET NULL,
-    loci_index INTEGER DEFAULT 0,
+    sort_order INTEGER DEFAULT 0,
     position_x INTEGER DEFAULT 0,
     position_y INTEGER DEFAULT 0,
     description TEXT,
@@ -783,7 +783,7 @@ const postgresStatements = [
   `CREATE INDEX IF NOT EXISTS places_project_idx ON places(project_id);`,
   `CREATE INDEX IF NOT EXISTS places_type_idx ON places(place_type);`,
   `CREATE INDEX IF NOT EXISTS places_parent_idx ON places(parent_id);`,
-  `CREATE INDEX IF NOT EXISTS places_loci_idx ON places(project_id, loci_index);`,
+  `CREATE INDEX IF NOT EXISTS places_sort_order_idx ON places(project_id, sort_order);`,
   // memory_places table
   `CREATE TABLE IF NOT EXISTS memory_places (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -839,6 +839,51 @@ export async function ensureSqliteSchema(sqlite: Database): Promise<void> {
 }
 
 async function runSqliteMigrations(sqlite: Database): Promise<void> {
+   // Places table migrations - run first, independent of memories table
+   const placesTableCheck = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='places'").get() as {name: string} | undefined;
+   if (placesTableCheck) {
+      const placesInfo = sqlite.prepare("PRAGMA table_info(places)").all() as Array<{name: string}>;
+      const placesColumns = new Set(placesInfo.map(col => col.name));
+      
+      const placesMigrations = [
+        // Rename loci_index to sort_order (v1.1.7)
+        { col: 'sort_order', sql: 'ALTER TABLE places ADD COLUMN sort_order INTEGER DEFAULT 0' },
+        // Migration from old loci_index column
+        { col: 'loci_index', sql: '' }, // Marker for rename logic below
+      ];
+      
+      for (const migration of placesMigrations) {
+        if (migration.col === 'loci_index') {
+          // Handle rename from loci_index to sort_order
+          if (placesColumns.has('loci_index') && !placesColumns.has('sort_order')) {
+            try {
+              // Copy data from loci_index to sort_order
+              sqlite.exec("UPDATE places SET sort_order = loci_index WHERE sort_order = 0 OR sort_order IS NULL");
+              // Drop the old column (SQLite doesn't support DROP COLUMN directly, so we recreate table)
+              // For safety, just mark it as deprecated and don't use it
+              logger.info('Migration: Copied loci_index data to sort_order');
+            } catch (error) {
+              const errMsg = error instanceof Error ? error.message : String(error);
+              logger.warn(`Migration: Could not copy loci_index data: ${errMsg}`);
+            }
+          }
+          continue;
+        }
+        
+        if (!placesColumns.has(migration.col)) {
+          try {
+            sqlite.exec(migration.sql);
+            logger.info(`Migration: Added column ${migration.col} to places table`);
+          } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            if (!msg.includes('duplicate column name')) {
+              throw new Error(`Migration failed for places.${migration.col}: ${msg}`);
+            }
+          }
+        }
+      }
+   }
+   
    // Check if memories table exists
    const tableCheck = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='memories'").get() as {name: string} | undefined;
    
@@ -924,7 +969,7 @@ async function runSqliteMigrations(sqlite: Database): Promise<void> {
 
         // Places support (v1.1.5) - Spatial memory organization
         { col: 'place_id', sql: 'ALTER TABLE memories ADD COLUMN place_id TEXT REFERENCES places(id) ON DELETE SET NULL' },
-        { col: 'place_loci_index', sql: 'ALTER TABLE memories ADD COLUMN place_loci_index INTEGER' },
+        { col: 'place_order', sql: 'ALTER TABLE memories ADD COLUMN place_order INTEGER DEFAULT 0' },
 
 	// Token tracking (v1.0.x)
 	{ col: 'tokens_estimate', sql: 'ALTER TABLE memories ADD COLUMN tokens_estimate INTEGER DEFAULT 0' },
@@ -940,7 +985,7 @@ async function runSqliteMigrations(sqlite: Database): Promise<void> {
 
         // Places support (v1.1.5) - Spatial memory organization
         { col: 'place_id', sql: 'ALTER TABLE memories ADD COLUMN place_id UUID REFERENCES places(id) ON DELETE SET NULL' },
-        { col: 'place_loci_index', sql: 'ALTER TABLE memories ADD COLUMN place_loci_index INTEGER' }
+        { col: 'place_order', sql: 'ALTER TABLE memories ADD COLUMN place_order INTEGER DEFAULT 0' }
 ];
    
    // Get existing columns for memories table
@@ -991,7 +1036,7 @@ async function runSqliteMigrations(sqlite: Database): Promise<void> {
       }
     }
 
-    // Migrations for learnings table (v1.2.x) - renamed from observations
+    // Migrations for learnings table - renamed from observations
     // First, check if we need to rename observations -> learnings
     const observationsTableCheck = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='observations'").get() as {name: string} | undefined;
     const learningsTableCheck = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='learnings'").get() as {name: string} | undefined;
@@ -1008,6 +1053,12 @@ async function runSqliteMigrations(sqlite: Database): Promise<void> {
     }
 
     // Now run migrations on learnings table (whether renamed or new)
+    // Reuse learningsTableCheck from above
+    if (!learningsTableCheck) {
+      // Table created by schema, skip migrations
+      return;
+    }
+
     const learningsInfo = sqlite.prepare("PRAGMA table_info(learnings)").all() as Array<{name: string}>;
     const existingLearningsColumns = new Set(learningsInfo.map(col => col.name));
 

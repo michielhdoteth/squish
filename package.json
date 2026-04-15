@@ -122,27 +122,21 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
-    "qmd": "^0.4.0",
     "@clack/prompts": "^1.2.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@neondatabase/serverless": "^1.0.2",
     "better-sqlite3": "12.9.0",
-    "bull": "^4.16.0",
     "commander": "^14.0.3",
     "cors": "2.8.6",
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.2",
     "express": "^5.2.1",
     "express-rate-limit": "^8.3.2",
-    "hono": "^4.12.12",
     "node-cron": "^4.2.1",
     "pg": "^8.20.0",
     "pgvector": "^0.2.0",
-    "picocolors": "^1.0.0",
     "redis": "^5.11.0",
     "sql.js": "^1.14.1",
-    "uuid": "^13.0.0",
-    "ws": "^8.20.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
@@ -152,8 +146,8 @@
     "@types/node": "^25.6.0",
     "@types/node-cron": "^3.0.11",
     "@types/pg": "^8.20.0",
-    "@types/ws": "^8.5.13",
     "drizzle-kit": "^0.31.10",
+    "picocolors": "^1.0.0",
     "pkg": "^5.8.1",
     "typescript": "^6.0.2"
   }

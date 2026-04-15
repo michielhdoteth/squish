@@ -8,7 +8,6 @@ import { normalizeTags, serializeTags, deserializeTags, serializeMetadata, deser
 import { normalizeTimestamp, clampLimit, prepareEmbedding } from '../lib/utils.js';
 import { validateUuid, requireUuid } from '../lib/validation.js';
 import { cosineSimilarity } from '../utils/vector-operations.js';
-import { getQMDMemorySync } from '../../core/sync/qmd-sync.js';
 import { hybridSearch as hybridSearchImpl } from './hybrid-search.js';
 import { calculateImportance } from './importance.js';
 import { detectMemorySignals, MemorySignals } from './trigger-detector.js';

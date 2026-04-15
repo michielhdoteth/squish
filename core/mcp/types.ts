@@ -3,12 +3,12 @@ import { z } from 'zod';
 export const MCPToolSchema = z.object({
   name: z.string(),
   description: z.string(),
-  inputSchema: z.record(z.any()),
+  inputSchema: z.record(z.string(), z.any()),
 });
 
 export const MCPToolCallSchema = z.object({
   name: z.string(),
-  arguments: z.record(z.any()),
+  arguments: z.record(z.string(), z.any()),
 });
 
 export const MCPToolResultSchema = z.object({

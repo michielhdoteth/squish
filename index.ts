@@ -46,10 +46,9 @@ import { summarizeSession } from './core/summarization.js';
 import { storeAgentMemory } from './core/ingestion/agent-memory.js';
 import { getRelatedMemories, createAssociation } from './core/associations.js';
 import { protectMemory, pinMemory, unpinMemory } from './core/security/governance.js';
- import { isDatabaseUnavailableError, determineOverallStatus } from './core/lib/utils.js';
+ import { isDatabaseUnavailableError, determineOverallStatus, parseDate, filterByDateRange } from './core/lib/utils.js';
  import { validateLimit } from './core/lib/validation.js';
-import { runDeduplicationJob, runFullConsolidationJob } from './core/consolidation.js';
-import { searchWithQMD, isQMDAvailable } from './core/search/qmd-search.js';
+ import { runDeduplicationJob, runFullConsolidationJob } from './core/consolidation.js';
 import {
   initializeCoreMemory,
   getCoreMemory,
@@ -57,7 +56,6 @@ import {
   appendCoreMemorySection,
   getCoreMemoryStats,
 } from './core/ingestion/core-memory.js';
-import { getNamespaceTree } from './core/namespaces/index.js';
 import {
   loadMemoryToContext,
   evictMemoryFromContext,
@@ -170,61 +168,6 @@ function resolveProjectPath(projectOption?: string): string {
   return getDefaultProjectPath();
 }
 
-// Date parsing for time-based queries
-// ============================================================================
-
-function parseDate(input: string): Date | null {
-  if (!input) return null;
-  const now = new Date();
-  const lower = input.toLowerCase().trim();
-  
-  // Direct date parse
-  const parsed = new Date(input);
-  if (!isNaN(parsed.getTime())) return parsed;
-  
-  // Relative parsing
-  const dayMatch = lower.match(/(\d+)\s*day/i);
-  const weekMatch = lower.match(/(\d+)\s*week/i);
-  const monthMatch = lower.match(/(\d+)\s*month/i);
-  
-  if (lower === 'today') {
-    const d = new Date(now);
-    d.setHours(0, 0, 0, 0);
-    return d;
-  }
-  if (lower === 'yesterday') return new Date(now.getTime() - 86400000);
-  if (lower === 'thisweek' || lower === 'this week') {
-    const d = new Date(now);
-    d.setDate(d.getDate() - d.getDay());
-    d.setHours(0, 0, 0, 0);
-    return d;
-  }
-  if (lower === 'lastweek' || lower === 'last week') {
-    const d = new Date(now);
-    d.setDate(d.getDate() - d.getDay() - 7);
-    return d;
-  }
-  
-  if (dayMatch) return new Date(now.getTime() - parseInt(dayMatch[1]) * 86400000);
-  if (weekMatch) return new Date(now.getTime() - parseInt(weekMatch[1]) * 604800000);
-  if (monthMatch) return new Date(now.getTime() - parseInt(monthMatch[1]) * 2592000000);
-  
-  return null;
-}
-
-function filterByDateRange<T extends { createdAt?: string | null }>(items: T[], since?: string, until?: string): T[] {
-  const sinceDate = parseDate(since || '');
-  const untilDate = parseDate(until || '');
-  
-  return items.filter(item => {
-    if (!item.createdAt) return true;
-    const created = new Date(item.createdAt);
-    if (sinceDate && created < sinceDate) return false;
-    if (untilDate && created > untilDate) return false;
-    return true;
-  });
-}
-
 // Load plugin manifest for self-verification
 function loadPluginManifest(): any {
   try {
@@ -302,10 +245,7 @@ Usage:
   squish <command> [options]  Run CLI commands for agents
 
 CLI Commands (for agents):
-  squish config [action]      Manage Squish configuration
-  squish remember <content>   Store a memory
-  squish note <content>       Save a quick note
-  squish learn <type> <text>  Record learning: success, failure, fix, insight
+  squish remember <content>   Store a memory (auto-detects type)
   squish search <query>       Search memories (--pretty for human output)
   squish recall <query>       Search or get by ID (--pretty for human output)
   squish recent --period      Recent memories (today/yesterday/thisweek/7days/30days)
@@ -317,21 +257,18 @@ CLI Commands (for agents):
   squish stale                Show stale memories
   squish link <action>        Manage links (find/add/list)
   squish migrate              Migrate memories between .squish directories
-  squish clean                Dedup + consolidate (maintenance)
   squish context              Show context or list projects
   squish stats                View memory statistics
+  squish mount [path]         Mount external folder as memory storage
+
+Note: Deduplication and consolidation run automatically via cron scheduler.
 
 Examples:
   squish run mcp              # Start MCP server (for agents)
   squish run web              # Start Web UI only
-  squish config set project /repo/path
-  squish remember "Hello"     # Store memory
-  squish note "Ship v1 first" # Save a quick note
-  squish learn observation "Updated auth flow" --action edit
-  squish learn fix "Patched auth middleware" --target middleware.ts
-  squish search "query"       # Search memories
+  squish remember "Hello"     # Store memory (auto-detects type)
+  squish search "query"        # Search memories
   squish context --list-projects
-  squish clean                # Run deduplication and consolidation
 
 For more info: https://github.com/michielhdoteth/squish
 `);
@@ -552,67 +489,10 @@ async function runCliMode() {
     await ensureDataDirectory();
   });
 
-  // squish config [get] [key] or squish config set <key> <value>
-  program
-    .command('config')
-    .description('Manage Squish configuration')
-    .argument('[action]', 'get, set, or list', 'list')
-    .argument('[key]', 'Config key (e.g., project)')
-    .argument('[value]', 'Config value (for set action)')
-    .action(async (action, key, value) => {
-      const userConfig = loadUserConfig();
-      if (action === 'set') {
-        if (!key || value === undefined) {
-          console.log(JSON.stringify({ ok: false, error: 'Usage: squish config set <key> <value>' }, null, 2));
-          process.exit(1);
-        }
-        userConfig[key] = value;
-        saveUserConfig(userConfig);
-        console.log(JSON.stringify({ ok: true, message: `Set ${key} = ${value}` }, null, 2));
-      } else if (action === 'get') {
-        if (!key) {
-          console.log(JSON.stringify({ ok: false, error: 'Usage: squish config get <key>' }, null, 2));
-          process.exit(1);
-        }
-        console.log(JSON.stringify({ ok: true, [key]: userConfig[key] || null }, null, 2));
-      } else {
-        console.log(JSON.stringify({ ok: true, config: userConfig }, null, 2));
-      }
-    });
+  // config command removed - use environment variables instead
 
-  // squish mount /path/to/folder - Enable external memory
-  program
-    .command('mount')
-    .description('Mount an external folder as memory storage')
-    .argument('[path]', 'Path to external folder (or "status" or "unmount")')
-    .action(async (pathOrAction) => {
-      const { getExternalMemory } = await import('./core/external-folder/index.js');
-      const externalMemory = getExternalMemory();
-      
-      if (pathOrAction === 'status') {
-        // Show mount status
-        const status = await externalMemory.getStatus();
-        console.log(JSON.stringify({ ok: true, status }, null, 2));
-      } else if (pathOrAction === 'unmount') {
-        // Unmount
-        externalMemory.unmount();
-        console.log(JSON.stringify({ ok: true, message: 'External memory unmounted' }, null, 2));
-      } else if (pathOrAction) {
-        // Mount at path
-        const result = await externalMemory.mount(pathOrAction);
-        if (result.success) {
-          console.log(JSON.stringify({ ok: true, message: `Mounted at ${pathOrAction}` }, null, 2));
-        } else {
-          console.log(JSON.stringify({ ok: false, error: result.error }, null, 2));
-        }
-      } else {
-        console.log(JSON.stringify({ ok: false, error: 'Usage: squish mount <path> or squish mount status' }, null, 2));
-      }
-    });
-
-  // squish remember "content" - UNIFIED MEMORY WRITE (v1.2.0)
+  // squish remember "content" - UNIFIED MEMORY WRITE
   // Single smart write path: auto-detects intent and routes to memory or learning
-  // Replaces deprecated separate remember/learn/note commands
   program
     .command('remember <content>')
     .description('Store any memory or learning. System auto-detects type and routes appropriately. This is THE memory write command for agents - handles hot/cold tiers and all memory types.')
@@ -624,6 +504,8 @@ async function runCliMode() {
     .option('-c, --confidence <level>', 'Confidence level 0-100 (default: auto-calculated)')
     .option('-s, --source <source>', 'Source: cli, voice, chat, document (default: cli)')
     .option('-o, --route <route>', 'Force routing: auto, memory, learning, note', 'auto')
+    .option('-P, --pin', 'Pin memory to prevent pruning/consolidation', false)
+    .option('-u, --unpin', 'Unpin memory', false)
     .action(async (content, options) => {
       try {
         const { detectMemorySignals } = await import('./core/memory/trigger-detector.js');
@@ -703,7 +585,17 @@ async function runCliMode() {
             tier,
             source: options.source || 'cli'
           });
-          result = { id: memory.id, type: "memory", memoryType: inferredType, tier, content };
+          
+          // Handle pin/unpin after creation
+          if (options.pin) {
+            const { pinMemory } = await import('./core/security/governance.js');
+            await pinMemory(memory.id);
+          } else if (options.unpin) {
+            const { unpinMemory } = await import('./core/security/governance.js');
+            await unpinMemory(memory.id);
+          }
+          
+          result = { id: memory.id, type: "memory", memoryType: inferredType, tier, content, pinned: options.pin };
         }
 
         console.log(JSON.stringify({ 
@@ -714,6 +606,7 @@ async function runCliMode() {
           tier: routing === "memory" ? tier : 'N/A',
           priority: signals.priority,
           confidence: signals.confidence,
+          pinned: (result as any).pinned,
           reason: routingReason
         }, null, 2));
       } catch (error: any) {
@@ -722,7 +615,7 @@ async function runCliMode() {
       }
     });
 
-  // squish search "query" --type fact --limit 10 --since "3 days ago" --place workshop
+  // squish search "query" --type fact --limit 10 --since "3 days ago" --place wip
   program
     .command('search <query>')
     .description('Search memories')
@@ -733,7 +626,7 @@ async function runCliMode() {
     .option('-u, --until <date>', 'Filter: created before this date (e.g., "yesterday", "2026-01-15")')
     .option('-P, --pretty', 'Human-friendly output', false)
     .option('-m, --memory', 'Search memory files instead of database', false)
-    .option('--place <type>', 'Filter by place type: entry_hall, library, workshop, lab, office, garden, archive')
+    .option('--place <type>', 'Filter by place type: inbox, ref, wip, sandbox, board, sparks, archive')
     .action(async (query, options) => {
       try {
         // Markdown file search
@@ -954,37 +847,7 @@ program
     }
   });
 
-// squish learn <type> <content> - Record learning: success, failure, fix, or insight
-program
-  .command('learn <type> <content>')
-  .description('Record learning: success, failure, fix, or insight')
-  .option('-c, --context <context>', 'Additional context about what happened')
-  .option('-a, --action <action>', 'Action performed')
-  .option('-t, --target <target>', 'Target file or resource')
-  .option('-m, --memory-id <memoryId>', 'Optional memory ID to link this learning to')
-  .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
-  .action(async (type, content, options) => {
-    try {
-      const validTypes: LearningType[] = ['success', 'failure', 'fix', 'insight'];
-      if (!validTypes.includes(type as LearningType)) {
-        console.log(JSON.stringify({ ok: false, error: `Invalid type. Must be: ${validTypes.join(', ')}` }, null, 2));
-        process.exit(1);
-      }
-      const learning = await createLearning({
-        type: type as LearningType,
-        content,
-        context: options.context,
-        action: options.action,
-        target: options.target,
-        project: options.project,
-        memoryId: options.memoryId,
-      });
-      console.log(JSON.stringify({ ok: true, learning }, null, 2));
-    } catch (error: any) {
-      console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
-      process.exit(1);
-    }
-  });
+// learn command removed - absorbed into remember --learning-type
 
 program
   .command('update <memoryId>')
@@ -1041,7 +904,7 @@ program
   .option('-s, --since <date>', 'Filter: created after this date (e.g., "3 days ago", "yesterday")')
   .option('-u, --until <date>', 'Filter: created before this date (e.g., "today", "2026-01-15")')
   .option('-P, --pretty', 'Human-friendly output', false)
-  .option('--place <type>', 'Filter by place type: entry_hall, library, workshop, lab, office, garden, archive')
+  .option('--place <type>', 'Filter by place type: inbox, ref, wip, sandbox, board, sparks, archive')
   .action(async (query, options) => {
     try {
       const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(query);
@@ -1171,35 +1034,7 @@ program
     }
   });
 
-// squish confidence <memoryId> [level] - Set or view confidence level
-program
-  .command('confidence <memoryId> [level]')
-  .description('Set or view confidence level (certain/speculative/outdated)')
-  .action(async (memoryId, level) => {
-    try {
-      if (!level) {
-        const memory = await getMemory(String(memoryId));
-        if (!memory) {
-          console.log(JSON.stringify({ ok: false, error: 'Memory not found' }, null, 2));
-          process.exit(1);
-        }
-        console.log(JSON.stringify({ ok: true, memoryId, confidenceLevel: memory.confidenceLevel ?? 'certain' }, null, 2));
-      } else {
-        const validLevels = ['certain', 'speculative', 'outdated'] as const;
-        if (!validLevels.includes(level as any)) {
-          console.log(JSON.stringify({ ok: false, error: 'Invalid level. Use: certain, speculative, or outdated' }, null, 2));
-          process.exit(1);
-        }
-        await setConfidence(String(memoryId), level as 'certain' | 'speculative' | 'outdated');
-        console.log(JSON.stringify({ ok: true, memoryId, confidenceLevel: level }, null, 2));
-      }
-    } catch (error: any) {
-      console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
-      process.exit(1);
-    }
-  });
-
-  // squish pin <memoryId> [--unpin]
+// squish pin <memoryId> [--unpin]
   program
     .command('pin <memoryId>')
     .description('Pin/unpin a memory to prevent pruning/consolidation')
@@ -1219,85 +1054,7 @@ program
       }
     });
 
-  // squish tag add <tag> --search <query> --confirm
-  // squish tag remove <tag> --older-than "30 days" --confirm
-  program
-    .command('tag')
-    .description('Manage tags on memories (bulk)')
-    .argument('<action>', 'add or remove')
-    .argument('<tag>', 'Tag name')
-    .option('-s, --search <query>', 'Search query to match memories')
-    .option('-o, --older-than <date>', 'Only tag memories older than (e.g., "30 days")')
-    .option('-t, --type <type>', 'Filter by memory type')
-    .option('-c, --confirm', 'Actually execute the changes (default is dry-run)', false)
-    .option('-l, --limit <number>', 'Max memories to process', '50')
-    .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
-    .action(async (action, tag, options) => {
-      try {
-        if (!options.search && !options.olderThan) {
-          console.log(JSON.stringify({ ok: false, error: 'Provide --search <query> or --older-than <date>' }, null, 2));
-          process.exit(1);
-        }
-        
-         const limit = validateLimit(options.limit, 50, 1, 100);
-         let results: any[];
-        const searchInput: any = { query: options.search, limit, project: options.project };
-        if (options.type) searchInput.type = options.type;
-        
-        if (options.search) {
-          results = await search(searchInput);
-        } else {
-          results = await getRecent(options.project, limit * 2);
-        }
-        
-        let filtered = results;
-        if (options.olderThan) {
-          filtered = filterByDateRange(results, '', options.olderThan);
-        }
-        
-        const db = await getDb();
-        const schema = await getSchema();
-        
-        if (action === 'add') {
-          const updated = [];
-          for (const mem of filtered) {
-            try {
-              const tags = new Set((mem.tags || []) as string[]);
-              if (!tags.has(tag)) {
-                tags.add(tag);
-                 await (db as any).update(schema.memories)
-                   .set({ tags: serializeTags(Array.from(tags)), updatedAt: new Date() })
-                   .where(eq(schema.memories.id, mem.id));
-                updated.push(mem.id);
-              }
-            } catch (e: any) {
-              console.error('DEBUG: error updating', mem.id, e.message);
-              throw e;
-            }
-          }
-          console.log(JSON.stringify({ ok: true, action: 'add', tag, matched: filtered.length, updated: updated.length, dryRun: !options.confirm }, null, 2));
-        } else if (action === 'remove') {
-          const updated = [];
-          for (const mem of filtered) {
-            const tags = new Set((mem.tags || []) as string[]);
-            if (tags.has(tag)) {
-              tags.delete(tag);
-               await (db as any).update(schema.memories)
-                 .set({ tags: serializeTags(Array.from(tags)), updatedAt: new Date() })
-                 .where(eq(schema.memories.id, mem.id));
-              updated.push(mem.id);
-            }
-          }
-          console.log(JSON.stringify({ ok: true, action: 'remove', tag, matched: filtered.length, updated: updated.length, dryRun: !options.confirm }, null, 2));
-        } else {
-          console.log(JSON.stringify({ ok: false, error: 'Use: squish tag add <tag> or squish tag remove <tag>' }, null, 2));
-          process.exit(1);
-        }
-      } catch (error: any) {
-        console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
-        process.exit(1);
-      }
-    });
+  
 
   // squish stale --days 30 - Show old, low-confidence, unaccessed memories
   program
@@ -1390,7 +1147,7 @@ program
   .option('-i, --include <items>', 'What to include: memories, observations, entities, places', 'memories,observations,places')
   .option('--list-projects', 'List registered projects instead of loading context', false)
   .option('-j, --json', 'Output as JSON', false)
-  .option('--place <type>', 'Filter by place type: entry_hall, library, workshop, lab, office, garden, archive')
+  .option('--place <type>', 'Filter by place type: inbox, ref, wip, sandbox, board, sparks, archive')
   .option('--tier <level>', 'Disclosure level: quick (place names), medium (top 3), full (all)', 'medium')
   .option('--has-memories', 'Only show places with memories', true)
   .option('--sync', 'Recalculate memory counts for all places', false)
@@ -1403,10 +1160,12 @@ program
       if (options.task && !placeFilter) {
         // Simple keyword detection
         const task = options.task.toLowerCase();
-        if (task.includes('fix') || task.includes('bug') || task.includes('error')) placeFilter = 'workshop';
-        else if (task.includes('design') || task.includes('plan') || task.includes('api')) placeFilter = 'library';
-        else if (task.includes('task') || task.includes('todo') || task.includes('manage')) placeFilter = 'office';
-        else if (task.includes('test') || task.includes('experiment')) placeFilter = 'lab';
+        if (task.includes('fix') || task.includes('bug') || task.includes('error')) placeFilter = 'wip';
+        else if (task.includes('design') || task.includes('plan') || task.includes('api')) placeFilter = 'board';
+        else if (task.includes('task') || task.includes('todo') || task.includes('manage')) placeFilter = 'inbox';
+        else if (task.includes('test') || task.includes('experiment')) placeFilter = 'sandbox';
+        else if (task.includes('learn') || task.includes('research') || task.includes('pattern')) placeFilter = 'ref';
+        else if (task.includes('idea') || task.includes('concept') || task.includes('future')) placeFilter = 'sparks';
         if (placeFilter) console.log(`Auto-detected place: ${placeFilter}`);
       }
       
@@ -1515,7 +1274,7 @@ program
               const walkResult = await walkPlace(project.id, p.placeType, {
                 tokenBudget: 170,
                 maxMemoriesPerPlace: 3,
-                compressWithToon: false,
+                compressWithCompression: false,
               });
               placesWithMemories.push({
                 name: p.name,
@@ -1625,210 +1384,7 @@ program
     }
   });
 
-// squish clean - Run deduplication and consolidation
-program
-  .command('clean')
-  .description('Run maintenance: deduplication + consolidation')
-  .option('-t, --threshold <number>', 'Similarity threshold for dedup (0-1)', '0.85')
-  .option('-d, --min-age <days>', 'Minimum age for consolidation', '90')
-  .option('-i, --max-importance <number>', 'Max importance to consolidate (0-100)', '30')
-  .option('-c, --min-cluster <number>', 'Minimum cluster size', '3')
-  .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
-  .option('--dry-run', 'Preview changes without applying', false)
-  .action(async (options) => {
-    try {
-      console.log('Running maintenance: deduplication + consolidation...\n');
-      
-      // Step 1: Deduplication
-      console.log('Step 1: Finding duplicate memories...');
-      const dedupResult = await runDeduplicationJob(options.project);
-      console.log(`  Found ${dedupResult.duplicatesFound} duplicates, merged ${dedupResult.mergedCount}`);
-      
-      // Step 2: Consolidation
-      console.log('\nStep 2: Consolidating old memories...');
-      const consolidateResult = await runFullConsolidationJob(options.project);
-      console.log(`  Clustered ${consolidateResult.clustered}, merged ${consolidateResult.merged}, consolidated ${consolidateResult.consolidated}`);
-      
-      console.log(JSON.stringify({
-        ok: true,
-        dedup: {
-          duplicatesFound: dedupResult.duplicatesFound,
-          mergedCount: dedupResult.mergedCount,
-          tokensRecovered: dedupResult.tokensRecovered
-        },
-        consolidate: {
-          clustered: consolidateResult.clustered,
-          merged: consolidateResult.merged,
-          consolidated: consolidateResult.consolidated
-        }
-      }, null, 2));
-    } catch (error: any) {
-      console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
-    }
-  });
-
-// squish hooks session-start --agent claude-code --mode startup
-program
-  .command('hooks')
-  .description('Handle agent hooks (session-start, post-tool-use, session-end, pre-compact)')
-  .argument('<event>', 'Event type: session-start, post-tool-use, session-end, pre-compact')
-  .option('-a, --agent <agent>', 'Agent type: claude-code, opencode, cursor, windsurf', 'claude-code')
-  .option('-m, --mode <mode>', 'Mode for session-start: startup, resume, compact', 'startup')
-  .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
-  .option('-t, --tool <tool>', 'Tool name for post-tool-use')
-  .option('--tool-input <json>', 'Tool input as JSON string')
-  .option('--tool-result <json>', 'Tool result as JSON string')
-  .option('--wip <work>', 'Work in progress for session-end')
-  .action(async (event, options) => {
-    try {
-      const agentType = options.agent as 'claude-code' | 'opencode' | 'cursor' | 'windsurf';
-      const projectPath = options.project;
-      
-      let result: any;
-      
-      switch (event) {
-        case 'session-start':
-          result = await handleSessionStart({
-            projectPath,
-            mode: options.mode as 'startup' | 'resume' | 'compact',
-            agentType,
-          });
-          console.log(JSON.stringify({ ok: true, ...result }, null, 2));
-          break;
-          
-        case 'post-tool-use':
-          if (!options.tool) {
-            console.log(JSON.stringify({ ok: false, error: '--tool required for post-tool-use' }, null, 2));
-            process.exit(1);
-          }
-          const toolInput = options.toolInput ? JSON.parse(options.toolInput) : {};
-          const toolResult = options.toolResult ? JSON.parse(options.toolResult) : {};
-          result = await handlePostToolUse({
-            toolName: options.tool,
-            toolInput,
-            toolResult,
-            projectPath,
-            agentType,
-          });
-          console.log(JSON.stringify({ ok: true, ...result }, null, 2));
-          break;
-          
-        case 'session-end':
-          result = await handleSessionEnd({
-            projectPath,
-            agentType,
-            workInProgress: options.wip,
-          });
-          console.log(JSON.stringify({ ok: true, ...result }, null, 2));
-          break;
-          
-        case 'pre-compact':
-          result = await handlePreCompact({
-            projectPath,
-            agentType,
-          });
-          console.log(JSON.stringify({ ok: true, ...result }, null, 2));
-          break;
-          
-        default:
-          console.log(JSON.stringify({ ok: false, error: `Unknown event: ${event}` }, null, 2));
-          process.exit(1);
-      }
-    } catch (error: any) {
-      console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
-      process.exit(1);
-    }
-  });
-
-// squish walk - Walk through spatial memory places
-program
-  .command('walk [place]')
-  .description('Walk through spatial memory places (entry_hall, library, workshop, lab, office, garden, archive, or --all)')
-  .option('-a, --all', 'Walk all places in order', false)
-  .option('-t, --tokens <number>', 'Max tokens budget (default: 170)', '170')
-  .option('-m, --max <number>', 'Max memories per place', '10')
-  .option('-p, --project <project>', 'Project path', getDefaultProjectPath())
-  .option('-q, --quick', 'Quick tour (place names only)', false)
-  .option('-j, --json', 'Output as JSON', false)
-  .action(async (place, options) => {
-    try {
-      const projectPath = resolveProjectPath(options.project);
-      await ensureProject(projectPath);
-      const project = await getOrCreateProject(projectPath);
-      
-      if (!project) {
-        console.log(JSON.stringify({ ok: false, error: 'Project not found' }, null, 2));
-        process.exit(1);
-      }
-
-      // Ensure places are initialized
-      await initializeDefaultPlaces(project.id);
-
-      if (options.quick) {
-        const tour = await quickTour(project.id);
-        if (options.json) {
-          console.log(JSON.stringify({ ok: true, ...tour }, null, 2));
-        } else {
-          console.log(`\n=== Spatial Memory Tour ===\n`);
-          console.log(`Total Memories: ${tour.totalMemories}\n`);
-          for (const p of tour.places) {
-            console.log(`${p.name} (${p.memoryCount} memories)`);
-            console.log(`  ${p.purpose}\n`);
-          }
-        }
-        return;
-      }
-
-      const tokenBudget = parseInt(options.tokens);
-      const maxMemories = parseInt(options.max);
-
-      if (options.all) {
-        const results = await walkAllPlaces(project.id, {
-          tokenBudget: Math.floor(tokenBudget / 7),
-          maxMemoriesPerPlace: maxMemories,
-          compressWithToon: true,
-        });
-        
-        if (options.json) {
-          console.log(JSON.stringify({ ok: true, places: results }, null, 2));
-        } else {
-          console.log(`\n=== Walking All Places ===\n`);
-          for (const r of results) {
-            console.log(`## ${r.place.name} (${r.memories.length} memories, ~${r.totalTokens} tokens)`);
-            r.memories.forEach((m, i) => {
-              console.log(`  ${i + 1}. ${m.content.substring(0, 60)}...`);
-            });
-            console.log('');
-          }
-        }
-      } else if (place) {
-        const validPlaces = ['entry_hall', 'library', 'workshop', 'lab', 'office', 'garden', 'archive'];
-        const placeType = validPlaces.includes(place) ? place as PlaceType : 'workshop';
-        
-        const result = await walkPlace(project.id, placeType, {
-          tokenBudget,
-          maxMemoriesPerPlace: maxMemories,
-          compressWithToon: true,
-        });
-        
-        if (options.json) {
-          console.log(JSON.stringify({ ok: true, ...result }, null, 2));
-        } else if (result) {
-          console.log(`\n=== ${result.place.name} ===\n`);
-          console.log(`Purpose: ${result.place.purpose || 'N/A'}\n`);
-          result.memories.forEach((m, i) => {
-            console.log(`${i + 1}. [${m.type}] ${m.content.substring(0, 80)}`);
-          });
-          console.log(`\n~${result.totalTokens} tokens`);
-        } else {
-          console.log(JSON.stringify({ ok: false, error: `Place not found: ${place}` }, null, 2));
-        }
-      }
-    } catch (error: any) {
-      console.log(JSON.stringify({ ok: false, error: error.message }, null, 2));
-      process.exit(1);
-    }
-  });
+// clean command removed - now automatic via cron scheduler (auto_clean job)
 
 await program.parseAsync(process.argv);
 }
