@@ -157,7 +157,7 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
   // Append to Obsidian vault if enabled and hot tier (NEW)
   if (config.obsidianEnabled && config.obsidianVaultPath && insertValues.tier === 'hot') {
     try {
-      const { appendToObsidianVault } = await import('../obsidian-vault.js');
+      const { appendToObsidianVault } = await import('../integrations/obsidian-vault.js');
       await appendToObsidianVault({
         content: input.content,
         id,

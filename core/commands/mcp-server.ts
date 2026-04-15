@@ -771,7 +771,7 @@ async function runHttp(server: McpServer, port: number): Promise<void> {
       transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => crypto.randomUUID(),
         enableJsonResponse: true,
-        onsessioninitialized: (newSessionId) => {
+        onsessioninitialized: (newSessionId: string) => {
           console.error(`[MCP] Session initialized: ${newSessionId}`);
           transports.set(newSessionId, transport!);
         }
