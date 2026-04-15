@@ -77,7 +77,6 @@
     "scripts",
     "!scripts/init-dirs.ts",
     "skills",
-    "hooks",
     "config",
     "bin",
     "core",
