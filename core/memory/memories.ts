@@ -174,26 +174,6 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
     }
   }
 
-  // Write to external folder memory if enabled and hot tier
-  if (config.externalMemoryEnabled && config.externalMemoryPath && insertValues.tier === 'hot') {
-    try {
-      const { getExternalMemory } = await import('../external-folder/index.js');
-      const externalMemory = getExternalMemory();
-      const memoryRecord: MemoryRecord = {
-        id,
-        projectId: project?.id ?? null,
-        type,
-        content: input.content,
-        tags,
-        createdAt: insertValues.createdAt?.toISOString(),
-        confidenceLevel: null,
-      };
-      await externalMemory.writeMemory(externalMemory.toMarkdownFormat(memoryRecord));
-    } catch (error) {
-      logger.warn(`[ExternalMemory] Failed to write: ${error}`);
-    }
-  }
-
    // Resolve contradictions and supersede old memories (async, non-blocking)
    resolveContradictions(input.content, type, project?.id)
      .then(async (result) => {
