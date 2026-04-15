@@ -31,7 +31,7 @@ import { serializeTags } from "../../core/memory/serialization.js";
 import { parseDate, filterByDateRange } from "../../core/lib/utils.js";
 
 const SERVER_NAME = "squish-memory";
-const SERVER_VERSION = "1.1.6";
+const SERVER_VERSION = "1.2.0";
 
 function parseArgs(): { mode: "stdio" | "http"; port: number; health: boolean } {
   const args = process.argv.slice(2);

@@ -30,7 +30,7 @@ const mcpPath = join(__dirname, '..', 'core', 'commands', 'mcp-server.ts');
 
 if (isHealth) {
   // Health check mode - just run briefly and exit
-  console.log('Squish MCP Server v1.1.6');
+  console.log('Squish MCP Server v1.2.0');
   console.log('Health check: OK');
   process.exit(0);
 }

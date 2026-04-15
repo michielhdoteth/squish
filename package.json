@@ -1,6 +1,6 @@
 {
   "name": "@squish/memory",
-  "version": "1.1.6",
+  "version": "1.2.0",
   "description": "Two-tier memory for AI agents: QMD-based fast file search (short-term) + SQLite/Postgres (long-term). Works out-of-the-box, no setup required.",
   "main": "dist/index.js",
   "type": "module",
@@ -20,7 +20,7 @@
     "test": "bun test ./tests/ 2>/dev/null || npx vitest",
     "bench": "bun benchmark/memory.ts 2>/dev/null || npx tsx --cwd . benchmark/memory.ts",
     "bench:db": "bun benchmark/run.ts 2>/dev/null || npx tsx --cwd . benchmark/run.ts",
-    "prepare": "echo 'Husky disabled for v1.1.6 release'"
+    "prepare": "echo 'Husky disabled for v1.2.0 release'"
   },
   "repository": {
     "type": "git",

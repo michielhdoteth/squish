@@ -29,7 +29,7 @@ const program = new Command();
 program
   .name('squish')
   .description('Universal Memory for AI Agents - CLI')
-  .version('1.1.6');
+  .version('1.2.0');
 
 // Register all commands
 registerRememberCommand(program);

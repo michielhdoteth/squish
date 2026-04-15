@@ -13,7 +13,7 @@ import { validateLimit } from '../core/lib/validation.js';
 
 const app = express();
 const PORT = Number(process.env.SQUISH_WEB_PORT || 37777);
-const VERSION = '1.1.6';
+const VERSION = '1.2.0';
 
 const allowedOrigins = process.env.SQUISH_CORS_ORIGINS?.split(',').map(s => s.trim()) || ['http://localhost:*', 'http://127.0.0.1:*'];
 const appCors = cors({
