@@ -6,6 +6,7 @@
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
 import { config } from '../../config.js';
+import { estimateTokens } from '../context/context-window.js';
 
 /**
  * Chunk messages for incremental summarization
@@ -27,13 +28,6 @@ export function getRollingWindow(messages: any[], windowSize: number): any[] {
   }
 
   return messages.slice(-windowSize);
-}
-
-/**
- * Estimate tokens in text (rough approximation)
- */
-export function estimateTokens(text: string): number {
-  return Math.round(text.length / 4);
 }
 
 /**
