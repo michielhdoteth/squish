@@ -1,0 +1,26 @@
+{
+  "name": "@squish/mcp",
+  "version": "1.1.6",
+  "description": "Squish MCP Server - Model Context Protocol Server",
+  "type": "module",
+  "main": "src/index.ts",
+  "bin": {
+    "squish-mcp": "../../bin/squish-mcp.mjs"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "bun run src/index.ts",
+    "mcp:stdio": "bun run src/index.ts --stdio",
+    "mcp:http": "bun run src/index.ts --http"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "zod": "^3.24.0",
+    "express": "^5.2.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^6.0.2"
+  }
+}

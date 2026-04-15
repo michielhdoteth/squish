@@ -1,0 +1,120 @@
+/**
+ * Remember Command - Store a memory
+ * Auto-detects: learning vs note vs memory based on content patterns
+ * 
+ * Usage: squish remember "content" [--type observation] [--place sandbox] [--tags foo,bar] [--project /path]
+ */
+
+import { Command } from 'commander';
+import { rememberMemory } from '../../../../core/memory/memories.js';
+import { detectMemorySignals } from '../../../../core/memory/trigger-detector.js';
+import { pinMemory, unpinMemory } from '../../../../core/security/governance.js';
+
+export function registerRememberCommand(program: Command) {
+  program
+    .command('remember <content>')
+    .description('Store a memory (auto-detects learning/note/memory type)')
+    .option('-t, --type <type>', 'Memory type (observation, fact, decision, context, preference)', 'observation')
+    .option('-T, --tags <tags>', 'Comma-separated tags')
+    .option('-p, --project <project>', 'Project path', process.cwd())
+    .option('-s, --source <source>', 'Source (cli, voice, chat, document)', 'cli')
+    .option('-r, --reasoning <reasoning>', 'Why this memory is important')
+    .option('-c, --context <context>', 'What triggered this memory')
+    .option('-e, --examples <examples>', 'When to apply this knowledge')
+    .option('-x, --exceptions <exceptions>', 'When NOT to apply this')
+    .option('--place <place>', 'Place to assign (inbox, ref, wip, sandbox, board, sparks, archive)')
+    .option('-H, --hot', 'Store in hot tier (active)', false)
+    .option('-C, --cold', 'Store in cold tier (archived)', false)
+    .option('--pin', 'Pin memory to prevent pruning', false)
+    .option('--unpin', 'Unpin memory', false)
+    .option('--route <route>', 'Routing: auto, memory, learning, note', 'auto')
+    .option('--learning-type <type>', 'Learning type if routing to learning: success, failure, fix, insight')
+    .action(async (content: string, options: any) => {
+      try {
+        const signals = detectMemorySignals(content);
+        
+        const tags = options.tags ? options.tags.split(',').map((t: string) => t.trim()) : [];
+        
+        // Auto-detect routing based on content patterns
+        let routing = options.route;
+        let routingReason = "";
+        
+        if (routing === "auto") {
+          const hasLessonPattern = /(\bfailed\s+because\b|\blesson\s+learned\b|\bnext\s+time\b|\broot\s+cause\b|\bsuccess\b.*\bbecause\b|\bi\s+learned\b|\binsight\b)/i.test(content);
+          const hasLearningType = /(\bsuccess\b|\bfailure\b|\bfix\b|\binsight\b)/i.test(content);
+          const hasHackPattern = /(\bHACK\b|\bworkaround\b|\btemporary\s+fix\b|\bFIXME\b|\bXXX\b)/i.test(content);
+          
+          if (hasLessonPattern || hasLearningType || hasHackPattern) {
+            routing = "learning";
+            routingReason = "Auto-detected as learning";
+          } else if (signals.suggestedType === 'task') {
+            routing = "memory";
+            routingReason = "Detected as task";
+          } else if (/\b(note|note\s+that|log)\b/i.test(content)) {
+            routing = "note";
+            routingReason = "Auto-detected as note";
+          } else {
+            routing = "memory";
+            routingReason = "Default to memory";
+          }
+        }
+        
+        const tier: 'hot' | 'cold' = options.cold ? 'cold' : 'hot';
+        
+        let result: any;
+        
+        if (routing === "learning") {
+          // Handle learning routing - import dynamically to avoid issues
+          const { createLearning } = await import('../../../../core/ingestion/learnings.js');
+          let learningType = options.learningType;
+          if (!learningType) {
+            if (/(\bsuccess\b|\bworked\b|\bfinished\b)/i.test(content)) learningType = "success";
+            else if (/(\bfailed\b|\berror\b|\bbroke\b)/i.test(content)) learningType = "failure";
+            else if (/(\bfix\b|\bworkaround\b|\bsolved\b)/i.test(content)) learningType = "fix";
+            else learningType = "insight";
+          }
+          result = await createLearning({
+            type: learningType,
+            content,
+            project: options.project,
+            autoLink: true
+          });
+        } else {
+          // Store as memory
+          result = await rememberMemory({
+            content,
+            project: options.project,
+            tags,
+            type: options.type || signals.suggestedType,
+            tier,
+            source: options.source,
+            reasoning: options.reasoning,
+            memoryContext: options.context,
+            examples: options.examples,
+            exceptions: options.exceptions
+          });
+          
+          if (options.pin) {
+            await pinMemory(result.id);
+          } else if (options.unpin) {
+            await unpinMemory(result.id);
+          }
+        }
+
+        console.log(JSON.stringify({
+          ok: true,
+          id: result.id,
+          routing,
+          type: routing === "learning" ? result.type : result.type,
+          tier: routing === "memory" ? tier : null,
+          place: options.place || null,
+          priority: signals.priority,
+          confidence: signals.confidence,
+          reason: routingReason
+        }, null, 2));
+      } catch (error: any) {
+        console.error(JSON.stringify({ ok: false, error: error.message }));
+        process.exit(1);
+      }
+    });
+}
