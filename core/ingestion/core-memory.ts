@@ -10,6 +10,7 @@ import { getDb } from '../../db/index.js';
 import { getSchema, type SchemaModule } from '../../db/schema.js';
 import { createDatabaseClient } from '../storage/database.js';
 import config from '../../config.js';
+import { estimateTokens } from '../context/context-window.js';
 
 type CoreMemorySection = 'persona' | 'user_info' | 'project_context' | 'working_notes';
 
@@ -280,10 +281,9 @@ export async function getCoreMemoryStats(projectId: string): Promise<{
 
 /**
  * Estimate token count from text (rough approximation: 1 token ≈ 4 chars)
+ * Import from context-window.ts - single source of truth
  */
-export function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4);
-}
+export { estimateTokens } from '../context/context-window.js';
 
 /**
  * Get core memory formatted for context injection

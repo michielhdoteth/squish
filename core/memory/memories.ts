@@ -16,7 +16,25 @@ import { encrypt, decrypt } from '../security/encrypt.js';
 import { estimateTokens } from '../context/context-window.js';
 import { getDbClient } from '../lib/db-client.js';
 
+// Define MemoryType locally to avoid circular dependency
 export type MemoryType = 'observation' | 'fact' | 'decision' | 'context' | 'preference' | 'note' | 'task';
+
+export interface MemoryRecord {
+  id: string;
+  projectId?: string | null;
+  type: MemoryType;
+  content: string;
+  summary?: string | null;
+  tags: string[];
+  metadata?: Record<string, unknown> | null;
+  createdAt?: string | null;
+  validFrom?: string | null;
+  validTo?: string | null;
+  recordedAt?: string | null;
+  similarity?: number;
+  importance?: number;
+  confidenceLevel?: 'certain' | 'speculative' | 'outdated' | null;
+}
 
 export interface RememberInput {
   content: string;
@@ -44,23 +62,7 @@ export interface SearchInput {
   project?: string;
 }
 
-export interface MemoryRecord {
-  id: string;
-  projectId?: string | null;
-  type: MemoryType;
-  content: string;
-  summary?: string | null;
-  tags: string[];
-  metadata?: Record<string, unknown> | null;
-  createdAt?: string | null;
-  validFrom?: string | null;
-  validTo?: string | null;
-  recordedAt?: string | null;
-  similarity?: number;
-  importance?: number;
-  confidenceLevel?: 'certain' | 'speculative' | 'outdated' | null;
-}
-
+// SearchResult extends the shared MemoryRecord from normalization.ts
 export interface SearchResult extends MemoryRecord {
   similarity: number;
 }
@@ -155,7 +157,7 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
   // Append to Obsidian vault if enabled and hot tier (NEW)
   if (config.obsidianEnabled && config.obsidianVaultPath && insertValues.tier === 'hot') {
     try {
-      const { appendToObsidianVault } = await import('../obsidian-vault.js');
+      const { appendToObsidianVault } = await import('../integrations/obsidian-vault.js');
       await appendToObsidianVault({
         content: input.content,
         id,
@@ -169,26 +171,6 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
       }, config.obsidianVaultPath);
     } catch (error) {
       logger.warn(`[Obsidian] Failed to append to vault: ${error}`);
-    }
-  }
-
-  // Write to external folder memory if enabled and hot tier
-  if (config.externalMemoryEnabled && config.externalMemoryPath && insertValues.tier === 'hot') {
-    try {
-      const { getExternalMemory } = await import('../external-folder/index.js');
-      const externalMemory = getExternalMemory();
-      const memoryRecord: MemoryRecord = {
-        id,
-        projectId: project?.id ?? null,
-        type,
-        content: input.content,
-        tags,
-        createdAt: insertValues.createdAt?.toISOString(),
-        confidenceLevel: null,
-      };
-      await externalMemory.writeMemory(externalMemory.toMarkdownFormat(memoryRecord));
-    } catch (error) {
-      logger.warn(`[ExternalMemory] Failed to write: ${error}`);
     }
   }
 

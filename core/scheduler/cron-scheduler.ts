@@ -34,7 +34,7 @@ export interface JobExecutionContext {
 export type JobHandler = (context: JobExecutionContext) => Promise<{ recordsProcessed: number; summary: Record<string, unknown> }>;
 
 const jobHandlers = new Map<string, JobHandler>();
-const activeTasks = new Map<string, cron.ScheduledTask>();
+const activeTasks = new Map<string, any>(); // node-cron ScheduledTask type
 
 export function registerJobHandler(jobName: string, handler: JobHandler): void {
   jobHandlers.set(jobName, handler);
@@ -79,7 +79,7 @@ const autoCleanHandler = async (context: JobExecutionContext) => {
   const olderThanDays = jobConfig.olderThanDays || 30;
   const confidenceLevels = jobConfig.confidenceLevel || ['outdated', 'speculative'];
   const minImportance = jobConfig.minImportance || 40;
-  const dryRun = jobConfig.dryRun !== undefined ? jobConfig.dryRun : true; // Default to dry-run for safety
+  const dryRun = jobConfig.dryRun !== undefined ? jobConfig.dryRun : false; // Default to actual delete for safety
   
   const projects = await getAllProjects();
   let totalStale = 0;

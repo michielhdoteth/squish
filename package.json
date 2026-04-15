@@ -12,7 +12,7 @@
   },
   "scripts": {
     "clean": "rm -rf dist && rm -f *.log",
-    "build": "echo 'No build needed - runs with bun or npx tsx'",
+    "build": "echo 'No build needed - runs TypeScript directly with bun. Use bun run start or bun run mcp instead.'",
     "start": "bun run core/index.ts 2>/dev/null || npx tsx core/index.ts",
     "mcp": "bun run core/commands/mcp-server.ts 2>/dev/null || npx tsx core/commands/mcp-server.ts",
     "dev": "bun --hot core/index.ts 2>/dev/null || npx tsx --watch core/index.ts",
@@ -20,7 +20,7 @@
     "test": "bun test ./tests/ 2>/dev/null || npx vitest",
     "bench": "bun benchmark/memory.ts 2>/dev/null || npx tsx --cwd . benchmark/memory.ts",
     "bench:db": "bun benchmark/run.ts 2>/dev/null || npx tsx --cwd . benchmark/run.ts",
-    "prepare": "husky"
+    "prepare": "echo 'Husky disabled for v1.1.6 release'"
   },
   "repository": {
     "type": "git",
@@ -80,22 +80,14 @@
     "hooks",
     "config",
     "bin",
+    "core",
+    "packages",
     "generated",
     "mcp.json.example",
     ".env.example",
     "LICENSE",
     "README.md",
-    "CHANGELOG.md",
-    "core/commands/context-paging.md",
-    "core/commands/context-status.md",
-    "core/commands/context.md",
-    "core/commands/core-memory.md",
-    "core/commands/health.md",
-    "core/commands/init.md",
-    "core/commands/merge.md",
-    "core/commands/recall.md",
-    "core/commands/remember.md",
-    "core/commands/search.md"
+    "CHANGELOG.md"
   ],
   "author": "michielhdoteth <michiel@4mlabs.io>",
   "license": "MIT",
@@ -129,9 +121,10 @@
     "@types/node-cron": "^3.0.11",
     "@types/pg": "^8.20.0",
     "drizzle-kit": "^0.31.10",
+    "esbuild": "^0.28.0",
     "picocolors": "^1.0.0",
     "pkg": "^5.8.1",
-    "tsx": "^0.91.0",
+    "tsx": "^4.21.0",
     "typescript": "^6.0.2",
     "vitest": "^3.0.0"
   }

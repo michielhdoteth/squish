@@ -144,6 +144,12 @@ export const squishRememberTool: MCPToolDefinition = {
         tier,
       });
 
+      // Auto-update knowledge graph (fire-and-forget)
+      const { addMemoryToGraph } = await import('../graph/graph-builder.js');
+      await addMemoryToGraph(memory.id).catch((e: Error) => {
+        console.warn('[Graph] Auto-update failed:', e.message);
+      });
+
       return textResult(`Memory stored: ${memory.id}`);
     } catch (error) {
       logger.error('Remember error:', error);

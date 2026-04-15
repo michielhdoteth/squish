@@ -264,6 +264,16 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
         }
         
         result = { id: memory.id, type: "memory", memoryType: inferredType, tier, content, pined: pin };
+
+        // Auto-update knowledge graph (fire-and-forget)
+        const { addMemoryToGraph } = await import('../../core/graph/graph-builder.js');
+        const graphResult = await addMemoryToGraph(memory.id).catch((e: Error) => {
+          console.warn('[Graph] Auto-update failed:', e.message);
+          return null;
+        });
+        if (graphResult) {
+          (result as any).graph = { entities: graphResult.entitiesCreated, relations: graphResult.relationsCreated };
+        }
       }
 
       return { 
@@ -383,6 +393,18 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
           return { content: [{ type: "text", text: "Error: fromMemoryId and toMemoryId required for add action" }], isError: true };
         }
         await createAssociation(fromMemoryId, toMemoryId, type as AssociationType, weight);
+        
+        // Auto-update knowledge graph (fire-and-forget)
+        try {
+          const { addMemoryToGraph } = await import('../../core/graph/graph-builder.js');
+          await Promise.all([
+            addMemoryToGraph(fromMemoryId).catch(() => null),
+            addMemoryToGraph(toMemoryId).catch(() => null)
+          ]);
+        } catch (e) {
+          // Ignore graph errors
+        }
+        
         return { content: [{ type: "text", text: `Association created: ${fromMemoryId} -> ${toMemoryId} (${type})` }] };
       }
       
@@ -749,7 +771,7 @@ async function runHttp(server: McpServer, port: number): Promise<void> {
       transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => crypto.randomUUID(),
         enableJsonResponse: true,
-        onsessioninitialized: (newSessionId) => {
+        onsessioninitialized: (newSessionId: string) => {
           console.error(`[MCP] Session initialized: ${newSessionId}`);
           transports.set(newSessionId, transport!);
         }

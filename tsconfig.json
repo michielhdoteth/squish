@@ -14,7 +14,9 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
-    "noEmit": false
+    "noEmit": false,
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": false
   },
   "include": [
     "index.ts",

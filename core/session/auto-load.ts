@@ -7,10 +7,7 @@ import { search } from '../memory/memories.js';
 import { getProjectContext } from '../context/context.js';
 import { getOrCreateProject } from '../projects.js';
 import { AutoLoadConfig, AutoLoadResult, DEFAULT_AUTO_LOAD_CONFIG } from './types.js';
-
-function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4);
-}
+import { estimateTokens } from '../context/context-window.js';
 
 export async function performAutoLoad(
   projectPath: string,

@@ -110,6 +110,16 @@ export async function executeRemember(options: RememberOptions): Promise<Command
     }
     
     result = { id: memory.id, type: "memory", memoryType: inferredType, tier: parsedTier, content, pinned: pin };
+
+    // Auto-update knowledge graph (fire-and-forget, don't fail remember on graph error)
+    const { addMemoryToGraph } = await import('../graph/graph-builder.js');
+    const graphResult = await addMemoryToGraph(memory.id).catch((e: Error) => {
+      console.warn('[Graph] Auto-update failed:', e.message);
+      return null;
+    });
+    if (graphResult) {
+      (result as any).graph = { entities: graphResult.entitiesCreated, relations: graphResult.relationsCreated };
+    }
   }
 
   return {

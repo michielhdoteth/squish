@@ -19,7 +19,7 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { spawn } from 'child_process';
-import { logger } from '../logger.js';
+import { logger } from '../logger';
 
 export interface QMDSearchOptions {
   query: string;

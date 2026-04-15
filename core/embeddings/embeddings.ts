@@ -1,5 +1,5 @@
 import { config } from '../config.js';
-import { getGoogleMultimodalEmbedding, isMultimodalInput, MultimodalInput } from './embeddings/google-multimodal.js';
+import { getGoogleMultimodalEmbedding, isMultimodalInput, MultimodalInput } from './google-multimodal.js';
 import { logger } from './logger.js';
 
 export type EmbeddingProvider = 'local' | 'openai' | 'ollama' | 'lmstudio' | 'google' | 'none' | 'auto';

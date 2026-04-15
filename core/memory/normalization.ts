@@ -6,10 +6,12 @@
 import { deserializeTags, deserializeMetadata } from './serialization.js';
 import { normalizeTimestamp } from '../lib/utils.js';
 
+// MemoryRecord interface - used for normalizing database rows to memory objects
+// Note: type is string to avoid circular dependency with memories.ts
 export interface MemoryRecord {
   id: string;
   projectId?: string | null;
-  type: string;
+  type: string; // Stored as string in DB
   content: string;
   summary?: string | null;
   tags: string[];
