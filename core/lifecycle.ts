@@ -19,13 +19,14 @@ import { triggerTierChange, triggerDecayApplied } from './memory/hooks.js';
 /**
  * Default decay intervals by sector (days until decay check)
  * These determine how often memories in each sector are evaluated for decay
+ * Can be configured via config.sectorDecayIntervals
  */
 const SECTOR_DECAY_INTERVAL_DAYS: Record<string, number> = {
-  episodic: 30,
-  semantic: 90,
-  procedural: 180,
-  autobiographical: 365,
-  working: 7,
+  episodic: config.sectorDecayIntervals?.episodic || 30,
+  semantic: config.sectorDecayIntervals?.semantic || 90,
+  procedural: config.sectorDecayIntervals?.procedural || 180,
+  autobiographical: config.sectorDecayIntervals?.autobiographical || 365,
+  working: config.sectorDecayIntervals?.working || 7,
 };
 
 /**

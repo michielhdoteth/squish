@@ -224,64 +224,6 @@ export async function updateImportanceScore(
 }
 
 /**
- * Decay importance scores for old memories
- * Should be run periodically (e.g., daily) to reduce scores of stale memories
- *
- * This function applies exponential decay to all memories that haven't been
- * recalculated recently, keeping the system's importance scores current.
- *
- * Fixed: Uses batch update instead of N+1 individual queries
- */
-export async function decayImportanceScores(projectId?: string): Promise<number> {
-  const { db, schema, raw } = await getDbClient();
-
-  // Get memories that need recalculation
-  // (those not recalculated in the last 24 hours or never)
-  const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-
-  // Use raw SQL for bulk update - avoids N+1 queries - let's use raw SQL for efficiency
-  // Build a single UPDATE that sets importance to base 50 (neutral) minus decay
-  // The JS calculation is too complex to port to SQL, but we can at least
-  // use a simpler approach: just reset to default and let individual recalc happen on access
-
-  // For now, use a more efficient approach: bulk update with raw SQL
-  // This avoids N+1 queries while still using the JS calculation logic
-  const clientType = (raw as any).$clientType || 'sqlite';
-  const now = new Date().toISOString();
-
-  if (clientType === 'sqlite') {
-    const sqliteClient = (raw as any).$client;
-
-    // Single SQL update - set all non-pinned/consolidated memories to base decay
-    // Note: We can't fully replicate the JS calculation in SQL, so we apply
-    // a simple decay multiplier. Full recalculation happens on access.
-    const result = sqliteClient.prepare(`
-      UPDATE memories
-      SET importance_score = MAX(0, importance_score - 1),
-          last_importance_recalc = ?
-      WHERE (is_pinned = 0 AND is_protected = 0 AND is_consolidated = 0)
-        AND (last_importance_recalc IS NULL OR last_importance_recalc < ?)
-        ${projectId ? 'AND project_id = ?' : ''}
-    `).run(now, oneDayAgo.toISOString(), ...(projectId ? [projectId] : []));
-
-    return result.changes;
-  } else {
-    // PostgreSQL
-    const pgClient = (raw as any).$client;
-    const result = await pgClient.query(`
-      UPDATE memories
-      SET importance_score = GREATEST(0, importance_score - 1),
-          last_importance_recalc = $1
-      WHERE (is_pinned = FALSE AND is_protected = FALSE AND is_consolidated = FALSE)
-        AND (last_importance_recalc IS NULL OR last_importance_recalc < $2)
-        ${projectId ? 'AND project_id = $3' : ''}
-    `, [now, oneDayAgo.toISOString(), ...(projectId ? [projectId] : [])]);
-
-    return result.rowCount || 0;
-  }
-}
-
-/**
  * Get low-importance memories that are candidates for consolidation
  * These are old, rarely accessed memories with low importance scores
  */

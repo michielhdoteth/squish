@@ -79,7 +79,7 @@ const autoCleanHandler = async (context: JobExecutionContext) => {
   const olderThanDays = jobConfig.olderThanDays || 30;
   const confidenceLevels = jobConfig.confidenceLevel || ['outdated', 'speculative'];
   const minImportance = jobConfig.minImportance || 40;
-  const dryRun = jobConfig.dryRun !== undefined ? jobConfig.dryRun : true; // Default to dry-run for safety
+  const dryRun = jobConfig.dryRun !== undefined ? jobConfig.dryRun : false; // Default to actual delete for safety
   
   const projects = await getAllProjects();
   let totalStale = 0;

@@ -201,6 +201,13 @@ export const config = {
   lifecycleEnabled: getConfig('features.lifecycleEnabled', 'SQUISH_LIFECYCLE_ENABLED', true) !== false,
   lifecycleInterval: parseInt(process.env.SQUISH_LIFECYCLE_INTERVAL || '3600000'),
   decayThreshold: parseFloat(process.env.SQUISH_DECAY_THRESHOLD || '0.1'),
+  sectorDecayIntervals: {
+    episodic: parseInt(process.env.SQUISH_DECAY_EPISODIC || '30'),
+    semantic: parseInt(process.env.SQUISH_DECAY_SEMANTIC || '90'),
+    procedural: parseInt(process.env.SQUISH_DECAY_PROCEDURAL || '180'),
+    autobiographical: parseInt(process.env.SQUISH_DECAY_AUTOBIOGRAPHICAL || '365'),
+    working: parseInt(process.env.SQUISH_DECAY_WORKING || '7'),
+  },
 
   // Session Summarization
   summarizationEnabled: getConfig('features.summarizationEnabled', 'SQUISH_SUMMARIZATION_ENABLED', true) !== false,
