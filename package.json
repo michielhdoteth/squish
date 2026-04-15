@@ -12,14 +12,14 @@
   },
   "scripts": {
     "clean": "rm -rf dist && rm -f *.log",
-    "build": "echo 'No build needed - runs with bun'",
-    "start": "bun run core/index.ts",
-    "mcp": "bun run core/commands/mcp-server.ts",
-    "dev": "bun --hot core/index.ts",
-    "dev:mcp": "bun --hot core/commands/mcp-server.ts",
-    "test": "bun test ./tests/",
-    "bench": "bun benchmark/memory.ts",
-    "bench:db": "bun benchmark/run.ts",
+    "build": "echo 'No build needed - runs with bun or npx tsx'",
+    "start": "bun run core/index.ts 2>/dev/null || npx tsx core/index.ts",
+    "mcp": "bun run core/commands/mcp-server.ts 2>/dev/null || npx tsx core/commands/mcp-server.ts",
+    "dev": "bun --hot core/index.ts 2>/dev/null || npx tsx --watch core/index.ts",
+    "dev:mcp": "bun --hot core/commands/mcp-server.ts 2>/dev/null || npx tsx --watch core/commands/mcp-server.ts",
+    "test": "bun test ./tests/ 2>/dev/null || npx vitest",
+    "bench": "bun benchmark/memory.ts 2>/dev/null || npx tsx --cwd . benchmark/memory.ts",
+    "bench:db": "bun benchmark/run.ts 2>/dev/null || npx tsx --cwd . benchmark/run.ts",
     "prepare": "husky"
   },
   "repository": {
@@ -100,7 +100,8 @@
   "author": "michielhdoteth <michiel@4mlabs.io>",
   "license": "MIT",
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=18.0.0",
+    "bun": ">=1.0.0"
   },
   "dependencies": {
     "@clack/prompts": "^1.2.0",
@@ -130,6 +131,8 @@
     "drizzle-kit": "^0.31.10",
     "picocolors": "^1.0.0",
     "pkg": "^5.8.1",
-    "typescript": "^6.0.2"
+    "tsx": "^0.91.0",
+    "typescript": "^6.0.2",
+    "vitest": "^3.0.0"
   }
 }
