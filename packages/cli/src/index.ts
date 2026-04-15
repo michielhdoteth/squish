@@ -21,6 +21,7 @@ import { registerForgetCommand } from './commands/forget.js';
 import { registerLinkCommand } from './commands/link.js';
 import { registerStaleCommand } from './commands/stale.js';
 import { registerCleanCommand } from './commands/clean.js';
+import { registerMigrateCommand } from './commands/migrate.js';
 
 const program = new Command();
 
@@ -40,6 +41,7 @@ registerForgetCommand(program);
 registerLinkCommand(program);
 registerStaleCommand(program);
 registerCleanCommand(program);
+registerMigrateCommand(program);
 
 // Default: show help if no arguments
 if (process.argv.length === 2) {
