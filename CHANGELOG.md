@@ -2,6 +2,19 @@
 
 All notable changes to Squish will be documented in this file.
 
+## [1.1.6] - 2026-04-13
+
+### Fixed - MCP HTTP Transport Migration
+- **Migrated MCP HTTP from SSE to Streamable HTTP**: The deprecated SSE transport wasn't working. Now uses `StreamableHTTPServerTransport` from the MCP SDK with proper session handling.
+
+### Fixed - Database Schema Migrations
+- Added `session_summaries` table
+- Added `memory_associations.metadata` column
+- Added `memories_fts.summary` column (recreates FTS table)
+
+### Added - QMD Dependency
+- Added `qmd` as bundled dependency
+
 ## [1.1.5] - 2026-04-11
 
 ### Added - Release Prep Enhancements

@@ -1,13 +1,13 @@
 /**
- * Places Module - Spatial memory organization (Method of Loci)
+ * Places Module - Spatial memory organization
  * 
  * Provides spatial "places" for memory organization:
- * - Entry Hall: Project overview, goals
- * - Library: Research, patterns, discoveries
- * - Workshop: Implementation, code, fixes
- * - Lab: Experiments, tests, trials
- * - Office: Decisions, planning, roadmap
- * - Garden: Ideas, future concepts
+ * - Inbox: New memories, unprocessed
+ * - Ref: Reference, patterns, research
+ * - WIP: Active work, implementations
+ * - Sandbox: Experiments, tests
+ * - Board: Decisions, planning, roadmap
+ * - Sparks: Ideas, future concepts
  * - Archive: Completed, historical
  */
 
@@ -19,12 +19,12 @@ import { logger } from '../logger.js';
 
 // Place types matching the 7 default places
 export type PlaceType = 
-  | 'entry_hall' 
-  | 'library' 
-  | 'workshop' 
-  | 'lab' 
-  | 'office' 
-  | 'garden' 
+  | 'inbox' 
+  | 'ref' 
+  | 'wip' 
+  | 'sandbox' 
+  | 'board' 
+  | 'sparks' 
   | 'archive';
 
 export interface Place {
@@ -33,7 +33,7 @@ export interface Place {
   name: string;
   placeType: PlaceType;
   parentId: string | null;
-  lociIndex: number;
+  sortOrder: number;
   positionX: number;
   positionY: number;
   description: string | null;
@@ -48,7 +48,7 @@ export interface PlaceCreateInput {
   name: string;
   placeType: PlaceType;
   parentId?: string | null;
-  lociIndex?: number;
+  sortOrder?: number;
   description?: string;
   purpose?: string;
 }
@@ -57,20 +57,20 @@ export interface PlaceUpdateInput {
   name?: string;
   description?: string;
   purpose?: string;
-  lociIndex?: number;
+  sortOrder?: number;
   positionX?: number;
   positionY?: number;
 }
 
 // Default places configuration
 export const DEFAULT_PLACES: Omit<PlaceCreateInput, 'projectId'>[] = [
-  { name: 'Entry Hall', placeType: 'entry_hall', lociIndex: 0, description: 'Project overview, goals, and current status', purpose: 'Quick orientation to project state' },
-  { name: 'Library', placeType: 'library', lociIndex: 1, description: 'Research, patterns, and discoveries', purpose: 'Reference knowledge and learned patterns' },
-  { name: 'Workshop', placeType: 'workshop', lociIndex: 2, description: 'Implementation, code, and fixes', purpose: 'Active development and recent changes' },
-  { name: 'Lab', placeType: 'lab', lociIndex: 3, description: 'Experiments, tests, and trials', purpose: 'Testing and exploration results' },
-  { name: 'Office', placeType: 'office', lociIndex: 4, description: 'Decisions, planning, and roadmap', purpose: 'Project direction and decisions' },
-  { name: 'Garden', placeType: 'garden', lociIndex: 5, description: 'Ideas and future concepts', purpose: 'Brainstorming and upcoming plans' },
-  { name: 'Archive', placeType: 'archive', lociIndex: 6, description: 'Completed and historical items', purpose: 'Reference for completed work' },
+  { name: 'Inbox', placeType: 'inbox', sortOrder: 0, description: 'New memories, unprocessed', purpose: 'Quick inbox for incoming memories' },
+  { name: 'Ref', placeType: 'ref', sortOrder: 1, description: 'Reference, patterns, research', purpose: 'Reference knowledge and learned patterns' },
+  { name: 'WIP', placeType: 'wip', sortOrder: 2, description: 'Active work, implementations', purpose: 'Active development and recent changes' },
+  { name: 'Sandbox', placeType: 'sandbox', sortOrder: 3, description: 'Experiments, tests', purpose: 'Testing and exploration results' },
+  { name: 'Board', placeType: 'board', sortOrder: 4, description: 'Decisions, planning, roadmap', purpose: 'Project direction and decisions' },
+  { name: 'Sparks', placeType: 'sparks', sortOrder: 5, description: 'Ideas, future concepts', purpose: 'Brainstorming and upcoming plans' },
+  { name: 'Archive', placeType: 'archive', sortOrder: 6, description: 'Completed, historical', purpose: 'Reference for completed work' },
 ];
 
 /**
@@ -108,7 +108,7 @@ export async function createPlace(input: PlaceCreateInput): Promise<Place> {
     name: input.name,
     placeType: input.placeType,
     parentId: input.parentId || null,
-    lociIndex: input.lociIndex ?? 0,
+    sortOrder: input.sortOrder ?? 0,
     positionX: 0,
     positionY: 0,
     description: input.description || null,
@@ -124,7 +124,7 @@ export async function createPlace(input: PlaceCreateInput): Promise<Place> {
     name: input.name,
     placeType: input.placeType,
     parentId: input.parentId || null,
-    lociIndex: input.lociIndex ?? 0,
+    sortOrder: input.sortOrder ?? 0,
     positionX: 0,
     positionY: 0,
     description: input.description || null,
@@ -159,7 +159,7 @@ export async function getPlace(id: string): Promise<Place | null> {
     name: row.name,
     placeType: (row.place_type || row.placeType || 'custom') as PlaceType,
     parentId: row.parent_id || row.parentId || null,
-    lociIndex: row.loci_index ?? row.lociIndex ?? 0,
+    sortOrder: row.sort_order ?? row.sortOrder ?? 0,
     positionX: row.position_x ?? row.positionX ?? 0,
     positionY: row.position_y ?? row.positionY ?? 0,
     description: row.description,
@@ -171,7 +171,7 @@ export async function getPlace(id: string): Promise<Place | null> {
 }
 
 /**
- * Get places for a project, ordered by loci_index
+ * Get places for a project, ordered by sort_order
  */
 export async function getProjectPlaces(projectId: string): Promise<Place[]> {
   const db = await getDb();
@@ -183,7 +183,7 @@ export async function getProjectPlaces(projectId: string): Promise<Place[]> {
   const results = await sqliteDb.select()
     .from(schema.places)
     .where(eq(schema.places.projectId, projectId))
-    .orderBy(schema.places.lociIndex);
+    .orderBy(schema.places.sortOrder);
 
   return results.map((row: any) => ({
     id: row.id,
@@ -191,7 +191,7 @@ export async function getProjectPlaces(projectId: string): Promise<Place[]> {
     name: row.name,
     placeType: (row.place_type || row.placeType) as PlaceType,
     parentId: row.parent_id || row.parentId,
-    lociIndex: row.loci_index ?? row.lociIndex ?? 0,
+    sortOrder: row.sort_order ?? row.sortOrder ?? 0,
     positionX: row.position_x ?? row.positionX ?? 0,
     positionY: row.position_y ?? row.positionY ?? 0,
     description: row.description,
@@ -229,7 +229,7 @@ export async function getPlaceByType(projectId: string, placeType: PlaceType): P
     name: row.name,
     placeType: (row.place_type || row.placeType || 'custom') as PlaceType,
     parentId: row.parent_id || row.parentId || null,
-    lociIndex: row.loci_index ?? row.lociIndex ?? 0,
+    sortOrder: row.sort_order ?? row.sortOrder ?? 0,
     positionX: row.position_x ?? row.positionX ?? 0,
     positionY: row.position_y ?? row.positionY ?? 0,
     description: row.description,
@@ -254,7 +254,7 @@ export async function updatePlace(id: string, input: PlaceUpdateInput): Promise<
   if (input.name !== undefined) updateData.name = input.name;
   if (input.description !== undefined) updateData.description = input.description;
   if (input.purpose !== undefined) updateData.purpose = input.purpose;
-  if (input.lociIndex !== undefined) updateData.lociIndex = input.lociIndex;
+  if (input.sortOrder !== undefined) updateData.sortOrder = input.sortOrder;
   if (input.positionX !== undefined) updateData.positionX = input.positionX;
   if (input.positionY !== undefined) updateData.positionY = input.positionY;
 
@@ -305,7 +305,7 @@ export async function initializeDefaultPlaces(projectId: string): Promise<Place[
       name: placeConfig.name,
       placeType: placeConfig.placeType,
       parentId: null,
-      lociIndex: placeConfig.lociIndex,
+      sortOrder: placeConfig.sortOrder,
       description: placeConfig.description,
       purpose: placeConfig.purpose,
     });
@@ -324,7 +324,7 @@ export async function initializeDefaultPlaces(projectId: string): Promise<Place[
 /**
  * Get place by loci index
  */
-export async function getPlaceByLociIndex(projectId: string, lociIndex: number): Promise<Place | null> {
+export async function getPlaceByLociIndex(projectId: string, sortOrder: number): Promise<Place | null> {
   const db = await getDb();
   if (!db) return null;
 
@@ -335,7 +335,7 @@ export async function getPlaceByLociIndex(projectId: string, lociIndex: number):
     .from(schema.places)
     .where(and(
       eq(schema.places.projectId, projectId),
-      eq(schema.places.lociIndex, lociIndex)
+      eq(schema.places.sortOrder, sortOrder)
     ))
     .limit(1);
 
@@ -348,7 +348,7 @@ export async function getPlaceByLociIndex(projectId: string, lociIndex: number):
     name: row.name,
     placeType: (row.place_type || row.placeType || 'custom') as PlaceType,
     parentId: row.parent_id || row.parentId || null,
-    lociIndex: row.loci_index ?? row.lociIndex ?? 0,
+    sortOrder: row.sort_order ?? row.sortOrder ?? 0,
     positionX: row.position_x ?? row.positionX ?? 0,
     positionY: row.position_y ?? row.positionY ?? 0,
     description: row.description,

@@ -9,7 +9,7 @@ import { createDatabaseClient } from '../storage/database.js';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
 import { getEmbedding } from '../../core/embeddings.js';
-import { cosineSimilarity } from './importance.js';
+import { cosineSimilarity } from '../utils/vector-operations.js';
 import { getLowImportanceMemories } from './importance.js';
 import { rememberMemory } from './memories.js';
 import { logger } from '../logger.js';

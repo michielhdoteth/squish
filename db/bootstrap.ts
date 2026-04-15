@@ -184,7 +184,7 @@ CREATE TABLE IF NOT EXISTS learnings (
 CREATE INDEX IF NOT EXISTS learnings_project_idx ON learnings(project_id);
 CREATE INDEX IF NOT EXISTS learnings_type_idx ON learnings(type);
 CREATE INDEX IF NOT EXISTS learnings_action_idx ON learnings(action);
-CREATE INDEX IF NOT EXISTS observations_created_idx ON observations(created_at);
+CREATE INDEX IF NOT EXISTS learnings_created_idx ON learnings(created_at);
 
 CREATE TABLE IF NOT EXISTS entities (
   id TEXT PRIMARY KEY,
@@ -397,7 +397,7 @@ CREATE TABLE IF NOT EXISTS places (
   name TEXT NOT NULL,
   place_type TEXT NOT NULL,
   parent_id TEXT REFERENCES places(id) ON DELETE SET NULL,
-  loci_index INTEGER DEFAULT 0,
+  sort_order INTEGER DEFAULT 0,
   position_x INTEGER DEFAULT 0,
   position_y INTEGER DEFAULT 0,
   description TEXT,
@@ -409,7 +409,7 @@ CREATE TABLE IF NOT EXISTS places (
 CREATE INDEX IF NOT EXISTS places_project_idx ON places(project_id);
 CREATE INDEX IF NOT EXISTS places_type_idx ON places(place_type);
 CREATE INDEX IF NOT EXISTS places_parent_idx ON places(parent_id);
-CREATE INDEX IF NOT EXISTS places_loci_idx ON places(project_id, loci_index);
+CREATE INDEX IF NOT EXISTS places_sort_order_idx ON places(project_id, sort_order);
 
 -- Memory-Place assignments
 CREATE TABLE IF NOT EXISTS memory_places (
@@ -440,6 +440,22 @@ CREATE TABLE IF NOT EXISTS place_rules (
 );
 CREATE INDEX IF NOT EXISTS place_rules_project_idx ON place_rules(project_id);
 CREATE INDEX IF NOT EXISTS place_rules_type_idx ON place_rules(place_type);
+-- session_summaries table
+CREATE TABLE IF NOT EXISTS session_summaries (
+  id TEXT PRIMARY KEY,
+  conversation_id TEXT REFERENCES conversations(id) ON DELETE CASCADE NOT NULL,
+  project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+  summary_type TEXT NOT NULL,
+  content TEXT NOT NULL,
+  compressed_from INTEGER,
+  tokens_saved INTEGER,
+  embedding BLOB,
+  created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL
+);
+CREATE INDEX IF NOT EXISTS session_summaries_conversation_idx ON session_summaries(conversation_id);
+CREATE INDEX IF NOT EXISTS session_summaries_project_idx ON session_summaries(project_id);
+CREATE INDEX IF NOT EXISTS session_summaries_type_idx ON session_summaries(summary_type);
+CREATE INDEX IF NOT EXISTS session_summaries_created_idx ON session_summaries(created_at);
 `;
 
 const postgresStatements = [
@@ -755,7 +771,7 @@ const postgresStatements = [
     name TEXT NOT NULL,
     place_type TEXT NOT NULL,
     parent_id UUID REFERENCES places(id) ON DELETE SET NULL,
-    loci_index INTEGER DEFAULT 0,
+    sort_order INTEGER DEFAULT 0,
     position_x INTEGER DEFAULT 0,
     position_y INTEGER DEFAULT 0,
     description TEXT,
@@ -767,7 +783,7 @@ const postgresStatements = [
   `CREATE INDEX IF NOT EXISTS places_project_idx ON places(project_id);`,
   `CREATE INDEX IF NOT EXISTS places_type_idx ON places(place_type);`,
   `CREATE INDEX IF NOT EXISTS places_parent_idx ON places(parent_id);`,
-  `CREATE INDEX IF NOT EXISTS places_loci_idx ON places(project_id, loci_index);`,
+  `CREATE INDEX IF NOT EXISTS places_sort_order_idx ON places(project_id, sort_order);`,
   // memory_places table
   `CREATE TABLE IF NOT EXISTS memory_places (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -823,6 +839,51 @@ export async function ensureSqliteSchema(sqlite: Database): Promise<void> {
 }
 
 async function runSqliteMigrations(sqlite: Database): Promise<void> {
+   // Places table migrations - run first, independent of memories table
+   const placesTableCheck = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='places'").get() as {name: string} | undefined;
+   if (placesTableCheck) {
+      const placesInfo = sqlite.prepare("PRAGMA table_info(places)").all() as Array<{name: string}>;
+      const placesColumns = new Set(placesInfo.map(col => col.name));
+      
+      const placesMigrations = [
+        // Rename loci_index to sort_order (v1.1.7)
+        { col: 'sort_order', sql: 'ALTER TABLE places ADD COLUMN sort_order INTEGER DEFAULT 0' },
+        // Migration from old loci_index column
+        { col: 'loci_index', sql: '' }, // Marker for rename logic below
+      ];
+      
+      for (const migration of placesMigrations) {
+        if (migration.col === 'loci_index') {
+          // Handle rename from loci_index to sort_order
+          if (placesColumns.has('loci_index') && !placesColumns.has('sort_order')) {
+            try {
+              // Copy data from loci_index to sort_order
+              sqlite.exec("UPDATE places SET sort_order = loci_index WHERE sort_order = 0 OR sort_order IS NULL");
+              // Drop the old column (SQLite doesn't support DROP COLUMN directly, so we recreate table)
+              // For safety, just mark it as deprecated and don't use it
+              logger.info('Migration: Copied loci_index data to sort_order');
+            } catch (error) {
+              const errMsg = error instanceof Error ? error.message : String(error);
+              logger.warn(`Migration: Could not copy loci_index data: ${errMsg}`);
+            }
+          }
+          continue;
+        }
+        
+        if (!placesColumns.has(migration.col)) {
+          try {
+            sqlite.exec(migration.sql);
+            logger.info(`Migration: Added column ${migration.col} to places table`);
+          } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            if (!msg.includes('duplicate column name')) {
+              throw new Error(`Migration failed for places.${migration.col}: ${msg}`);
+            }
+          }
+        }
+      }
+   }
+   
    // Check if memories table exists
    const tableCheck = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='memories'").get() as {name: string} | undefined;
    
@@ -908,7 +969,7 @@ async function runSqliteMigrations(sqlite: Database): Promise<void> {
 
         // Places support (v1.1.5) - Spatial memory organization
         { col: 'place_id', sql: 'ALTER TABLE memories ADD COLUMN place_id TEXT REFERENCES places(id) ON DELETE SET NULL' },
-        { col: 'place_loci_index', sql: 'ALTER TABLE memories ADD COLUMN place_loci_index INTEGER' },
+        { col: 'place_order', sql: 'ALTER TABLE memories ADD COLUMN place_order INTEGER DEFAULT 0' },
 
 	// Token tracking (v1.0.x)
 	{ col: 'tokens_estimate', sql: 'ALTER TABLE memories ADD COLUMN tokens_estimate INTEGER DEFAULT 0' },
@@ -924,7 +985,7 @@ async function runSqliteMigrations(sqlite: Database): Promise<void> {
 
         // Places support (v1.1.5) - Spatial memory organization
         { col: 'place_id', sql: 'ALTER TABLE memories ADD COLUMN place_id UUID REFERENCES places(id) ON DELETE SET NULL' },
-        { col: 'place_loci_index', sql: 'ALTER TABLE memories ADD COLUMN place_loci_index INTEGER' }
+        { col: 'place_order', sql: 'ALTER TABLE memories ADD COLUMN place_order INTEGER DEFAULT 0' }
 ];
    
    // Get existing columns for memories table
@@ -975,7 +1036,7 @@ async function runSqliteMigrations(sqlite: Database): Promise<void> {
       }
     }
 
-    // Migrations for learnings table (v1.2.x) - renamed from observations
+    // Migrations for learnings table - renamed from observations
     // First, check if we need to rename observations -> learnings
     const observationsTableCheck = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='observations'").get() as {name: string} | undefined;
     const learningsTableCheck = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='learnings'").get() as {name: string} | undefined;
@@ -992,6 +1053,12 @@ async function runSqliteMigrations(sqlite: Database): Promise<void> {
     }
 
     // Now run migrations on learnings table (whether renamed or new)
+    // Reuse learningsTableCheck from above
+    if (!learningsTableCheck) {
+      // Table created by schema, skip migrations
+      return;
+    }
+
     const learningsInfo = sqlite.prepare("PRAGMA table_info(learnings)").all() as Array<{name: string}>;
     const existingLearningsColumns = new Set(learningsInfo.map(col => col.name));
 
@@ -1041,6 +1108,82 @@ async function runSqliteMigrations(sqlite: Database): Promise<void> {
         } catch (error) {
           const msg = error instanceof Error ? error.message : String(error);
           logger.warn(`Index migration note for ${idx.name}: ${msg}`);
+        }
+      }
+    }
+
+    // Migrations for memory_associations table (v1.1.x)
+    const associationsTableCheck = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='memory_associations'").get() as {name: string} | undefined;
+    if (associationsTableCheck) {
+      const associationsInfo = sqlite.prepare("PRAGMA table_info(memory_associations)").all() as Array<{name: string}>;
+      const existingAssociationsColumns = new Set(associationsInfo.map(col => col.name));
+      
+      const associationsMigrations = [
+        { col: 'metadata', sql: 'ALTER TABLE memory_associations ADD COLUMN metadata TEXT' },
+      ];
+      
+      for (const migration of associationsMigrations) {
+        if (!existingAssociationsColumns.has(migration.col)) {
+          try {
+            sqlite.exec(migration.sql);
+            logger.info(`Migration: Added column ${migration.col} to memory_associations table`);
+          } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            if (msg.includes('duplicate column name')) {
+              logger.debug(`Migration skipped for ${migration.col}: column already exists`);
+            } else {
+              throw new Error(`Migration failed for column ${migration.col}: ${msg}`);
+            }
+          }
+        }
+      }
+    }
+
+    // Migrations for memories_fts FTS table (v1.1.x) - Add summary column
+    const ftsTableCheck = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='memories_fts'").get() as {name: string} | undefined;
+    if (ftsTableCheck) {
+      const ftsInfo = sqlite.prepare("PRAGMA table_info(memories_fts)").all() as Array<{name: string}>;
+      const existingFtsColumns = new Set(ftsInfo.map(col => col.name));
+      
+      if (!existingFtsColumns.has('summary') && existingFtsColumns.has('tags')) {
+        logger.info('Migration: Recreating memories_fts table to add summary column...');
+        try {
+          sqlite.exec('DROP TRIGGER IF EXISTS memories_ai');
+          sqlite.exec('DROP TRIGGER IF EXISTS memories_ad');
+          sqlite.exec('DROP TRIGGER IF EXISTS memories_au');
+          sqlite.exec('DROP TABLE IF EXISTS memories_fts');
+          
+          sqlite.exec(`
+            CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
+              content,
+              tags,
+              summary,
+              content='memories',
+              content_rowid='rowid'
+            );
+            
+            CREATE TRIGGER IF NOT EXISTS memories_ai AFTER INSERT ON memories BEGIN
+              INSERT INTO memories_fts(rowid, content, tags, summary)
+              VALUES (new.rowid, new.content, COALESCE(new.tags, ''), COALESCE(new.summary, ''));
+            END;
+            
+            CREATE TRIGGER IF NOT EXISTS memories_ad AFTER DELETE ON memories BEGIN
+              INSERT INTO memories_fts(memories_fts, rowid, content, tags, summary)
+              VALUES ('delete', old.rowid, old.content, COALESCE(old.tags, ''), COALESCE(old.summary, ''));
+            END;
+            
+            CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE ON memories BEGIN
+              INSERT INTO memories_fts(memories_fts, rowid, content, tags, summary)
+              VALUES ('delete', old.rowid, old.content, COALESCE(old.tags, ''), COALESCE(old.summary, ''));
+              INSERT INTO memories_fts(rowid, content, tags, summary)
+              VALUES (new.rowid, new.content, COALESCE(new.tags, ''), COALESCE(new.summary, ''));
+            END;
+          `);
+          
+          logger.info('Migration: Recreated memories_fts table with summary column');
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error);
+          logger.warn(`Migration note: Could not recreate memories_fts table: ${msg}`);
         }
       }
     }

@@ -87,7 +87,7 @@ export const memories = sqliteTable(
 
     // v1.1.5: Places support (spatial memory organization)
     placeId: text('place_id').references(() => places.id, { onDelete: 'set null' }),
-    placeLociIndex: integer('place_loci_index'),
+    placeSortOrder: integer('place_sort_order'),
 
     // v0.4.3: Layer support
     hasL0Abstract: integer('has_l0_abstract', { mode: 'boolean' }).default(false),
@@ -378,7 +378,7 @@ export const places: any = sqliteTable('places', {
   placeType: text('place_type').notNull(),
   parentId: text('parent_id').references(() => places.id, { onDelete: 'set null' }),
   
-  lociIndex: integer('loci_index').default(0),
+  sortOrder: integer('sort_order').default(0),
   positionX: integer('position_x').default(0),
   positionY: integer('position_y').default(0),
   description: text('description'),
@@ -391,7 +391,7 @@ export const places: any = sqliteTable('places', {
   index('places_project_idx').on(table.projectId),
   index('places_type_idx').on(table.placeType),
   index('places_parent_idx').on(table.parentId),
-  index('places_loci_idx').on(table.projectId, table.lociIndex),
+  index('places_sort_order_idx').on(table.projectId, table.sortOrder),
 ]);
 
 /**

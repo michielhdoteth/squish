@@ -374,9 +374,4 @@ export async function pinMemory(memoryId: string, pinned: boolean = true): Promi
     .where(eq(schema.memories.id, memoryId));
 }
 
-/**
- * Calculate cosine similarity between two vectors
- * Re-exported from core/utils/vector-operations.ts for backward compatibility.
- * This will be removed in v1.2.0 - import directly from core/utils/vector-operations.ts
- */
-export const cosineSimilarity = vectorCosineSimilarity;
+// cosineSimilarity has been removed - import from core/utils/vector-operations.ts directly

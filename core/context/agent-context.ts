@@ -123,7 +123,7 @@ export async function getAgentContext(
           const walkResult = await walkPlace(project.id, p.placeType, {
             tokenBudget: 170,
             maxMemoriesPerPlace: 3,
-            compressWithToon: false,
+            compressWithCompression: false,
           });
           mediumPlaces.push({
             name: p.name,

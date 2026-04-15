@@ -1,8 +1,8 @@
 {
-  "compilerOptions": {
+"compilerOptions": {
     "target": "ES2022",
-    "module": "nodenext",
-    "moduleResolution": "nodenext",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
     "lib": ["ES2022"],
     "outDir": "./dist",
     "rootDir": ".",
@@ -16,14 +16,12 @@
     "sourceMap": true,
     "noEmit": false
   },
-   "include": [
-     "index.ts",
-     "config.ts",
-     "core/**/*.ts",
-     "db/**/*.ts",
-     "types/**/*.d.ts",
-     "core/commands/**/*.ts",
-     "webui/**/*.ts"
-   ],
+  "include": [
+    "index.ts",
+    "config.ts",
+    "core/**/*.ts",
+    "db/**/*.ts",
+    "types/**/*.d.ts"
+  ],
   "exclude": ["node_modules", "dist", "tests", "benchmark", "docs"]
 }

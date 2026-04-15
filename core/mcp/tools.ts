@@ -189,101 +189,9 @@ export const squishRecallTool: MCPToolDefinition = {
   },
 };
 
-export const squishEmbedTool: MCPToolDefinition = {
-  tool: {
-    name: 'squish_embed',
-    description: 'Generate embeddings for text using configured provider (supports multimodal)',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        text: {
-          type: 'string',
-          description: 'Text to embed',
-        },
-      },
-      required: ['text'],
-    },
-  },
-  handler: async (args) => {
-    try {
-      const { text } = args;
 
-      if (!text) {
-        return errorResult('Text is required');
-      }
 
-      const embedding = await getEmbedding(text);
 
-      if (!embedding) {
-        return errorResult('Failed to generate embedding');
-      }
-
-      return textResult(JSON.stringify({
-        dimensions: embedding.length,
-        preview: embedding.slice(0, 5),
-      }, null, 2));
-    } catch (error) {
-      logger.error('Embed error:', error);
-      return errorResult(error instanceof Error ? error.message : 'Failed to generate embedding');
-    }
-  },
-};
-
-export const squishQMDSearchTool: MCPToolDefinition = {
-  tool: {
-    name: 'squish_qmd_search',
-    description: 'Search markdown files using QMD (local, fast BM25 + vector)',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        query: {
-          type: 'string',
-          description: 'Search query',
-        },
-        collection: {
-          type: 'string',
-          description: 'QMD collection name (optional)',
-        },
-        limit: {
-          type: 'number',
-          description: 'Maximum results (default: 10)',
-        },
-      },
-      required: ['query'],
-    },
-  },
-  handler: async (args) => {
-    try {
-      const { query, collection, limit = 10 } = args;
-
-      if (!query) {
-        return errorResult('Query is required');
-      }
-
-      const client = await getQMDClient();
-      const available = await client.isAvailable();
-
-      if (!available) {
-        return errorResult('QMD not available');
-      }
-
-      const results = await client.search({ 
-        query, 
-        collection, 
-        limit: limit || 10 
-      });
-
-      const formatted = results.map((r: any, i: number) =>
-        `${i + 1}. ${r.path || r.file} (score: ${r.score?.toFixed(2)})\n   ${r.content?.substring(0, 150)}...`
-      ).join('\n\n');
-
-      return textResult(`QMD found ${results.length} results:\n\n${formatted}`);
-    } catch (error) {
-      logger.error('QMD search error:', error);
-      return errorResult(error instanceof Error ? error.message : 'QMD search failed');
-    }
-  },
-};
 
 export const squishHealthTool: MCPToolDefinition = {
   tool: {
@@ -394,8 +302,6 @@ export function getAllSquishTools(): MCPToolDefinition[] {
     squishSearchTool,
     squishRememberTool,
     squishRecallTool,
-    squishEmbedTool,
-    squishQMDSearchTool,
     squishHealthTool,
     squishGetSearchTracesTool,
     squishGetTraceByIdTool,

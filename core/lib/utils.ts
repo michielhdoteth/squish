@@ -90,3 +90,62 @@ export function determineOverallStatus(dbStatus: string, redisOk: boolean): stri
   }
   return 'error';
 }
+
+// Date parsing utilities - shared between CLI and MCP
+// ============================================================================
+
+export function parseDate(input: string): Date | null {
+  if (!input) return null;
+  const now = new Date();
+  const lower = input.toLowerCase().trim();
+  
+  // Direct date parse
+  const parsed = new Date(input);
+  if (!isNaN(parsed.getTime())) return parsed;
+  
+  // Relative parsing
+  const dayMatch = lower.match(/(\d+)\s*day/i);
+  const weekMatch = lower.match(/(\d+)\s*week/i);
+  const monthMatch = lower.match(/(\d+)\s*month/i);
+  
+  if (lower === 'today') {
+    const d = new Date(now);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }
+  if (lower === 'yesterday') return new Date(now.getTime() - 86400000);
+  if (lower === 'thisweek' || lower === 'this week') {
+    const d = new Date(now);
+    d.setDate(d.getDate() - d.getDay());
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }
+  if (lower === 'lastweek' || lower === 'last week') {
+    const d = new Date(now);
+    d.setDate(d.getDate() - d.getDay() - 7);
+    return d;
+  }
+  
+  if (dayMatch) return new Date(now.getTime() - parseInt(dayMatch[1]) * 86400000);
+  if (weekMatch) return new Date(now.getTime() - parseInt(weekMatch[1]) * 604800000);
+  if (monthMatch) return new Date(now.getTime() - parseInt(monthMatch[1]) * 2592000000);
+  
+  return null;
+}
+
+export function filterByDateRange<T extends { createdAt?: string | null }>(
+  items: T[], 
+  since?: string, 
+  until?: string
+): T[] {
+  const sinceDate = parseDate(since || '');
+  const untilDate = parseDate(until || '');
+  
+  return items.filter(item => {
+    if (!item.createdAt) return true;
+    const created = new Date(item.createdAt);
+    if (sinceDate && created < sinceDate) return false;
+    if (untilDate && created > untilDate) return false;
+    return true;
+  });
+}

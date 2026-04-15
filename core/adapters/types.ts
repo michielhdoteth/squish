@@ -133,7 +133,7 @@ export const SessionContextInputSchema = z.object({
 
 export const ToolObservationInputSchema = z.object({
   toolName: z.string(),
-  toolInput: z.record(z.unknown()),
+  toolInput: z.record(z.string(), z.unknown()),
   toolResult: z.unknown(),
   project: z.string(),
   sessionId: z.string().optional(),

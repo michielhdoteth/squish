@@ -12,14 +12,14 @@ import { getSchema } from '../../db/schema.js';
 import { getProjectPlaces, type Place } from './places.js';
 import { getPlaceMemories } from './memory-places.js';
 import { getMemory } from '../memory/memories.js';
-import { compressForContext } from '../toon.js';
+import { compressForContext, isCompressed } from '../compression.js';
 import { logger } from '../logger.js';
 
 export interface WalkOptions {
   tokenBudget?: number;  // Max tokens (default: 170)
   maxMemoriesPerPlace?: number;
   includePurpose?: boolean;
-  compressWithToon?: boolean;
+  compressWithCompression?: boolean;
 }
 
 export interface WalkResult {
@@ -45,7 +45,7 @@ export async function walkPlace(
   placeType: string,
   options: WalkOptions = {}
 ): Promise<WalkResult | null> {
-  const { tokenBudget = 170, maxMemoriesPerPlace = 10, includePurpose = true, compressWithToon = false } = options;
+  const { tokenBudget = 170, maxMemoriesPerPlace = 10, includePurpose = true, compressWithCompression = false } = options;
 
   // Get the place
   const places = await getProjectPlaces(projectId);
@@ -70,7 +70,7 @@ export async function walkPlace(
     let content = memory.content || '';
     
     // Compress with TOON if requested
-    if (compressWithToon && content) {
+    if (compressWithCompression && content) {
       content = compressForContext(content);
     }
 
@@ -101,7 +101,7 @@ export async function walkPlace(
 }
 
 /**
- * Walk through all places in loci order
+  * Walk through all places in sort order
  */
 export async function walkAllPlaces(
   projectId: string,
@@ -150,7 +150,7 @@ export async function getPlaceContext(
 ): Promise<string> {
   const walkResult = await walkPlace(projectId, placeType, {
     tokenBudget: maxTokens,
-    compressWithToon: true,
+    compressWithCompression: true,
   });
 
   if (!walkResult || walkResult.memories.length === 0) {
@@ -173,7 +173,7 @@ export async function getFullWalkingContext(
 ): Promise<string> {
   const results = await walkAllPlaces(projectId, {
     tokenBudget: Math.floor(maxTokens / 7), // Distribute across 7 places
-    compressWithToon: true,
+    compressWithCompression: true,
   });
 
   if (results.length === 0) {

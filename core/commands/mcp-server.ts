@@ -7,7 +7,7 @@ console.info = console.error;
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import express from "express";
 import { z } from "zod";
 import { config } from "../../config.js";
@@ -15,10 +15,9 @@ import { writeFileSync } from "fs";
 import { join } from "path";
 import { hybridSearch } from "../../core/memory/hybrid-retrieval.js";
 import { rememberMemory, search as searchMemories, getMemory, getRecent, type MemoryType } from "../../core/memory/memories.js";
-import { getEmbedding, getBatchEmbeddings } from "../../core/embeddings.js";
 import { getQMDClient } from "../../core/embeddings/qmd-client.js";
-import { createAssociation, getRelatedMemories, trackCoactivation, type AssociationType } from "../../core/associations.js";
-import { createLearning, getLearnings, getRecentLearnings, type LearningType } from "../../core/ingestion/learnings.js";
+import { createAssociation, getRelatedMemories, type AssociationType } from "../../core/associations.js";
+import { createLearning, getLearnings } from "../../core/ingestion/learnings.js";
 import { requireProject, getAllProjects } from "../../core/projects.js";
 import { getMemoryStats } from "../../core/memory/stats.js";
 import { logger } from "../../core/logger.js";
@@ -26,13 +25,13 @@ import { getDb } from "../../db/index.js";
 import { getSchema } from "../../db/schema.js";
 import { eq } from "drizzle-orm";
 import { encrypt, decrypt } from "../../core/security/encrypt.js";
-import { existsSync, readFileSync } from "fs";
 import { startWorker, stopWorker } from "../../core/worker.js";
 import { initializeScheduler } from "../../core/scheduler/cron-scheduler.js";
 import { serializeTags } from "../../core/memory/serialization.js";
+import { parseDate, filterByDateRange } from "../../core/lib/utils.js";
 
 const SERVER_NAME = "squish-memory";
-const SERVER_VERSION = "1.1.5";
+const SERVER_VERSION = "1.1.6";
 
 function parseArgs(): { mode: "stdio" | "http"; port: number; health: boolean } {
   const args = process.argv.slice(2);
@@ -146,26 +145,138 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
     }
   )) toolCount++;
 
-  // Note: For session context, use squish_context tool (already exists)
-  // It provides project memories + observations + entities
-  
+  // squish_remember - UNIFIED MEMORY WRITE
+  // Single smart write path: auto-detects intent and routes to memory or learning
   if (safeRegisterTool(
     server,
     "squish_remember",
     {
-      description: "Store a new memory in Squish with automatic embedding",
+      description: "Store any memory or learning. System auto-detects type and routes appropriately. This is THE memory write tool for agents - handles hot/cold tiers, confidence, and all memory types.",
       inputSchema: {
-        content: z.string().describe("Memory content to store"),
-        type: z.enum(["observation", "fact", "decision", "context", "preference"]).default("observation").describe("Memory type"),
-        tags: z.array(z.string()).optional().describe("Optional tags"),
-        project: z.string().optional().describe("Project path")
+        content: z.string().describe("What to remember - can be a fact, decision, lesson, observation, or note"),
+        project: z.string().optional().describe("Project path (auto-detected if not provided)"),
+        tags: z.array(z.string()).optional().describe("Optional tags for organization"),
+        tier: z.enum(["hot", "cold"]).default("hot").describe("Memory tier: hot=active/frequently accessed, cold=archived/rarely accessed"),
+        type: z.enum(["observation", "fact", "decision", "context", "preference", "note"]).optional().describe("Memory type - auto-detected if not provided"),
+        learningType: z.enum(["success", "failure", "fix", "insight"]).optional().describe("Learning type when routing to learning storage"),
+        confidence: z.number().min(0).max(100).optional().describe("Confidence level 0-100 (default: auto-calculated)"),
+        source: z.string().optional().describe("Source of memory: mcp, cli, voice, chat, document (default: mcp)"),
+        route: z.enum(["auto", "memory", "learning", "note"]).default("auto").describe("Force routing: auto=detect, memory=store as memory, learning=store as learning, note=store as note"),
+        pin: z.boolean().default(false).describe("Pin memory to prevent pruning/consolidation"),
+        unpin: z.boolean().default(false).describe("Unpin memory")
       }
     },
-    async ({ content, type = "observation", tags = [], project }: { content: string; type?: MemoryType; tags?: string[]; project?: string }) => {
-      const memory = await rememberMemory({ content, type: type as MemoryType, tags, project });
-      return { content: [{ type: "text", text: `Memory stored: ${memory.id}` }] };
+    async ({ content, project, tags = [], tier = "hot", type, learningType, confidence, source, route = "auto", pin = false, unpin = false }: { 
+      content: string; 
+      project?: string; 
+      tags?: string[]; 
+      tier?: "hot" | "cold";
+      type?: "observation" | "fact" | "decision" | "context" | "preference" | "note";
+      learningType?: "success" | "failure" | "fix" | "insight";
+      confidence?: number;
+      source?: string;
+      route?: "auto" | "memory" | "learning" | "note";
+      pin?: boolean;
+      unpin?: boolean;
+    }) => {
+      // Import detection function
+      const { detectMemorySignals } = await import('../../core/memory/trigger-detector.js');
+      const signals = detectMemorySignals(content);
+
+      let routing: "memory" | "learning" | "note" = "memory";
+      let inferredType = type || signals.suggestedType;
+      let routingReason = "";
+
+      // Check for learning patterns if auto mode
+      if (route === "auto") {
+        const hasLessonPattern = /(\bfailed\s+because\b|\blesson\s+learned\b|\bnext\s+time\b|\broot\s+cause\b|\bsuccess\b.*\bbecause\b|\bi\s+learned\b|\binsight\b)/i.test(content);
+        const hasLearningType = /(\bsuccess\b|\bfailure\b|\bfix\b|\binsight\b)/i.test(content);
+        
+        // New: Enhanced learning detection from rationale patterns
+        const hasHackPattern = /(\bHACK\b|\bworkaround\b|\btemporary\s+fix\b)/i.test(content);
+        const hasFixmePattern = /(\bFIXME\b|\bXXX\b|\bbug\b.*\bfix\b)/i.test(content);
+        
+        if (hasLessonPattern || hasLearningType || hasHackPattern || hasFixmePattern) {
+          routing = "learning";
+          if (hasHackPattern || hasFixmePattern) {
+            routingReason = "Detected code pattern (HACK/FIXME)";
+          } else {
+            routingReason = "Detected learning pattern in content";
+          }
+        } else if (signals.suggestedType === 'task') {
+          // TODO patterns - store as memory with task type
+          routing = "memory";
+          routingReason = "Detected TODO pattern";
+        } else if (signals.suggestedType === 'observation' && /\b(note|note\s+that|log|remember)\b/i.test(content)) {
+          routing = "note";
+          routingReason = "Detected note pattern";
+        } else {
+          routing = "memory";
+          routingReason = `Detected as ${inferredType}`;
+        }
+      } else if (route === "learning") {
+        routing = "learning";
+        routingReason = "Override: forced to learning";
+      } else if (route === "note") {
+        routing = "note";
+        routingReason = "Override: forced to note";
+      } else {
+        routing = "memory";
+        routingReason = "Override: forced to memory";
+      }
+
+      let result: any;
+
+      if (routing === "learning") {
+        // Determine learning type from content or override
+        let finalLearningType = learningType || "insight";
+        if (!learningType) {
+          if (/(\bsuccess\b|\bworked\b|\bfinished\b)/i.test(content)) finalLearningType = "success";
+          else if (/(\bfailed\b|\berror\b|\bbroke\b)/i.test(content)) finalLearningType = "failure";
+          else if (/(\bfix\b|\b workaround\b|\bsolved\b)/i.test(content)) finalLearningType = "fix";
+        }
+
+        const learning = await createLearning({ 
+          type: finalLearningType, 
+          content, 
+          project,
+          autoLink: true 
+        });
+        result = { id: learning.id, type: "learning", learningType: finalLearningType, content };
+      } else {
+        // Store as memory with all options
+        const memory = await rememberMemory({ 
+          content, 
+          type: inferredType as any, 
+          tags, 
+          project,
+          tier,
+          source: source || 'mcp'
+        });
+        
+        // Handle pin/unpin after creation
+        if (pin) {
+          const { pinMemory } = await import('../../core/security/governance.js');
+          await pinMemory(memory.id);
+        } else if (unpin) {
+          const { unpinMemory } = await import('../../core/security/governance.js');
+          await unpinMemory(memory.id);
+        }
+        
+        result = { id: memory.id, type: "memory", memoryType: inferredType, tier, content, pined: pin };
+      }
+
+      return { 
+        content: [{ 
+          type: "text", 
+          text: `Remembered: ${result.id}\nRouting: ${routing}\nType: ${routing === "learning" ? result.learningType : result.memoryType}\nTier: ${routing === "memory" ? tier : 'N/A'}\nPriority: ${signals.priority}\nConfidence: ${signals.confidence}\nPined: ${(result as any).pinned}\nReason: ${routingReason}\n\n${content.substring(0, 100)}${content.length > 100 ? '...' : ''}` 
+        }] 
+      };
     }
   )) toolCount++;
+
+  // Note: For session context, use squish_context tool (already exists)
+  // It provides project memories + observations + entities
 
   if (safeRegisterTool(
     server,
@@ -236,37 +347,6 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
     }
   )) toolCount++;
 
-  if (safeRegisterTool(
-    server,
-    "squish_update",
-    {
-      description: "Update an existing memory",
-      inputSchema: {
-        memoryId: z.string().uuid().describe("Memory ID to update"),
-        content: z.string().optional().describe("New content"),
-        tags: z.array(z.string()).optional().describe("New tags"),
-        type: z.enum(["observation", "fact", "decision", "context", "preference"]).optional().describe("New type")
-      }
-    },
-    async ({ memoryId, content, tags, type }: { memoryId: string; content?: string; tags?: string[]; type?: MemoryType }) => {
-      const db = await getDb();
-      const schema = await getSchema();
-      
-      const updates: Record<string, any> = {};
-      if (content) updates.content = content;
-      if (tags) updates.tags = serializeTags(tags);
-      if (type) updates.type = type;
-
-      if (Object.keys(updates).length === 0) {
-        return { content: [{ type: "text", text: "No updates provided" }], isError: true };
-      }
-
-      // Cast to any to handle Drizzle ORM union type issue
-      const sqliteDb2 = db as any;
-      await sqliteDb2.update(schema.memories).set(updates).where(eq(schema.memories.id, memoryId));
-      return { content: [{ type: "text", text: `Memory updated: ${memoryId}` }] };
-    }
-  )) toolCount++;
 
   // squish_link - Unified graph operations (find related, add links, list)
   if (safeRegisterTool(
@@ -358,27 +438,8 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
     }
   )) toolCount++;
 
-  if (safeRegisterTool(
-    server,
-    "squish_learn",
-    {
-      description: "Record learning: success, failure, fix, or insight. Auto-links to similar memories if above 85% similarity.",
-      inputSchema: {
-        type: z.enum(["success", "failure", "fix", "insight"]).describe("Learning type (required)"),
-        content: z.string().describe("What happened or what was learned"),
-        context: z.string().optional().describe("Additional context or result"),
-        action: z.string().optional().describe("Action performed"),
-        target: z.string().optional().describe("Target file or resource"),
-        memoryId: z.string().uuid().optional().describe("Optional memory ID to link this learning to"),
-        autoLink: z.boolean().optional().describe("Auto-link to similar memories (default: true)"),
-        project: z.string().optional().describe("Project path")
-      }
-    },
-    async ({ type, content, context, action, target, memoryId, autoLink, project }: { type: LearningType; content: string; context?: string; action?: string; target?: string; memoryId?: string; autoLink?: boolean; project?: string }) => {
-      const learning = await createLearning({ type, content, context, action, target, project, memoryId, autoLink });
-      return { content: [{ type: "text", text: `Learning recorded: ${learning.id}\nType: ${type}\nContent: ${content}${memoryId ? '\nLinked to memory: ' + memoryId : ''}` }] };
-    }
-  )) toolCount++;
+  // squish_learn is now deprecated - use squish_remember instead
+  // The unified remember tool handles learning auto-detection
 
   if (safeRegisterTool(
     server,
@@ -414,37 +475,6 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
     async ({ project }: { project?: string }) => {
       const stats = await getMemoryStats(project || process.cwd());
       return { content: [{ type: "text", text: JSON.stringify(stats, null, 2) }] };
-    }
-  )) toolCount++;
-
-  if (safeRegisterTool(
-    server,
-    "squish_confidence",
-    {
-      description: "Get or set confidence level for a memory (0-100)",
-      inputSchema: {
-        memoryId: z.string().uuid().describe("Memory ID"),
-        level: z.number().min(0).max(100).optional().describe("Confidence level to set (0-100)")
-      }
-    },
-    async ({ memoryId, level }: { memoryId: string; level?: number }) => {
-      const db = await getDb();
-      const schema = await getSchema();
-      
-      if (level !== undefined) {
-        const sqliteDb = db as any;
-        await sqliteDb.update(schema.memories)
-          .set({ confidence: level })
-          .where(eq(schema.memories.id, memoryId));
-        return { content: [{ type: "text", text: `Confidence set to ${level} for memory ${memoryId}` }] };
-      }
-      
-      const sqliteDb2 = db as any;
-      const result = await sqliteDb2.select().from(schema.memories).where(eq(schema.memories.id, memoryId));
-      if (result.length === 0) {
-        return { content: [{ type: "text", text: `Memory not found: ${memoryId}` }], isError: true };
-      }
-      return { content: [{ type: "text", text: `Confidence for memory ${memoryId}: ${result[0].confidence}` }] };
     }
   )) toolCount++;
 
@@ -548,47 +578,6 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
     }
   )) toolCount++;
 
-  // Helper function for date filtering (same as in index.ts)
-  function parseDate(input: string): Date | null {
-    if (!input) return null;
-    const now = new Date();
-    const lower = input.toLowerCase().trim();
-    if (!lower) return null;
-    const parsed = new Date(input);
-    if (!isNaN(parsed.getTime())) return parsed;
-    const dayMatch = lower.match(/(\d+)\s*day/i);
-    const weekMatch = lower.match(/(\d+)\s*week/i);
-    const monthMatch = lower.match(/(\d+)\s*month/i);
-    if (lower === 'today') {
-      const d = new Date(now);
-      d.setHours(0, 0, 0, 0);
-      return d;
-    }
-    if (lower === 'yesterday') return new Date(now.getTime() - 86400000);
-    if (lower === 'thisweek' || lower === 'this week') {
-      const d = new Date(now);
-      d.setDate(d.getDate() - d.getDay());
-      d.setHours(0, 0, 0, 0);
-      return d;
-    }
-    if (dayMatch) return new Date(now.getTime() - parseInt(dayMatch[1]) * 86400000);
-    if (weekMatch) return new Date(now.getTime() - parseInt(weekMatch[1]) * 604800000);
-    if (monthMatch) return new Date(now.getTime() - parseInt(monthMatch[1]) * 2592000000);
-    return null;
-  }
-
-  function filterByDateRange<T extends { createdAt?: string | null }>(items: T[], since?: string, until?: string): T[] {
-    const sinceDate = parseDate(since || '');
-    const untilDate = parseDate(until || '');
-    return items.filter(item => {
-      if (!item.createdAt) return true;
-      const created = new Date(item.createdAt);
-      if (sinceDate && created < sinceDate) return false;
-      if (untilDate && created > untilDate) return false;
-      return true;
-    });
-  }
-
   // squish_recent - Unified recent memories (replaces squish_today, squish_yesterday, squish_thisweek)
   if (safeRegisterTool(
     server,
@@ -673,74 +662,6 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
     }
   )) toolCount++;
 
-  // squish_note - Quick brain dump
-  if (safeRegisterTool(
-    server,
-    "squish_note",
-    {
-      description: "Quick brain dump - store a raw memory to process later",
-      inputSchema: {
-        content: z.string().describe("The note content to store"),
-        project: z.string().optional().describe("Project path (defaults to current)")
-      }
-    },
-    async ({ content, project }: { content: string; project?: string }) => {
-      const result = await rememberMemory({
-        content,
-        type: 'observation',
-        tags: ['note', 'quick'],
-        project: project || process.cwd(),
-      });
-      return { content: [{ type: "text", text: JSON.stringify({ ok: true, message: 'Note saved', id: result.id }, null, 2) }] };
-    }
-  )) toolCount++;
-
-  // squish_tag - Manage tags on memories
-  if (safeRegisterTool(
-    server,
-    "squish_tag",
-    {
-      description: "Add or remove tags from memories",
-      inputSchema: {
-        action: z.enum(["add", "remove"]).describe("Action: add or remove"),
-        tag: z.string().describe("Tag name to add or remove"),
-        search: z.string().optional().describe("Search query to match memories"),
-        olderThan: z.string().optional().describe("Only tag memories older than (e.g., '30 days')"),
-        type: z.string().optional().describe("Filter by memory type"),
-        confirm: z.boolean().optional().describe("Actually execute the changes (default is dry-run)"),
-        limit: z.number().optional().describe("Max memories to process"),
-        project: z.string().optional().describe("Project path (defaults to current)")
-      }
-    },
-    async ({ action, tag, search, olderThan, type, confirm = false, limit = 50, project }: { action: 'add' | 'remove'; tag: string; search?: string; olderThan?: string; type?: string; confirm?: boolean; limit?: number; project?: string }) => {
-      const proj = project || process.cwd();
-      const db = await getDb();
-      const schema = await getSchema();
-      const sqliteDb = db as any;
-      
-      let results = search 
-        ? await searchMemories({ query: search, type: type as MemoryType, limit: limit * 2, project: proj })
-        : await getRecent(proj, limit * 2);
-      
-      if (olderThan) {
-        results = filterByDateRange(results, '', olderThan);
-      }
-      
-      const tagged = [];
-      for (const mem of results.slice(0, limit)) {
-        const currentTags = mem.tags || [];
-        const newTags = action === 'add' 
-          ? [...new Set([...currentTags, tag])]
-          : currentTags.filter((t: string) => t !== tag);
-        
-         await sqliteDb.update(schema.memories).set({ tags: serializeTags(newTags) }).where(eq(schema.memories.id, mem.id));
-        tagged.push(mem.id);
-      }
-      
-      return { content: [{ type: "text", text: JSON.stringify({ ok: true, action, tag, matched: results.length, processed: tagged.length, dryRun: !confirm }, null, 2) }] };
-    }
-  )) toolCount++;
-
   console.error(`[MCP] Tool registration complete. Registered ${toolCount} tools.`);
 
   return { server, toolCount };
@@ -777,59 +698,147 @@ async function runStdio(server: McpServer, toolCount: number): Promise<void> {
 }
 
 async function runHttp(server: McpServer, port: number): Promise<void> {
-  console.error(`[MCP] Starting in HTTP mode on port ${port}...`);
+  console.error(`[MCP] Starting in Streamable HTTP mode on port ${port}...`);
 
   const app = express();
-  app.use(express.json());
+  app.use(express.json({ strict: false }));
 
-  const transports = new Map<string, SSEServerTransport>();
+  // Store transports by session ID
+  const transports = new Map<string, StreamableHTTPServerTransport>();
 
+  // Helper to check if request is an initialization request
+  function isInitializeRequest(body: any): boolean {
+    return body?.method === 'initialize';
+  }
+
+  // Health check endpoint
   app.get("/health", (req, res) => {
     res.json({ status: "ok", server: SERVER_NAME, version: SERVER_VERSION });
   });
 
-  app.get("/sse", async (req, res) => {
-    const transport = new SSEServerTransport("/message", res);
-    const sessionId = Math.random().toString(36).substring(7);
-    transports.set(sessionId, transport);
+  // Streamable HTTP POST endpoint
+  app.post("/mcp", async (req, res) => {
+    const sessionId = req.headers["mcp-session-id"] as string | undefined;
+    const body = req.body;
     
-    console.error(`[MCP] SSE connection established: ${sessionId}`);
+    let transport: StreamableHTTPServerTransport | undefined;
+    let serverToUse: McpServer | undefined;
     
-    await server.connect(transport);
-
-    req.on("close", () => {
-      console.error(`[MCP] SSE connection closed: ${sessionId}`);
-      transports.delete(sessionId);
-    });
-  });
-
-  app.post("/message", async (req, res) => {
-    const sessionId = req.headers["mcp-session-id"] as string || "default";
-    const transport = transports.get(sessionId);
+    // Check if we have an existing transport for this session
+    if (sessionId && transports.has(sessionId)) {
+      transport = transports.get(sessionId);
+      serverToUse = server;
+    }
     
+    // If no existing transport, create new one (only for initialize requests)
     if (!transport) {
-      res.status(400).json({ error: "No active session" });
-      return;
+      if (!isInitializeRequest(body)) {
+        res.status(400).json({
+          jsonrpc: '2.0',
+          error: { code: -32000, message: 'Bad Request: No valid session ID and not an initialize request' },
+          id: body?.id || null
+        });
+        return;
+      }
+      
+      // Create a NEW server instance for this transport
+      const { server: newServer } = createSquishServer();
+      serverToUse = newServer;
+      
+      // Create new transport with JSON response mode
+      transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: () => crypto.randomUUID(),
+        enableJsonResponse: true,
+        onsessioninitialized: (newSessionId) => {
+          console.error(`[MCP] Session initialized: ${newSessionId}`);
+          transports.set(newSessionId, transport!);
+        }
+      });
+      
+      // Connect the NEW server to this transport
+      try {
+        await serverToUse.connect(transport);
+      } catch (connectError: any) {
+        console.error(`[MCP] Connect error (may be expected):`, connectError.message);
+      }
+      
+      // Set up onclose handler
+      transport.onclose = () => {
+        const sid = transport?.sessionId;
+        if (sid) {
+          console.error(`[MCP] Session closed: ${sid}`);
+          transports.delete(sid);
+        }
+      };
+      
+      transport.onerror = (error) => {
+        console.error(`[MCP] Transport error:`, error);
+      };
     }
 
     try {
-      await transport.handlePostMessage(req, res);
+      // Handle the request with the parsed body
+      await transport.handleRequest(req, res, body);
     } catch (error) {
-      console.error(`[MCP] Error handling message:`, error);
-      res.status(500).json({ error: "Internal server error" });
+      console.error(`[MCP] Error handling request:`, error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: "Internal server error" });
+      }
+    }
+  });
+
+  // Streamable HTTP GET endpoint (for SSE)
+  app.get("/mcp", async (req, res) => {
+    const sessionId = req.headers["mcp-session-id"] as string | undefined;
+    
+    if (!sessionId || !transports.has(sessionId)) {
+      res.status(400).send('Invalid or missing session ID');
+      return;
+    }
+
+    const transport = transports.get(sessionId)!;
+    
+    try {
+      await transport.handleRequest(req, res);
+    } catch (error) {
+      console.error(`[MCP] Error handling GET request:`, error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: "Internal server error" });
+      }
+    }
+  });
+
+  // DELETE endpoint to close session
+  app.delete("/mcp", async (req, res) => {
+    const sessionId = req.headers["mcp-session-id"] as string | undefined;
+    
+    if (!sessionId || !transports.has(sessionId)) {
+      res.status(400).send('Invalid or missing session ID');
+      return;
+    }
+
+    const transport = transports.get(sessionId)!;
+    
+    try {
+      await transport.handleRequest(req, res);
+    } catch (error) {
+      console.error(`[MCP] Error handling DELETE request:`, error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: "Internal server error" });
+      }
     }
   });
 
   await new Promise<void>((resolve) => app.listen(port, () => {
     console.error(`[MCP] HTTP server listening on port ${port}`);
-    console.error(`[MCP] SSE endpoint: http://localhost:${port}/sse`);
+    console.error(`[MCP] Streamable HTTP endpoint: http://localhost:${port}/mcp`);
     console.error(`[MCP] Health: http://localhost:${port}/health`);
     resolve();
   }));
 }
 
 async function runHealthCheck(): Promise<void> {
-  console.error(`[MCP] Running health check...`);
+  console.error(`[MCP] Runing health check...`);
   
   try {
     const { server, toolCount } = createSquishServer();
