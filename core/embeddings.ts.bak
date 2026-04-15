@@ -1,4 +1,0 @@
-// Re-exports from embeddings directory
-export * from './embeddings/embeddings.js';
-export * from './embeddings/google-multimodal.js';
-export * from './embeddings/local-embeddings.js';

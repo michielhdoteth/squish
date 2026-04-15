@@ -87,17 +87,7 @@
     ".env.example",
     "LICENSE",
     "README.md",
-    "CHANGELOG.md",
-    "core/commands/context-paging.md",
-    "core/commands/context-status.md",
-    "core/commands/context.md",
-    "core/commands/core-memory.md",
-    "core/commands/health.md",
-    "core/commands/init.md",
-    "core/commands/merge.md",
-    "core/commands/recall.md",
-    "core/commands/remember.md",
-    "core/commands/search.md"
+    "CHANGELOG.md"
   ],
   "author": "michielhdoteth <michiel@4mlabs.io>",
   "license": "MIT",

@@ -65,9 +65,6 @@ temp/
 *.db
 *.db-journal
 
-# Local bin scripts (installation helpers)
-bin/
-
 # References and opencode directories
 references/
 opencode/
