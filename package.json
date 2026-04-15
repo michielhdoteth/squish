@@ -81,6 +81,7 @@
     "config",
     "bin",
     "core",
+    "packages",
     "generated",
     "mcp.json.example",
     ".env.example",
