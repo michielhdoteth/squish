@@ -3,7 +3,7 @@
  * Note: Actual embedding generation is in core/embeddings.ts
  */
 
-import { cosineSimilarity as vectorCosineSimilarity } from './utils/vector-operations.js';
+import { cosineSimilarity as vectorCosineSimilarity } from '../utils/vector-operations.js';
 
 /**
  * @deprecated Use cosineSimilarity from core/utils/vector-operations.ts directly.

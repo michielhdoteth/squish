@@ -5,11 +5,12 @@
 
 import { deserializeTags, deserializeMetadata } from './serialization.js';
 import { normalizeTimestamp } from '../lib/utils.js';
+import type { MemoryType } from './memories.js';
 
 export interface MemoryRecord {
   id: string;
   projectId?: string | null;
-  type: string;
+  type: MemoryType;
   content: string;
   summary?: string | null;
   tags: string[];

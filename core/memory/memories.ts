@@ -15,6 +15,10 @@ import { resolveContradictions, applySupersession } from './contradiction-resolv
 import { encrypt, decrypt } from '../security/encrypt.js';
 import { estimateTokens } from '../context/context-window.js';
 import { getDbClient } from '../lib/db-client.js';
+// Import MemoryRecord from normalization to avoid duplication
+import { MemoryRecord } from './normalization.js';
+// Re-export MemoryRecord for external consumers
+export { MemoryRecord };
 
 export type MemoryType = 'observation' | 'fact' | 'decision' | 'context' | 'preference' | 'note' | 'task';
 
@@ -44,23 +48,7 @@ export interface SearchInput {
   project?: string;
 }
 
-export interface MemoryRecord {
-  id: string;
-  projectId?: string | null;
-  type: MemoryType;
-  content: string;
-  summary?: string | null;
-  tags: string[];
-  metadata?: Record<string, unknown> | null;
-  createdAt?: string | null;
-  validFrom?: string | null;
-  validTo?: string | null;
-  recordedAt?: string | null;
-  similarity?: number;
-  importance?: number;
-  confidenceLevel?: 'certain' | 'speculative' | 'outdated' | null;
-}
-
+// SearchResult extends the shared MemoryRecord from normalization.ts
 export interface SearchResult extends MemoryRecord {
   similarity: number;
 }
