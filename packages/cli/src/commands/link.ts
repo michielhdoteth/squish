@@ -22,6 +22,21 @@ export function registerLinkCommand(program: Command) {
           console.log(JSON.stringify({ ok: true, count: related.length, related }, null, 2));
         } else if (action === 'add' && args[0] && args[1]) {
           await createAssociation(args[0], args[1], options.type as any, options.weight);
+          
+          // Auto-update knowledge graph (fire-and-forget)
+          try {
+            const { addMemoryToGraph } = await import('../../../../core/graph/graph-builder.js');
+            const [result1, result2] = await Promise.all([
+              addMemoryToGraph(args[0]).catch(() => null),
+              addMemoryToGraph(args[1]).catch(() => null)
+            ]);
+            if (result1 || result2) {
+              console.error(`[Graph] Updated graph for linked memories`);
+            }
+          } catch (e) {
+            // Ignore graph errors
+          }
+          
           console.log(JSON.stringify({ ok: true, action: 'created', from: args[0], to: args[1], type: options.type }));
         } else {
           console.log(JSON.stringify({ ok: false, error: 'Usage: squish link find <id> OR squish link add <from> <to>' }));

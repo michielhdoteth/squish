@@ -99,6 +99,17 @@ export function registerRememberCommand(program: Command) {
           } else if (options.unpin) {
             await unpinMemory(result.id);
           }
+
+          // Auto-update knowledge graph (fire-and-forget)
+          try {
+            const { addMemoryToGraph } = await import('../../../../core/graph/graph-builder.js');
+            const graphResult = await addMemoryToGraph(result.id);
+            if (graphResult && graphResult.entitiesCreated > 0) {
+              console.error(`[Graph] Added ${graphResult.entitiesCreated} entities, ${graphResult.relationsCreated} relations`);
+            }
+          } catch (e: any) {
+            // Ignore graph errors - don't fail the remember command
+          }
         }
 
         console.log(JSON.stringify({
