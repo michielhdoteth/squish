@@ -2,6 +2,59 @@
 
 All notable changes to Squish will be documented in this file.
 
+## [1.2.0] - 2026-04-15
+
+### Added - Unified Write Path (squish_remember)
+- **New unified memory tool**: `squish_remember` auto-detects memory vs learning routing
+- **Auto-type detection**: Detects `success`, `failure`, `fix`, `observation`, `decision`, `preference`, `note`, `reflection`
+- **Hot/cold tier support**: Automatic routing to appropriate storage tier
+- **Code pattern detection**: Recognizes code changes, errors, fixes in agent outputs
+- **Place and pin flags**: Support for place-based and pinned memories
+
+### Added - Graph Auto-Update
+- **Auto-update graph on remember**: Knowledge graph updated automatically when memories are stored
+- **Auto-update graph on link**: Graph updated when associations are created between memories
+- **Integration**: Graph module now integrated into main write path (was previously standalone)
+
+### Added - New CLI Commands
+- **`squish run web`**: Start web UI on port 37777
+- **`squish migrate`**: Unify multiple .squish folders into single location
+- **Full CLI suite**: 10+ commands (remember, search, recall, recent, context, stats, forget, link, stale, clean)
+
+### Added - Memory Decay System
+- **Enabled by default**: Memory decay now runs automatically (was broken in 1.1.x)
+- **Configurable intervals**: Sector decay intervals now configurable via env vars
+- **Auto-clean enabled**: Automatic cleanup of expired memories (was dry-run only)
+- **Fixed**: Removed dead code and consolidated decay logic
+
+### Added - add-mcp Integration
+- **Universal MCP installation**: Replaced manual config writing with `add-mcp`
+- **Multi-client support**: Works with Zed, Goose, Gemini CLI, Claude Code, Cursor, OpenCode, Windsurf
+- **Global flag**: `--global` flag for user-level installation
+- **Simplified installer**: `bin/install-interactive.mjs` rewritten to use add-mcp
+
+### Fixed - v1.1.5 Issues
+- **bin/ tracked in git**: Removed from .gitignore, now included in npm package
+- **CLI commands work**: Fixed npm publishing issue that broke CLI
+- **Type safety**: Fixed LSP errors, obsidian-vault import path, cron types
+
+### Refactored - Code Cleanup
+- **Consolidated estimateTokens**: Moved from 5 files to single source (`core/context/context-window.ts`)
+- **Consolidated MemoryDiff**: Moved from 2 files to `core/snapshots/comparison.ts`
+- **Removed stubs**: Deleted `core/autosave.ts`, `core/external-folder/`, `core/config.js`
+- **Implemented placeholders**: `readFromVault()` in obsidian-vault now functional
+
+### Refactored - Legacy Removal
+- **Removed hooks/**: No longer needed (add-mcp handles installation)
+- **Removed install scripts**: `bin/install-claude-code.sh`, `bin/install-opencode.sh` deleted
+- **Removed config/hooks/**: Hook config files for Claude Code, Cursor, OpenCode, Windsurf deleted
+- **Removed unused config files**: 10+ unused JSON configs deleted (mcp.json, plugin.json, etc.)
+- **Removed core/adapters/scripts/**: Legacy adapter install scripts deleted
+
+### Refactored - MD Docs Cleanup
+- **Removed from core/commands/**: 11 .md files deleted (docs belong in README/CHANGELOG)
+- **Updated package.json**: Removed explicit .md file entries from files array
+
 ## [1.1.6] - 2026-04-13
 
 ### Fixed - MCP HTTP Transport Migration

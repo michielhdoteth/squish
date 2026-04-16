@@ -78,14 +78,14 @@ squish context
 squish recall "user preferences"
 ```
 
-Or use as a plugin:
+Or use with your AI client directly:
 
 ```bash
-# Install for Claude Code
-npx squish-memory install-plugin --client=claude-code
+# Install MCP server (recommended via add-mcp)
+npx add-mcp squish-memory
 
-# Install for OpenCode
-npx squish-memory install-plugin --client=opencode
+# Or start manually
+squish run mcp
 ```
 
 ## Features
