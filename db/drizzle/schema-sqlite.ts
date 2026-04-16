@@ -325,6 +325,28 @@ export const learnings = sqliteTable('learnings', {
 ]);
 
 /**
+ * Agent Preferences - learned agent preferences from learnings
+ * Enables agents to evolve and remember preferences over time
+ */
+export const agentPreferences = sqliteTable('agent_preferences', {
+  id: text('id').primaryKey().$default(() => crypto.randomUUID()),
+  projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }).notNull(),
+  
+  key: text('key').notNull(),  // e.g., "prefer_bun", "prefer_typescript"
+  value: text('value').notNull(),  // e.g., "bun", "true"
+  
+  sourceMemoryId: text('source_memory_id').references(() => memories.id, { onDelete: 'set null' }),
+  confidence: text('confidence').default('0.5'),  // 0.00 to 1.00
+  usageCount: integer('usage_count').default(1),
+  
+  lastUpdated: integer('last_updated', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('agent_preferences_project_idx').on(table.projectId),
+  index('agent_preferences_key_idx').on(table.key),
+]);
+
+/**
  * Entities - named entities in the codebase
  */
 export const entities = sqliteTable('entities', {
@@ -748,6 +770,9 @@ export type NewMessage = typeof messages.$inferInsert;
 
 export type Learning = typeof learnings.$inferSelect;
 export type NewLearning = typeof learnings.$inferInsert;
+
+export type AgentPreference = typeof agentPreferences.$inferSelect;
+export type NewAgentPreference = typeof agentPreferences.$inferInsert;
 
 export type Entity = typeof entities.$inferSelect;
 export type NewEntity = typeof entities.$inferInsert;

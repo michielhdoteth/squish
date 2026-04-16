@@ -337,6 +337,28 @@ export const learnings = pgTable('learnings', {
 ]);
 
 /**
+ * Agent Preferences - learned agent preferences from learnings
+ * Enables agents to evolve and remember preferences over time
+ */
+export const agentPreferences = pgTable('agent_preferences', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }).notNull(),
+  
+  key: text('key').notNull(),  // e.g., "prefer_bun", "prefer_typescript"
+  value: text('value').notNull(),  // e.g., "bun", "true"
+  
+  sourceMemoryId: uuid('source_memory_id').references(() => memories.id, { onDelete: 'set null' }),
+  confidence: numeric('confidence', { precision: 3, scale: 2 }).default('0.5'),  // 0.00 to 1.00
+  usageCount: integer('usage_count').default(1),
+  
+  lastUpdated: timestamp('last_updated').defaultNow().notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => [
+  index('agent_preferences_project_idx').on(table.projectId),
+  index('agent_preferences_key_idx').on(table.key),
+]);
+
+/**
  * Entities - knowledge graph nodes
  */
 export const entities = pgTable('entities', {
@@ -847,6 +869,17 @@ export const learningsRelations = relations(learnings, ({ one }) => ({
   }),
 }));
 
+export const agentPreferencesRelations = relations(agentPreferences, ({ one }) => ({
+  project: one(projects, {
+    fields: [agentPreferences.projectId],
+    references: [projects.id],
+  }),
+  sourceMemory: one(memories, {
+    fields: [agentPreferences.sourceMemoryId],
+    references: [memories.id],
+  }),
+}));
+
 export const messagesRelations = relations(messages, ({ one }) => ({
   conversation: one(conversations, {
     fields: [messages.conversationId],
@@ -968,6 +1001,9 @@ export type NewMessage = typeof messages.$inferInsert;
 
 export type Learning = typeof learnings.$inferSelect;
 export type NewLearning = typeof learnings.$inferInsert;
+
+export type AgentPreference = typeof agentPreferences.$inferSelect;
+export type NewAgentPreference = typeof agentPreferences.$inferInsert;
 
 export type Entity = typeof entities.$inferSelect;
 export type NewEntity = typeof entities.$inferInsert;
