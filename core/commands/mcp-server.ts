@@ -888,8 +888,6 @@ async function main(): Promise<void> {
       return;
     }
 
-const { server, toolCount } = createSquishServer();
-
   // Start background worker for lifecycle maintenance, decay, etc.
   try {
     await startWorker();
@@ -921,9 +919,9 @@ const { server, toolCount } = createSquishServer();
     process.on("SIGTERM", shutdown);
 
     if (mode === "stdio") {
-      await runStdio(server, toolCount);
+      await runStdio(SQUISH_SERVER, SQUISH_TOOL_COUNT);
     } else {
-      await runHttp(server, port);
+      await runHttp(SQUISH_SERVER, port);
     }
   } catch (error) {
     console.error(`[${SERVER_NAME}] Fatal error:`, error);
