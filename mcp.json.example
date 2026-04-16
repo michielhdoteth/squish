@@ -1,9 +1,8 @@
 {
   "mcpServers": {
     "squish": {
-      "command": "bun",
-      "args": ["run", "core/commands/mcp-server.ts"],
-      "env": {}
+      "command": "npx",
+      "args": ["-y", "squish-memory"]
     }
   }
 }

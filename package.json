@@ -6,9 +6,7 @@
   "type": "module",
   "bin": {
     "squish": "bin/squish.mjs",
-    "squish-mcp": "bin/squish-mcp.mjs",
-    "squish-add": "bin/squish-add.mjs",
-    "squish-rm": "bin/squish-rm.mjs"
+    "squish-mcp": "bin/squish-mcp.mjs"
   },
   "scripts": {
     "clean": "rm -rf dist && rm -f *.log",

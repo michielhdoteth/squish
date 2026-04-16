@@ -767,8 +767,9 @@ async function runHttp(server: McpServer, port: number): Promise<void> {
         return;
       }
       
-      // REUSE the existing server instance (not create new per session)
-      serverToUse = SQUISH_SERVER;
+      // Create NEW server instance for this session (required - can't reuse)
+      const { server: newServer } = createSquishServer();
+      serverToUse = newServer;
       
       // Create new transport with JSON response mode
       transport = new StreamableHTTPServerTransport({
@@ -780,11 +781,19 @@ async function runHttp(server: McpServer, port: number): Promise<void> {
         }
       });
       
-      // Connect the NEW server to this transport
+      // Connect the NEW session-specific server to this transport
       try {
         await serverToUse.connect(transport);
       } catch (connectError: any) {
-        console.error(`[MCP] Connect error (may be expected):`, connectError.message);
+        // Ignore "Already connected" errors - can happen if server was used before
+        if (connectError.message?.includes('Already connected')) {
+          console.error(`[MCP] Server already connected, creating fresh server...`);
+          const { server: freshServer } = createSquishServer();
+          serverToUse = freshServer;
+          await serverToUse.connect(transport);
+        } else {
+          console.error(`[MCP] Connect error:`, connectError.message);
+        }
       }
       
       // Set up onclose handler
