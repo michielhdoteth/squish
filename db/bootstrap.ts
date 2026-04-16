@@ -1033,14 +1033,11 @@ async function runSqliteMigrations(sqlite: Database): Promise<void> {
 	// Iteration 3: Confidence flags (default: speculative)
 	{ col: 'confidence_level', sql: 'ALTER TABLE memories ADD COLUMN confidence_level TEXT DEFAULT "speculative"' },
 
-	// v1.1.0: Status and encryption
-	{ col: 'status', sql: 'ALTER TABLE memories ADD COLUMN status TEXT DEFAULT "active"' },
-	{ col: 'encrypted_content', sql: 'ALTER TABLE memories ADD COLUMN encrypted_content TEXT' },
-	{ col: 'encryption_nonce', sql: 'ALTER TABLE memories ADD COLUMN encryption_nonce TEXT' },
-{ col: 'is_encrypted', sql: 'ALTER TABLE memories ADD COLUMN is_encrypted INTEGER DEFAULT 0' },
-
-        // Places support (v1.2.0) - Spatial memory organization
-        { col: 'place_sort_order', sql: 'ALTER TABLE memories ADD COLUMN place_sort_order INTEGER DEFAULT 0' }
+// v1.1.0: Status and encryption
+        { col: 'status', sql: 'ALTER TABLE memories ADD COLUMN status TEXT DEFAULT "active"' },
+        { col: 'encrypted_content', sql: 'ALTER TABLE memories ADD COLUMN encrypted_content TEXT' },
+        { col: 'encryption_nonce', sql: 'ALTER TABLE memories ADD COLUMN encryption_nonce TEXT' },
+        { col: 'is_encrypted', sql: 'ALTER TABLE memories ADD COLUMN is_encrypted INTEGER DEFAULT 0' }
     ];
    
    // Get existing columns for memories table
