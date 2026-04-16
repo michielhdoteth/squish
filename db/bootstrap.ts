@@ -91,6 +91,8 @@ CREATE TABLE IF NOT EXISTS memories (
   valid_to INTEGER,
   superseded_by TEXT,
   version INTEGER DEFAULT 1,
+  place_id TEXT,
+  place_sort_order INTEGER DEFAULT 0,
   created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL,
   updated_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL
 );
@@ -416,6 +418,7 @@ CREATE TABLE IF NOT EXISTS memory_places (
   id TEXT PRIMARY KEY,
   memory_id TEXT REFERENCES memories(id) ON DELETE CASCADE NOT NULL,
   place_id TEXT REFERENCES places(id) ON DELETE CASCADE NOT NULL,
+  place_sort_order INTEGER DEFAULT 0,
   is_manual INTEGER DEFAULT 0,
   rule_id TEXT,
   created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL
@@ -970,6 +973,7 @@ async function runSqliteMigrations(sqlite: Database): Promise<void> {
         // Places support (v1.1.5) - Spatial memory organization
         { col: 'place_id', sql: 'ALTER TABLE memories ADD COLUMN place_id TEXT REFERENCES places(id) ON DELETE SET NULL' },
         { col: 'place_order', sql: 'ALTER TABLE memories ADD COLUMN place_order INTEGER DEFAULT 0' },
+        { col: 'place_sort_order', sql: 'ALTER TABLE memories ADD COLUMN place_sort_order INTEGER DEFAULT 0' },
 
 	// Token tracking (v1.0.x)
 	{ col: 'tokens_estimate', sql: 'ALTER TABLE memories ADD COLUMN tokens_estimate INTEGER DEFAULT 0' },
@@ -981,12 +985,11 @@ async function runSqliteMigrations(sqlite: Database): Promise<void> {
 	{ col: 'status', sql: 'ALTER TABLE memories ADD COLUMN status TEXT DEFAULT "active"' },
 	{ col: 'encrypted_content', sql: 'ALTER TABLE memories ADD COLUMN encrypted_content TEXT' },
 	{ col: 'encryption_nonce', sql: 'ALTER TABLE memories ADD COLUMN encryption_nonce TEXT' },
-        { col: 'is_encrypted', sql: 'ALTER TABLE memories ADD COLUMN is_encrypted INTEGER DEFAULT 0' },
+{ col: 'is_encrypted', sql: 'ALTER TABLE memories ADD COLUMN is_encrypted INTEGER DEFAULT 0' },
 
-        // Places support (v1.1.5) - Spatial memory organization
-        { col: 'place_id', sql: 'ALTER TABLE memories ADD COLUMN place_id UUID REFERENCES places(id) ON DELETE SET NULL' },
-        { col: 'place_order', sql: 'ALTER TABLE memories ADD COLUMN place_order INTEGER DEFAULT 0' }
-];
+        // Places support (v1.2.0) - Spatial memory organization
+        { col: 'place_sort_order', sql: 'ALTER TABLE memories ADD COLUMN place_sort_order INTEGER DEFAULT 0' }
+    ];
    
    // Get existing columns for memories table
    const tableInfo = sqlite.prepare("PRAGMA table_info(memories)").all() as Array<{name: string}>;
@@ -1133,6 +1136,30 @@ async function runSqliteMigrations(sqlite: Database): Promise<void> {
               logger.debug(`Migration skipped for ${migration.col}: column already exists`);
             } else {
               throw new Error(`Migration failed for column ${migration.col}: ${msg}`);
+            }
+          }
+        }
+      }
+      
+      // Memory_places table migrations (v1.2.0)
+      const memoryPlacesInfo = sqlite.prepare("PRAGMA table_info(memory_places)").all() as Array<{name: string}>;
+      const existingMemoryPlacesColumns = new Set(memoryPlacesInfo.map(col => col.name));
+      
+      const memoryPlacesMigrations = [
+        { col: 'place_sort_order', sql: 'ALTER TABLE memory_places ADD COLUMN place_sort_order INTEGER DEFAULT 0' },
+      ];
+      
+      for (const migration of memoryPlacesMigrations) {
+        if (!existingMemoryPlacesColumns.has(migration.col)) {
+          try {
+            sqlite.exec(migration.sql);
+            logger.info(`Migration: Added column ${migration.col} to memory_places table`);
+          } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            if (msg.includes('duplicate column name')) {
+              logger.debug(`Migration skipped for ${migration.col}: column already exists`);
+            } else {
+              logger.warn(`Migration note for ${migration.col}: ${msg}`);
             }
           }
         }
