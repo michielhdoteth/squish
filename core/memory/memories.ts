@@ -539,3 +539,22 @@ function normalizeMemory(row: any): MemoryRecord {
     confidenceLevel: row.confidenceLevel ?? row.confidence_level ?? null,
   };
 }
+
+/**
+ * Find similar memories to prevent duplicates
+ * Returns memories with similarity >= threshold
+ */
+export async function findSimilarMemories(
+  content: string,
+  threshold: number = 0.85,
+  limit: number = 5
+): Promise<SearchResult[]> {
+  // Use search with high similarity
+  const results = await search({
+    query: content,
+    limit,
+  });
+  
+  // Filter by similarity threshold
+  return results.filter(r => (r.similarity ?? 0) >= threshold);
+}

@@ -15,6 +15,7 @@ import { logger } from '../logger.js';
 import { getDbClient } from '../lib/db-client.js';
 import { createAssociation } from '../associations.js';
 import { search, type SearchResult } from '../memory/memories.js';
+import { updateAgentPreference } from '../agent-preferences.js';
 
 // Learning type: success, failure, fix, insight
 export type LearningType = 'success' | 'failure' | 'fix' | 'insight';
@@ -93,6 +94,9 @@ export async function createLearning(input: LearningInput): Promise<LearningReco
   if (autoLink) {
     await autoLinkLearning(id, input.content, project?.id ?? null);
   }
+
+  // Extract and store agent preferences from this learning
+  await updateAgentPreference(project?.id ?? 'default', input.content, id);
 
   return {
     id,

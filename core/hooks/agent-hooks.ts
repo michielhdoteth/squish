@@ -21,6 +21,7 @@ import { inferTags } from './auto-tagger.js';
 import { ensureProject, getProjectByPath } from '../projects.js';
 import { autoAssignMemory, initializeDefaultPlaces } from '../places/index.js';
 import { compressForContext } from '../compression.js';
+import { getAgentPreferences } from '../agent-preferences.js';
 
 /** Session ID for tracking across agents */
 let currentSessionId: string | null = null;
@@ -58,6 +59,7 @@ export async function handleSessionStart(params: {
   memories: string[];
   sessionId: string;
   count: number;
+  preferences?: Array<{key: string; value: string}>;
 }> {
   const { projectPath, mode, agentType } = params;
   
@@ -104,12 +106,24 @@ export async function handleSessionStart(params: {
   
   const allContent = formatted + placesContext;
   
+  // Get agent preferences for context injection
+  let preferences: Array<{key: string; value: string}> = [];
+  try {
+    const project = await getProjectByPath(projectPath);
+    if (project) {
+      preferences = await getAgentPreferences(project.id);
+    }
+  } catch (e) {
+    logger.debug(`[Hooks] Agent preferences not available: ${e}`);
+  }
+  
   logger.info(`[Hooks] Injected ${memories.length} memories for session start`);
   
   return {
     memories: allContent ? allContent.split('\n') : [],
     sessionId: currentSessionId,
     count: memories.length,
+    preferences: preferences.length > 0 ? preferences : undefined,
   };
 }
 

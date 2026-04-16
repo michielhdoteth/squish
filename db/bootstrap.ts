@@ -20,6 +20,23 @@ CREATE TABLE IF NOT EXISTS _schema_versions (
   applied_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL
 );
 
+-- Agent preferences table (v1.2.0+) - stores accumulated agent preferences from learnings
+CREATE TABLE IF NOT EXISTS agent_preferences (
+  id TEXT PRIMARY KEY,
+  project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+  key TEXT NOT NULL,
+  value TEXT NOT NULL,
+  source_memory_id TEXT,
+  confidence REAL DEFAULT 0.5,
+  usage_count INTEGER DEFAULT 1,
+  last_updated INTEGER DEFAULT (strftime('%s','now')) NOT NULL,
+  created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL,
+  UNIQUE(project_id, key)
+);
+
+CREATE INDEX IF NOT EXISTS agent_preferences_project_idx ON agent_preferences(project_id);
+CREATE INDEX IF NOT EXISTS agent_preferences_key_idx ON agent_preferences(key);
+
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   external_id TEXT UNIQUE,
@@ -856,6 +873,7 @@ const SCHEMA_VERSIONS = [
   { version: '1.2.0-base', description: 'Initial v1.2.0 schema with schema_versions table' },
   { version: '1.2.0-place-sort', description: 'Add place_sort_order column to places' },
   { version: '1.2.0-mem-place', description: 'Add place_sort_order to memories and memory_places' },
+  { version: '1.2.0-agent-prefs', description: 'Add agent_preferences table for agent evolution' },
 ];
 
 async function initializeSchemaVersionTable(sqlite: Database): Promise<void> {

@@ -4,7 +4,7 @@
  * Single implementation for both CLI and MCP.
  */
 
-import { rememberMemory } from '../memory/memories.js';
+import { rememberMemory, findSimilarMemories } from '../memory/memories.js';
 import { createLearning } from '../ingestion/learnings.js';
 import { pinMemory, unpinMemory } from '../security/governance.js';
 import { detectMemorySignals } from '../memory/trigger-detector.js';
@@ -94,6 +94,9 @@ export async function executeRemember(options: RememberOptions): Promise<Command
     });
     result = { id: learning.id, type: "learning", learningType: parsedLearningType, content };
   } else {
+    // Check for similar memories to avoid duplicates (deduplication)
+    const similarMemories = await findSimilarMemories(content, 0.85, 3);
+    
     const memory = await rememberMemory({ 
       content, 
       type: inferredType as any, 
@@ -102,6 +105,15 @@ export async function executeRemember(options: RememberOptions): Promise<Command
       tier: parsedTier,
       source: source || 'cli'
     });
+    
+    // If found similar memories, create association instead of duplicate
+    if (similarMemories.length > 0) {
+      const { createAssociation } = await import('../associations.js');
+      for (const similar of similarMemories) {
+        await createAssociation(memory.id, similar.id, 'duplicate', similar.similarity ?? 0.85);
+      }
+      (memory as any).similarTo = similarMemories.map(s => s.id);
+    }
     
     if (pin) {
       await pinMemory(memory.id);
@@ -119,6 +131,23 @@ export async function executeRemember(options: RememberOptions): Promise<Command
     });
     if (graphResult) {
       (result as any).graph = { entities: graphResult.entitiesCreated, relations: graphResult.relationsCreated };
+    }
+    
+    // Auto-assign to place (fire-and-forget)
+    const { autoAssignMemory } = await import('../places/memory-places.js');
+    const projectId = (memory as any).projectId || project;
+    const placeResult = await autoAssignMemory({
+      memoryId: memory.id,
+      projectId: projectId,
+      content: content,
+      tags: parsedTags,
+      memoryType: inferredType as string
+    }).catch((e: Error) => {
+      console.warn('[Places] Auto-assign failed:', e.message);
+      return null;
+    });
+    if (placeResult?.assigned && placeResult.placeId) {
+      (result as any).place = { id: placeResult.placeId, type: placeResult.placeType ?? 'inbox' };
     }
   }
 
