@@ -20,6 +20,7 @@ import { shouldCaptureTool, categorizeTool } from './capture-filter.js';
 import { inferTags } from './auto-tagger.js';
 import { ensureProject, getProjectByPath } from '../projects.js';
 import { autoAssignMemory, initializeDefaultPlaces } from '../places/index.js';
+import { compressForContext } from '../compression.js';
 
 /** Session ID for tracking across agents */
 let currentSessionId: string | null = null;
@@ -95,10 +96,11 @@ export async function handleSessionStart(params: {
     logger.debug(`[Hooks] Places context not available: ${e}`);
   }
   
-  // Format for injection
-  const formatted = memories.map((m, i) => 
-    `${i + 1}. [${m.type}] ${m.content?.substring(0, 100)}...`
-  ).join('\n');
+  // Format for injection with compression
+  const formatted = memories.map((m, i) => {
+    const compressed = compressForContext(m.content || '');
+    return `${i + 1}. [${m.type}] ${compressed}`;
+  }).join('\n');
   
   const allContent = formatted + placesContext;
   
