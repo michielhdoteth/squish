@@ -33,6 +33,10 @@ import { parseDate, filterByDateRange } from "../../core/lib/utils.js";
 const SERVER_NAME = "squish-memory";
 const SERVER_VERSION = "1.2.0";
 
+// Create server instance ONCE (not per-session)
+const { server: SQUISH_SERVER, toolCount: SQUISH_TOOL_COUNT } = createSquishServer();
+console.error(`[MCP] Server created with ${SQUISH_TOOL_COUNT} tools`);
+
 function parseArgs(): { mode: "stdio" | "http"; port: number; health: boolean } {
   const args = process.argv.slice(2);
   let mode: "stdio" | "http" = "stdio";
@@ -470,7 +474,7 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
       description: "Check Squish system health status",
       inputSchema: {}
     },
-    async (): Promise<any> => {
+    async (): Promise<{ content: Array<{ type: string; text: string }> }> => {
       const qmdClient = await getQMDClient();
       const qmdAvailable = await qmdClient.isAvailable();
 
@@ -763,9 +767,8 @@ async function runHttp(server: McpServer, port: number): Promise<void> {
         return;
       }
       
-      // Create a NEW server instance for this transport
-      const { server: newServer } = createSquishServer();
-      serverToUse = newServer;
+      // REUSE the existing server instance (not create new per session)
+      serverToUse = SQUISH_SERVER;
       
       // Create new transport with JSON response mode
       transport = new StreamableHTTPServerTransport({
