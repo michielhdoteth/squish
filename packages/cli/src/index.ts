@@ -23,6 +23,7 @@ import { registerStaleCommand } from './commands/stale.js';
 import { registerCleanCommand } from './commands/clean.js';
 import { registerMigrateCommand } from './commands/migrate.js';
 import { registerRunCommand } from './commands/run.js';
+import { registerDoctorCommand } from './commands/doctor.js';
 
 const program = new Command();
 
@@ -44,6 +45,7 @@ registerStaleCommand(program);
 registerCleanCommand(program);
 registerMigrateCommand(program);
 registerRunCommand(program);
+registerDoctorCommand(program);
 
 // Default: show help if no arguments
 if (process.argv.length === 2) {

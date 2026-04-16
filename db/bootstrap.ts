@@ -13,6 +13,13 @@ import { getDataDir } from '../config.js';
 const sqliteSchemaSql = `
 PRAGMA foreign_keys = ON;
 
+-- Schema version tracking table (v1.2.0+)
+CREATE TABLE IF NOT EXISTS _schema_versions (
+  version TEXT PRIMARY KEY,
+  description TEXT NOT NULL,
+  applied_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   external_id TEXT UNIQUE,
@@ -837,7 +844,52 @@ export async function ensureSqliteSchema(sqlite: Database): Promise<void> {
   // Run schema creation FIRST (creates tables with latest schema)
   sqlite.exec(sqliteSchemaSql);
   
+  // Initialize schema version tracking
+  await initializeSchemaVersionTable(sqlite);
+  
   // Run migrations AFTER (for existing databases that need column additions)
+  await runSqliteMigrations(sqlite);
+}
+
+// Schema versions for tracking
+const SCHEMA_VERSIONS = [
+  { version: '1.2.0-base', description: 'Initial v1.2.0 schema with schema_versions table' },
+  { version: '1.2.0-place-sort', description: 'Add place_sort_order column to places' },
+  { version: '1.2.0-mem-place', description: 'Add place_sort_order to memories and memory_places' },
+];
+
+async function initializeSchemaVersionTable(sqlite: Database): Promise<void> {
+  // Get existing versions
+  const existingVersions = sqlite.prepare("SELECT version FROM _schema_versions").all() as Array<{version: string}>;
+  const appliedVersions = new Set(existingVersions.map(v => v.version));
+  
+  // Insert any missing versions
+  for (const { version, description } of SCHEMA_VERSIONS) {
+    if (!appliedVersions.has(version)) {
+      try {
+        sqlite.prepare("INSERT INTO _schema_versions (version, description) VALUES (?, ?)").run(version, description);
+        logger.info(`Schema version ${version} recorded`);
+      } catch (error) {
+        // Ignore duplicate errors
+        const msg = error instanceof Error ? error.message : String(error);
+        if (!msg.includes('UNIQUE constraint failed')) {
+          logger.warn(`Could not record schema version ${version}: ${msg}`);
+        }
+      }
+    }
+  }
+}
+
+export async function getSchemaVersion(sqlite: Database): Promise<string | null> {
+  const result = sqlite.prepare("SELECT version FROM _schema_versions ORDER BY applied_at DESC LIMIT 1").get() as {version: string} | undefined;
+  return result?.version || null;
+}
+
+export async function runMigrationsForVersion(sqlite: Database, targetVersion: string): Promise<void> {
+  const currentVersion = await getSchemaVersion(sqlite);
+  logger.info(`Current schema version: ${currentVersion}, target: ${targetVersion}`);
+  
+  // Run ensureSqliteSchema which handles all migrations
   await runSqliteMigrations(sqlite);
 }
 
