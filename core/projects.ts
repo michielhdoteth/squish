@@ -101,6 +101,16 @@ export async function getAllProjects(): Promise<ProjectRecord[]> {
     const db = createDatabaseClient(await getDb());
     const schema = await getSchema();
     const rows = await db.select().from(schema.projects);
+    
+    // Auto-create default project if none exist
+    if (rows.length === 0) {
+      const cwd = process.cwd();
+      const defaultProject = await getOrCreateProject(cwd);
+      if (defaultProject) {
+        return [defaultProject];
+      }
+    }
+    
     return rows.map(normalizeProject);
   } catch (error: any) {
     throw error;

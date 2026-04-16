@@ -1,3 +1,4 @@
+console.log('[squish] Starting web server...');
 import express from 'express';
 import type { Server } from 'node:http';
 import cors from 'cors';
@@ -273,8 +274,11 @@ app.get('/', (req, res) => {
 <option value="">Loading projects...</option>
 </select>
 <div class="bg-card-bg px-4 py-2 rounded-full border-2 border-slate-700/50 flex items-center gap-2">
-<div class="size-2 rounded-full bg-primary animate-pulse"></div>
-<span class="text-xs font-bold uppercase tracking-widest text-text-muted">Local Server: Online</span>
+<div class="size-2 rounded-full bg-primary animate-pulse" id="status-dot"></div>
+<span class="text-xs font-bold uppercase tracking-widest text-text-muted" id="server-status">Server: Online</span>
+</div>
+<div class="bg-card-bg px-3 py-1 rounded-full text-xs font-medium text-text-muted" id="server-version">
+v1.2.0
 </div>
 </div>
 </div>
@@ -341,17 +345,24 @@ app.get('/', (req, res) => {
 </div>
 <div class="pt-12 flex justify-center">
 <div class="bg-card-bg border-4 border-slate-700/50 p-2 rounded-full flex gap-2">
-<button class="bg-primary text-black px-8 py-3 rounded-full font-black text-sm uppercase hover:scale-105 transition-transform flex items-center gap-2">
+<button class="bg-primary text-black px-6 py-3 rounded-full font-black text-sm uppercase hover:scale-105 transition-transform flex items-center gap-2" onclick="manualRefresh()" title="Refresh now">
 <span class="material-symbols-outlined text-sm">refresh</span>
-                    Reconnect
+                    Refresh
                 </button>
-<button class="text-text-main px-8 py-3 rounded-full font-black text-sm uppercase hover:bg-slate-700/50 transition-colors" onclick="openDocs()">
+<button class="bg-slate-700 text-text-main px-6 py-3 rounded-full font-black text-sm uppercase hover:bg-slate-600 transition-colors flex items-center gap-2" id="pause-btn" onclick="togglePause()">
+<span class="material-symbols-outlined text-sm" id="pause-icon">pause</span>
+                    <span id="pause-text">Pause</span>
+                </button>
+<button class="text-text-muted px-6 py-3 rounded-full font-black text-sm uppercase hover:bg-slate-700/50 transition-colors" onclick="openDocs()">
                     Docs
                 </button>
-<button class="text-text-main px-8 py-3 rounded-full font-black text-sm uppercase hover:bg-slate-700/50 transition-colors" onclick="openSettings()">
+<button class="text-text-muted px-6 py-3 rounded-full font-black text-sm uppercase hover:bg-slate-700/50 transition-colors" onclick="openSettings()">
                     Settings
                 </button>
 </div>
+</div>
+<div class="flex justify-center mt-4">
+<span class="text-xs font-medium text-text-muted" id="uptime-display">Uptime: calculating...</span>
 </div>
 </main>
 <footer class="mt-20 px-6 opacity-30">
@@ -407,6 +418,9 @@ app.get('/', (req, res) => {
                     document.getElementById('observations-count').textContent = data.observations ? data.observations.length : 0;
                     document.getElementById('total-count').textContent = data.totalCount || 0;
                     updateStatus(data.memories && data.observations ? 'ok' : 'error');
+                    
+                    // Update server status based on health
+                    updateServerStatus(true, data.version || '1.2.0', data.project?.name);
 
                     renderMemories(data.memories || []);
                     renderObservations(data.observations || []);
@@ -438,6 +452,7 @@ app.get('/', (req, res) => {
                 }
             } catch (error) {
                 updateStatus('error');
+                updateServerStatus(false);
 
                 // Show error alert
                 const errorAlert = document.querySelector('.blob-alert');
@@ -633,6 +648,91 @@ app.get('/', (req, res) => {
             }
         }
         
+        // Manual refresh - reload data immediately
+        function manualRefresh() {
+            var btn = document.querySelector('[onclick="manualRefresh()"]');
+            if (btn) {
+                btn.classList.add('animate-spin');
+            }
+            loadData().then(function() {
+                if (btn) {
+                    btn.classList.remove('animate-spin');
+                }
+                updateUptime();
+            });
+        }
+
+        // Pause/Resume auto-refresh
+        var isPaused = false;
+        function togglePause() {
+            isPaused = !isPaused;
+            var btn = document.getElementById('pause-btn');
+            var icon = document.getElementById('pause-icon');
+            var text = document.getElementById('pause-text');
+            
+            if (isPaused) {
+                // Pause - clear interval and update button
+                if (window.refreshInterval) {
+                    clearInterval(window.refreshInterval);
+                    window.refreshInterval = null;
+                }
+                if (btn) btn.classList.add('bg-orange-500/50', 'border', 'border-orange-500');
+                if (icon) icon.textContent = 'play_arrow';
+                if (text) text.textContent = 'Resume';
+            } else {
+                // Resume - restart interval
+                window.refreshInterval = setInterval(loadData, 30000);
+                if (btn) btn.classList.remove('bg-orange-500/50', 'border', 'border-orange-500');
+                if (icon) icon.textContent = 'pause';
+                if (text) text.textContent = 'Pause';
+                loadData();
+            }
+        }
+
+        // Update uptime display
+        var serverStartTime = Date.now();
+        function updateUptime() {
+            var el = document.getElementById('uptime-display');
+            if (!el) return;
+            
+            var elapsed = Math.floor((Date.now() - serverStartTime) / 1000);
+            var hours = Math.floor(elapsed / 3600);
+            var mins = Math.floor((elapsed % 3600) / 60);
+            var secs = elapsed % 60;
+            
+            var timeStr = hours > 0 
+                ? hours + 'h ' + mins + 'm ' + secs + 's'
+                : mins > 0 
+                    ? mins + 'm ' + secs + 's'
+                    : secs + 's';
+            
+            el.textContent = 'Uptime: ' + timeStr;
+        }
+        
+        function updateServerStatus(ok, version, projectName) {
+            var dot = document.getElementById('status-dot');
+            var status = document.getElementById('server-status');
+            var ver = document.getElementById('server-version');
+            
+            if (ok) {
+                if (dot) {
+                    dot.classList.remove('bg-red-500', 'pulse-red');
+                    dot.classList.add('bg-primary', 'animate-pulse');
+                }
+                if (status) status.textContent = 'Server: Online';
+            } else {
+                if (dot) {
+                    dot.classList.remove('bg-primary', 'animate-pulse');
+                    dot.classList.add('bg-red-500', 'pulse-red');
+                }
+                if (status) status.textContent = 'Server: Offline';
+            }
+            
+            if (version && ver) {
+                ver.textContent = 'v' + version;
+            }
+        }
+
         function changeProject(path) {
             currentProjectPath = path;
             loadData();
@@ -641,7 +741,15 @@ app.get('/', (req, res) => {
         // Initialize: load projects first, then data
         loadProjects().then(function() {
             loadData();
-            window.refreshInterval = setInterval(loadData, 30000);
+            // Start uptime counter
+            serverStartTime = Date.now();
+            setInterval(updateUptime, 1000);
+            
+            // Default not paused
+            isPaused = false;
+            window.refreshInterval = setInterval(function() {
+                if (!isPaused) loadData();
+            }, 30000);
         });
     </script>
 </body></html>`;
@@ -652,12 +760,25 @@ app.get('/', (req, res) => {
 export function startWebServer(): Promise<Server> {
   return new Promise((resolve, reject) => {
     const server = app.listen(PORT, () => {
-      logger.info('Web UI available at http://localhost:' + PORT);
+      console.log(`[squish] Web UI available at http://localhost:${PORT}`);
       resolve(server);
     });
 
-    server.on('error', reject);
+    server.on('error', (err) => {
+      console.error('[squish] Server error:', err.message);
+      reject(err);
+    });
   });
 }
+
+// Start server immediately when run directly
+startWebServer()
+  .then(() => {
+    console.log('[squish] Server started successfully');
+  })
+  .catch((err) => {
+    console.error('[squish] Failed to start server:', err.message);
+    process.exit(1);
+  });
 
 export default app;

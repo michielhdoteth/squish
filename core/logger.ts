@@ -4,12 +4,6 @@ interface LogContext {
   [key: string]: any;
 }
 
-function isQuietMode(): boolean {
-  return process.env.SQUISH_QUIET !== 'false' && 
-         process.env.DEBUG !== 'true' && 
-         process.env.DEBUG !== '1';
-}
-
 class Logger {
   private prefix: string;
   private debugEnabled: boolean;
@@ -26,7 +20,7 @@ class Logger {
   }
 
   info(message: string, context?: LogContext): void {
-    if (!isQuietMode()) console.error(this.format('info', message, context));
+    console.log(this.format('info', message, context));
   }
 
   warn(message: string, context?: LogContext): void {
@@ -44,7 +38,7 @@ class Logger {
 
   debug(message: string, context?: LogContext): void {
     if (this.debugEnabled) {
-      console.error(this.format('debug', message, context));
+      console.log(this.format('debug', message, context));
     }
   }
 }
