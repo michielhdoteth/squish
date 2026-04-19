@@ -88,14 +88,25 @@ CREATE TABLE IF NOT EXISTS memories (
   merge_source_ids TEXT,
   is_mergeable INTEGER DEFAULT 1,
   merge_version INTEGER DEFAULT 1,
+  namespace_id TEXT REFERENCES namespaces(id) ON DELETE SET NULL,
+  namespace_path TEXT,
+  has_l0_abstract INTEGER DEFAULT 0,
+  has_l1_overview INTEGER DEFAULT 0,
+  last_layer_update INTEGER,
   importance_score INTEGER DEFAULT 50,
   importance_decay_rate INTEGER DEFAULT 30,
   last_importance_recalc INTEGER,
+  retrieval_priority INTEGER DEFAULT 50,
+  tokens_estimate INTEGER DEFAULT 0,
   consolidated_into TEXT,
   consolidated_at INTEGER,
   is_consolidated INTEGER DEFAULT 0,
   sector TEXT DEFAULT 'episodic',
   tier TEXT DEFAULT 'hot',
+  status TEXT DEFAULT 'active',
+  encrypted_content TEXT,
+  encryption_nonce TEXT,
+  is_encrypted INTEGER DEFAULT 0,
   context_status TEXT DEFAULT 'out-of-context',
   decay_rate INTEGER DEFAULT 30,
   coactivation_score INTEGER DEFAULT 0,
@@ -114,6 +125,7 @@ CREATE TABLE IF NOT EXISTS memories (
   usage_count INTEGER DEFAULT 0,
   valid_from INTEGER,
   valid_to INTEGER,
+  recorded_at INTEGER DEFAULT (strftime('%s','now')),
   superseded_by TEXT,
   version INTEGER DEFAULT 1,
   place_id TEXT,
@@ -952,14 +964,19 @@ export async function ensureDataDirectory(): Promise<void> {
 }
 
 export async function ensureSqliteSchema(sqlite: Database): Promise<void> {
-  // Run schema creation FIRST (creates tables with latest schema)
-  sqlite.exec(sqliteSchemaSql);
+  // Run schema creation FIRST (creates tables with latest schema).
+  // Older installs may fail partway through when later indexes/triggers refer
+  // to columns that migrations have not added yet, so tolerate that first pass.
+  execSqliteSchema(sqlite, { tolerant: true });
   
   // Initialize schema version tracking
   await initializeSchemaVersionTable(sqlite);
   
   // Run migrations AFTER (for existing databases that need column additions)
   await runSqliteMigrations(sqlite);
+
+  // Replay the full schema after migrations so deferred indexes/triggers land.
+  execSqliteSchema(sqlite, { tolerant: false });
 }
 
 // Schema versions for tracking
@@ -1008,6 +1025,27 @@ export async function runMigrationsForVersion(sqlite: Database, targetVersion: s
 async function runSqliteMigrations(sqlite: Database): Promise<void> {
   // All migrations are in separate files - just run them all
   await runAllMigrations(sqlite);
+}
+
+function execSqliteSchema(
+  sqlite: Database,
+  options: { tolerant: boolean },
+): void {
+  try {
+    sqlite.exec(sqliteSchemaSql);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const isRecoverable =
+      message.includes('no such column') ||
+      message.includes('has no column named');
+
+    if (options.tolerant && isRecoverable) {
+      logger.debug(`Deferred schema statement until after migrations: ${message}`);
+      return;
+    }
+
+    throw error;
+  }
 }
 
 export async function ensurePostgresSchema(pool: Pool): Promise<void> {

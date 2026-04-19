@@ -1,11 +1,11 @@
-# Squish - Universal Memory for AI Agents
+# Squish - Memory Runtime for AI Agents
 
 [![npm version](https://img.shields.io/npm/v/squish-memory)](https://www.npmjs.com/package/squish-memory)
 [![npm downloads](https://img.shields.io/npm/dm/squish-memory)](https://www.npmjs.com/package/squish-memory)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
 
-**Give any AI agent persistent, intelligent memory.** Squish captures useful context automatically, keeps long-term memory structured, and helps agents wake up with the right state instead of starting cold.
+**Your agent forgets. Squish fixes that.** It auto-captures useful context, derives durable beliefs like decisions and constraints, and restores that context through CLI, MCP, and a local web UI.
 
 > Squish does not have a crypto token, has no token launch planned, and nobody is authorized to launch one on behalf of the project.
 
@@ -13,7 +13,7 @@
 bun add squish-memory
 ```
 
-## Why Memory Matters
+## Why Squish
 
 | Without Squish | With Squish |
 |----------------|-------------|
@@ -22,9 +22,16 @@ bun add squish-memory
 | No project awareness | Builds understanding over time |
 | Can't track preferences | Adapts to your style |
 
-## How It Works
+## What It Does
 
-**Hybrid memory runtime** for signal quality, persistence, and wake-up continuity:
+Squish is a forward-only memory runtime for agents:
+
+- **Auto-capture** stores durable signal without relying on the model to remember to save it.
+- **Belief derivation** turns memories into decisions, constraints, and preferences that can change future behavior.
+- **Context restore** gives a restarted agent the relevant state instead of a cold start.
+- **Inspection surfaces** let you see what was stored, what belief was derived, and why it was injected back.
+
+Under the hood, Squish uses a hybrid memory pipeline for signal quality, persistence, and wake-up continuity:
 
 ```
 User Action ──► Signal Distillation ──► Write Gate ──► Session Working Set
@@ -44,42 +51,44 @@ User Action ──► Signal Distillation ──► Write Gate ──► Session
 ## Quick Start
 
 ### Install with add-mcp (Recommended)
-One command installs to Claude Code, OpenCode, Cursor, VS Code, Codex, and more:
+One command installs Squish into Claude Code, OpenCode, Cursor, VS Code, Codex, and other MCP-capable clients:
 
 ```bash
 npx add-mcp squish-memory
 ```
 
-Or traditional npm install:
+Or install the package directly:
 
 ```bash
 bun add squish-memory
 ```
 
-Most memory behavior is automatic once Squish is installed. The CLI remains available for explicit saves, search, inspection, and diagnostics:
+New installs should work on first run with the current schema. If you are upgrading an older local install, use `squish doctor --migrate` to repair it forward.
+
+Most memory behavior is automatic once Squish is installed. The CLI remains available for explicit saves, inspection, diagnostics, and one-command demos:
 
 ```bash
+# Zero-touch demo: show current project context and derived beliefs
+squish context --json
+
 # Explicit save when you want to pin something intentionally
-squish remember "User prefers TypeScript over JavaScript"
+squish remember "We chose PostgreSQL for team mode" --type decision
 
-# Search durable memory
-squish search "coding preferences"
+# Inspect why a memory exists and which beliefs it supports
+squish inspect <memory-id> --json
 
-# Inspect why a memory was stored and whether raw fallback exists
-squish inspect <memory-id>
-
-# View project and signal statistics
-squish stats
+# Repair an older install forward if local schema drifted
+squish doctor --json --migrate
 ```
 
-Or use with your AI client directly:
+Or use the other shipped surfaces directly:
 
 ```bash
-# Install MCP server (recommended via add-mcp)
-npx add-mcp squish-memory
+# MCP health check / manual startup surface
+squish-mcp --health
 
-# Or start manually
-squish run mcp
+# Local web UI
+squish run web
 ```
 
 ## Features
@@ -111,9 +120,9 @@ squish run mcp
 - Optional encryption via `SQUISH_ENCRYPTION_PASSPHRASE` env var
 
 ### Universal Compatibility
-- **CLI**: `squish remember`, `squish search`, `squish recall`, `squish inspect`, `squish context`, `squish stats`
+- **CLI**: `squish remember`, `squish search`, `squish recall`, `squish inspect`, `squish context`, `squish stats`, `squish doctor`
 - **MCP Server**: Works with Claude Code, OpenCode, Cursor, VS Code, OpenClaw
-- **HTTP API**: REST API + WebSocket for any agent
+- **Web UI**: Inspect memories, projects, and recent observations locally
 - **SQLite**: Local, zero-config
 - **PostgreSQL**: Team mode with Supabase/pgvector
 - **QMD Integration**: Native .md file search via @tobilu/qmd npm package
@@ -122,7 +131,6 @@ squish run mcp
 - `squish_search`, `squish_timeline`, `squish_remember`, `squish_recall`, `squish_forget`
 - `squish_link`, `squish_context`, `squish_health`, `squish_stats`, `squish_inspect`
 - `squish_pin`, `squish_set_passphrase`, `squish_rotate_key`, `squish_recent`, `squish_stale`
-- `squish_beliefs`, `squish_trust_report` - Belief system tools
 
 ## Benchmark Results
 
@@ -136,17 +144,15 @@ Real tests using [LoCoMo](https://github.com/snap-research/locomo) benchmark (22
 | Max Throughput | 943 ops/sec |
 | Package Size | **283 KB** |
 
-### vs Cloud Solutions
+### Local Runtime Characteristics
 
-| | Squish | Cloud Memory |
-|--|--------|-------------|
-| **Cost** | $0 | API fees |
-| **Local-first** | Yes | No |
-| **Setup** | 1 command | 3+ steps |
-| **API keys** | None | Required |
-| **LoCoMo** | 77% | 75-81% |
-
-Squish matches cloud solutions on accuracy while running 100% locally with zero API costs.
+| Characteristic | Result |
+|----------------|--------|
+| Default Cost | $0 local runtime |
+| Local-first | Yes |
+| Setup | 1 command |
+| API keys | Not required for the default path |
+| Session continuity | Built in |
 
 ## Supported Clients
 
@@ -210,23 +216,15 @@ bun run verify:mcp
 ## Troubleshooting
 
 ```bash
-# Reset local database
-rm -rf .squish/squish.db
+# Repair an older local install forward
+squish doctor --migrate
 
-# Verify MCP server startup
-bun run verify:mcp
+# Zero-touch runtime check
+squish context --json
 
-# Check health
-squish health
+# MCP health check
+squish-mcp --health
 ```
-
-## CLI Command Families
-
-- Setup/runtime: `squish`, `squish config`, `squish install`, `squish run mcp`, `squish run web`
-- Capture/retrieval: `squish remember`, `squish note`, `squish learn`, `squish search`, `squish recall`, `squish recent`
-- Memory management: `squish update`, `squish forget`, `squish pin`, `squish confidence`, `squish tag`, `squish stale`, `squish link`
-- Context/project discovery: `squish context --list-projects`, `squish context`
-- System: `squish health`, `squish stats`
 
 ## License
 

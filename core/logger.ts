@@ -19,15 +19,28 @@ class Logger {
     return `[${this.prefix}:${level}] ${message}${ctx}`;
   }
 
+  private isQuiet(): boolean {
+    return process.env.SQUISH_QUIET === 'true' || process.env.SQUISH_QUIET === '1';
+  }
+
   info(message: string, context?: LogContext): void {
+    if (this.isQuiet()) {
+      return;
+    }
     console.log(this.format('info', message, context));
   }
 
   warn(message: string, context?: LogContext): void {
+    if (this.isQuiet()) {
+      return;
+    }
     console.error(this.format('warn', message, context));
   }
 
   error(message: string, error?: Error | any, context?: LogContext): void {
+    if (this.isQuiet()) {
+      return;
+    }
     const errorMsg = error instanceof Error ? error.message : error;
     const ctx = { ...context, error: errorMsg };
     console.error(this.format('error', message, ctx));
@@ -37,7 +50,7 @@ class Logger {
   }
 
   debug(message: string, context?: LogContext): void {
-    if (this.debugEnabled) {
+    if (this.debugEnabled && !this.isQuiet()) {
       console.log(this.format('debug', message, context));
     }
   }

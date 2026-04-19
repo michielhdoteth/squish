@@ -30,6 +30,8 @@ export function registerRememberCommand(program: Command) {
     .option('--route <route>', 'Routing: auto, memory, learning, note', 'auto')
     .option('--learning-type <type>', 'Learning type if routing to learning: success, failure, fix, insight')
     .action(async (content: string, options: any) => {
+      const previousQuiet = process.env.SQUISH_QUIET;
+      process.env.SQUISH_QUIET = '1';
       try {
         const signals = detectMemorySignals(content);
         
@@ -126,6 +128,12 @@ export function registerRememberCommand(program: Command) {
       } catch (error: any) {
         console.error(JSON.stringify({ ok: false, error: error.message }));
         process.exit(1);
+      } finally {
+        if (previousQuiet === undefined) {
+          delete process.env.SQUISH_QUIET;
+        } else {
+          process.env.SQUISH_QUIET = previousQuiet;
+        }
       }
     });
 }

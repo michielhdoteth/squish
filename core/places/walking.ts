@@ -1,7 +1,7 @@
 /**
  * Walking Interface - Sequential memory retrieval through places
  * 
- * Implements Method of Loci walking through memory places:
+ * Implements place walking through memory places:
  * - Walk single place to get memories in order
  * - Walk all places for full tour
  * - Token budget handling with TOON compression

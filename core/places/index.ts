@@ -1,5 +1,5 @@
 /**
- * Places Module - Spatial memory organization (Method of Loci)
+ * Places Module - Spatial memory organization
  * 
  * Exports:
  * - places.ts: CRUD operations for places

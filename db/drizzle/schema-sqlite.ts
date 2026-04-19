@@ -390,7 +390,7 @@ export const namespaces: any = sqliteTable('namespaces', {
 ]);
 
 /**
- * Places - Spatial memory organization (Method of Loci)
+ * Places - Spatial memory organization
  */
 export const places: any = sqliteTable('places', {
   id: text('id').primaryKey().$default(() => crypto.randomUUID()),

@@ -8,6 +8,7 @@
 
 import type { Database } from 'better-sqlite3';
 import { runPlacesMigrations } from './places.js';
+import { runProjectMigrations } from './projects.js';
 import { runMemoriesMigrations } from './memories.js';
 import { runLearningsMigrations } from './learnings.js';
 import { runCoreMemoryMigrations } from './core-memory.js';
@@ -24,6 +25,7 @@ import { runTierConversion } from './tier-conversion.js';
  */
 export async function runAllMigrations(sqlite: Database): Promise<void> {
   // Run each migration in dependency order
+  await runProjectMigrations(sqlite);
   await runPlacesMigrations(sqlite);
   await runMemoriesMigrations(sqlite);
   await runLearningsMigrations(sqlite);
@@ -39,6 +41,7 @@ export async function runAllMigrations(sqlite: Database): Promise<void> {
 
 // Re-export for direct usage if needed
 export { runPlacesMigrations } from './places.js';
+export { runProjectMigrations } from './projects.js';
 export { runMemoriesMigrations } from './memories.js';
 export { runLearningsMigrations } from './learnings.js';
 export { runCoreMemoryMigrations } from './core-memory.js';

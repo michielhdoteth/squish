@@ -15,6 +15,10 @@ export function registerStatsCommand(program: Command) {
     .option('-p, --project <project>', 'Project path')
     .option('--json', 'Emit machine-readable output', false)
     .action(async (options: any) => {
+      const previousQuiet = process.env.SQUISH_QUIET;
+      if (options.json) {
+        process.env.SQUISH_QUIET = '1';
+      }
       try {
         const stats = await buildStatsState(options.project);
         if (options.json) {
@@ -25,6 +29,14 @@ export function registerStatsCommand(program: Command) {
       } catch (error: any) {
         console.error(JSON.stringify({ ok: false, error: error.message }));
         process.exit(1);
+      } finally {
+        if (options.json) {
+          if (previousQuiet === undefined) {
+            delete process.env.SQUISH_QUIET;
+          } else {
+            process.env.SQUISH_QUIET = previousQuiet;
+          }
+        }
       }
     });
 }

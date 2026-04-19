@@ -48,6 +48,40 @@ export async function runBeliefMigrations(sqlite: Database): Promise<void> {
     }
   }
 
+  const beliefSourcesCheck = sqlite.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='belief_memory_sources'"
+  ).get() as { name: string } | undefined;
+
+  if (!beliefSourcesCheck) {
+    sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS belief_memory_sources (
+        id TEXT PRIMARY KEY,
+        belief_id TEXT,
+        memory_id TEXT,
+        created_at INTEGER,
+        UNIQUE(belief_id, memory_id)
+      )
+    `);
+  }
+
+  const beliefEdgesCheck = sqlite.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='belief_edges'"
+  ).get() as { name: string } | undefined;
+
+  if (!beliefEdgesCheck) {
+    sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS belief_edges (
+        id TEXT PRIMARY KEY,
+        from_belief_id TEXT,
+        to_belief_id TEXT,
+        edge_type TEXT NOT NULL,
+        metadata TEXT,
+        created_at INTEGER,
+        UNIQUE(from_belief_id, to_belief_id, edge_type)
+      )
+    `);
+  }
+
   // Run column migrations - adds missing columns to existing tables
   await migrateTable(sqlite, beliefsSchema);
   await migrateTable(sqlite, beliefMemorySourcesSchema);

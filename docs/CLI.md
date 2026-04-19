@@ -6,18 +6,19 @@ Current reference for the shipped CLI in `packages/cli/src/index.ts`.
 
 Squish exposes a compact operational CLI:
 
-- runtime commands for MCP and Web UI
+- runtime commands for the Web UI, plus a dedicated `squish-mcp` binary
 - direct commands for explicit save, retrieval, inspection, and diagnostics
 - project/runtime visibility commands for trust and release debugging
 
 ## Runtime
 
-### squish run mcp
+### squish-mcp
 
 Start the MCP server for Claude Code, Codex, Cursor, OpenCode, and other MCP clients:
 
 ```bash
-squish run mcp
+squish-mcp
+squish-mcp --health
 ```
 
 ### squish run web
@@ -163,7 +164,7 @@ squish migrate
 
 | Family | Commands |
 |--------|----------|
-| Runtime | `squish run mcp`, `squish run web` |
+| Runtime | `squish-mcp`, `squish run web` |
 | Capture / Retrieval | `squish remember`, `squish search`, `squish recall`, `squish recent`, `squish inspect` |
 | Context / Trust | `squish context`, `squish health`, `squish stats`, `squish doctor` |
 | Maintenance | `squish forget`, `squish link`, `squish stale`, `squish clean`, `squish migrate` |

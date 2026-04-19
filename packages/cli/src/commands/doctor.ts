@@ -34,14 +34,27 @@ export function registerDoctorCommand(program: Command) {
     .option('-p, --project <project>', 'Project path')
     .option('--json', 'Emit machine-readable output', false)
     .action(async (options) => {
-      await runDoctorDiagnostics(options);
+      const previousQuiet = process.env.SQUISH_QUIET;
+      if (options.json) {
+        process.env.SQUISH_QUIET = '1';
+      }
+      try {
+        await runDoctorDiagnostics(options);
+      } finally {
+        if (options.json) {
+          if (previousQuiet === undefined) {
+            delete process.env.SQUISH_QUIET;
+          } else {
+            process.env.SQUISH_QUIET = previousQuiet;
+          }
+        }
+      }
     });
 }
 
 async function runDoctorDiagnostics(options: { fix?: boolean; migrate?: boolean; verbose?: boolean; project?: string; json?: boolean }) {
   const results: DiagnosticResult[] = [];
   const dataDir = getDataDir();
-  const health = await buildHealthState(options.project);
 
   // Check 1: Data directory exists
   const diagnostic1 = await checkDataDirectory(dataDir);
@@ -64,6 +77,24 @@ async function runDoctorDiagnostics(options: { fix?: boolean; migrate?: boolean;
   // Check 5: bin/ files exist
   const diagnostic5 = checkBinFiles();
   results.push(diagnostic5);
+
+  let health;
+  try {
+    health = await buildHealthState(options.project);
+  } catch (error: any) {
+    health = {
+      severity: 'degraded' as const,
+      currentProject: options.project || process.cwd(),
+      checks: [
+        {
+          name: 'runtime health',
+          status: 'degraded' as const,
+          detail: `Skipped until schema is readable: ${error.message}`,
+        },
+      ],
+      nextStep: 'Run `squish doctor --migrate` to repair the local schema, then rerun diagnostics.',
+    };
+  }
 
   const combinedSeverity = [health.severity, ...results.map((result) => result.status)].includes('broken')
     ? 'broken'
@@ -140,7 +171,15 @@ async function checkDatabaseFile(dataDir: string): Promise<DiagnosticResult> {
 }
 
 async function checkSchemaVersion(forceMigrate: boolean): Promise<DiagnosticResult> {
-  const dbClient = await getDb();
+  let dbClient: any;
+  try {
+    dbClient = await getDb();
+  } catch (error) {
+    if (!config.isTeamMode) {
+      return checkSqliteSchemaDirect(forceMigrate);
+    }
+    return { name: 'schema version', status: 'degraded', message: 'Cannot connect to database (no driver available)' };
+  }
   if (!dbClient) {
     return { name: 'schema version', status: 'degraded', message: 'Cannot connect to database (no driver available)' };
   }
@@ -218,6 +257,64 @@ async function checkSchemaVersion(forceMigrate: boolean): Promise<DiagnosticResu
   }
 
   return { name: 'schema version', status: 'ok', message: `Tables OK (${existingTables.length})` };
+}
+
+async function checkSqliteSchemaDirect(forceMigrate: boolean): Promise<DiagnosticResult> {
+  const dbPath = path.join(getDataDir(), 'squish.db');
+
+  try {
+    const sqliteModule = await import('bun:sqlite');
+    const sqlite = new sqliteModule.default(dbPath);
+    try {
+      const tables = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>;
+      const existingTables = tables.map((table) => table.name);
+      const requiredTables = [
+        'memories',
+        'learnings',
+        'projects',
+        'users',
+        'conversations',
+        'messages',
+        'entities',
+        'core_memory',
+        'context_sessions',
+        'memory_associations',
+        'namespaces',
+        'maintenance_jobs',
+        'places',
+        'memory_places',
+        'place_rules',
+        'session_summaries',
+        'beliefs',
+        'belief_memory_sources',
+        'belief_edges',
+      ];
+      const missingTables = requiredTables.filter((table) => !existingTables.includes(table));
+
+      if (forceMigrate || missingTables.length > 0) {
+        const { ensureSqliteSchema, getSchemaVersion } = await import('../../../../db/bootstrap.js');
+        await ensureSqliteSchema(sqlite as any);
+        const version = await getSchemaVersion(sqlite as any);
+        return {
+          name: 'schema version',
+          status: 'ok',
+          message: `Migrations applied. Schema: ${version}`,
+        };
+      }
+
+      return { name: 'schema version', status: 'ok', message: `Tables OK (${existingTables.length})` };
+    } finally {
+      sqlite.close();
+    }
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    return {
+      name: 'schema version',
+      status: 'degraded',
+      message: `Migration note: ${msg}`,
+      fix: 'Run "squish doctor --migrate" to retry',
+    };
+  }
 }
 
 function checkConfig(): DiagnosticResult {

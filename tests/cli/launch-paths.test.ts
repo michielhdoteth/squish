@@ -1,0 +1,240 @@
+import { describe, expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+const repoRoot = join(import.meta.dir, '..', '..');
+
+describe('launch-path CLI commands', () => {
+  test('context --json starts without parse-time module errors', () => {
+    const tempDataDir = mkdtempSync(join(tmpdir(), 'squish-launch-'));
+
+    try {
+      const result = spawnSync(
+        'bun',
+        ['run', 'packages/cli/src/index.ts', 'context', '--json'],
+        {
+          cwd: repoRoot,
+          encoding: 'utf8',
+          env: {
+            ...process.env,
+            SQUISH_DATA_DIR: tempDataDir,
+            DATABASE_URL: '',
+          },
+        },
+      );
+
+      expect(result.status).toBe(0);
+      expect(result.stderr).not.toContain("Cannot export a duplicate name 'getDb'");
+      expect(() => JSON.parse(result.stdout)).not.toThrow();
+    } finally {
+      rmSync(tempDataDir, { recursive: true, force: true });
+    }
+  });
+
+  test('remembered durable decisions appear in context and inspect JSON output', () => {
+    const tempDataDir = mkdtempSync(join(tmpdir(), 'squish-launch-flow-'));
+    const env = {
+      ...process.env,
+      SQUISH_DATA_DIR: tempDataDir,
+      DATABASE_URL: '',
+    };
+
+    try {
+      const remember = spawnSync(
+        'bun',
+        [
+          'run',
+          'packages/cli/src/index.ts',
+          'remember',
+          'Keep launch demos focused on one clean JSON command',
+          '--type',
+          'decision',
+        ],
+        {
+          cwd: repoRoot,
+          encoding: 'utf8',
+          env,
+        },
+      );
+
+      expect(remember.status).toBe(0);
+      const remembered = JSON.parse(remember.stdout);
+      expect(remembered.ok).toBe(true);
+      expect(remembered.routing).toBe('memory');
+
+      const context = spawnSync(
+        'bun',
+        ['run', 'packages/cli/src/index.ts', 'context', '--json'],
+        {
+          cwd: repoRoot,
+          encoding: 'utf8',
+          env,
+        },
+      );
+
+      expect(context.status).toBe(0);
+      const contextJson = JSON.parse(context.stdout);
+      expect(contextJson.durableMemories).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: remembered.id,
+            type: 'decision',
+            content: 'Keep launch demos focused on one clean JSON command',
+          }),
+        ]),
+      );
+      expect(contextJson.beliefs).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: 'decision',
+            statement: 'Keep launch demos focused on one clean JSON command',
+          }),
+        ]),
+      );
+
+      const inspect = spawnSync(
+        'bun',
+        ['run', 'packages/cli/src/index.ts', 'inspect', remembered.id, '--json'],
+        {
+          cwd: repoRoot,
+          encoding: 'utf8',
+          env,
+        },
+      );
+
+      expect(inspect.status).toBe(0);
+      const inspectJson = JSON.parse(inspect.stdout);
+      expect(inspectJson.inspection.id).toBe(remembered.id);
+      expect(inspectJson.inspection.beliefs).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: 'decision',
+            statement: 'Keep launch demos focused on one clean JSON command',
+          }),
+        ]),
+      );
+    } finally {
+      rmSync(tempDataDir, { recursive: true, force: true });
+    }
+  });
+
+  test('doctor migrates an older sqlite install forward before writes', () => {
+    const tempDataDir = mkdtempSync(join(tmpdir(), 'squish-upgrade-'));
+    const dbPath = join(tempDataDir, 'squish.db');
+    mkdirSync(tempDataDir, { recursive: true });
+
+    const env = {
+      ...process.env,
+      SQUISH_DATA_DIR: tempDataDir,
+      DATABASE_URL: '',
+    };
+
+    try {
+      const bootstrapOldInstall = spawnSync(
+        'bun',
+        [
+          '-e',
+          `
+            import { Database } from 'bun:sqlite';
+            const db = new Database(process.argv[1]);
+            db.exec(\`
+              PRAGMA foreign_keys = ON;
+              CREATE TABLE projects (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                path TEXT NOT NULL
+              );
+              CREATE TABLE users (
+                id TEXT PRIMARY KEY
+              );
+              CREATE TABLE memories (
+                id TEXT PRIMARY KEY,
+                project_id TEXT,
+                user_id TEXT,
+                type TEXT NOT NULL,
+                content TEXT NOT NULL,
+                created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL,
+                updated_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL
+              );
+            \`);
+            db.close();
+          `,
+          dbPath,
+        ],
+        {
+          cwd: repoRoot,
+          encoding: 'utf8',
+          env,
+        },
+      );
+
+      expect(bootstrapOldInstall.status).toBe(0);
+
+      const doctor = spawnSync(
+        'bun',
+        ['run', 'packages/cli/src/index.ts', 'doctor', '--json', '--migrate'],
+        {
+          cwd: repoRoot,
+          encoding: 'utf8',
+          env,
+        },
+      );
+
+      expect(doctor.status).toBe(0);
+      const doctorJson = JSON.parse(doctor.stdout);
+      expect(doctorJson.diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: 'schema version',
+          }),
+        ]),
+      );
+
+      const remember = spawnSync(
+        'bun',
+        [
+          'run',
+          'packages/cli/src/index.ts',
+          'remember',
+          'Older installs should migrate forward without losing release features',
+          '--type',
+          'decision',
+        ],
+        {
+          cwd: repoRoot,
+          encoding: 'utf8',
+          env,
+        },
+      );
+
+      expect(remember.status).toBe(0);
+      const remembered = JSON.parse(remember.stdout);
+      expect(remembered.ok).toBe(true);
+
+      const context = spawnSync(
+        'bun',
+        ['run', 'packages/cli/src/index.ts', 'context', '--json'],
+        {
+          cwd: repoRoot,
+          encoding: 'utf8',
+          env,
+        },
+      );
+
+      expect(context.status).toBe(0);
+      const contextJson = JSON.parse(context.stdout);
+      expect(contextJson.beliefs).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: 'decision',
+            statement: 'Older installs should migrate forward without losing release features',
+          }),
+        ]),
+      );
+    } finally {
+      rmSync(tempDataDir, { recursive: true, force: true });
+    }
+  });
+});

@@ -404,7 +404,7 @@ export const namespaces: any = pgTable('namespaces', {
 ]);
 
 /**
- * Places - Spatial memory organization (Method of Loci)
+ * Places - Spatial memory organization
  */
 export const places: any = pgTable('places', {
   id: uuid('id').primaryKey().defaultRandom(),

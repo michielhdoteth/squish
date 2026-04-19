@@ -18,6 +18,10 @@ export function registerContextCommand(program: Command) {
     .option('--limit <number>', 'Max memories to return', '10')
     .option('--json', 'Emit machine-readable output', false)
     .action(async (options: any) => {
+      const previousQuiet = process.env.SQUISH_QUIET;
+      if (options.json) {
+        process.env.SQUISH_QUIET = '1';
+      }
       try {
         if (options.listProjects) {
           const projects = await getAllProjects();
@@ -62,6 +66,14 @@ export function registerContextCommand(program: Command) {
       } catch (error: any) {
         console.error(JSON.stringify({ ok: false, error: error.message }));
         process.exit(1);
+      } finally {
+        if (options.json) {
+          if (previousQuiet === undefined) {
+            delete process.env.SQUISH_QUIET;
+          } else {
+            process.env.SQUISH_QUIET = previousQuiet;
+          }
+        }
       }
     });
 }

@@ -16,10 +16,10 @@ Universal memory layer for AI agents via Model Context Protocol (MCP).
 
 ```bash
 # Start Squish MCP server
-bun run mcp
+squish-mcp
 
 # Or with custom port
-SQUISH_MCP_PORT=9000 bun run mcp
+SQUISH_MCP_PORT=9000 squish-mcp --http --port 9000
 ```
 
 Server runs on `http://localhost:8767` by default.
@@ -271,7 +271,7 @@ bun run build
 bun test
 
 # Run MCP server
-bun run mcp
+squish-mcp
 ```
 
 ### Roadmap

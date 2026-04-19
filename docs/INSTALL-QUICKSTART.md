@@ -19,13 +19,14 @@ bun add squish-memory
 ## 2) Verify The MCP Server
 
 ```bash
-bun run verify:mcp
+squish-mcp --health
 ```
 
 Expected output:
 
 ```text
-[MCP] Health check passed. Server initialized with ... tools.
+Squish MCP Server v1.2.0
+Health check: OK
 ```
 
 ## 3) Start Specific Surfaces
@@ -33,7 +34,7 @@ Expected output:
 ### MCP server
 
 ```bash
-squish run mcp
+squish-mcp
 ```
 
 ### Web UI
@@ -46,39 +47,42 @@ squish run web
 ## 4) Sanity-Check The Runtime
 
 ```bash
-squish health
-squish context
-squish stats
+squish context --json
+squish health --json
+squish stats --json
 ```
 
 If you want to inspect why a specific record exists:
 
 ```bash
-squish inspect <memory-id>
+squish inspect <memory-id> --json
+```
+
+If you are upgrading an older local install and hit schema drift:
+
+```bash
+squish doctor --json --migrate
 ```
 
 ## Expected Outputs
 
-### squish run mcp
+### squish-mcp --health
 
 ```text
-[squish-memory] v1.2.0 initializing...
-[MCP] Connected via stdio. ... tools available.
+Squish MCP Server v1.2.0
+Health check: OK
 ```
 
 ### squish run web
 
 ```text
-[squish] Starting Web UI only...
-[squish:info] Web UI available at http://localhost:37777
+Starting Squish web UI on http://localhost:37777...
 ```
 
-### squish health
+### squish context --json
 
-```text
-Status: ok|degraded|broken
-Current project: ...
-Subsystems
-...
-Next step: ...
+```json
+{
+  "ok": true
+}
 ```

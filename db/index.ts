@@ -81,4 +81,3 @@ export async function checkDatabaseHealth(): Promise<boolean> {
 
 export { config };
 export { createDb };
-export { getDb };

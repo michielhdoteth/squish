@@ -9,6 +9,10 @@ export function registerInspectCommand(program: Command) {
     .option('-P, --pretty', 'Human-friendly output', false)
     .option('--json', 'Emit machine-readable output', false)
     .action(async (id: string, options: any) => {
+      const previousQuiet = process.env.SQUISH_QUIET;
+      if (options.json) {
+        process.env.SQUISH_QUIET = '1';
+      }
       try {
         const inspection = await buildInspectState(id);
         if (!inspection) {
@@ -24,6 +28,14 @@ export function registerInspectCommand(program: Command) {
       } catch (error: any) {
         console.error(JSON.stringify({ ok: false, error: error.message }));
         process.exit(1);
+      } finally {
+        if (options.json) {
+          if (previousQuiet === undefined) {
+            delete process.env.SQUISH_QUIET;
+          } else {
+            process.env.SQUISH_QUIET = previousQuiet;
+          }
+        }
       }
     });
 }
