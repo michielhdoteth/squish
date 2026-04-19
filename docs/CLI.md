@@ -1,46 +1,20 @@
 # Squish CLI Reference
 
-Current reference for the Squish CLI implemented in `squish/index.ts`.
+Current reference for the shipped CLI in `packages/cli/src/index.ts`.
 
 ## Overview
 
-Squish provides:
+Squish exposes a compact operational CLI:
 
-- An interactive wizard when you run `squish`
-- Runtime commands for MCP and Web UI
-- Direct CLI commands for capture, retrieval, context, and memory management
+- runtime commands for MCP and Web UI
+- direct commands for explicit save, retrieval, inspection, and diagnostics
+- project/runtime visibility commands for trust and release debugging
 
-## Setup / Runtime
-
-### squish
-
-Launch the interactive wizard:
-
-```bash
-squish
-```
-
-### squish config
-
-Manage persisted Squish configuration:
-
-```bash
-squish config
-squish config get project
-squish config set project /path/to/project
-```
-
-### squish install
-
-Launch the installer wizard directly:
-
-```bash
-squish install
-```
+## Runtime
 
 ### squish run mcp
 
-Start the MCP server for Claude Code, OpenCode, Codex, and other MCP clients:
+Start the MCP server for Claude Code, Codex, Cursor, OpenCode, and other MCP clients:
 
 ```bash
 squish run mcp
@@ -54,153 +28,101 @@ Start only the Web UI:
 squish run web
 ```
 
-## Capture / Retrieval
+## Memory Capture And Retrieval
 
 ### squish remember
 
-Store a memory:
+Store an explicit memory:
 
 ```bash
 squish remember "User prefers TypeScript" --type preference
-squish remember "API uses JWT tokens" --type fact --tags auth,api
-squish remember "Chose PostgreSQL" --type decision --project /path/to/project
+squish remember "Chose PostgreSQL for team mode" --type decision --project /path/to/project
 ```
-
-Options:
-- `-t, --type <type>` memory type: `observation`, `fact`, `decision`, `context`, `preference`
-- `-T, --tags <tags>` comma-separated tags
-- `-p, --project <project>` project path
-
-### squish note
-
-Save a quick brain dump for later processing:
-
-```bash
-squish note "Revisit caching strategy after launch"
-```
-
-Options:
-- `-p, --project <project>` project path
-
-### squish learn
-
-Record structured learning and observations:
-
-```bash
-squish learn success "Shipped MCP config to Claude Code"
-squish learn failure "Rate limiter blocked valid webhook traffic"
-squish learn fix "Patched auth middleware" --target middleware.ts
-squish learn observation "Updated auth flow" --action edit
-```
-
-Options:
-- `-c, --context <context>` extra context
-- `-a, --action <action>` action performed when type is `observation`
-- `-o, --observation-type <kind>` observation kind for `observation` mode
-- `-t, --target <target>` target file or resource
-- `-p, --project <project>` project path
-
-Valid types:
-- `success`
-- `failure`
-- `fix`
-- `observation`
 
 ### squish search
 
-Search memories:
+Search durable memory:
 
 ```bash
 squish search "authentication patterns"
 squish search "database schema" --limit 10
-squish search "user preferences" --type preference
 ```
-
-Options:
-- `-t, --type <type>` filter by memory type
-- `-l, --limit <number>` max results
-- `-p, --project <project>` project path
-- `-s, --since <date>` created after date
-- `-u, --until <date>` created before date
 
 ### squish recall
 
-Search by query or fetch by memory ID:
+Recall by query or memory ID:
 
 ```bash
 squish recall "user preferences"
 squish recall 123e4567-e89b-12d3-a456-426614174000
 ```
 
-Options:
-- `-l, --limit <number>` max results
-- `-t, --type <type>` filter by type
-- `-p, --project <project>` project path
-- `-s, --since <date>` created after date
-- `-u, --until <date>` created before date
-
 ### squish recent
 
-Show recent memories:
+Show recent memory activity:
 
 ```bash
 squish recent --period today
 squish recent --period 7days
-squish recent --since "2026-01-01" --until "2026-01-31"
 ```
 
-## Memory Management
+### squish inspect
 
-### squish update
-
-Update an existing memory:
+Explain why a memory exists and whether extra runtime metadata exists:
 
 ```bash
-squish update <memory-id> --content "Updated text"
+squish inspect <memory-id>
+squish inspect <memory-id> --json
 ```
+
+## Context And Diagnostics
+
+### squish context
+
+Show current project context or list projects:
+
+```bash
+squish context
+squish context --json
+squish context --list-projects
+```
+
+### squish health
+
+Show trust-oriented runtime health:
+
+```bash
+squish health
+squish health --json
+```
+
+### squish stats
+
+Show durable totals plus capture-era signal telemetry:
+
+```bash
+squish stats
+squish stats --json
+```
+
+### squish doctor
+
+Run combined trust + diagnostics checks:
+
+```bash
+squish doctor
+squish doctor --json
+squish doctor --verbose
+```
+
+## Maintenance
 
 ### squish forget
 
-Delete a memory or bulk-delete matches:
+Delete a memory:
 
 ```bash
 squish forget <memory-id>
-squish forget --search "stale auth notes" --confirm
-```
-
-### squish pin
-
-Pin or unpin a memory:
-
-```bash
-squish pin <memory-id>
-squish pin <memory-id> --unpin
-```
-
-### squish confidence
-
-View or set confidence:
-
-```bash
-squish confidence <memory-id>
-squish confidence <memory-id> certain
-```
-
-### squish tag
-
-Bulk add or remove tags:
-
-```bash
-squish tag add important --search "billing"
-squish tag remove stale --older-than "30 days"
-```
-
-### squish stale
-
-Show stale memories:
-
-```bash
-squish stale --days 30
 ```
 
 ### squish link
@@ -213,45 +135,35 @@ squish link add <from-id> <to-id> related
 squish link list <memory-id>
 ```
 
-## Context / Project Discovery
+### squish stale
 
-### squish context
-
-Show project context or list registered projects:
+Show stale memories:
 
 ```bash
-squish context --list-projects
-squish context
-squish context --include memories,observations,entities
-squish context --json
+squish stale --days 30
 ```
 
-## System
+### squish clean
 
-### squish health
-
-Check service health:
+Run cleanup / maintenance tasks:
 
 ```bash
-squish health
-squish health --json
+squish clean
 ```
 
-### squish stats
+### squish migrate
 
-Get memory statistics:
+Unify multiple local `.squish` folders into the current workspace location:
 
 ```bash
-squish stats
-squish stats --project /path/to/project
+squish migrate
 ```
 
 ## Quick Reference
 
 | Family | Commands |
 |--------|----------|
-| Setup / Runtime | `squish`, `squish config`, `squish install`, `squish run mcp`, `squish run web` |
-| Capture / Retrieval | `squish remember`, `squish note`, `squish learn`, `squish search`, `squish recall`, `squish recent` |
-| Memory Management | `squish update`, `squish forget`, `squish pin`, `squish confidence`, `squish tag`, `squish stale`, `squish link` |
-| Context / Projects | `squish context --list-projects`, `squish context` |
-| System | `squish health`, `squish stats` |
+| Runtime | `squish run mcp`, `squish run web` |
+| Capture / Retrieval | `squish remember`, `squish search`, `squish recall`, `squish recent`, `squish inspect` |
+| Context / Trust | `squish context`, `squish health`, `squish stats`, `squish doctor` |
+| Maintenance | `squish forget`, `squish link`, `squish stale`, `squish clean`, `squish migrate` |

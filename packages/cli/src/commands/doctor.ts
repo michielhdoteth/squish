@@ -1,23 +1,25 @@
 /**
  * Squish Doctor Command
- * 
+ *
  * Diagnose and fix common Squish issues automatically.
- * 
+ *
  * Usage:
  *   squish doctor              # Run diagnostics
  *   squish doctor --fix       # Auto-fix issues
- *   squish doctor --migrate   # Force run migrations
+ *   squish doctor --migrate   # Force run database migrations
  */
 
 import { Command } from 'commander';
 import fs from 'node:fs';
 import path from 'node:path';
 import { getDataDir, config } from '../../../../config.js';
-import { createDb } from '../../../../db/index.js';
+import { createDb, getDb } from '../../../../db/index.js';
+import { buildHealthState } from '../../../../core/runtime/trust-state.js';
+import { formatHealthReport } from '../../../../core/runtime/trust-report.js';
 
 interface DiagnosticResult {
   name: string;
-  status: 'pass' | 'fail' | 'warn';
+  status: 'ok' | 'degraded' | 'broken';
   message: string;
   fix?: string;
 }
@@ -29,17 +31,18 @@ export function registerDoctorCommand(program: Command) {
     .option('-f, --fix', 'Auto-fix issues when possible')
     .option('-m, --migrate', 'Force run database migrations')
     .option('-v, --verbose', 'Show detailed output')
+    .option('-p, --project <project>', 'Project path')
+    .option('--json', 'Emit machine-readable output', false)
     .action(async (options) => {
       await runDoctorDiagnostics(options);
     });
 }
 
-async function runDoctorDiagnostics(options: { fix?: boolean; migrate?: boolean; verbose?: boolean }) {
+async function runDoctorDiagnostics(options: { fix?: boolean; migrate?: boolean; verbose?: boolean; project?: string; json?: boolean }) {
   const results: DiagnosticResult[] = [];
   const dataDir = getDataDir();
-  
-  console.log('\n=== Squish Doctor v1.2.0 ===\n');
-  
+  const health = await buildHealthState(options.project);
+
   // Check 1: Data directory exists
   const diagnostic1 = await checkDataDirectory(dataDir);
   results.push(diagnostic1);
@@ -61,40 +64,53 @@ async function runDoctorDiagnostics(options: { fix?: boolean; migrate?: boolean;
   // Check 5: bin/ files exist
   const diagnostic5 = checkBinFiles();
   results.push(diagnostic5);
-  
-  // Print results
-  console.log('Diagnostics Results:\n');
-  let passCount = 0;
-  let failCount = 0;
-  let warnCount = 0;
-  
-  for (const result of results) {
-    const icon = result.status === 'pass' ? '✓' : result.status === 'fail' ? '✗' : '⚠';
-    const color = result.status === 'pass' ? '\x1b[32m' : result.status === 'fail' ? '\x1b[31m' : '\x1b[33m';
-    console.log(`${color}${icon}\x1b[0m ${result.name}: ${result.message}`);
-    
-    if (result.status === 'pass') passCount++;
-    else if (result.status === 'fail') failCount++;
-    else warnCount++;
-    
-    // Show fix suggestion for failures
-    if (result.status === 'fail' && result.fix) {
-      console.log(`  Fix: ${result.fix}`);
+
+  const combinedSeverity = [health.severity, ...results.map((result) => result.status)].includes('broken')
+    ? 'broken'
+    : ([health.severity, ...results.map((result) => result.status)].includes('degraded') ? 'degraded' : 'ok');
+  const nextStep =
+    health.nextStep ??
+    results.find((result) => result.fix)?.fix ??
+    (options.fix ? 'Apply the suggested fixes, then rerun `squish doctor`.' : null);
+
+  const combined = {
+    severity: combinedSeverity as 'ok' | 'degraded' | 'broken',
+    currentProject: health.currentProject,
+    checks: health.checks,
+    diagnostics: results.map((result) => ({
+      name: result.name,
+      status: result.status,
+      detail: result.message,
+      fix: result.fix,
+    })),
+    nextStep,
+  };
+
+  if (options.json) {
+    console.log(JSON.stringify({ ok: combined.severity !== 'broken', ...combined }, null, 2));
+    process.exit(combined.severity === 'broken' ? 1 : 0);
+  }
+
+  console.log('\n=== Squish Doctor v1.2.0 ===\n');
+  console.log(formatHealthReport({
+    severity: combined.severity,
+    currentProject: combined.currentProject,
+    checks: combined.checks,
+    diagnostics: combined.diagnostics,
+    nextStep: combined.nextStep,
+  }));
+
+  if (options.verbose) {
+    console.log('\nDiagnostic detail');
+    for (const result of results) {
+      console.log(`- ${result.name}: ${result.message}`);
+      if (result.fix) {
+        console.log(`  fix: ${result.fix}`);
+      }
     }
   }
-  
-  console.log(`\nSummary: ${passCount} passed, ${warnCount} warnings, ${failCount} failed\n`);
-  
-  // Exit with appropriate code
-  if (failCount > 0) {
-    console.log('\x1b[31mRun "squish doctor --fix" to auto-fix issues\x1b[0m\n');
-    process.exit(1);
-  } else if (warnCount > 0) {
-    process.exit(0);
-  } else {
-    console.log('\x1b[32mAll checks passed!\x1b[0m\n');
-    process.exit(0);
-  }
+
+  process.exit(combined.severity === 'broken' ? 1 : 0);
 }
 
 async function checkDataDirectory(dataDir: string): Promise<DiagnosticResult> {
@@ -102,11 +118,11 @@ async function checkDataDirectory(dataDir: string): Promise<DiagnosticResult> {
     if (!fs.existsSync(dataDir)) {
       // Try to create it
       fs.mkdirSync(dataDir, { recursive: true });
-      return { name: 'Data directory', status: 'pass', message: 'Created data directory' };
+      return { name: 'data directory', status: 'ok', message: 'Created data directory' };
     }
-    return { name: 'Data directory', status: 'pass', message: dataDir };
+    return { name: 'data directory', status: 'ok', message: dataDir };
   } catch (error) {
-    return { name: 'Data directory', status: 'fail', message: 'Cannot access data directory', fix: 'Check file permissions' };
+    return { name: 'data directory', status: 'broken', message: 'Cannot access data directory', fix: 'Check file permissions' };
   }
 }
 
@@ -115,40 +131,93 @@ async function checkDatabaseFile(dataDir: string): Promise<DiagnosticResult> {
   
   try {
     if (!fs.existsSync(dbPath)) {
-      return { name: 'Database', status: 'warn', message: 'Database not found (will be created on first use)', fix: 'Run any squish command to create database' };
+      return { name: 'database file', status: 'degraded', message: 'Database not found (will be created on first use)', fix: 'Run any squish command to create the local database.' };
     }
-    return { name: 'Database', status: 'pass', message: dbPath };
+    return { name: 'database file', status: 'ok', message: dbPath };
   } catch (error) {
-    return { name: 'Database', status: 'fail', message: 'Cannot access database file', fix: 'Check file permissions' };
+    return { name: 'database file', status: 'broken', message: 'Cannot access database file', fix: 'Check file permissions' };
   }
 }
 
 async function checkSchemaVersion(forceMigrate: boolean): Promise<DiagnosticResult> {
-  try {
-    // Try to get DB and check version
-    const db = await createDb();
-    
-    if (!db) {
-      return { name: 'Schema version', status: 'warn', message: 'Cannot connect to database (no driver available)' };
+  const dbClient = await getDb();
+  if (!dbClient) {
+    return { name: 'schema version', status: 'degraded', message: 'Cannot connect to database (no driver available)' };
+  }
+
+  // Check for required tables
+  const requiredTables = [
+    'memories',
+    'learnings',
+    'projects',
+    'users',
+    'conversations',
+    'messages',
+    'entities',
+    'core_memory',
+    'context_sessions',
+    'memory_associations',
+    'namespaces',
+    'maintenance_jobs',
+    'places',
+    'memory_places',
+    'place_rules',
+    'session_summaries',
+    'beliefs',
+    'belief_memory_sources',
+    'belief_edges',
+  ];
+
+  // Get SQLite vs Postgres client handling
+  const dbAny = dbClient as any;
+  const isSqlite = typeof dbAny.exec === 'function';
+
+  let existingTables: string[] = [];
+  if (isSqlite) {
+    const tables = dbAny.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{name: string}>;
+    existingTables = tables.map(t => t.name);
+  } else {
+    // Postgres
+    try {
+      const result = await dbAny.query("SELECT tablename FROM pg_tables WHERE schemaname = 'public'");
+      existingTables = result.rows?.map((r: any) => r.tablename) ?? [];
+    } catch {
+      existingTables = [];
     }
-    
-    // Try to get schema version - this might fail if tables don't exist yet
-    // For now just return success - real version check happens on connect
-    return { name: 'Schema version', status: 'pass', message: 'Database connection OK' };
-  } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
-    
-    if (msg.includes('no such column') || msg.includes('no such table')) {
-      return { 
-        name: 'Schema version', 
-        status: 'fail', 
-        message: 'Schema out of date - missing columns/tables',
-        fix: 'Run "squish doctor --migrate" to apply migrations'
+  }
+
+  const missingTables = requiredTables.filter(t => !existingTables.includes(t));
+
+  // If forceMigrate or missing tables, run migrations
+  if (forceMigrate || missingTables.length > 0) {
+    try {
+      // Import bootstrap functions
+      const { ensureSqliteSchema } = await import('../../../../db/bootstrap.js');
+      const { getSchemaVersion } = await import('../../../../db/bootstrap.js');
+
+      if (isSqlite) {
+        await ensureSqliteSchema(dbAny);
+        const version = await getSchemaVersion(dbAny);
+        return {
+          name: 'schema version',
+          status: 'ok',
+          message: `Migrations applied. Schema: ${version}`
+        };
+      }
+
+      return { name: 'schema version', status: 'ok', message: 'Database schema OK' };
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      return {
+        name: 'schema version',
+        status: 'degraded',
+        message: `Migration note: ${msg}`,
+        fix: 'Run "squish doctor --migrate" to retry'
       };
     }
-    
-    return { name: 'Schema version', status: 'fail', message: msg };
   }
+
+  return { name: 'schema version', status: 'ok', message: `Tables OK (${existingTables.length})` };
 }
 
 function checkConfig(): DiagnosticResult {
@@ -158,12 +227,12 @@ function checkConfig(): DiagnosticResult {
     const embeddingsProvider = config.embeddingsProvider;
     
     return { 
-      name: 'Configuration', 
-      status: 'pass', 
+      name: 'configuration', 
+      status: 'ok', 
       message: `Provider: ${embeddingsProvider}, Data: ${dataDir}` 
     };
   } catch (error) {
-    return { name: 'Configuration', status: 'fail', message: 'Config validation failed', fix: 'Check config.ts' };
+    return { name: 'configuration', status: 'broken', message: 'Config validation failed', fix: 'Check config.ts' };
   }
 }
 
@@ -181,11 +250,11 @@ function checkBinFiles(): DiagnosticResult {
     }
     
     if (missing.length > 0) {
-      return { name: 'CLI binaries', status: 'fail', message: `Missing: ${missing.join(', ')}` };
+      return { name: 'cli binaries', status: 'broken', message: `Missing: ${missing.join(', ')}` };
     }
     
-    return { name: 'CLI binaries', status: 'pass', message: 'All binaries present' };
+    return { name: 'cli binaries', status: 'ok', message: 'All binaries present' };
   } catch (error) {
-    return { name: 'CLI binaries', status: 'fail', message: 'Cannot check binaries', fix: 'Reinstall squish-memory' };
+    return { name: 'cli binaries', status: 'broken', message: 'Cannot check binaries', fix: 'Reinstall squish-memory' };
   }
 }

@@ -44,9 +44,9 @@ The installer configures OpenClaw to use Squish as its memory backend:
 Once installed, Squish provides:
 
 ### Persistent Memory Storage
-- All OpenClaw memories are stored in Squish's two-tier memory system
-- Fast search tier (QMD) for lightning-fast hybrid BM25 + vector search
-- Persistent storage tier (SQLite/PostgreSQL) for durable, reliable storage
+- QMD fast file search for lightning-fast hybrid BM25 + vector search
+- SQLite/PostgreSQL for durable storage with full-text search
+- Memory Runtime with hot/cold lifecycle and automatic decay
 
 ### Advanced Memory Features
 - **Hybrid Search**: Combines keyword and semantic search for best results

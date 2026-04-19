@@ -19,9 +19,9 @@ All notable changes to Squish will be documented in this file.
 - **Session integration**: Loaded on auto-load, saved on session end
 - **Size limit**: ~500 words max with trim-to-recent policy
 
-### Changed - 2-Tier Memory System
+### Changed - Memory Runtime
 
-- **Removed warm tier**: Simplified from 3-tier to 2-tier (hot/cold only)
+- **Simplified lifecycle**: Removed deprecated warm tier (hot/cold only now)
 - **Updated schemas**: Both SQLite and Postgres tier columns now hot|cold
 - **Updated lifecycle**: TIER_THRESHOLDS only has hot and cold thresholds
 - **Updated scorer**: Removed warm scoring bonuses

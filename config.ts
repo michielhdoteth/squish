@@ -114,11 +114,12 @@ const neonServiceKey = process.env.NEON_SERVICE_KEY || '';
 // - openai: OpenAI API (requires API key)
 // - ollama: Local Ollama server (any model)
 // - lmstudio: LM Studio local server (any model)
+// - transformers: Transformers.js local (all-MiniLM-L6-v2, ONNX-based)
 // - local: TF-IDF offline (no dependencies)
 // - none: Disable embeddings (stub)
 // - google: Google Cloud embeddings
-// - auto: Smart fallback (cloud if available, local fallback)
-const VALID_PROVIDERS = new Set(['openai', 'ollama', 'lmstudio', 'local', 'none', 'google', 'auto']);
+// - auto: Smart fallback (cloud -> transformers -> TF-IDF)
+const VALID_PROVIDERS = new Set(['openai', 'ollama', 'lmstudio', 'transformers', 'local', 'none', 'google', 'auto']);
 const embeddingsProvider = (() => {
   const explicit = getConfig('embeddings.provider', 'SQUISH_EMBEDDINGS_PROVIDER', 'local').toLowerCase();
   if (VALID_PROVIDERS.has(explicit)) {
@@ -146,6 +147,9 @@ const ollamaEmbeddingModel = getConfig('embeddings.models.ollama.model', 'SQUISH
 const lmStudioUrl = getConfig('api.lmstudio.url', 'SQUISH_LM_STUDIO_URL', 'http://localhost:1234');
 const lmStudioEmbeddingModel = getConfig('embeddings.models.lmstudio.model', 'SQUISH_LM_STUDIO_EMBEDDING_MODEL', '');
 
+// Transformers.js Local Configuration (ONNX-based model)
+const transformersLocalModel = getConfig('embeddings.models.transformers.model', 'SQUISH_LOCAL_MODEL', 'onnx-community/all-MiniLM-L6-v2-ONNX');
+
 export const config = {
   // Mode detection
   mode: detectedMode,
@@ -164,19 +168,19 @@ export const config = {
   
   mcpServerPort: parseInt(getConfig('mcp.serverPort', 'SQUISH_MCP_PORT', '8767')),
   
-  embeddingsProvider: embeddingsProvider as 'local' | 'openai' | 'ollama' | 'lmstudio' | 'google' | 'none' | 'auto',
-  
+embeddingsProvider: embeddingsProvider as 'local' | 'openai' | 'ollama' | 'lmstudio' | 'transformers' | 'google' | 'none' | 'auto',
+
   // OpenAI
   openAiApiKey,
   openAiApiUrl,
   openAiEmbeddingModel,
-  
+
   // Google
   googleCloudApiKey,
   googleCloudProject,
   googleCloudLocation,
   googleEmbeddingModel,
-  
+
   // Ollama
   ollamaUrl,
   ollamaEmbeddingModel,
@@ -184,6 +188,9 @@ export const config = {
   // LM Studio (OpenAI-compatible local)
   lmStudioUrl,
   lmStudioEmbeddingModel,
+
+  // Transformers.js local (ONNX-based)
+  transformersLocalModel,
 
   // Supabase configuration
   supabaseUrl: getConfig('supabase.url', 'SUPABASE_URL', ''),

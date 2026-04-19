@@ -6,8 +6,9 @@
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
 import { config } from '../../config.js';
-import { requireProject } from '../../core/projects.js';
+import { ensureProject } from '../../core/projects.js';
 import { createDatabaseClient } from '../storage/database.js';
+import { getProjectSignalStats } from '../session/working-set.js';
 
 export interface MemoryStats {
   totalMemories: number;
@@ -21,6 +22,16 @@ export interface MemoryStats {
   newestMemory?: string;
   projectPath: string;
   mode: string;
+  signal?: {
+    captured: number;
+    suppressed: number;
+    sessionOnly: number;
+    durable: number;
+    durableWithRaw: number;
+    tokensSaved: number;
+    placeRouted: number;
+    graphEnriched: number;
+  };
 }
 
 /**
@@ -35,7 +46,10 @@ export async function getMemoryStats(projectPath: string = process.cwd()): Promi
   }
 
   const schema = await getSchema();
-  const project = await requireProject(projectPath);
+  const project = await ensureProject(projectPath);
+  if (!project) {
+    throw new Error(`Project not found: ${projectPath}`);
+  }
 
   const stats: MemoryStats = {
     totalMemories: 0,
@@ -46,7 +60,7 @@ export async function getMemoryStats(projectPath: string = process.cwd()): Promi
     learningsByType: {},
     totalLinks: 0,
     projectPath,
-    mode: config.isTeamMode ? 'team' : 'local'
+    mode: config.isTeamMode ? 'team' : 'local',
   };
 
   try {
@@ -158,6 +172,8 @@ export async function getMemoryStats(projectPath: string = process.cwd()): Promi
     // Return empty stats on error
     console.error('Error getting memory stats:', error);
   }
+
+  stats.signal = await getProjectSignalStats(projectPath);
 
   return stats;
 }

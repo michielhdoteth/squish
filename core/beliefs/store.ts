@@ -2,101 +2,36 @@ import { randomUUID } from 'crypto';
 import { getDbClient } from '../lib/db-client.js';
 import { deserializeMetadata, serializeMetadata } from '../memory/serialization.js';
 import type { ExtractedBelief, StoredBelief } from './types.js';
+import { runBeliefMigrations } from '../../db/migrations/beliefs.js';
 
+/**
+ * Ensure belief tables exist by running migrations if needed.
+ * Delegates table creation to the migrations system.
+ */
 async function ensureBeliefTables(): Promise<void> {
   const { raw } = await getDbClient();
+
+  // For SQLite - check if table exists and run migrations if missing
   const sqlite = (raw as any).$client;
-  if (sqlite && typeof sqlite.exec === 'function') {
-    sqlite.exec(`
-      CREATE TABLE IF NOT EXISTS beliefs (
-        id TEXT PRIMARY KEY,
-        project_id TEXT NOT NULL,
-        belief_type TEXT NOT NULL,
-        statement TEXT NOT NULL,
-        normalized_key TEXT NOT NULL,
-        confidence REAL DEFAULT 0.5,
-        status TEXT DEFAULT 'active',
-        reason TEXT,
-        context TEXT,
-        evidence_summary TEXT,
-        metadata TEXT,
-        created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL,
-        updated_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL,
-        UNIQUE(project_id, normalized_key)
-      );
-      CREATE INDEX IF NOT EXISTS beliefs_project_idx ON beliefs(project_id);
-      CREATE INDEX IF NOT EXISTS beliefs_type_idx ON beliefs(belief_type);
-      CREATE INDEX IF NOT EXISTS beliefs_status_idx ON beliefs(status);
-
-      CREATE TABLE IF NOT EXISTS belief_memory_sources (
-        id TEXT PRIMARY KEY,
-        belief_id TEXT NOT NULL,
-        memory_id TEXT NOT NULL,
-        created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL,
-        UNIQUE(belief_id, memory_id)
-      );
-      CREATE INDEX IF NOT EXISTS belief_memory_sources_belief_idx ON belief_memory_sources(belief_id);
-      CREATE INDEX IF NOT EXISTS belief_memory_sources_memory_idx ON belief_memory_sources(memory_id);
-
-      CREATE TABLE IF NOT EXISTS belief_edges (
-        id TEXT PRIMARY KEY,
-        from_belief_id TEXT NOT NULL,
-        to_belief_id TEXT NOT NULL,
-        edge_type TEXT NOT NULL,
-        metadata TEXT,
-        created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL,
-        UNIQUE(from_belief_id, to_belief_id, edge_type)
-      );
-      CREATE INDEX IF NOT EXISTS belief_edges_from_idx ON belief_edges(from_belief_id);
-      CREATE INDEX IF NOT EXISTS belief_edges_to_idx ON belief_edges(to_belief_id);
-    `);
+  if (sqlite && typeof sqlite.prepare === 'function') {
+    const tableCheck = sqlite.prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='beliefs'"
+    ).get() as { name: string } | undefined;
+    if (!tableCheck) {
+      await runBeliefMigrations(sqlite);
+    }
     return;
   }
 
+  // For PostgreSQL - check if table exists (migrations are run elsewhere for PG)
   if (typeof (raw as any).query === 'function') {
-    await (raw as any).query(`
-      CREATE TABLE IF NOT EXISTS beliefs (
-        id UUID PRIMARY KEY,
-        project_id UUID NOT NULL,
-        belief_type TEXT NOT NULL,
-        statement TEXT NOT NULL,
-        normalized_key TEXT NOT NULL,
-        confidence REAL DEFAULT 0.5,
-        status TEXT DEFAULT 'active',
-        reason TEXT,
-        context TEXT,
-        evidence_summary TEXT,
-        metadata JSONB,
-        created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
-        updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
-        UNIQUE(project_id, normalized_key)
-      );
-      CREATE INDEX IF NOT EXISTS beliefs_project_idx ON beliefs(project_id);
-      CREATE INDEX IF NOT EXISTS beliefs_type_idx ON beliefs(belief_type);
-      CREATE INDEX IF NOT EXISTS beliefs_status_idx ON beliefs(status);
-
-      CREATE TABLE IF NOT EXISTS belief_memory_sources (
-        id UUID PRIMARY KEY,
-        belief_id UUID NOT NULL REFERENCES beliefs(id) ON DELETE CASCADE,
-        memory_id UUID NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
-        created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
-        UNIQUE(belief_id, memory_id)
-      );
-      CREATE INDEX IF NOT EXISTS belief_memory_sources_belief_idx ON belief_memory_sources(belief_id);
-      CREATE INDEX IF NOT EXISTS belief_memory_sources_memory_idx ON belief_memory_sources(memory_id);
-
-      CREATE TABLE IF NOT EXISTS belief_edges (
-        id UUID PRIMARY KEY,
-        from_belief_id UUID NOT NULL REFERENCES beliefs(id) ON DELETE CASCADE,
-        to_belief_id UUID NOT NULL REFERENCES beliefs(id) ON DELETE CASCADE,
-        edge_type TEXT NOT NULL,
-        metadata JSONB,
-        created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
-        UNIQUE(from_belief_id, to_belief_id, edge_type)
-      );
-      CREATE INDEX IF NOT EXISTS belief_edges_from_idx ON belief_edges(from_belief_id);
-      CREATE INDEX IF NOT EXISTS belief_edges_to_idx ON belief_edges(to_belief_id);
-    `);
+    const result = await (raw as any).query(
+      "SELECT table_name FROM information_schema.tables WHERE table_name = 'beliefs' LIMIT 1"
+    );
+    if (!result.rows[0]) {
+      // For PostgreSQL, we assume migrations are run during bootstrap
+      throw new Error('Beliefs table does not exist for PostgreSQL. Run database migrations.');
+    }
   }
 }
 
@@ -478,4 +413,145 @@ export async function searchBeliefs(projectId: string, query: string, options?: 
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }));
+}
+
+/**
+ * Get active constraint beliefs for session boot
+ * Returns beliefs that should shape next actions
+ */
+export async function getActiveConstraints(projectId: string): Promise<StoredBelief[]> {
+  await ensureBeliefTables();
+  const { raw } = await getDbClient();
+  const sqlite = (raw as any).$client;
+  const isPg = typeof (raw as any).query === 'function';
+  if (!sqlite && !isPg) return [];
+
+  const sql = `
+    SELECT * FROM beliefs
+    WHERE project_id = ? AND belief_type = 'constraint' AND status = 'active'
+    ORDER BY confidence DESC, updated_at DESC
+    LIMIT 20
+  `;
+
+  if (isPg) {
+    const result = await (raw as any).query(sql, [projectId]);
+    return result.rows.map((row: any) => mapRowToBelief(row));
+  }
+
+  const rows = sqlite.prepare(sql).all(projectId) as any[];
+  return rows.map(mapRowToBelief);
+}
+
+/**
+ * Get active decision beliefs for session boot
+ * Returns decisions that should guide next actions
+ */
+export async function getActiveDecisions(projectId: string): Promise<StoredBelief[]> {
+  await ensureBeliefTables();
+  const { raw } = await getDbClient();
+  const sqlite = (raw as any).$client;
+  const isPg = typeof (raw as any).query === 'function';
+  if (!sqlite && !isPg) return [];
+
+  const sql = `
+    SELECT * FROM beliefs
+    WHERE project_id = ? AND belief_type = 'decision' AND status = 'active'
+    ORDER BY confidence DESC, updated_at DESC
+    LIMIT 20
+  `;
+
+  if (isPg) {
+    const result = await (raw as any).query(sql, [projectId]);
+    return result.rows.map((row: any) => mapRowToBelief(row));
+  }
+
+  const rows = sqlite.prepare(sql).all(projectId) as any[];
+  return rows.map(mapRowToBelief);
+}
+
+/**
+ * Get recent failure beliefs for session boot
+ * Returns failure_cause beliefs to avoid repeating mistakes
+ * @param count - Number of recent failures to return (default 10)
+ */
+export async function getRecentFailures(projectId: string, count: number = 10): Promise<StoredBelief[]> {
+  await ensureBeliefTables();
+  const { raw } = await getDbClient();
+  const sqlite = (raw as any).$client;
+  const isPg = typeof (raw as any).query === 'function';
+  if (!sqlite && !isPg) return [];
+
+  const sql = `
+    SELECT * FROM beliefs
+    WHERE project_id = ? AND belief_type = 'failure_cause' AND status = 'active'
+    ORDER BY updated_at DESC
+    LIMIT ?
+  `;
+
+  if (isPg) {
+    const result = await (raw as any).query(sql, [projectId, count]);
+    return result.rows.map((row: any) => mapRowToBelief(row));
+  }
+
+  const rows = sqlite.prepare(sql).all(projectId, count) as any[];
+  return rows.map(mapRowToBelief);
+}
+
+/**
+ * Get beliefs relevant to a task/query for session boot
+ * Used to inject relevant beliefs at session start
+ */
+export async function getRelevantBeliefs(projectId: string, taskQuery: string, limit: number = 10): Promise<StoredBelief[]> {
+  await ensureBeliefTables();
+  const { raw } = await getDbClient();
+  const sqlite = (raw as any).$client;
+  const isPg = typeof (raw as any).query === 'function';
+  if (!sqlite && !isPg) return [];
+
+  // Match against statement, context, or normalized_key
+  const searchPattern = `%${taskQuery}%`;
+  const sql = `
+    SELECT * FROM beliefs
+    WHERE project_id = ?
+    AND status = 'active'
+    AND (
+      statement LIKE ? OR
+      context LIKE ? OR
+      normalized_key LIKE ?
+    )
+    ORDER BY confidence DESC, updated_at DESC
+    LIMIT ?
+  `;
+
+  const params = [projectId, searchPattern, searchPattern, searchPattern, limit];
+
+  if (isPg) {
+    const result = await (raw as any).query(sql, params);
+    return result.rows.map((row: any) => mapRowToBelief(row));
+  }
+
+  const rows = sqlite.prepare(sql).all(...params) as any[];
+  return rows.map(mapRowToBelief);
+}
+
+/**
+ * Helper to map DB row to StoredBelief
+ */
+function mapRowToBelief(row: any): StoredBelief {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    type: row.belief_type,
+    statement: row.statement,
+    normalizedKey: row.normalized_key,
+    confidence: Number(row.confidence ?? 0.5),
+    status: row.status,
+    reason: row.reason ?? undefined,
+    context: row.context ?? undefined,
+    evidenceSummary: row.evidence_summary ?? undefined,
+    sourceMemoryIds: [],
+    sourceCount: row.source_count,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
 }

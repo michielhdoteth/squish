@@ -1,7 +1,7 @@
 {
   "name": "squish-memory",
   "version": "1.2.0",
-  "description": "Two-tier memory for AI agents: QMD-based fast file search (short-term) + SQLite/Postgres (long-term). Works out-of-the-box, no setup required.",
+  "description": "Universal memory for AI agents: QMD fast file search + SQLite/Postgres + Belief System + Persistent Hot Cache. Works out-of-the-box.",
   "main": "dist/index.js",
   "type": "module",
   "bin": {

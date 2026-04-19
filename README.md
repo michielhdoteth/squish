@@ -91,7 +91,7 @@ squish run mcp
 - Handles contradictions when facts change
 - Temporal facts with expiration ("until January")
 - Confidence scoring for each memory
-- **Tier lifecycle**: hot/cold memory tiers with automatic decay (simplified 2-tier system)
+- **Memory Runtime**: Hot/cold memory lifecycle with automatic decay (hot=active, cold=archived)
 - **Graph-boosted retrieval**: associations between memories boost relevance
 - **Belief System**: Derived semantic layer - decisions, preferences, constraints extracted from memories
 - **Persistent Hot Cache**: Karpathy-style wiki layer that survives restarts (not just session)

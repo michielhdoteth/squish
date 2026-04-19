@@ -1,27 +1,56 @@
-# v1.0.2 (2026-03-18)
+# Squish v1.2.0 Release Notes
 
-## Security & Performance Improvements
+Planned release date: 2026-04-19
 
-### Security
-- Added rate limiting to web server and MCP server (100 requests per 15 min)
-- CORS restricted to localhost by default (configurable via `SQUISH_CORS_ORIGINS`)
-- Updated vulnerable dependencies (express, hono, express-rate-limit)
+## Summary
 
-### Package Optimization
-- Reduced package size from 413KB to 283KB (-31%)
-- Removed source maps from published package
-- Files reduced from 606 to 348
+This release turns Squish from a command-heavy memory store into a more automatic memory runtime. The main theme is better signal quality: capture broadly, suppress noise, keep session-only state local, store cleaner durable memory, and wake agents up with useful context instead of raw history.
 
-### SEO Enhancements
-- Updated package keywords with high-value search terms
-- Added author email for trust signal
-- Updated sitemap with current dates
+## Highlights
 
-## Dependencies Updated
-- express: 4.22.1 → 5.2.1
-- uuid: 9.0.1 → 13.0.0
-- redis: 4.7.1 → 5.11.0
-- pg: 8.19.0 → 8.20.0
+### Signal-Aware Memory Runtime
+- Captured events are classified before durable write: `discard`, `session-only`, `durable-distilled`, or `durable-raw+distilled`
+- Session working-set state now tracks active files, recent commands, failures, hypotheses, active places, and lightweight graph cues
+- Nuance-sensitive durable events can retain linked raw fallback artifacts for inspection and rewind
 
-## Previous Releases
-See [CHANGELOG.md](./CHANGELOG.md) for full history.
+### Places And Graph In The Same Loop
+- Durable writes now participate in place routing and incremental graph enrichment
+- Session wake-up prioritizes compact working-set state over generic recent-memory dumps
+- Retrieval prefers cleaner distilled memory while preserving reversibility where raw fallback exists
+
+### Trust-Focused CLI And MCP Surfaces
+- Added `squish health`
+- Added `squish inspect` and MCP `squish_inspect`
+- `squish context`, `squish stats`, `squish health`, and `squish doctor` now explain current project, runtime state, degradation, and next step
+- Legacy placeholder `.` projects are hidden from normal runtime views
+- Legacy memories now inspect as `legacy-durable` instead of `unknown`
+
+## User-Facing Impact
+
+### CLI
+- New: `squish health`
+- New: `squish inspect <id>`
+- Improved: `squish context`
+- Improved: `squish stats`
+- Improved: `squish doctor`
+
+### MCP
+- New: `squish_inspect`
+- Improved: `squish_context`
+- Improved: `squish_health`
+- Improved: `squish_stats`
+
+## Verification Used For Release Prep
+
+- `bun test tests/core/trust-report.test.ts tests/core/trust-state.test.ts tests/core/memory-explain.test.ts tests/core/session-working-set.test.ts tests/core/signal-engine.test.ts tests/core/write-gate.test.ts`
+- `bun run packages/cli/src/index.ts doctor`
+- `bun run packages/cli/src/index.ts doctor --json`
+- `bun run packages/cli/src/index.ts context --json --limit 2`
+- `bun run packages/cli/src/index.ts stats`
+- `bun run packages/cli/src/index.ts inspect <legacy-memory-id>`
+- `bun run verify:mcp`
+
+## Notes
+
+- Empty-state runtime status can still show `degraded` before any real capture has happened; that is an initialization-state signal, not a crash signal.
+- Repo-local helper files used during development were left untouched unless they are part of the shipping surface.

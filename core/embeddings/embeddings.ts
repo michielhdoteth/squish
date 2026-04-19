@@ -2,7 +2,16 @@ import { config } from '../config.js';
 import { getGoogleMultimodalEmbedding, isMultimodalInput, MultimodalInput } from './google-multimodal.js';
 import { logger } from '../logger.js';
 
-export type EmbeddingProvider = 'local' | 'openai' | 'ollama' | 'lmstudio' | 'google' | 'none' | 'auto';
+// Lazy-import transformers to avoid loading unless requested
+let transformersLocal: typeof import('./transformers-local.js') | null = null;
+async function getTransformersLocal() {
+  if (!transformersLocal) {
+    transformersLocal = import('./transformers-local.js');
+  }
+  return transformersLocal;
+}
+
+export type EmbeddingProvider = 'local' | 'openai' | 'ollama' | 'lmstudio' | 'transformers' | 'google' | 'none' | 'auto';
 
 // Retry utility with exponential backoff
 async function withRetry<T>(
@@ -141,39 +150,63 @@ export async function getEmbedding(input: string | MultimodalInput): Promise<num
      }
    }
 
-   // Handle text-only input
-    if (!result && typeof input === 'string') {
-      const textInput = input;
+// Handle text-only input
+     if (!result && typeof input === 'string') {
+       const textInput = input;
 
-      if (provider === 'none') {
-        result = null;
-      } else if (provider === 'google') {
-        const multimodalResult = await getGoogleMultimodalEmbedding({ text: textInput });
-        result = multimodalResult?.embedding || null;
-      } else if (provider === 'openai') {
-        result = await getOpenAiEmbedding(textInput);
-      } else if (provider === 'ollama') {
-        result = await getOllamaEmbedding(textInput);
-      } else if (provider === 'lmstudio') {
-        result = await getLmStudioEmbedding(textInput);
-      } else if (provider === 'local') {
-        result = getLocalEmbedding(textInput);
-      } else {
-        // Auto mode: try cloud providers first if configured, then fall back to local
-        if (config.openAiApiKey) {
-          result = await getOpenAiEmbedding(textInput);
-        }
-        if (!result && config.ollamaUrl) {
-          result = await getOllamaEmbedding(textInput);
-        }
-        if (!result && config.lmStudioUrl) {
-          result = await getLmStudioEmbedding(textInput);
-        }
-        if (!result) {
-          result = getLocalEmbedding(textInput);
-        }
-      }
-    }
+       if (provider === 'none') {
+         result = null;
+       } else if (provider === 'google') {
+         const multimodalResult = await getGoogleMultimodalEmbedding({ text: textInput });
+         result = multimodalResult?.embedding || null;
+       } else if (provider === 'openai') {
+         result = await getOpenAiEmbedding(textInput);
+       } else if (provider === 'ollama') {
+         result = await getOllamaEmbedding(textInput);
+       } else if (provider === 'lmstudio') {
+         result = await getLmStudioEmbedding(textInput);
+       } else if (provider === 'transformers') {
+         try {
+           const mod = await getTransformersLocal();
+           result = await mod.getEmbedding(textInput);
+         } catch (error) {
+           logger.debug(`Transformers not available, falling back to TF-IDF: ${error}`);
+         }
+         // If transformers failed, use TF-IDF
+         if (!result) {
+           result = getLocalEmbedding(textInput);
+         }
+       } else if (provider === 'local') {
+         result = getLocalEmbedding(textInput);
+       } else {
+         // Auto mode: cloud -> transformers -> TF-IDF (smart fallback)
+         // Step 1: Try cloud providers
+         if (config.openAiApiKey) {
+           result = await getOpenAiEmbedding(textInput);
+         }
+         // Step 2: Try Ollama
+         if (!result && config.ollamaUrl) {
+           result = await getOllamaEmbedding(textInput);
+         }
+         // Step 3: Try LM Studio
+         if (!result && config.lmStudioUrl) {
+           result = await getLmStudioEmbedding(textInput);
+         }
+         // Step 4: Try Transformers.js local
+         if (!result) {
+           try {
+             const mod = await getTransformersLocal();
+             result = await mod.getEmbedding(textInput);
+           } catch {
+             // Transformers not available, continue to fallback
+           }
+         }
+         // Step 5: Fall back to TF-IDF (always works)
+         if (!result) {
+           result = getLocalEmbedding(textInput);
+         }
+       }
+     }
 
   // Cache the result if valid
   if (result) {
@@ -419,7 +452,7 @@ async function getLmStudioEmbedding(input: string): Promise<number[] | null> {
  */
 export async function checkEmbeddingProviderHealth(): Promise<Map<string, { available: boolean; latencyMs?: number; error?: string }>> {
   const results = new Map<string, { available: boolean; latencyMs?: number; error?: string }>();
-  const providers = ['local', 'openai', 'ollama', 'lmstudio', 'google', 'none', 'auto'] as const;
+  const providers = ['local', 'openai', 'ollama', 'lmstudio', 'transformers', 'google', 'none', 'auto'] as const;
   
   // Test local provider (always available)
   results.set('local', { available: true, latencyMs: 0 });
@@ -495,10 +528,39 @@ export async function checkEmbeddingProviderHealth(): Promise<Map<string, { avai
         error: (error as Error).message 
       });
     }
-  } else {
+} else {
     results.set('lmstudio', { available: false, error: 'Not configured' });
   }
-  
+
+  // Test Transformers.js local if requested
+  const transformersHealth = async () => {
+    try {
+      const mod = await getTransformersLocal();
+      const health = await mod.checkHealth();
+      return health;
+    } catch (error) {
+      return { available: false, error: (error as Error).message };
+    }
+  };
+
+  // Try to test transformers (library must be installed)
+  try {
+    const start = Date.now();
+    const mod = await getTransformersLocal();
+    const health = await mod.checkHealth();
+    const latency = Date.now() - start;
+    results.set('transformers', {
+      available: health.available,
+      latencyMs: latency,
+      error: health.error,
+    });
+  } catch (error) {
+    results.set('transformers', {
+      available: false,
+      error: (error as Error).message,
+    });
+  }
+
   // Test Google if configured
   if (config.googleCloudApiKey || config.googleCloudProject) {
     const start = Date.now();

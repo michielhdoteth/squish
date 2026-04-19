@@ -30,7 +30,7 @@ import { serializeMetadata, deserializeMetadata } from '../memory/serialization.
 import { addMemoryToGraph } from '../graph/graph-builder.js';
 import { addToHotCache, addSessionContextToHotCache } from '../hot-cache.js';
 import { extractBeliefsFromMemory } from '../beliefs/extractor.js';
-import { upsertBeliefsForMemory } from '../beliefs/store.js';
+import { upsertBeliefsForMemory, getRecentFailures, getActiveConstraints, getActiveDecisions } from '../beliefs/store.js';
 
 /** Session ID for tracking across agents */
 let currentSessionId: string | null = null;
@@ -69,6 +69,11 @@ export async function handleSessionStart(params: {
   sessionId: string;
   count: number;
   preferences?: Array<{key: string; value: string}>;
+  beliefs?: {
+    failures: string[];
+    constraints: string[];
+    decisions: string[];
+  };
 }> {
   const { projectPath, mode, agentType } = params;
   
@@ -123,19 +128,82 @@ export async function handleSessionStart(params: {
     const project = await getProjectByPath(projectPath);
     if (project) {
       preferences = await getAgentPreferences(project.id);
+
+      // Get beliefs for state reconstruction on session boot
+      // This is the "state reconstruction" - active beliefs shape next actions
+      const [failures, constraints, decisions] = await Promise.all([
+        getRecentFailures(project.id, 5),
+        getActiveConstraints(project.id, 10),
+        getActiveDecisions(project.id, 10),
+      ]);
+
+      // Format beliefs into context
+      const beliefsSection = formatBeliefsForContext(failures, constraints, decisions);
+
+      // Add beliefs to injected context
+      if (beliefsSection) {
+        allContent = beliefsSection + '\n\n' + allContent;
+      }
+
+      logger.info(`[Hooks] Injected ${failures.length} failures, ${constraints.length} constraints, ${decisions.length} decisions`);
+
+      return {
+        memories: allContent ? allContent.split('\n') : [],
+        sessionId: currentSessionId,
+        count: memories.length,
+        preferences: preferences.length > 0 ? preferences : undefined,
+        beliefs: {
+          failures: failures.map(f => f.statement),
+          constraints: constraints.map(c => c.statement),
+          decisions: decisions.map(d => d.statement),
+        },
+      };
     }
   } catch (e) {
     logger.debug(`[Hooks] Agent preferences not available: ${e}`);
   }
-  
+
   logger.info(`[Hooks] Injected ${memories.length} memories for session start`);
-  
+
   return {
     memories: allContent ? allContent.split('\n') : [],
     sessionId: currentSessionId,
     count: memories.length,
     preferences: preferences.length > 0 ? preferences : undefined,
   };
+}
+
+/**
+ * Format beliefs into context section for session boot
+ * This drives "state reconstruction" - agent sees active constraints/failures/decisions
+ */
+function formatBeliefsForContext(
+  failures: Array<{statement: string; context?: string}>,
+  constraints: Array<{statement: string; context?: string}>,
+  decisions: Array<{statement: string; context?: string}>
+): string {
+  const sections: string[] = [];
+
+  if (failures.length > 0) {
+    sections.push('AVOID:\n' + failures.map((f, i) =>
+      `  ${i + 1}. ${f.statement}${f.context ? ` (${f.context})` : ''}`
+    ).join('\n'));
+  }
+
+  if (constraints.length > 0) {
+    sections.push('CONSTRAINTS:\n' + constraints.map((c, i) =>
+      `  ${i + 1}. ${c.statement}${c.context ? ` (${c.context})` : ''}`
+    ).join('\n'));
+  }
+
+  if (decisions.length > 0) {
+    sections.push('DECISIONS:\n' + decisions.map((d, i) =>
+      `  ${i + 1}. ${d.statement}${d.context ? ` (${d.context})` : ''}`
+    ).join('\n'));
+  }
+
+  if (sections.length === 0) return '';
+  return sections.join('\n\n');
 }
 
 /**

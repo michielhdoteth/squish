@@ -34,9 +34,9 @@ The installer configures OpenCode to use Squish as an MCP server:
 Once installed, Squish provides:
 
 ### Persistent Memory Storage
-- All memories stored in Squish's two-tier memory system
-- Fast search tier (QMD) for lightning-fast hybrid BM25 + vector search
-- Persistent storage tier (SQLite/PostgreSQL) for durable, reliable storage
+- QMD fast file search for lightning-fast hybrid BM25 + vector search
+- SQLite/PostgreSQL for durable storage with full-text search
+- Memory Runtime with hot/cold lifecycle and automatic decay
 
 ### Standard MCP Memory Tools
 - **memory_search**: Search memories using hybrid search

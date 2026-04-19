@@ -146,7 +146,7 @@ export function isCompressed(content: string): boolean {
  * Count tokens (rough estimate)
  * Import from context-window.ts - single source of truth
  */
-import { estimateTokens } from '../context/context-window.js';
+import { estimateTokens } from './context/context-window.js';
 export { estimateTokens };
 
 /**

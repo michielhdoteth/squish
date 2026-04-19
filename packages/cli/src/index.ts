@@ -24,6 +24,8 @@ import { registerCleanCommand } from './commands/clean.js';
 import { registerMigrateCommand } from './commands/migrate.js';
 import { registerRunCommand } from './commands/run.js';
 import { registerDoctorCommand } from './commands/doctor.js';
+import { registerInspectCommand } from './commands/inspect.js';
+import { registerHealthCommand } from './commands/health.js';
 
 const program = new Command();
 
@@ -46,6 +48,8 @@ registerCleanCommand(program);
 registerMigrateCommand(program);
 registerRunCommand(program);
 registerDoctorCommand(program);
+registerInspectCommand(program);
+registerHealthCommand(program);
 
 // Default: show help if no arguments
 if (process.argv.length === 2) {

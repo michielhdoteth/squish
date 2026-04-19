@@ -6,6 +6,8 @@
 
 import { Command } from 'commander';
 import { getMemory, search } from '../../../../core/memory/memories.js';
+import { shouldReturnRawFallback } from '../../../../core/ingestion/signal-engine.js';
+import { getMemorySnapshot } from '../../../../core/snapshots/retrieval.js';
 
 export function registerRecallCommand(program: Command) {
   program
@@ -32,7 +34,32 @@ export function registerRecallCommand(program: Command) {
             project: options.project,
             limit: 5
           });
-          result = memories;
+          result = await Promise.all(memories.map(async (memory) => {
+            const metadata = (memory.metadata ?? {}) as Record<string, unknown>;
+            const rawFallbackSnapshotId = typeof metadata.rawFallbackSnapshotId === 'string'
+              ? metadata.rawFallbackSnapshotId
+              : typeof (metadata.signal as Record<string, unknown> | undefined)?.rawFallbackSnapshotId === 'string'
+                ? String((metadata.signal as Record<string, unknown>).rawFallbackSnapshotId)
+                : undefined;
+            const nuanceSuppressed = Boolean(
+              metadata.nuanceSuppressed ??
+              (metadata.signal as Record<string, unknown> | undefined)?.nuanceSuppressed
+            );
+
+            if (shouldReturnRawFallback({
+              query,
+              hasRawFallback: Boolean(rawFallbackSnapshotId),
+              nuanceSuppressed,
+            }) && rawFallbackSnapshotId) {
+              const snapshot = await getMemorySnapshot(rawFallbackSnapshotId);
+              return {
+                ...memory,
+                rawFallback: snapshot?.content ?? null,
+              };
+            }
+
+            return memory;
+          }));
         }
 
         if (options.pretty) {

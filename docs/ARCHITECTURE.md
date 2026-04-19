@@ -2,7 +2,7 @@
 
 ## System Overview
 
-Squish is a **universal memory system** for AI agents implemented as an MCP (Model Context Protocol) server with HTTP/WebSocket fallbacks. It provides semantic search, full-text search, and contextual awareness through a two-tier architecture.
+Squish is a **hybrid memory runtime** for AI agents implemented as an MCP server with HTTP/WebSocket fallbacks. It combines automatic signal distillation, session working-set continuity, durable memory, and hybrid retrieval.
 
 ```
 Any AI Agent
@@ -12,9 +12,13 @@ MCP (stdio/SSE) / HTTP / WebSocket / CLI
 Squish Server (index.ts)
    ├─ MCP Handler (18+ tools)
    ├─ Services Layer (15+ services)
-   ├─ Two-Tier Storage
+   ├─ Signal Engine
+   │   ├─ Distillation / suppression
+   │   ├─ Session Working Set
+   │   └─ Raw Fallback Snapshotting
+   ├─ Durable Storage
    │   ├─ QMD Search Tier (fast hybrid BM25+vector)
-   │   └─ SQLite/Postgres Tier (durable storage)
+   │   └─ SQLite/Postgres Tier
    └─ Database Layer (Drizzle ORM)
 ```
 
@@ -101,32 +105,47 @@ Business logic is separated into focused services:
 - Private tag filtering
 - PII filtering
 
-### 3. Two-Tier Storage Layer
+### 3. Signal Engine
 
-Squish implements a two-tier storage architecture for optimal performance:
+Squish does not write every captured event directly into durable memory. The ingestion path first classifies each event:
 
-**Tier 1: Fast Search (QMD)**
+- `discard` for noise that should never survive
+- `session-only` for active working context
+- `durable-distilled` for long-lived signal
+- `durable-raw+distilled` for signal that needs a distilled memory plus an internal raw fallback artifact
+
+This keeps long-term memory denser while preserving reversibility for debugging-heavy events.
+
+The same stage also emits:
+- place-routing hints so durable memory lands in the right place
+- graph-enrichment hints so only durable signal feeds relationship extraction
+- wake-up priority so session context is compact but relevant
+
+### 4. Durable Storage Layer
+
+Squish implements multi-layer storage for optimal performance:
+
+**QMD Fast Search**
 - Quick Markdown Search provides hybrid BM25 + vector search
 - Automatic indexing of memory files as markdown
 - Sub-second search response times
 - Configurable collections per memory type
 
-**Tier 2: Persistent Storage**
+**SQLite/PostgreSQL Persistent Storage**
 - **Local Mode**: SQLite database with full durability
 - **Team Mode**: PostgreSQL with pgvector for semantic search
-- Both tiers use Drizzle ORM for type-safe access
-- Async bidirectional sync ensures consistency
+- Drizzle ORM for type-safe database access
+- Full-text search with FTS5 (SQLite) or pg_trgm (Postgres)
 
-**SQLite Schema** (`drizzle/schema-sqlite.ts`)
+**SQLite Schema** (`db/drizzle/schema-sqlite.ts`)
 - For local mode
 - JSON embeddings for vector search fallback
 
-**PostgreSQL Schema** (`drizzle/schema.ts`)
+**PostgreSQL Schema** (`db/drizzle/schema.ts`)
 - For team mode
 - pgvector for semantic search
-- Redis for caching (optional)
 
-### 4. Storage Modes
+### 5. Storage Modes
 
 **Local Mode (Default)**
 - Single SQLite database
@@ -152,9 +171,12 @@ Squish integrates with Claude Code via plugin hooks:
 - `onSessionStop` - Save state on exit
 
 **Auto-Capture** (`plugin/capture.ts`)
-- Debounced memory capture (2 seconds)
-- Privacy filtering
-- Observation tracking
+- Debounced capture (2 seconds)
+- Distillation and suppression before durable writes
+- Session working-set updates
+- Place routing for durable memory and place cues for session-only context
+- Incremental graph enrichment for durable writes
+- Raw fallback snapshotting for nuance-sensitive events
 
 **Context Injection** (`plugin/injection.ts`)
 - Generate CLAUDE.md files
@@ -165,11 +187,16 @@ Squish integrates with Claude Code via plugin hooks:
 ### Memory Storage
 
 ```
-User Input → Privacy Filter → Embeddings → Memory Record
-                                              ↓
-                                          Database (SQLite/PostgreSQL)
-                                              ↓
-                                          Index (FTS5/pgvector)
+User Input / Tool Output
+        ↓
+Signal Distillation
+        ├─ discard
+        ├─ session-only → context_sessions working set + active place / graph cues
+        └─ durable → write gate → memory record
+                                  ├─ place assignment
+                                  ├─ graph enrichment
+                                  ├─ optional raw fallback snapshot
+                                  └─ database + search index
 ```
 
 ### Search
