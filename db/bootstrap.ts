@@ -483,6 +483,53 @@ CREATE INDEX IF NOT EXISTS session_summaries_conversation_idx ON session_summari
 CREATE INDEX IF NOT EXISTS session_summaries_project_idx ON session_summaries(project_id);
 CREATE INDEX IF NOT EXISTS session_summaries_type_idx ON session_summaries(summary_type);
 CREATE INDEX IF NOT EXISTS session_summaries_created_idx ON session_summaries(created_at);
+
+-- Belief Systems - Derived Beliefs from Memory (v1.3.0+)
+CREATE TABLE IF NOT EXISTS beliefs (
+  id TEXT PRIMARY KEY,
+  project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+  belief_type TEXT NOT NULL,
+  statement TEXT NOT NULL,
+  normalized_key TEXT NOT NULL,
+  confidence INTEGER DEFAULT 50,
+  belief_decay_rate INTEGER DEFAULT 30,
+  last_confirmed_at INTEGER,
+  source_count INTEGER DEFAULT 1,
+  status TEXT DEFAULT 'active',
+  reason TEXT,
+  context TEXT,
+  evidence_summary TEXT,
+  metadata TEXT,
+  created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL,
+  updated_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL,
+  UNIQUE(project_id, normalized_key)
+);
+CREATE INDEX IF NOT EXISTS beliefs_project_idx ON beliefs(project_id);
+CREATE INDEX IF NOT EXISTS beliefs_type_idx ON beliefs(belief_type);
+CREATE INDEX IF NOT EXISTS beliefs_status_idx ON beliefs(status);
+CREATE INDEX IF NOT EXISTS beliefs_confidence_idx ON beliefs(confidence);
+
+CREATE TABLE IF NOT EXISTS belief_memory_sources (
+  id TEXT PRIMARY KEY,
+  belief_id TEXT REFERENCES beliefs(id) ON DELETE CASCADE,
+  memory_id TEXT REFERENCES memories(id) ON DELETE CASCADE,
+  created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL,
+  UNIQUE(belief_id, memory_id)
+);
+CREATE INDEX IF NOT EXISTS belief_sources_belief_idx ON belief_memory_sources(belief_id);
+CREATE INDEX IF NOT EXISTS belief_sources_memory_idx ON belief_memory_sources(memory_id);
+
+CREATE TABLE IF NOT EXISTS belief_edges (
+  id TEXT PRIMARY KEY,
+  from_belief_id TEXT REFERENCES beliefs(id) ON DELETE CASCADE,
+  to_belief_id TEXT REFERENCES beliefs(id) ON DELETE CASCADE,
+  edge_type TEXT NOT NULL,
+  metadata TEXT,
+  created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL,
+  UNIQUE(from_belief_id, to_belief_id, edge_type)
+);
+CREATE INDEX IF NOT EXISTS belief_edges_from_idx ON belief_edges(from_belief_id);
+CREATE INDEX IF NOT EXISTS belief_edges_to_idx ON belief_edges(to_belief_id);
 `;
 
 const postgresStatements = [
@@ -838,7 +885,51 @@ const postgresStatements = [
     updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
   );`,
   `CREATE INDEX IF NOT EXISTS place_rules_project_idx ON place_rules(project_id);`,
-  `CREATE INDEX IF NOT EXISTS place_rules_type_idx ON place_rules(place_type);`
+  `CREATE INDEX IF NOT EXISTS place_rules_type_idx ON place_rules(place_type);`,
+  // Belief Systems - Derived Beliefs from Memory (v1.3.0+)
+  `CREATE TABLE IF NOT EXISTS beliefs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
+    belief_type TEXT NOT NULL,
+    statement TEXT NOT NULL,
+    normalized_key TEXT NOT NULL,
+    confidence INTEGER DEFAULT 50,
+    belief_decay_rate INTEGER DEFAULT 30,
+    last_confirmed_at TIMESTAMPTZ,
+    source_count INTEGER DEFAULT 1,
+    status TEXT DEFAULT 'active',
+    reason TEXT,
+    context TEXT,
+    evidence_summary TEXT,
+    metadata JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+    UNIQUE(project_id, normalized_key)
+  );`,
+  `CREATE INDEX IF NOT EXISTS beliefs_project_idx ON beliefs(project_id);`,
+  `CREATE INDEX IF NOT EXISTS beliefs_type_idx ON beliefs(belief_type);`,
+  `CREATE INDEX IF NOT EXISTS beliefs_status_idx ON beliefs(status);`,
+  `CREATE INDEX IF NOT EXISTS beliefs_confidence_idx ON beliefs(confidence);`,
+  `CREATE TABLE IF NOT EXISTS belief_memory_sources (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    belief_id UUID REFERENCES beliefs(id) ON DELETE CASCADE,
+    memory_id UUID REFERENCES memories(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+    UNIQUE(belief_id, memory_id)
+  );`,
+  `CREATE INDEX IF NOT EXISTS belief_sources_belief_idx ON belief_memory_sources(belief_id);`,
+  `CREATE INDEX IF NOT EXISTS belief_sources_memory_idx ON belief_memory_sources(memory_id);`,
+  `CREATE TABLE IF NOT EXISTS belief_edges (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    from_belief_id UUID REFERENCES beliefs(id) ON DELETE CASCADE,
+    to_belief_id UUID REFERENCES beliefs(id) ON DELETE CASCADE,
+    edge_type TEXT NOT NULL,
+    metadata JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+    UNIQUE(from_belief_id, to_belief_id, edge_type)
+  );`,
+  `CREATE INDEX IF NOT EXISTS belief_edges_from_idx ON belief_edges(from_belief_id);`,
+  `CREATE INDEX IF NOT EXISTS belief_edges_to_idx ON belief_edges(to_belief_id);`
 ];
 
 /**

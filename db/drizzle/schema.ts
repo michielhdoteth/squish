@@ -1041,3 +1041,88 @@ export type NewCoreMemory = typeof coreMemory.$inferInsert;
 
 export type ContextSession = typeof contextSessions.$inferSelect;
 export type NewContextSession = typeof contextSessions.$inferInsert;
+
+// Belief Systems - Derived Beliefs from Memory
+// ============================================================================
+
+/**
+ * Beliefs - Derived semantic beliefs extracted from memories
+ * Represents inferred decisions, preferences, constraints, failure causes
+ */
+export const beliefs = pgTable('beliefs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }),
+
+  // Belief identification
+  beliefType: text('belief_type').notNull(),
+  statement: text('statement').notNull(),
+  normalizedKey: text('normalized_key').notNull(),
+
+  // Confidence and decay
+  confidence: integer('confidence').default(50), // 0-100
+  beliefDecayRate: integer('belief_decay_rate').default(30), // days half-life
+  lastConfirmedAt: timestamp('last_confirmed_at'),
+  sourceCount: integer('source_count').default(1),
+
+  // Status
+  status: text('status').default('active'),
+  
+  // Context and evidence
+  reason: text('reason'),
+  context: text('context'),
+  evidenceSummary: text('evidence_summary'),
+
+  // Metadata (stores edges, derivation info)
+  metadata: jsonb('metadata'),
+
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => [
+  index('beliefs_project_idx').on(table.projectId),
+  index('beliefs_type_idx').on(table.beliefType),
+  index('beliefs_status_idx').on(table.status),
+  index('beliefs_confidence_idx').on(table.confidence),
+  index('beliefs_normalized_key_idx').on(table.normalizedKey),
+]);
+
+/**
+ * Belief Memory Sources - Links beliefs to source memories
+ */
+export const beliefMemorySources = pgTable('belief_memory_sources', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  beliefId: uuid('belief_id').references(() => beliefs.id, { onDelete: 'cascade' }).notNull(),
+  memoryId: uuid('memory_id').references(() => memories.id, { onDelete: 'cascade' }).notNull(),
+
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => [
+  index('belief_sources_belief_idx').on(table.beliefId),
+  index('belief_sources_memory_idx').on(table.memoryId),
+]);
+
+/**
+ * Belief Edges - Relationships between beliefs
+ */
+export const beliefEdges = pgTable('belief_edges', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  fromBeliefId: uuid('from_belief_id').references(() => beliefs.id, { onDelete: 'cascade' }).notNull(),
+  toBeliefId: uuid('to_belief_id').references(() => beliefs.id, { onDelete: 'cascade' }).notNull(),
+
+  edgeType: text('edge_type').notNull(),
+  metadata: jsonb('metadata'),
+
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => [
+  index('belief_edges_from_idx').on(table.fromBeliefId),
+  index('belief_edges_to_idx').on(table.toBeliefId),
+]);
+
+export type BeliefType = 'decision' | 'preference' | 'failure_cause' | 'constraint' | 'state_change' | 'dispute';
+export type BeliefStatus = 'active' | 'superseded' | 'disputed';
+export type BeliefEdgeType = 'causes' | 'supports' | 'rejects' | 'supersedes' | 'depends_on';
+
+export type Belief = typeof beliefs.$inferSelect;
+export type NewBelief = typeof beliefs.$inferInsert;
+export type BeliefMemorySource = typeof beliefMemorySources.$inferSelect;
+export type NewBeliefMemorySource = typeof beliefMemorySources.$inferInsert;
+export type BeliefEdge = typeof beliefEdges.$inferSelect;
+export type NewBeliefEdge = typeof beliefEdges.$inferInsert;

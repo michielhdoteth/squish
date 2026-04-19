@@ -944,3 +944,89 @@ export const searchTraces = sqliteTable('search_traces', {
   index('search_traces_session_idx').on(table.sessionId),
   index('search_traces_timestamp_idx').on(table.timestamp),
 ]);
+
+// Belief Systems - Derived Beliefs from Memory
+// ============================================================================
+
+/**
+ * Beliefs - Derived semantic beliefs extracted from memories
+ * Represents inferred decisions, preferences, constraints, failure causes
+ */
+export const beliefs = sqliteTable('beliefs', {
+  id: text('id').primaryKey().$default(() => crypto.randomUUID()),
+  projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }),
+
+  // Belief identification
+  beliefType: text('belief_type').notNull().$type<BeliefType>(),
+  statement: text('statement').notNull(),
+  normalizedKey: text('normalized_key').notNull(),
+
+  // Confidence and decay
+  confidence: integer('confidence').default(50), // 0-100
+  beliefDecayRate: integer('belief_decay_rate').default(30), // days half-life
+  lastConfirmedAt: integer('last_confirmed_at', { mode: 'timestamp' }),
+  sourceCount: integer('source_count').default(1),
+
+  // Status
+  status: text('status').$type<BeliefStatus>().default('active'),
+  
+  // Context and evidence
+  reason: text('reason'),
+  context: text('context'),
+  evidenceSummary: text('evidence_summary'),
+
+  // Metadata (stores edges, derivation info)
+  metadata: text('metadata').$type<Record<string, unknown>>(),
+
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('beliefs_project_idx').on(table.projectId),
+  index('beliefs_type_idx').on(table.beliefType),
+  index('beliefs_status_idx').on(table.status),
+  index('beliefs_confidence_idx').on(table.confidence),
+  index('beliefs_normalized_key_idx').on(table.normalizedKey),
+]);
+
+/**
+ * Belief Memory Sources - Links beliefs to source memories
+ */
+export const beliefMemorySources = sqliteTable('belief_memory_sources', {
+  id: text('id').primaryKey().$default(() => crypto.randomUUID()),
+  beliefId: text('belief_id').references(() => beliefs.id, { onDelete: 'cascade' }).notNull(),
+  memoryId: text('memory_id').references(() => memories.id, { onDelete: 'cascade' }).notNull(),
+
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('belief_sources_belief_idx').on(table.beliefId),
+  index('belief_sources_memory_idx').on(table.memoryId),
+]);
+
+/**
+ * Belief Edges - Relationships between beliefs
+ */
+export const beliefEdges = sqliteTable('belief_edges', {
+  id: text('id').primaryKey().$default(() => crypto.randomUUID()),
+  fromBeliefId: text('from_belief_id').references(() => beliefs.id, { onDelete: 'cascade' }).notNull(),
+  toBeliefId: text('to_belief_id').references(() => beliefs.id, { onDelete: 'cascade' }).notNull(),
+
+  edgeType: text('edge_type').notNull().$type<BeliefEdgeType>(),
+  metadata: text('metadata').$type<Record<string, unknown>>(),
+
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('belief_edges_from_idx').on(table.fromBeliefId),
+  index('belief_edges_to_idx').on(table.toBeliefId),
+]);
+
+// Belief Types (re-exported for schema)
+export type BeliefType = 'decision' | 'preference' | 'failure_cause' | 'constraint' | 'state_change' | 'dispute';
+export type BeliefStatus = 'active' | 'superseded' | 'disputed';
+export type BeliefEdgeType = 'causes' | 'supports' | 'rejects' | 'supersedes' | 'depends_on';
+
+export type Belief = typeof beliefs.$inferSelect;
+export type NewBelief = typeof beliefs.$inferInsert;
+export type BeliefMemorySource = typeof beliefMemorySources.$inferSelect;
+export type NewBeliefMemorySource = typeof beliefMemorySources.$inferInsert;
+export type BeliefEdge = typeof beliefEdges.$inferSelect;
+export type NewBeliefEdge = typeof beliefEdges.$inferInsert;
