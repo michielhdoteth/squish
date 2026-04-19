@@ -1,6 +1,7 @@
 /** Hybrid Scorer - Multi-factor relevance scoring for memory ranking */
 
 import { logger } from '../../core/logger.js';
+import { cosineSimilarity } from '../utils/vector-operations.js';
 
 export interface ScoredMemory {
   memoryId: string;
@@ -118,8 +119,8 @@ function calculateSemanticScore(queryEmbedding: number[], memory: any): number {
 
     if (!memoryEmbedding || memoryEmbedding.length === 0) return 50;
 
-    const cosineSimilarity = calculateCosineSimilarity(queryEmbedding, memoryEmbedding);
-    return Math.max(0, Math.min(100, (cosineSimilarity + 1) * 50));
+    const semanticScore = cosineSimilarity(queryEmbedding, memoryEmbedding);
+    return Math.max(0, Math.min(100, (semanticScore + 1) * 50));
   } catch (error) {
     logger.error('Error calculating semantic score', error);
     return 50;
@@ -249,27 +250,6 @@ function calculateConfidenceScore(memory: any): number {
 function calculateFeedbackScore(memory: any): number {
   const retrievalPriority = memory.retrievalPriority ?? 50;
   return Math.max(0, Math.min(100, retrievalPriority));
-}
-
-function calculateCosineSimilarity(vecA: number[], vecB: number[]): number {
-  if (vecA.length !== vecB.length) return 0;
-
-  let dotProduct = 0;
-  let magnitudeA = 0;
-  let magnitudeB = 0;
-
-  for (let i = 0; i < vecA.length; i++) {
-    dotProduct += vecA[i] * vecB[i];
-    magnitudeA += vecA[i] * vecA[i];
-    magnitudeB += vecB[i] * vecB[i];
-  }
-
-  magnitudeA = Math.sqrt(magnitudeA);
-  magnitudeB = Math.sqrt(magnitudeB);
-
-  if (magnitudeA === 0 || magnitudeB === 0) return 0;
-
-  return dotProduct / (magnitudeA * magnitudeB);
 }
 
 function generateScoreExplanation(

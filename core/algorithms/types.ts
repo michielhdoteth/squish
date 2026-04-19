@@ -3,6 +3,7 @@
  */
 
 import type { Memory, MemoryMergeProposal, MemoryMergeHistory } from '../../db/drizzle/schema.js';
+import type { SafetyCheckResult } from '../../core/lib/types.js';
 
 /**
  * Merge proposal status
@@ -114,14 +115,7 @@ export interface ProjectMergeStatistics {
   averageMergeSize: number;
 }
 
-/**
- * Merge safety check result
- */
-export interface SafetyCheckResult {
-  passed: boolean;
-  warnings: string[];
-  blockers: string[];
-}
+
 
 /**
  * Hash cache entry for fast duplicate detection

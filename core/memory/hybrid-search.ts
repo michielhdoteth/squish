@@ -11,6 +11,7 @@ import { requireProject } from '../../core/projects.js';
 import { deserializeTags, deserializeMetadata, normalizeTags } from './serialization.js';
 import { computeGraphBoost } from '../search/graph-boost.js';
 import { normalizeTimestamp } from '../lib/utils.js';
+import { parseEmbedding } from '../lib/parse-embedding.js';
 import { cosineSimilarity } from '../utils/vector-operations.js';
 import config from '../../config.js';
 
@@ -415,41 +416,5 @@ function buildFtsQuery(query: unknown): string {
   return processedTerms[0];
 }
 
-/**
- * Parse embedding from SQLite storage
- */
-function parseEmbedding(embeddingData: any): number[] | null {
-  if (!embeddingData) return null;
 
-  if (Array.isArray(embeddingData)) return embeddingData;
-
-  if (embeddingData instanceof Uint8Array || Buffer.isBuffer(embeddingData)) {
-    try {
-      const json = JSON.parse(embeddingData.toString());
-      if (Array.isArray(json)) return json;
-    } catch {
-      try {
-        const buffer = embeddingData.buffer;
-        const arrayBuffer = buffer instanceof ArrayBuffer 
-          ? buffer 
-          : (buffer as unknown as ArrayBuffer);
-        const floatArray = new Float32Array(arrayBuffer);
-        return Array.from(floatArray);
-      } catch {
-        return null;
-      }
-    }
-  }
-
-  if (typeof embeddingData === 'string') {
-    try {
-      const parsed = JSON.parse(embeddingData);
-      if (Array.isArray(parsed)) return parsed;
-    } catch {
-      return null;
-    }
-  }
-
-  return null;
-}
 

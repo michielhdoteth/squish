@@ -4,12 +4,7 @@
  */
 
 import type { Memory } from '../../../db/drizzle/schema.js';
-
-export interface SafetyCheckResult {
-  passed: boolean;
-  warnings: string[];
-  blockers: string[]; // Hard failures
-}
+import type { SafetyCheckResult } from '../../lib/types.js';
 
 export interface SafetyCheck {
   name: string;

@@ -17,26 +17,10 @@ import { estimateTokens } from '../context/context-window.js';
 import { getDbClient } from '../lib/db-client.js';
 import { extractBeliefsFromMemory } from '../beliefs/extractor.js';
 import { upsertBeliefsForMemory } from '../beliefs/store.js';
+import { MemoryRecord, MemoryType } from '../lib/types.js';
+import { parseEmbedding } from '../lib/parse-embedding.js';
 
-// Define MemoryType locally to avoid circular dependency
-export type MemoryType = 'observation' | 'fact' | 'decision' | 'context' | 'preference' | 'note' | 'task';
-
-export interface MemoryRecord {
-  id: string;
-  projectId?: string | null;
-  type: MemoryType;
-  content: string;
-  summary?: string | null;
-  tags: string[];
-  metadata?: Record<string, unknown> | null;
-  createdAt?: string | null;
-  validFrom?: string | null;
-  validTo?: string | null;
-  recordedAt?: string | null;
-  similarity?: number;
-  importance?: number;
-  confidenceLevel?: 'certain' | 'speculative' | 'outdated' | null;
-}
+// MemoryType and MemoryRecord imported from ../lib/types.js
 
 export interface RememberInput {
   content: string;
@@ -320,48 +304,7 @@ export async function search(input: SearchInput): Promise<SearchResult[]> {
   return dbResults.slice(0, limit);
 }
 
-/**
- * Parse embedding from SQLite storage
- */
-function parseEmbedding(embeddingData: any): number[] | null {
-  if (!embeddingData) return null;
-  
-  // If it's already an array
-  if (Array.isArray(embeddingData)) return embeddingData;
-  
-  // If it's a Buffer/Uint8Array
-  if (embeddingData instanceof Uint8Array || Buffer.isBuffer(embeddingData)) {
-    // Try to parse as JSON first
-    try {
-      const json = JSON.parse(embeddingData.toString());
-      if (Array.isArray(json)) return json;
-    } catch {
-      // Not JSON, try Float32Array
-      try {
-        const buffer = embeddingData.buffer;
-        const arrayBuffer = buffer instanceof ArrayBuffer 
-          ? buffer 
-          : (buffer as unknown as ArrayBuffer);
-        const floatArray = new Float32Array(arrayBuffer);
-        return Array.from(floatArray);
-      } catch {
-        return null;
-      }
-    }
-  }
-  
-  // If it's a string
-  if (typeof embeddingData === 'string') {
-    try {
-      const parsed = JSON.parse(embeddingData);
-      if (Array.isArray(parsed)) return parsed;
-    } catch {
-      return null;
-    }
-  }
-  
-  return null;
-}
+// parseEmbedding imported from ../lib/parse-embedding.js
 
 async function searchMemoriesSqlite(input: SearchInput, tags: string[], limit: number): Promise<SearchResult[]> {
   const { db } = await getDbClient();

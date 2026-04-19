@@ -10,6 +10,7 @@ import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
 import { getEmbedding } from '../embeddings.js';
 import { cosineSimilarity } from '../utils/vector-operations.js';
+import { parseEmbedding } from '../lib/parse-embedding.js';
 import { logger } from '../logger.js';
 
 export interface DeduplicationResult {
@@ -225,30 +226,6 @@ async function mergeEntities(
     target: target.name,
     aliases: updatedAliases,
   });
-}
-
-/**
- * Parse embedding from various storage formats.
- */
-function parseEmbedding(data: any): number[] | null {
-  if (!data) return null;
-  if (Array.isArray(data)) return data;
-  if (typeof data === 'string') {
-    try {
-      return JSON.parse(data);
-    } catch {
-      return null;
-    }
-  }
-  if (Buffer.isBuffer(data)) {
-    try {
-      const buf = data as Buffer;
-      return Array.from(new Float32Array(buf.buffer, buf.byteOffset, buf.byteLength / 4));
-    } catch {
-      return null;
-    }
-  }
-  return null;
 }
 
 // Module-level threshold for embedding similarity

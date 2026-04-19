@@ -10,6 +10,7 @@ import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
 import { getEmbedding } from '../../core/embeddings.js';
 import { cosineSimilarity } from '../utils/vector-operations.js';
+import { parseEmbedding } from '../lib/parse-embedding.js';
 import { getLowImportanceMemories } from './importance.js';
 import { rememberMemory } from './memories.js';
 import { logger } from '../logger.js';
@@ -156,34 +157,6 @@ async function calculateMemorySimilarity(
   }
 
   return cosineSimilarity(embedding1, embedding2);
-}
-
-/**
- * Parse embedding from storage
- */
-function parseEmbedding(embeddingData: any): number[] | null {
-  if (!embeddingData) return null;
-
-  if (Array.isArray(embeddingData)) return embeddingData;
-
-  if (typeof embeddingData === 'string') {
-    try {
-      return JSON.parse(embeddingData);
-    } catch {
-      return null;
-    }
-  }
-
-  if (Buffer.isBuffer(embeddingData)) {
-    try {
-      const floatArray = new Float32Array(embeddingData.buffer || embeddingData);
-      return Array.from(floatArray);
-    } catch {
-      return null;
-    }
-  }
-
-  return null;
 }
 
 /**
