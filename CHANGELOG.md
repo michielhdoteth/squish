@@ -2,7 +2,32 @@
 
 All notable changes to Squish will be documented in this file.
 
-## [1.3.0] - 2026-04-19
+## [1.2.0] - 2026-04-19
+
+### Added - QMD Integration
+
+- **Dependency**: Add @tobilu/qmd@^2.1.0 as npm package
+- **Wrapper**: New core/search/qmd-wrapper.ts with search, query, vsearch, embed functions
+- **Usage as library**: Uses SDK library API (not CLI MCP wrapper)
+
+### Added - Persistent Hot Cache (Karpathy-Style)
+
+- **Persistent storage**: .squish/hot-cache.json survives restart
+- **Deduplication**: SHA256 hash-based content deduplication
+- **Stale prevention**: Entries flagged after 7 days without reference
+- **Auto-clean**: Entries older than 14 days removed on load
+- **Session integration**: Loaded on auto-load, saved on session end
+- **Size limit**: ~500 words max with trim-to-recent policy
+
+### Changed - 2-Tier Memory System
+
+- **Removed warm tier**: Simplified from 3-tier to 2-tier (hot/cold only)
+- **Updated schemas**: Both SQLite and Postgres tier columns now hot|cold
+- **Updated lifecycle**: TIER_THRESHOLDS only has hot and cold thresholds
+- **Updated scorer**: Removed warm scoring bonuses
+- **Updated CLI**: Descriptions reflect simplified tier system
+
+## [1.2.0] - 2026-04-19
 
 ### Added - Belief System (Derived Semantic Layer)
 
@@ -35,8 +60,6 @@ All notable changes to Squish will be documented in this file.
 - **Beliefs in context**: Context state now includes extracted beliefs
 - **Beliefs in trust report**: Trust report surfaces belief summaries
 - **Enhanced inspect**: Memory explain shows belief provenance
-
-## [1.2.0] - 2026-04-19
 
 ### Added - Signal-Aware Memory Runtime
 - **Signal distillation engine**: Captured events are now classified as `discard`, `session-only`, `durable-distilled`, or `durable-raw+distilled`
