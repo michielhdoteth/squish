@@ -36,6 +36,14 @@ export type JobHandler = (context: JobExecutionContext) => Promise<{ recordsProc
 const jobHandlers = new Map<string, JobHandler>();
 const activeTasks = new Map<string, any>(); // node-cron ScheduledTask type
 
+// Job interval by type (in ms) - used for catch-up detection
+const JOB_INTERVALS: Record<JobType, number> = {
+  hourly: 60 * 60 * 1000,           // 1 hour
+  daily: 24 * 60 * 60 * 1000,      // 24 hours
+  nightly: 24 * 60 * 60 * 1000,    // 24 hours (same as daily)
+  weekly: 7 * 24 * 60 * 60 * 1000, // 7 days
+};
+
 export function registerJobHandler(jobName: string, handler: JobHandler): void {
   jobHandlers.set(jobName, handler);
   logger.info(`[Scheduler] Registered handler for job: ${jobName}`);
@@ -58,6 +66,21 @@ const decayHandler = async (context: JobExecutionContext) => {
   };
 };
 registerJobHandler('decay_maintenance', decayHandler);
+
+// Belief decay handler - applies confidence decay to beliefs
+const beliefDecayHandler = async (context: JobExecutionContext) => {
+  const { applyBeliefDecay } = await import('../beliefs/decay.js');
+  const stats = await applyBeliefDecay();
+  return {
+    recordsProcessed: stats.decayed + stats.sourceCountUpdated,
+    summary: {
+      beliefDecayed: stats.decayed,
+      sourceCountUpdated: stats.sourceCountUpdated,
+      errors: stats.errors,
+    },
+  };
+};
+registerJobHandler('belief_decay', beliefDecayHandler);
 
 // Auto-clean handler - deletes stale memories automatically
 const autoCleanHandler = async (context: JobExecutionContext) => {
@@ -135,6 +158,9 @@ export async function initializeScheduler(): Promise<void> {
   try {
     await ensureDefaultJobs(db);
 
+    // Check for missed jobs (catch-up after machine wake from sleep)
+    await checkMissedJobs();
+
     const sqliteDb = db as any;
     const jobs = await sqliteDb
       .select()
@@ -151,6 +177,85 @@ export async function initializeScheduler(): Promise<void> {
   }
 }
 
+/**
+ * Check for missed jobs and execute catch-up if needed
+ * Called on scheduler initialization (including after machine wake from sleep)
+ */
+async function checkMissedJobs(): Promise<void> {
+  try {
+    const db = await getDb();
+    if (!db) return;
+    
+    const sqliteDb = db as any;
+    const jobs = await sqliteDb
+      .select()
+      .from(maintenanceJobs)
+      .where(eq(maintenanceJobs.enabled, true));
+    
+    const now = Date.now();
+    
+    for (const job of jobs) {
+      const intervalMs = JOB_INTERVALS[job.jobType as JobType];
+      if (!intervalMs) continue;
+      
+      const lastRun = job.lastRunAt ? new Date(job.lastRunAt).getTime() : 0;
+      const elapsed = lastRun > 0 ? now - lastRun : intervalMs * 2; // If never run, treat as overdue
+      const gracePeriod = intervalMs * 1.5; // 1.5x interval grace
+      
+      if (elapsed > gracePeriod) {
+        logger.info(`[Scheduler] Catch-up needed for ${job.jobName}, elapsed ${Math.round(elapsed / (60 * 60 * 1000))}h (grace: ${Math.round(gracePeriod / (60 * 60 * 1000))}h)`);
+        
+        // Execute catch-up
+        const handler = jobHandlers.get(job.jobName);
+        if (handler) {
+          try {
+            const startedAt = new Date();
+            const context: JobExecutionContext = {
+              jobId: job.id,
+              jobName: job.jobName,
+              jobType: job.jobType as JobType,
+              config: typeof job.jobConfig === 'string' 
+                ? JSON.parse(job.jobConfig) 
+                : (job.jobConfig as Record<string, unknown>) ?? {},
+              startedAt,
+            };
+            
+            await handler(context);
+            
+            // Record successful catch-up run
+            const completedAt = new Date();
+            await sqliteDb
+              .update(maintenanceJobs)
+              .set({
+                lastRunAt: completedAt,
+                lastRunStatus: 'success' as const,
+                lastRunDuration: completedAt.getTime() - startedAt.getTime(),
+              })
+              .where(eq(maintenanceJobs.id, job.id));
+            
+            logger.info(`[Scheduler] Catch-up completed for ${job.jobName}`);
+          } catch (catchError) {
+            const msg = catchError instanceof Error ? catchError.message : String(catchError);
+            logger.error(`[Scheduler] Catch-up failed for ${job.jobName}:`, msg);
+            
+            await sqliteDb
+              .update(maintenanceJobs)
+              .set({
+                lastRunAt: new Date(),
+                lastRunStatus: 'failed' as const,
+                lastRunError: msg,
+              })
+              .where(eq(maintenanceJobs.id, job.id));
+          }
+        }
+      }
+    }
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    logger.error('[Scheduler] Error checking missed jobs:', msg);
+  }
+}
+
 async function ensureDefaultJobs(db: any): Promise<void> {
   const defaultJobs = [
     {
@@ -159,6 +264,13 @@ async function ensureDefaultJobs(db: any): Promise<void> {
       cronExpression: '0 * * * *', // Run every hour at :00
       enabled: true,
       jobConfig: { applyDecay: true, updateTiers: true, evictOld: true },
+    },
+    {
+      jobName: 'belief_decay',
+      jobType: 'daily' as JobType,
+      cronExpression: '0 4 * * *', // Run daily at 4 AM
+      enabled: true,
+      jobConfig: { applyBeliefDecay: true },
     },
     {
       jobName: 'nightly_maintenance',
