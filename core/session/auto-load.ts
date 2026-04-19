@@ -8,6 +8,8 @@ import { getProjectContext } from '../context/context.js';
 import { getOrCreateProject } from '../projects.js';
 import { AutoLoadConfig, AutoLoadResult, DEFAULT_AUTO_LOAD_CONFIG } from './types.js';
 import { estimateTokens } from '../context/context-window.js';
+import { getLatestProjectWorkingSetSummary } from './working-set.js';
+import { loadHotCache, getHotCacheSummary } from '../hot-cache.js';
 
 export async function performAutoLoad(
   projectPath: string,
@@ -38,6 +40,31 @@ export async function performAutoLoad(
       return result;
     }
     const projectId = project.id;
+
+try {
+      const workingSetSummary = await getLatestProjectWorkingSetSummary(projectPath);
+      if (workingSetSummary) {
+        result.tokensUsed += estimateTokens(workingSetSummary);
+      }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      result.warnings.push(`Failed to load session working set: ${msg}`);
+    }
+
+    // NEW: Load persistent hot cache (Karpathy-style, survives restart)
+    if (cfg.includeCoreMemory) {
+      try {
+        const hotCacheSummary = await getHotCacheSummary({ projectPath, maxEntries: 5 });
+        if (hotCacheSummary) {
+          result.tokensUsed += estimateTokens(hotCacheSummary);
+          logger.info('[AutoLoad] Hot cache loaded from persistent storage');
+        }
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        result.warnings.push(`Failed to load hot cache: ${msg}`);
+        logger.warn(`[AutoLoad] Failed to load hot cache: ${msg}`);
+      }
+    }
 
     if (cfg.includeCoreMemory) {
       try {
