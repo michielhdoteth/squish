@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
 
-**Give any AI agent persistent, intelligent memory.** Without memory, agents forget everything between sessions. With Squish, they learn and adapt over time.
+**Give any AI agent persistent, intelligent memory.** Squish captures useful context automatically, keeps long-term memory structured, and helps agents wake up with the right state instead of starting cold.
 
 > Squish does not have a crypto token, has no token launch planned, and nobody is authorized to launch one on behalf of the project.
 
@@ -24,20 +24,22 @@ bun add squish-memory
 
 ## How It Works
 
-**Two-tier architecture** for optimal speed and durability:
+**Hybrid memory runtime** for signal quality, persistence, and wake-up continuity:
 
 ```
-User Action ──► Trigger Detection ──► Write Gate ──► Short-term (QMD)
-                                                             │
-                                                         Long-term (SQLite/PG)
-                                                             │
-                                                         Hybrid Retrieval
-                                                             │
-                                                      Agent Context
+User Action ──► Signal Distillation ──► Write Gate ──► Session Working Set
+                                                          │
+                                                          ├─ Durable Distilled Memory
+                                                          ├─ Raw Fallback Snapshot
+                                                          └─ SQLite/Postgres + Hybrid Retrieval
 ```
 
-- **Short-term (QMD)**: Lightning-fast file-based search. Instant recall for recent context.
-- **Long-term (SQLite/PG)**: Durable storage. SQLite for local, PostgreSQL for teams.
+- **Signal distillation**: Squish suppresses noisy output, keeps session-only context local, and only promotes durable signal.
+- **Session working set**: Active files, recent commands, failures, hypotheses, active places, and small graph cues are compacted for the next wake-up.
+- **Places**: Durable memories are routed into spatial buckets like `WIP`, `Sandbox`, `Board`, and `Ref` for segmented retrieval.
+- **Graph enrichment**: Durable memories strengthen entity and relationship structure used by retrieval scoring.
+- **Durable memory**: Stable facts, corrections, decisions, and fixes are stored for long-term retrieval.
+- **Raw fallback**: Nuance-sensitive output can keep an internal raw artifact for inspection without polluting normal context.
 
 ## Quick Start
 
@@ -54,28 +56,20 @@ Or traditional npm install:
 bun add squish-memory
 ```
 
+Most memory behavior is automatic once Squish is installed. The CLI remains available for explicit saves, search, inspection, and diagnostics:
+
 ```bash
-# Store a memory
+# Explicit save when you want to pin something intentionally
 squish remember "User prefers TypeScript over JavaScript"
 
-# Save a quick note
-squish note "Revisit caching strategy after launch"
-
-# Record an observation
-squish learn observation "Updated auth flow" --action edit
-
-# Record a fix or lesson learned
-squish learn fix "Patched auth middleware regression"
-
-# Search memories
+# Search durable memory
 squish search "coding preferences"
 
-# List projects, then inspect relevant context
-squish context --list-projects
-squish context
+# Inspect why a memory was stored and whether raw fallback exists
+squish inspect <memory-id>
 
-# Get relevant context or fetch by ID
-squish recall "user preferences"
+# View project and signal statistics
+squish stats
 ```
 
 Or use with your AI client directly:
@@ -92,13 +86,20 @@ squish run mcp
 
 ### Memory Intelligence
 - Auto-detects "remember this", "important", corrections
+- Distills noisy tool output before durable writes
+- Splits events into discarded, session-only, durable, and durable-with-raw-fallback paths
 - Handles contradictions when facts change
 - Temporal facts with expiration ("until January")
 - Confidence scoring for each memory
-- **Tier lifecycle**: hot/warm/cold memory tiers with automatic decay
+- **Tier lifecycle**: hot/cold memory tiers with automatic decay (simplified 2-tier system)
 - **Graph-boosted retrieval**: associations between memories boost relevance
+- **Belief System**: Derived semantic layer - decisions, preferences, constraints extracted from memories
+- **Persistent Hot Cache**: Karpathy-style wiki layer that survives restarts (not just session)
+- **Scheduler Resilience**: Jobs catch up after machine sleep/wake - no missed maintenance
 
 ### Retrieval Quality
+- Session wake-up uses compacted working-set context before broad recall
+- Place context remains attached to retrieved memories and can shape context selection
 - Hybrid search: semantic + keyword (BM25) with Reciprocal Rank Fusion
 - Multi-factor ranking: relevance, recency, importance, graph-boost
 - LLM-powered context extraction with Ollama (local)
@@ -110,18 +111,18 @@ squish run mcp
 - Optional encryption via `SQUISH_ENCRYPTION_PASSPHRASE` env var
 
 ### Universal Compatibility
-- **CLI**: `squish config`, `squish remember`, `squish note`, `squish learn`, `squish search`, `squish context`, `squish stats`
+- **CLI**: `squish remember`, `squish search`, `squish recall`, `squish inspect`, `squish context`, `squish stats`
 - **MCP Server**: Works with Claude Code, OpenCode, Cursor, VS Code, OpenClaw
 - **HTTP API**: REST API + WebSocket for any agent
 - **SQLite**: Local, zero-config
 - **PostgreSQL**: Team mode with Supabase/pgvector
-- **QMD Integration**: Native .md file search via QMD
+- **QMD Integration**: Native .md file search via @tobilu/qmd npm package
 
 ### Current MCP Tools
-- `squish_remember`, `squish_search`, `squish_recall`, `squish_forget`, `squish_update`
-- `squish_link`, `squish_context`, `squish_learn`, `squish_health`, `squish_stats`
-- `squish_confidence`, `squish_pin`, `squish_set_passphrase`, `squish_rotate_key`
-- `squish_recent`, `squish_stale`, `squish_note`, `squish_tag`
+- `squish_search`, `squish_timeline`, `squish_remember`, `squish_recall`, `squish_forget`
+- `squish_link`, `squish_context`, `squish_health`, `squish_stats`, `squish_inspect`
+- `squish_pin`, `squish_set_passphrase`, `squish_rotate_key`, `squish_recent`, `squish_stale`
+- `squish_beliefs`, `squish_trust_report` - Belief system tools
 
 ## Benchmark Results
 
@@ -180,6 +181,13 @@ DATABASE_URL=postgresql://user:pass@host/db
 - **QMD (Files)**: BM25 + vectors for fast recall
 - **SQLite/PostgreSQL**: ACID-compliant persistent storage
 
+### Runtime Pipeline
+- **Signal engine**: classifies captured events as discard, session-only, durable-distilled, or durable-with-raw-fallback
+- **Session working set**: persists active working context, active places, and small graph cues between sessions
+- **Places**: spatially segment durable memory for retrieval and wake-up continuity
+- **Graph**: incrementally enriches durable memories so graph boost applies to cleaner signal
+- **Inspection path**: lets you inspect why a memory was retained and whether a raw fallback artifact exists
+
 ### Interfaces
 - **MCP**: Native agent integration
 - **HTTP**: REST + WebSocket
@@ -205,7 +213,7 @@ bun run verify:mcp
 # Reset local database
 rm -rf .squish/squish.db
 
-# Verify MCP setup
+# Verify MCP server startup
 bun run verify:mcp
 
 # Check health
