@@ -51,7 +51,7 @@ export interface RememberInput {
   examples?: string;      // When to apply this knowledge
   exceptions?: string;    // When NOT to apply
   // Hot/Cold tier (replaces isHighRes)
-  tier?: 'hot' | 'cold';  // Memory tier: hot = active, cold = archived
+  tier?: 'hot' | 'cold';  // Memory tier: hot = active, cold = archived (simplified: warm removed)
   // Namespace for grouping
   namespaceId?: string;   // Assign to namespace
 }

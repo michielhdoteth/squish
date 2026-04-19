@@ -45,7 +45,6 @@ const DEFAULT_DECAY_RATES: Record<string, number> = {
 
 const TIER_THRESHOLDS = {
   hot: { recency: 7, coactivation: 10, salience: 70 },
-  warm: { recency: 30, coactivation: 5, salience: 50 },
   cold: { recency: Infinity, coactivation: 0, salience: 0 },
 };
 
@@ -53,7 +52,7 @@ export interface LifecycleStats {
   decayed: number;
   evicted: number;
   promoted: number;
-  tierChanges: { hot: number; warm: number; cold: number };
+  tierChanges: { hot: number; cold: number };
   expired: number;
 }
 
@@ -62,14 +61,14 @@ export interface LifecycleStats {
  */
 export async function runLifecycleMaintenance(projectId?: string): Promise<LifecycleStats> {
   if (!config.lifecycleEnabled) {
-    return { decayed: 0, evicted: 0, promoted: 0, tierChanges: { hot: 0, warm: 0, cold: 0 }, expired: 0 };
+    return { decayed: 0, evicted: 0, promoted: 0, tierChanges: { hot: 0, cold: 0 }, expired: 0 };
   }
 
   const stats: LifecycleStats = {
     decayed: 0,
     evicted: 0,
     promoted: 0,
-    tierChanges: { hot: 0, warm: 0, cold: 0 },
+    tierChanges: { hot: 0, cold: 0 },
     expired: 0,
   };
 
@@ -220,16 +219,16 @@ async function updateTiers(projectId: string | undefined, stats: LifecycleStats)
       .where(where)
       .limit(10000); // Process larger batches now
 
-    // Calculate tiers in memory
-    const tierAssignments = new Map<string, 'hot' | 'warm' | 'cold'>();
-    const tierCounts = { hot: 0, warm: 0, cold: 0 };
+    // Calculate tiers in memory (simplified: hot or cold only)
+    const tierAssignments = new Map<string, 'hot' | 'cold'>();
+    const tierCounts = { hot: 0, cold: 0 };
 
     for (const memory of memories) {
       const recencyDays = (now.getTime() - new Date(memory.createdAt).getTime()) / (24 * 60 * 60 * 1000);
       const coactivation = memory.coactivationScore || 0;
       const salience = memory.relevanceScore || 50;
 
-      let newTier: 'hot' | 'warm' | 'cold' = 'cold';
+      let newTier: 'hot' | 'cold' = 'cold';
 
       if (
         recencyDays <= TIER_THRESHOLDS.hot.recency &&
@@ -237,12 +236,6 @@ async function updateTiers(projectId: string | undefined, stats: LifecycleStats)
         salience >= TIER_THRESHOLDS.hot.salience
       ) {
         newTier = 'hot';
-      } else if (
-        recencyDays <= TIER_THRESHOLDS.warm.recency &&
-        coactivation >= TIER_THRESHOLDS.warm.coactivation &&
-        salience >= TIER_THRESHOLDS.warm.salience
-      ) {
-        newTier = 'warm';
       }
 
       if (newTier !== memory.tier) {
@@ -257,9 +250,6 @@ async function updateTiers(projectId: string | undefined, stats: LifecycleStats)
     const hotIds = Array.from(tierAssignments.entries())
       .filter(([_, tier]) => tier === 'hot')
       .map(([id]) => id);
-    const warmIds = Array.from(tierAssignments.entries())
-      .filter(([_, tier]) => tier === 'warm')
-      .map(([id]) => id);
     const coldIds = Array.from(tierAssignments.entries())
       .filter(([_, tier]) => tier === 'cold')
       .map(([id]) => id);
@@ -272,11 +262,11 @@ async function updateTiers(projectId: string | undefined, stats: LifecycleStats)
         .where(inArray(schema.memories.id, hotIds));
     }
 
-    if (warmIds.length > 0) {
+    if (coldIds.length > 0) {
       await (db as any)
         .update(schema.memories)
-        .set({ tier: 'warm', updatedAt: now })
-        .where(inArray(schema.memories.id, warmIds));
+        .set({ tier: 'cold', updatedAt: now })
+        .where(inArray(schema.memories.id, coldIds));
     }
 
     if (coldIds.length > 0) {
@@ -313,12 +303,10 @@ async function updateTiers(projectId: string | undefined, stats: LifecycleStats)
 
     // Update stats
     stats.tierChanges.hot = tierCounts.hot;
-    stats.tierChanges.warm = tierCounts.warm;
     stats.tierChanges.cold = tierCounts.cold;
 
     logger.debug('Tier updates complete', {
       hot: tierCounts.hot,
-      warm: tierCounts.warm,
       cold: tierCounts.cold,
     });
   } catch (error) {

@@ -23,8 +23,8 @@ export async function runNightlyJob(context: JobExecutionContext): Promise<{
     try {
       const lifecycleResult = await runLifecycleMaintenance();
       summary.decayApplied = lifecycleResult?.decayed || 0;
+      // Simplified: hot/cold only (warm removed)
       summary.tiersUpdated = (lifecycleResult?.tierChanges?.hot || 0) +
-                            (lifecycleResult?.tierChanges?.warm || 0) +
                             (lifecycleResult?.tierChanges?.cold || 0);
       recordsProcessed += summary.decayApplied as number;
       recordsProcessed += summary.tiersUpdated as number;

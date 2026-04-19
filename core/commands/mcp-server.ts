@@ -17,9 +17,8 @@ import { hybridSearch } from "../../core/memory/hybrid-retrieval.js";
 import { rememberMemory, search as searchMemories, getMemory, getRecent, type MemoryType } from "../../core/memory/memories.js";
 import { getQMDClient } from "../../core/embeddings/qmd-client.js";
 import { createAssociation, getRelatedMemories, type AssociationType } from "../../core/associations.js";
-import { createLearning, getLearnings } from "../../core/ingestion/learnings.js";
-import { requireProject, getAllProjects } from "../../core/projects.js";
-import { getMemoryStats } from "../../core/memory/stats.js";
+import { createLearning } from "../../core/ingestion/learnings.js";
+import { getAllProjects } from "../../core/projects.js";
 import { logger } from "../../core/logger.js";
 import { getDb } from "../../db/index.js";
 import { getSchema } from "../../db/schema.js";
@@ -29,6 +28,13 @@ import { startWorker, stopWorker } from "../../core/worker.js";
 import { initializeScheduler } from "../../core/scheduler/cron-scheduler.js";
 import { serializeTags } from "../../core/memory/serialization.js";
 import { parseDate, filterByDateRange } from "../../core/lib/utils.js";
+import {
+  buildContextState,
+  buildHealthState,
+  buildInspectState,
+  buildStatsState,
+  resolveProjectScope,
+} from "../../core/runtime/trust-state.js";
 
 const SERVER_NAME = "squish-memory";
 const SERVER_VERSION = "1.2.0";
@@ -160,7 +166,7 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
         content: z.string().describe("What to remember - can be a fact, decision, lesson, observation, or note"),
         project: z.string().optional().describe("Project path (auto-detected if not provided)"),
         tags: z.array(z.string()).optional().describe("Optional tags for organization"),
-        tier: z.enum(["hot", "cold"]).default("hot").describe("Memory tier: hot=active/frequently accessed, cold=archived/rarely accessed"),
+        tier: z.enum(["hot", "cold"]).default("hot").describe("Memory tier: hot=active/frequently accessed, cold=archived (simplified, warm removed)"),
         type: z.enum(["observation", "fact", "decision", "context", "preference", "note"]).optional().describe("Memory type - auto-detected if not provided"),
         learningType: z.enum(["success", "failure", "fix", "insight"]).optional().describe("Learning type when routing to learning storage"),
         confidence: z.number().min(0).max(100).optional().describe("Confidence level 0-100 (default: auto-calculated)"),
@@ -438,29 +444,29 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
     async ({ project, limit = 10, listProjects = false }: { project?: string; limit?: number; listProjects?: boolean }) => {
       if (listProjects) {
         const projects = await getAllProjects();
-        const formatted = projects.map((p, i) =>
-          `${i + 1}. ${p.name}\n   Path: ${p.path}\n   ID: ${p.id}`
-        ).join("\n\n");
-
-        return { content: [{ type: "text", text: `Found ${projects.length} projects:\n\n${formatted}` }] };
+        const scope = await resolveProjectScope(project);
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              ok: true,
+              count: projects.length,
+              currentProject: scope.currentProject,
+              otherProjects: scope.otherProjects,
+              projects: projects.map((entry) => ({
+                id: entry.id,
+                name: entry.name,
+                path: entry.path,
+                resolution: entry.path === '.' ? 'legacy-placeholder' : (entry.metadata?.source === 'mcp' ? 'auto-created' : 'inferred'),
+              })),
+              nextStep: scope.nextStep,
+            }, null, 2),
+          }],
+        };
       }
 
-      if (!project) {
-        return { content: [{ type: "text", text: "Error: project is required unless listProjects=true" }], isError: true };
-      }
-
-      const projectRecord = await requireProject(project);
-
-      const recentMemories = await searchMemories({ query: "", project, limit });
-      const learnings = await getLearnings(project, 5);
-
-      const context = {
-        project: projectRecord,
-        recentMemories: recentMemories.slice(0, limit),
-        recentLearnings: learnings
-      };
-
-      return { content: [{ type: "text", text: JSON.stringify(context, null, 2) }] };
+      const context = await buildContextState(project, limit);
+      return { content: [{ type: "text", text: JSON.stringify({ ok: true, ...context }, null, 2) }] };
     }
   )) toolCount++;
 
@@ -472,19 +478,21 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
     "squish_health",
     {
       description: "Check Squish system health status",
-      inputSchema: {}
+      inputSchema: {
+        project: z.string().optional().describe("Project path")
+      }
     },
-    async (): Promise<{ content: Array<{ type: string; text: string }> }> => {
+    async ({ project }: { project?: string }): Promise<{ content: Array<{ type: string; text: string }> }> => {
       const qmdClient = await getQMDClient();
       const qmdAvailable = await qmdClient.isAvailable();
+      const health = await buildHealthState(project);
 
       return { content: [{ type: "text", text: JSON.stringify({
-        status: "ok",
+        ok: health.severity !== "broken",
         version: SERVER_VERSION,
-        mode: config.isManagedMode ? "managed" : "local",
-        embeddings: config.embeddingsProvider,
         qmd: qmdAvailable ? "available" : "unavailable",
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        ...health,
       }, null, 2) }] };
     }
   )) toolCount++;
@@ -499,8 +507,26 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
       }
     },
     async ({ project }: { project?: string }) => {
-      const stats = await getMemoryStats(project || process.cwd());
-      return { content: [{ type: "text", text: JSON.stringify(stats, null, 2) }] };
+      const stats = await buildStatsState(project || process.cwd());
+      return { content: [{ type: "text", text: JSON.stringify({ ok: true, ...stats }, null, 2) }] };
+    }
+  )) toolCount++;
+
+  if (safeRegisterTool(
+    server,
+    "squish_inspect",
+    {
+      description: "Explain why a memory was retained, where it was routed, and whether raw fallback exists",
+      inputSchema: {
+        memoryId: z.string().uuid().describe("Memory ID to inspect")
+      }
+    },
+    async ({ memoryId }: { memoryId: string }) => {
+      const inspection = await buildInspectState(memoryId);
+      if (!inspection) {
+        return { content: [{ type: "text", text: `Memory not found: ${memoryId}` }], isError: true };
+      }
+      return { content: [{ type: "text", text: JSON.stringify({ ok: true, inspection }, null, 2) }] };
     }
   )) toolCount++;
 

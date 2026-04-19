@@ -4,33 +4,30 @@ import { memories } from '../../db/drizzle/schema.js';
 import { eq } from 'drizzle-orm';
 import { logger } from '../logger.js';
 
-/** Promote a memory to a higher tier (hot -> warm -> cold) */
+/** Promote a memory to a higher tier (cold -> hot only, simplified from warm hierarchy) */
 export async function promoteTier(memoryId: string) {
   const db = await getDb();
   // @ts-ignore - drizzle overloads
   const row = await db.select().from(memories).where(eq(memories.id, memoryId)).limit(1);
   const mem = row[0];
   if (!mem) return;
-  let newTier = mem.tier;
-  if (mem.tier === 'warm') newTier = 'hot';
-  else if (mem.tier === 'cold') newTier = 'warm';
-  // @ts-ignore
-  await db.update(memories).set({ tier: newTier }).where(eq(memories.id, memoryId));
+  // Simplified: cold -> hot (no warm tier)
+  if (mem.tier === 'cold') {
+    await db.update(memories).set({ tier: 'hot' }).where(eq(memories.id, memoryId));
+  }
 }
 
-/** Demote a memory tier or expire it based on decay */
+/** Demote a memory tier or expire it based on decay (simplified: hot -> cold only) */
 export async function demoteTier(memoryId: string) {
   const db = await getDb();
   // @ts-ignore
   const row = await db.select().from(memories).where(eq(memories.id, memoryId)).limit(1);
   const mem = row[0];
   if (!mem) return;
-  let updates: any = {};
-  if (mem.tier === 'hot') updates.tier = 'warm';
-  else if (mem.tier === 'warm') updates.tier = 'cold';
-  else updates.status = 'expired';
-  // @ts-ignore
-  await db.update(memories).set(updates).where(eq(memories.id, memoryId));
+  // Simplified: hot -> cold (no warm tier)
+  if (mem.tier === 'hot') {
+    await db.update(memories).set({ tier: 'cold' }).where(eq(memories.id, memoryId));
+  }
 }
 
 export async function expireMemory(memoryId: string) {
