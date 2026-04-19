@@ -2,7 +2,65 @@
 
 All notable changes to Squish will be documented in this file.
 
-## [1.2.0] - 2026-04-15
+## [1.3.0] - 2026-04-19
+
+### Added - Belief System (Derived Semantic Layer)
+
+- **Belief extraction from memories**: Automatically extracts beliefs from durable memories
+- **Belief types**: decision, preference, constraint, failure_cause, state_change, dispute
+- **Belief decay engine**: 30-day half-life, disputed beliefs decay 1.5x faster
+- **Source tracking**: Each belief tracks source memories for provenance
+- **Integration**: Beliefs extracted on both explicit and auto-capture durable writes
+
+### Changed - Schema Integration
+
+- **Canonical schema**: Belief tables now in SQLite and Postgres drizzle schemas
+- **Bootstrap migration**: Belief table creation included in db/bootstrap.ts
+- **Decay fields**: last_confirmed_at, belief_decay_rate, source_count, confidence
+
+### Changed - Scheduler Resilience
+
+- **Catch-up logic**: On scheduler init, checks for missed jobs and runs catch-up
+- **Grace period**: Jobs with elapsed > 1.5x expected interval trigger catch-up
+- **Handles sleep/wake**: No more missed jobs when machine is off/sleeping
+
+### Added - Query Functions
+
+- **getAllBeliefs()**: Query all beliefs for a project with filtering
+- **searchBeliefs()**: Search beliefs by statement content
+- **Provenance display**: Memory inspection shows source count, evidence preview
+
+### Fixed - Trust Surfaces
+
+- **Beliefs in context**: Context state now includes extracted beliefs
+- **Beliefs in trust report**: Trust report surfaces belief summaries
+- **Enhanced inspect**: Memory explain shows belief provenance
+
+## [1.2.0] - 2026-04-19
+
+### Added - Signal-Aware Memory Runtime
+- **Signal distillation engine**: Captured events are now classified as `discard`, `session-only`, `durable-distilled`, or `durable-raw+distilled`
+- **Session working set**: Active files, recent commands, failures, hypotheses, active places, and graph cues are compacted for wake-up continuity
+- **Raw fallback snapshots**: Nuance-sensitive durable events can keep linked raw artifacts without polluting normal retrieval
+- **Incremental place + graph routing**: Durable writes now feed place assignment and graph enrichment as part of the same runtime loop
+
+### Added - Trust-Oriented CLI And MCP Surfaces
+- **`squish health`**: New health command for project scope, subsystem status, and next-step guidance
+- **`squish inspect` / `squish_inspect`**: Explanation path for why a memory exists, whether raw fallback exists, and how legacy records should be read
+- **Structured MCP trust outputs**: `squish_context`, `squish_health`, and `squish_stats` now expose current project, runtime state, and recovery guidance in a predictable shape
+
+### Changed - Project Context And Wake-Up Semantics
+- **Canonical current project**: Normal context output now prefers the real workspace path and suppresses legacy placeholder project noise
+- **Wake-up order**: Session working set and active runtime state are surfaced before broad durable recall
+- **Stats semantics**: Durable memory totals are now clearly separated from capture-era signal telemetry
+
+### Fixed - Trust Consistency
+- **`squish doctor` coherence**: Doctor now reads as one combined trust-and-diagnostics command instead of two stacked reports
+- **Legacy inspection**: Older memories now report `legacy-durable` instead of `unknown`, with explicit provenance text
+- **Release verification path**: Added `bun run verify:mcp` for packaged MCP health verification
+
+### Docs
+- README, CLI reference, install quickstart, architecture notes, and release notes updated to match the automatic memory runtime and current command surface
 
 ### Added - Unified Write Path (squish_remember)
 - **New unified memory tool**: `squish_remember` auto-detects memory vs learning routing
