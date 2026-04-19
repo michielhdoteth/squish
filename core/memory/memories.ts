@@ -15,6 +15,8 @@ import { resolveContradictions, applySupersession } from './contradiction-resolv
 import { encrypt, decrypt } from '../security/encrypt.js';
 import { estimateTokens } from '../context/context-window.js';
 import { getDbClient } from '../lib/db-client.js';
+import { extractBeliefsFromMemory } from '../beliefs/extractor.js';
+import { upsertBeliefsForMemory } from '../beliefs/store.js';
 
 // Define MemoryType locally to avoid circular dependency
 export type MemoryType = 'observation' | 'fact' | 'decision' | 'context' | 'preference' | 'note' | 'task';
@@ -153,6 +155,26 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
   }
 
   await db.insert(schema.memories).values(insertValues);
+
+  if (project?.id) {
+    try {
+      const beliefs = extractBeliefsFromMemory({
+        memoryId: id,
+        content: input.content,
+        type,
+        metadata: enrichedMetadata,
+      });
+      if (beliefs.length > 0) {
+        await upsertBeliefsForMemory({
+          projectId: project.id,
+          memoryId: id,
+          beliefs,
+        });
+      }
+    } catch (beliefError) {
+      logger.warn(`[Beliefs] Failed to derive beliefs for memory ${id}: ${beliefError}`);
+    }
+  }
 
   // Append to Obsidian vault if enabled and hot tier (NEW)
   if (config.obsidianEnabled && config.obsidianVaultPath && insertValues.tier === 'hot') {

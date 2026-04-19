@@ -22,6 +22,14 @@ import { ensureProject, getProjectByPath } from '../projects.js';
 import { autoAssignMemory, initializeDefaultPlaces } from '../places/index.js';
 import { compressForContext } from '../compression.js';
 import { getAgentPreferences } from '../agent-preferences.js';
+import { classifySignalEvent, distillSignalEvent } from '../ingestion/signal-engine.js';
+import { compactSessionWorkingSet, recordSessionSignal } from '../session/working-set.js';
+import { getDbClient } from '../lib/db-client.js';
+import { eq } from 'drizzle-orm';
+import { serializeMetadata, deserializeMetadata } from '../memory/serialization.js';
+import { addMemoryToGraph } from '../graph/graph-builder.js';
+import { extractBeliefsFromMemory } from '../beliefs/extractor.js';
+import { upsertBeliefsForMemory } from '../beliefs/store.js';
 
 /** Session ID for tracking across agents */
 let currentSessionId: string | null = null;
@@ -76,6 +84,7 @@ export async function handleSessionStart(params: {
   // Get recent memories based on mode
   const limit = mode === 'compact' ? 3 : 5;
   const memories = await getRecent(projectPath, limit);
+  const compactedWorkingSet = await compactSessionWorkingSet(currentSessionId, projectPath);
   
   // Get spatial memory context (places) for context injection
   let placesContext = '';
@@ -104,7 +113,8 @@ export async function handleSessionStart(params: {
     return `${i + 1}. [${m.type}] ${compressed}`;
   }).join('\n');
   
-  const allContent = formatted + placesContext;
+  const workingSetContext = compactedWorkingSet.summary ? `Session working set:\n${compactedWorkingSet.summary}\n\n` : '';
+  const allContent = workingSetContext + formatted + placesContext;
   
   // Get agent preferences for context injection
   let preferences: Array<{key: string; value: string}> = [];
@@ -153,6 +163,14 @@ export async function handlePostToolUse(params: {
   
   // Check if we should capture this tool
   if (!shouldCaptureTool(toolName)) {
+    await recordSessionSignal({
+      sessionId: currentSessionId,
+      projectPath,
+      classification: 'discard',
+      distilledContent: `Filtered tool: ${toolName}`,
+      toolName,
+      target: extractTarget(toolName, toolInput),
+    });
     return { captured: false, reason: `Tool ${toolName} filtered out` };
   }
   
@@ -160,54 +178,268 @@ export async function handlePostToolUse(params: {
   const category = categorizeTool(toolName);
   const target = extractTarget(toolName, toolInput);
   const content = extractContent(toolName, toolInput, toolResult);
+  const signalDecision = classifySignalEvent({
+    toolName,
+    toolInput,
+    toolResult,
+    sessionId: currentSessionId,
+  });
+  const distilledContent = distillSignalEvent({
+    toolName,
+    command: String(toolInput.command || toolInput.cmd || ''),
+    content: signalDecision.content || content,
+    classification: signalDecision.classification,
+  });
   
   // Infer tags from context
-  const tags = inferTags(toolName, toolInput, content);
-  
-  // Create learning/observation
-  const learningInput: LearningInput = {
-    type: 'insight',
-    content: `[${category}] ${content}`,
-    action: toolName,
+  const tags = inferTags(toolName, toolInput, distilledContent || content);
+
+  await recordSessionSignal({
+    sessionId: currentSessionId,
+    projectPath,
+    classification: signalDecision.classification,
+    distilledContent,
+    toolName,
     target,
-    project: projectPath,
-    autoLink: true,
-  };
+    metadata: {
+      activeFiles: extractActiveFiles(toolName, toolInput),
+      command: String(toolInput.command || toolInput.cmd || ''),
+      outcome: inferOutcome(signalDecision, toolResult),
+      contentHash: signalDecision.contentHash,
+      tokensSaved: signalDecision.estimatedSavings,
+      activePlaces: signalDecision.placeHint.placeType ? [signalDecision.placeHint.placeType] : [],
+      graphEntities: signalDecision.graphHint.entityTerms,
+      placeRouted: Boolean(signalDecision.placeHint.placeType),
+      graphEnriched: signalDecision.graphHint.shouldEnrich,
+    },
+  });
+
+  if (signalDecision.classification === 'discard') {
+    return { captured: false, reason: signalDecision.reasons.join(', ') };
+  }
+
+  if (signalDecision.classification === 'session-only') {
+    return { captured: false, reason: 'Stored in session working set only' };
+  }
   
   try {
-    const learning = await createLearning(learningInput);
+    const memory = await rememberMemory({
+      content: `[${category}] ${distilledContent || content}`,
+      project: projectPath,
+      type: category === 'modification' ? 'decision' : category === 'planning' ? 'context' : 'observation',
+      source: 'auto-capture',
+      metadata: {
+        signal: {
+          classification: signalDecision.classification,
+          reasons: signalDecision.reasons,
+          nuanceSuppressed: signalDecision.classification === 'durable-raw+distilled',
+          wakeUpPriority: signalDecision.wakeUpPriority,
+        },
+        placeHint: signalDecision.placeHint,
+        graphHint: signalDecision.graphHint,
+        target,
+        toolName,
+      },
+    });
     
-    logger.info(`[Hooks] Captured ${toolName} → ${learning.id} (session: ${currentSessionId})`);
+    logger.info(`[Hooks] Captured ${toolName} → ${memory.id} (session: ${currentSessionId})`);
     
-    // Auto-assign to place (if places are initialized)
+    let placeAssignment: { assigned: boolean; placeId?: string; placeType?: string } | undefined;
     try {
       const project = await getProjectByPath(projectPath);
       if (project) {
-        // Initialize default places if they don't exist
         await initializeDefaultPlaces(project.id);
-        
-        // Auto-assign the memory to a place
-        await autoAssignMemory({
-          memoryId: learning.id,
+        placeAssignment = await autoAssignMemory({
+          memoryId: memory.id,
           projectId: project.id,
           toolName,
-          content: learningInput.content,
+          content: memory.content,
           tags,
+          memoryType: memory.type,
         });
       }
     } catch (placeError) {
-      // Don't fail the hook if place assignment fails
       logger.warn(`[Hooks] Place assignment failed: ${placeError}`);
+    }
+
+    let graphStatus: {
+      enriched: boolean;
+      entitiesCreated: number;
+      relationsCreated: number;
+      source: string;
+      entityTerms: string[];
+    } = {
+      enriched: false,
+      entitiesCreated: 0,
+      relationsCreated: 0,
+      source: 'none',
+      entityTerms: signalDecision.graphHint.entityTerms,
+    };
+
+    if (signalDecision.graphHint.shouldEnrich) {
+      try {
+        const graphResult = await addMemoryToGraph(memory.id, { preferLLM: true });
+        graphStatus = {
+          enriched: graphResult.entitiesCreated > 0 || graphResult.relationsCreated > 0,
+          entitiesCreated: graphResult.entitiesCreated,
+          relationsCreated: graphResult.relationsCreated,
+          source: graphResult.source,
+          entityTerms: signalDecision.graphHint.entityTerms,
+        };
+      } catch (graphError) {
+        logger.warn(`[Hooks] Graph enrichment failed: ${graphError}`);
+      }
+    }
+
+    let rawFallbackSnapshotId: string | undefined;
+    if (signalDecision.classification === 'durable-raw+distilled') {
+      rawFallbackSnapshotId = await attachRawFallbackSnapshot(memory.id, signalDecision.content, signalDecision.reasons);
+    }
+
+    await attachInspectionMetadata(memory.id, {
+      classification: signalDecision.classification,
+      reasons: signalDecision.reasons,
+      rawFallbackSnapshotId,
+      nuanceSuppressed: signalDecision.classification === 'durable-raw+distilled',
+      placeId: placeAssignment?.placeId,
+      placeType: placeAssignment?.placeType,
+      graph: graphStatus,
+    });
+
+    try {
+      const project = await getProjectByPath(projectPath);
+      if (project) {
+        const beliefs = extractBeliefsFromMemory({
+          memoryId: memory.id,
+          content: memory.content,
+          type: memory.type,
+          metadata: memory.metadata ?? null,
+        });
+        if (beliefs.length > 0) {
+          const storedBeliefs = await upsertBeliefsForMemory({
+            projectId: project.id,
+            memoryId: memory.id,
+            beliefs,
+          });
+          await attachBeliefInspectionMetadata(memory.id, storedBeliefs);
+        }
+      }
+    } catch (beliefError) {
+      logger.warn(`[Hooks] Belief extraction failed: ${beliefError}`);
     }
     
     return {
       captured: true,
-      memoryId: learning.id,
+      memoryId: memory.id,
     };
   } catch (error) {
     logger.error(`[Hooks] Failed to capture:`, error);
     return { captured: false, reason: 'Failed to create learning' };
   }
+}
+
+async function attachRawFallbackSnapshot(memoryId: string, rawContent: string, reasons: string[]): Promise<string> {
+  const { db, schema } = await getDbClient();
+  const snapshotId = randomUUID();
+  await db.insert(schema.memorySnapshots).values({
+    id: snapshotId,
+    memoryId,
+    snapshotType: 'periodic',
+    content: rawContent,
+    metadata: serializeMetadata({
+      role: 'raw-fallback',
+      reasons,
+      createdBy: 'signal-engine',
+    }),
+    createdAt: new Date(),
+  });
+  return snapshotId;
+}
+
+async function attachInspectionMetadata(memoryId: string, signal: {
+  classification: string;
+  reasons: string[];
+  rawFallbackSnapshotId?: string;
+  nuanceSuppressed: boolean;
+  placeId?: string;
+  placeType?: string;
+  graph?: {
+    enriched: boolean;
+    entitiesCreated: number;
+    relationsCreated: number;
+    source: string;
+    entityTerms: string[];
+  };
+}) {
+  const { db, schema } = await getDbClient();
+  const rows = await db.select().from(schema.memories).where(eq(schema.memories.id, memoryId)).limit(1);
+  const row = rows[0];
+  if (!row) return;
+  const details = deserializeMetadata(row.metadata ?? null) ?? {};
+  const next = {
+    ...details,
+    signal,
+    classification: signal.classification,
+    reasons: signal.reasons,
+    rawFallbackSnapshotId: signal.rawFallbackSnapshotId,
+    nuanceSuppressed: signal.nuanceSuppressed,
+    placeId: signal.placeId,
+    placeType: signal.placeType,
+    graph: signal.graph,
+    graphStatus: signal.graph
+      ? `${signal.graph.enriched ? 'enriched' : 'skipped'} (${signal.graph.entitiesCreated} entities, ${signal.graph.relationsCreated} relations)`
+      : 'none',
+  };
+  await db.update(schema.memories)
+    .set({ metadata: serializeMetadata(next), updatedAt: new Date() })
+    .where(eq(schema.memories.id, memoryId));
+}
+
+async function attachBeliefInspectionMetadata(memoryId: string, beliefs: Array<{
+  id: string;
+  type: string;
+  statement: string;
+  status: string;
+  confidence: number;
+  sourceMemoryIds: string[];
+  reason?: string;
+}>) {
+  const { db, schema } = await getDbClient();
+  const rows = await db.select().from(schema.memories).where(eq(schema.memories.id, memoryId)).limit(1);
+  const row = rows[0];
+  if (!row) return;
+  const details = deserializeMetadata(row.metadata ?? null) ?? {};
+  const next = {
+    ...details,
+    beliefs: beliefs.map((belief) => ({
+      id: belief.id,
+      type: belief.type,
+      statement: belief.statement,
+      status: belief.status,
+      confidence: belief.confidence,
+      sourceMemoryIds: belief.sourceMemoryIds,
+      reason: belief.reason,
+    })),
+  };
+  await db.update(schema.memories)
+    .set({ metadata: serializeMetadata(next), updatedAt: new Date() })
+    .where(eq(schema.memories.id, memoryId));
+}
+
+function extractActiveFiles(toolName: string, toolInput: Record<string, unknown>): string[] {
+  const path = String(toolInput.filePath || toolInput.path || '');
+  if (['Write', 'Edit', 'MultiEdit'].includes(toolName) && path) {
+    return [path];
+  }
+  return [];
+}
+
+function inferOutcome(signalDecision: { classification: string }, toolResult: unknown): string | undefined {
+  const content = typeof toolResult === 'string' ? toolResult.toLowerCase() : String(toolResult ?? '').toLowerCase();
+  if (signalDecision.classification === 'discard') return 'suppressed';
+  if (/\bfail|error|exception|traceback\b/.test(content)) return 'failure';
+  if (/\bpass|success|completed\b/.test(content)) return 'success';
+  return undefined;
 }
 
 /**
