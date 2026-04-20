@@ -9,6 +9,7 @@ import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
 import { rememberMemory } from '../memory/memories.js';
 import { logger } from '../logger.js';
+import { generateExtractiveSummary, extractMessageContent } from '../utils/content-extraction.js';
 
 export interface SelfIterationConfig {
   enabled: boolean;
@@ -203,34 +204,52 @@ async function processConversation(
     return { memoriesCreated, summariesCreated };
   }
 
-  // Extract facts
+  // Extract facts using improved pattern matching
   if (config.extractFacts) {
-    const prompt = buildFactExtractionPrompt(messagesToProcess);
-
-    // Here we would call an LLM client to extract facts
-    // For now, we'll use a simple heuristic extraction
     const extractedFacts: ExtractedFact[] = [];
+
+    // Define extraction patterns with confidence weights
+    const FACT_PATTERNS = [
+      // Strong decision patterns
+      { pattern: /\b(i chose|i picked|i decided)\b/i, type: 'decision' as const, confidence: 85 },
+      { pattern: /\b(i'll|i will)\s+\w+/i, type: 'decision' as const, confidence: 80 },
+      { pattern: /\blet's\s+\w+/i, type: 'decision' as const, confidence: 80 },
+      { pattern: /\bi decide[ds]?\b/i, type: 'decision' as const, confidence: 85 },
+      // Strong preference patterns
+      { pattern: /\b(i prefer|i like|i hate|i love|i dislike|i enjoy)\b/i, type: 'preference' as const, confidence: 75 },
+      { pattern: /\b(i want|i need|i must have)\b/i, type: 'preference' as const, confidence: 70 },
+      { pattern: /\b(better|prefer|should)\s+than\b/i, type: 'preference' as const, confidence: 70 },
+      // Task/work patterns
+      { pattern: /^\s*[-*]\s+(.+)$/m, type: 'task' as const, confidence: 65 },
+      { pattern: /\btodo:?|task:?|goal:?\s*/i, type: 'task' as const, confidence: 70 },
+    ];
 
     for (const msg of messagesToProcess) {
       if (msg.role === 'user') {
-        const content = msg.content.toLowerCase();
+        const content = msg.content;
+        const lowerContent = content.toLowerCase();
 
-        // Look for user preferences
-        if (content.includes('i want') || content.includes('i prefer') || content.includes('i like')) {
-          extractedFacts.push({
-            content: `User preference: ${msg.content}`,
-            type: 'preference',
-            confidence: 70,
-          });
+        // Try pattern matching
+        for (const { pattern, type, confidence } of FACT_PATTERNS) {
+          if (pattern.test(content)) {
+            extractedFacts.push({
+              content: `${type === 'task' ? '' : `User ${type}: `}${msg.content}`,
+              type,
+              confidence,
+            });
+          }
         }
 
-        // Look for decisions
-        if (content.includes('i will') || content.includes('i decide') || content.includes('let\'s')) {
-          extractedFacts.push({
-            content: `Decision: ${msg.content}`,
-            type: 'decision',
-            confidence: 80,
-          });
+        // Also check for explicit preference/decision indicators
+        if (lowerContent.includes('because') && (lowerContent.includes('i chose') || lowerContent.includes('i decided'))) {
+          const existing = extractedFacts.find(f => f.type === 'decision');
+          if (!existing) {
+            extractedFacts.push({
+              content: `Decision: ${msg.content}`,
+              type: 'decision',
+              confidence: 80,
+            });
+          }
         }
       }
     }
@@ -261,14 +280,9 @@ async function processConversation(
 
   // Generate summary
   if (config.generateSummaries && messagesToProcess.length > 0) {
-    const prompt = buildSummaryPrompt(messagesToProcess);
-
-    // Here we would call an LLM client to generate summary
-    // For now, use simple heuristic
-    const userMessages = messagesToProcess.filter(m => m.role === 'user');
-    const lastMessage = userMessages[userMessages.length - 1]?.content || '';
-
-    const summary = lastMessage.substring(0, Math.min(250, lastMessage.length));
+    // Use extractive summarization for better results
+    const extracted = extractMessageContent(messagesToProcess);
+    const summary = generateExtractiveSummary(extracted);
 
     // Update conversation with summary
     const db = await getDb();
