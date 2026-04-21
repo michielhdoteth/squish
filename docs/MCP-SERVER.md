@@ -4,39 +4,46 @@ Universal memory layer for AI agents via Model Context Protocol (MCP).
 
 ## Features
 
-- **6 MCP Tools**: Search, remember, recall, embed, QMD search, health
-- **Google Multimodal Embeddings**: 1408-dim vectors for text + images + video
+- **13 MCP Tools**: Search, remember, recall, timeline, context, health, stats, inspect, pin, recent, stale, link, forget
+- **Local Embeddings**: TF-IDF based, 768-dim vectors
 - **QMD Integration**: Local markdown search with BM25 + vector
 - **Hybrid Search**: Semantic + recency + importance scoring
-- **Dual Mode**: Local (SQLite, free) or Managed (cloud, paid)
+- **SQLite Storage**: Free, local, no API calls
 
 ## Quick Start
 
-### Local Mode (Default)
+### STDIO Mode (Default)
 
 ```bash
 # Start Squish MCP server
 squish-mcp
 
-# Or with custom port
-SQUISH_MCP_PORT=9000 squish-mcp --http --port 9000
+# Or via bun
+bun run mcp
+```
+
+### HTTP Mode
+
+```bash
+# Start with custom port
+bun run mcp --http --port 9000
+
+# Or via environment
+SQUISH_MCP_MODE=http SQUISH_MCP_PORT=9000 bun run mcp
 ```
 
 Server runs on `http://localhost:8767` by default.
 
-### Endpoints
+### Endpoints (HTTP Mode)
 
-- **SSE**: `GET /sse` - Server-sent events for real-time updates
-- **Initialize**: `POST /initialize` - MCP handshake
-- **Tools List**: `GET /tools/list` - List available tools
-- **Tool Call**: `POST /tools/call` - Execute a tool
 - **Health**: `GET /health` - Server status
+- **MCP**: `POST /mcp` - Streamable HTTP endpoint for MCP calls
 
 ## Tools
 
 ### 1. `squish_search`
 
-Search memories using hybrid scoring (semantic + recency + importance).
+Search memories using hybrid scoring (semantic + recency + importance + graph).
 
 ```json
 {
@@ -44,28 +51,57 @@ Search memories using hybrid scoring (semantic + recency + importance).
   "arguments": {
     "query": "authentication implementation",
     "limit": 5,
+    "project": "/path/to/project",
+    "mode": "hybrid"
+  }
+}
+```
+
+### 2. `squish_timeline`
+
+3-layer progressive disclosure for memory exploration.
+
+```json
+{
+  "name": "squish_timeline",
+  "arguments": {
+    "query": "feature implementation",
+    "depth": "timeline",
+    "limit": 10,
     "project": "/path/to/project"
   }
 }
 ```
 
-### 2. `squish_remember`
+Depth options:
+- `index`: ~50 tokens per result (overview)
+- `timeline`: ~200 tokens per result (moderate detail)
+- `detail`: ~2000 tokens per result (full context)
 
-Store a new memory.
+### 3. `squish_remember`
+
+Store a new memory or learning. Auto-detects type and routes appropriately.
 
 ```json
 {
   "name": "squish_remember",
   "arguments": {
-    "content": "Implemented OAuth2 flow with PKCE",
+    "content": "Implemented OAuth2 flow with PKCE for better security",
     "type": "decision",
     "tags": ["auth", "security"],
+    "tier": "hot",
+    "pin": false,
     "project": "/path/to/project"
   }
 }
 ```
 
-### 3. `squish_recall`
+Auto-detection:
+- Detects learning patterns (success, failure, fix, insight)
+- Detects TODO patterns
+- Routes to memory, learning, or note storage automatically
+
+### 4. `squish_recall`
 
 Retrieve a specific memory by ID.
 
@@ -73,48 +109,83 @@ Retrieve a specific memory by ID.
 {
   "name": "squish_recall",
   "arguments": {
-    "memoryId": "abc123"
+    "memoryId": "uuid-string"
   }
 }
 ```
 
-### 4. `squish_embed`
+### 5. `squish_forget`
 
-Generate embeddings for text.
+Delete memory by ID or bulk delete with filters.
 
 ```json
 {
-  "name": "squish_embed",
+  "name": "squish_forget",
   "arguments": {
-    "text": "Sample text to embed"
+    "memoryId": "uuid-string",
+    "confirm": true
   }
 }
 ```
 
-Returns:
+Bulk delete:
 ```json
 {
-  "dimensions": 768,
-  "preview": [0.123, -0.456, 0.789, ...]
+  "name": "squish_forget",
+  "arguments": {
+    "olderThan": "30 days",
+    "confirm": true,
+    "limit": 100
+  }
 }
 ```
 
-### 5. `squish_qmd_search`
+### 6. `squish_link`
 
-Search markdown files using QMD (local, fast BM25 + vector).
+Manage memory associations for graph-based reasoning.
 
 ```json
 {
-  "name": "squish_qmd_search",
+  "name": "squish_link",
   "arguments": {
-    "query": "agent memory architecture",
-    "collection": "notes",
+    "action": "find",
+    "memoryId": "uuid-string",
+    "depth": 2,
+    "minWeight": 0.3
+  }
+}
+```
+
+Actions:
+- `find`: Get related memories (graph traversal)
+- `add`: Create association between two memories
+- `list`: List all associations
+
+### 7. `squish_context`
+
+Get project context or list registered projects.
+
+```json
+{
+  "name": "squish_context",
+  "arguments": {
+    "project": "/path/to/project",
     "limit": 10
   }
 }
 ```
 
-### 6. `squish_health`
+List all projects:
+```json
+{
+  "name": "squish_context",
+  "arguments": {
+    "listProjects": true
+  }
+}
+```
+
+### 8. `squish_health`
 
 Check Squish health status.
 
@@ -128,10 +199,83 @@ Check Squish health status.
 Returns:
 ```json
 {
-  "status": "ok",
-  "version": "0.9.0",
+  "ok": true,
+  "version": "1.2.0",
   "qmd": "available",
-  "timestamp": "2026-03-11T..."
+  "timestamp": "2026-04-19T...",
+  "severity": "ok"
+}
+```
+
+### 9. `squish_stats`
+
+Get memory statistics for a project.
+
+```json
+{
+  "name": "squish_stats",
+  "arguments": {
+    "project": "/path/to/project"
+  }
+}
+```
+
+### 10. `squish_inspect`
+
+Explain why a memory was retained, where it was routed, and whether raw fallback exists.
+
+```json
+{
+  "name": "squish_inspect",
+  "arguments": {
+    "memoryId": "uuid-string"
+  }
+}
+```
+
+### 11. `squish_pin`
+
+Pin or unpin a memory to prevent consolidation/pruning.
+
+```json
+{
+  "name": "squish_pin",
+  "arguments": {
+    "memoryId": "uuid-string",
+    "pinned": true
+  }
+}
+```
+
+### 12. `squish_recent`
+
+Get recent memories by period.
+
+```json
+{
+  "name": "squish_recent",
+  "arguments": {
+    "period": "7days",
+    "limit": 10,
+    "project": "/path/to/project"
+  }
+}
+```
+
+Period options: `today`, `yesterday`, `thisweek`, `7days`, `14days`, `30days`, `90days`
+
+### 13. `squish_stale`
+
+Show stale memories (old, low-confidence, or rarely accessed).
+
+```json
+{
+  "name": "squish_stale",
+  "arguments": {
+    "days": 30,
+    "limit": 20,
+    "project": "/path/to/project"
+  }
 }
 ```
 
@@ -142,11 +286,15 @@ Returns:
 ```bash
 # MCP Server
 SQUISH_MCP_PORT=8767                  # MCP server port (default: 8767)
-SQUISH_MCP_SERVER_ENABLED=true        # Enable MCP server (default: true)
+SQUISH_MCP_MODE=stdio                 # Mode: stdio or http (default: stdio)
+
+# Storage
+SQUISH_DATA_DIR=/path/to/data          # Data directory (default: .squish/)
+SQUISH_DB_TYPE=sqlite               # Database: sqlite or postgres
 
 # Embeddings
-SQUISH_EMBEDDINGS_PROVIDER=local      # Provider: local|openai|ollama|qmd|hybrid|google-multimodal
-SQUISH_MULTIMODAL_EMBEDDINGS_ENABLED=true  # Enable Google Multimodal
+SQUISH_EMBEDDINGS_PROVIDER=local    # Provider: local|openai|ollama|lmstudio|transformers|google|auto
+SQUISH_MULTIMODAL_EMBEDDINGS_ENABLED=false  # Enable Google Multimodal
 
 # Google Cloud Multimodal (optional)
 GOOGLE_CLOUD_PROJECT=my-project
@@ -154,107 +302,47 @@ GOOGLE_CLOUD_LOCATION=us-central1
 GOOGLE_CLOUD_API_KEY=xxx              # Or use service account
 
 # QMD Integration
-SQUISH_QMD_ENABLED=true               # Enable QMD search
+SQUISH_QMD_ENABLED=true             # Enable QMD search
 SQUISH_QMD_COLLECTIONS=/path/to/colls # QMD collections path
-SQUISH_QMD_FALLBACK=hybrid            # Fallback mode: qmd-only|cloud-first|hybrid|local-only
-
-# Managed Mode (coming soon)
-SQUISH_MANAGED_MODE=false             # Use managed cloud storage
-SQUISH_MANAGED_API_URL=https://api.squish.dev
-SQUISH_MANAGED_API_KEY=xxx
+SQUISH_QMD_FALLBACK=hybrid          # Fallback mode: qmd-only|cloud-first|hybrid|local-only
 ```
 
 ### Embedding Providers
 
 1. **local** (default): TF-IDF based embeddings, 768-dim, no API calls
-2. **openai**: OpenAI text-embedding-3-small, requires API key
-3. **ollama**: Local Ollama with nomic-embed-text:v1.5
-4. **qmd**: QMD-based embeddings (experimental)
-5. **hybrid**: Try providers in order: Google Multimodal → QMD → Ollama → OpenAI → Local
-6. **google-multimodal**: Google Vertex AI multimodalembedding@001, 1408-dim
-
-## Google Multimodal Embeddings
-
-The `google-multimodal` provider supports text, images, and video in the same 1408-dimensional semantic space.
-
-### Setup
-
-1. **Option A: API Key**
-```bash
-export GOOGLE_CLOUD_API_KEY="your-api-key"
-export GOOGLE_CLOUD_PROJECT="your-project"
-```
-
-2. **Option B: Service Account**
-```bash
-export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account.json"
-export GOOGLE_CLOUD_PROJECT="your-project"
-export GOOGLE_CLOUD_LOCATION="us-central1"
-```
-
-### Usage
-
-```typescript
-import { getEmbedding } from 'squish-memory';
-
-// Text embedding (1408-dim)
-const textEmbedding = await getEmbedding("Hello world");
-
-// Multimodal embedding
-const multimodalEmbedding = await getEmbedding({
-  text: "Photo of a cat",
-  image: imageBuffer,  // Buffer or base64 string
-});
-
-// Video embedding (requires GCS URI)
-const videoEmbedding = await getEmbedding({
-  text: "Tutorial video",
-  video: "gs://bucket/video.mp4",
-});
-```
-
-## Managed Mode (Coming Soon)
-
-Squish will offer a managed cloud storage option for teams:
-
-- **Local Mode**: SQLite database in `.squish/` directory (free, OSS)
-- **Managed Mode**: Cloud storage via Squish API (paid, managed)
-
-Managed mode features:
-- Automatic backups
-- Multi-device sync
-- Team collaboration
-- Enterprise support
-
-Pricing: TBA
+2. **openai**: Requires `SQUISH_OPENAI_API_KEY` and `SQUISH_OPENAI_EMBEDDING_MODEL`
+3. **ollama**: Requires `SQUISH_OLLAMA_URL` and `SQUISH_OLLAMA_EMBEDDING_MODEL`
+4. **lmstudio**: Requires `SQUISH_LM_STUDIO_URL` and `SQUISH_LM_STUDIO_EMBEDDING_MODEL`
+5. **transformers**: Requires `SQUISH_LOCAL_MODEL`
+6. **google**: Requires Google credentials/project and `SQUISH_GOOGLE_EMBEDDING_MODEL`
+7. **auto**: Tries configured providers and falls back to local TF-IDF
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────┐
-│         MCP Client (OpenClaw, etc.)         │
+│         MCP Client (OpenCode, etc.)         │
 └────────────────┬────────────────────────────┘
-                 │ MCP Protocol (SSE)
+                 │ MCP Protocol
                  ▼
-┌─────────────────────────────────────────────┐
-│          Squish MCP Server (port 8767)      │
-│  ┌──────────────────────────────────────┐  │
-│  │  Tools: search, remember, recall...   │  │
-│  └──────────────────────────────────────┘  │
-│  ┌──────────────────────────────────────┐  │
-│  │  Embeddings: Google Multimodal, QMD  │  │
-│  └──────────────────────────────────────┘  │
-│  ┌──────────────────────────────────────┐  │
-│  │  Storage: SQLite (local) or Managed  │  │
-│  └──────────────────────────────────────┘  │
+┌───────────────────────────────────��─────────┐
+│         Squish MCP Server (port 8767)        │
+│  ┌──────────────────────────────────────┐ │
+│  │  13 Tools: search, remember, recall,   │ │
+│  │  timeline, context, health, stats,     │ │
+│  │  inspect, pin, recent, stale, link   │ │
+│  │  forget                            │ │
+│  └──────────────────────────────────────┘ │
+│  ┌──────────────────────────────────────┐ │
+│  │  Embeddings: Local, QMD, Multimodal  │ │
+│  └──────────────────────────────────────┘ │
+│  ┌──────────────────────────────────────┐ │
+│  │  Storage: SQLite / PostgreSQL       │ │
+│  └──────────────────────────────────────┘ │
 └─────────────────────────────────────────────┘
 ```
 
-## Contributing
-
-We welcome contributions! This is open source under MIT license.
-
-### Development
+## Development
 
 ```bash
 # Clone
@@ -264,23 +352,23 @@ cd squish
 # Install
 bun install
 
-# Build
-bun run build
-
-# Test
-bun test
-
 # Run MCP server
-squish-mcp
+bun run mcp
+
+# Or in HTTP mode
+bun run mcp --http
+
+# Health check
+bun run verify:mcp
 ```
 
-### Roadmap
+## Security Note
 
-- [ ] QMD auto-indexing for markdown vaults
-- [ ] Managed mode implementation
-- [ ] Web UI for memory management
-- [ ] CLI tools for memory operations
-- [ ] Embedding model fine-tuning support
+The following operations are NOT available via MCP:
+- Setting encryption passphrase (`squish_set_passphrase`)
+- Rotating encryption key (`squish_rotate_key`)
+
+These must be done manually via the `.env` file in the data directory.
 
 ## License
 

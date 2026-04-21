@@ -85,14 +85,20 @@ Rules:
 
 /**
  * Call an LLM for entity extraction.
- * Uses OpenAI-compatible API (works with OpenAI, Ollama, LM Studio).
+ * Uses OpenAI-compatible API (works with OpenAI, Ollama, LM Studio, local endpoints).
  */
 async function callLLM(prompt: string, content: string): Promise<string | null> {
   // Determine which provider to use for extraction
-  const provider = config.embeddingsProvider;
+  const provider = config.llmProvider;
+  const endpoint = config.llmEndpoint || config.lmStudioUrl || config.ollamaUrl;
+  const model = config.llmExtractionModel;
+  if (!model) {
+    logger.debug('LLM extraction model not configured; using regex fallback');
+    return null;
+  }
   
-  // Try OpenAI first if configured
-  if (config.openAiApiKey) {
+  // Try OpenAI first if configured and provider matches
+  if ((provider === 'openai' || !provider) && config.openAiApiKey) {
     try {
       const chatUrl = config.openAiApiUrl.replace('/embeddings', '/chat/completions');
       const response = await fetch(chatUrl, {
@@ -102,7 +108,7 @@ async function callLLM(prompt: string, content: string): Promise<string | null> 
           Authorization: `Bearer ${config.openAiApiKey}`,
         },
         body: JSON.stringify({
-          model: 'gpt-4o-mini',
+          model,
           messages: [
             { role: 'system', content: prompt },
             { role: 'user', content },
@@ -113,7 +119,7 @@ async function callLLM(prompt: string, content: string): Promise<string | null> 
       });
 
       if (!response.ok) {
-        logger.warn(`LLM entity extraction failed: ${response.status}`);
+        logger.warn(`LLM entity extraction failed (OpenAI): ${response.status}`);
         return null;
       }
 
@@ -124,14 +130,14 @@ async function callLLM(prompt: string, content: string): Promise<string | null> 
     }
   }
 
-  // Try Ollama if configured
-  if (config.ollamaUrl) {
+  // Try Ollama if configured and provider matches
+  if ((provider === 'ollama' || !provider) && config.ollamaUrl) {
     try {
       const response = await fetch(`${config.ollamaUrl}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: config.ollamaEmbeddingModel || 'llama3.2',
+          model,
           messages: [
             { role: 'system', content: prompt },
             { role: 'user', content },
@@ -153,14 +159,16 @@ async function callLLM(prompt: string, content: string): Promise<string | null> 
     }
   }
 
-  // Try LM Studio if configured
-  if (config.lmStudioUrl) {
+  // Try LM Studio / custom endpoint if configured and provider matches
+  if ((provider === 'lmstudio' || provider === 'local' || !provider) && (config.lmStudioUrl || endpoint)) {
     try {
-      const response = await fetch(`${config.lmStudioUrl}/v1/chat/completions`, {
+      const baseUrl = endpoint || config.lmStudioUrl;
+      if (!baseUrl) return null;
+      const response = await fetch(`${baseUrl}/v1/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: config.lmStudioEmbeddingModel || 'default',
+          model,
           messages: [
             { role: 'system', content: prompt },
             { role: 'user', content },

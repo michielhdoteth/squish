@@ -40,21 +40,13 @@ squish remember "User prefers TypeScript" --type preference
 squish remember "Chose PostgreSQL for team mode" --type decision --project /path/to/project
 ```
 
-### squish search
-
-Search durable memory:
-
-```bash
-squish search "authentication patterns"
-squish search "database schema" --limit 10
-```
-
 ### squish recall
 
 Recall by query or memory ID:
 
 ```bash
 squish recall "user preferences"
+squish recall "authentication patterns" --limit 10
 squish recall 123e4567-e89b-12d3-a456-426614174000
 ```
 
@@ -165,6 +157,6 @@ squish migrate
 | Family | Commands |
 |--------|----------|
 | Runtime | `squish-mcp`, `squish run web` |
-| Capture / Retrieval | `squish remember`, `squish search`, `squish recall`, `squish recent`, `squish inspect` |
+| Capture / Retrieval | `squish remember`, `squish recall`, `squish recent`, `squish inspect` |
 | Context / Trust | `squish context`, `squish health`, `squish stats`, `squish doctor` |
 | Maintenance | `squish forget`, `squish link`, `squish stale`, `squish clean`, `squish migrate` |

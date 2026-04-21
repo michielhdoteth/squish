@@ -2,11 +2,11 @@
  * Transformers.js Local Embedding Provider
  *
  * Uses ONNX-based transformer models for high-quality local embeddings.
- * Supports all-MiniLM-L6-v2 and other Hugging Face ONNX models.
+ * Supports Hugging Face ONNX embedding models.
  *
  * Usage:
  *   Set SQUISH_EMBEDDINGS_PROVIDER=transformers
- *   Optional: SQUISH_LOCAL_MODEL=onnx-community/all-MiniLM-L6-v2-ONNX
+ *   Required: SQUISH_LOCAL_MODEL=<huggingface-onnx-model>
  *
  * Download models automatically on first use. Models cached in HuggingFace cache directory.
  */
@@ -21,11 +21,8 @@ export interface TransformersLocalConfig {
   dtype: 'q8' | 'q4' | 'f16' | 'f32';
 }
 
-/**
- * Default configuration for local transformers
- */
 const DEFAULT_CONFIG: TransformersLocalConfig = {
-  model: 'onnx-community/all-MiniLM-L6-v2-ONNX',
+  model: '',
   device: 'cpu',
   dtype: 'q8', // Quantized for smaller size + faster loading
 };
@@ -51,7 +48,11 @@ async function getPipeline(): Promise<Pipeline | null> {
 
   // Start loading
   isLoading = true;
-  const model = config.transformersLocalModel || DEFAULT_CONFIG.model;
+  const model = config.transformersLocalModel;
+  if (!model) {
+    isLoading = false;
+    throw new Error('Transformers provider requires SQUISH_LOCAL_MODEL to be set');
+  }
 
   logger.info(`Loading transformers local model: ${model}`);
 
@@ -92,7 +93,7 @@ export function isReady(): boolean {
  * Get embedding dimension for current model
  */
 export function getEmbeddingDimension(): number {
-  return 384; // all-MiniLM-L6-v2 outputs 384 dims
+  return 0;
 }
 
 /**
@@ -187,7 +188,13 @@ export async function checkHealth(): Promise<{
   model?: string;
   dimension?: number;
 }> {
-  const model = config.transformersLocalModel || DEFAULT_CONFIG.model;
+  const model = config.transformersLocalModel;
+  if (!model) {
+    return {
+      available: false,
+      error: 'SQUISH_LOCAL_MODEL is not configured',
+    };
+  }
 
   // Check if library is available
   try {

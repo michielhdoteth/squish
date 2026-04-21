@@ -22,10 +22,15 @@ export async function getGoogleMultimodalEmbedding(
     return null;
   }
 
+  if (!config.googleEmbeddingModel) {
+    logger.debug('Google embedding model not configured');
+    return null;
+  }
+
   try {
     const endpoint = config.googleCloudLocation === 'global'
-      ? `https://aiplatform.googleapis.com/v1/projects/${config.googleCloudProject}/locations/${config.googleCloudLocation}/publishers/google/models/multimodalembedding@001:predict`
-      : `https://${config.googleCloudLocation}-aiplatform.googleapis.com/v1/projects/${config.googleCloudProject}/locations/${config.googleCloudLocation}/publishers/google/models/multimodalembedding@001:predict`;
+      ? `https://aiplatform.googleapis.com/v1/projects/${config.googleCloudProject}/locations/${config.googleCloudLocation}/publishers/google/models/${config.googleEmbeddingModel}:predict`
+      : `https://${config.googleCloudLocation}-aiplatform.googleapis.com/v1/projects/${config.googleCloudProject}/locations/${config.googleCloudLocation}/publishers/google/models/${config.googleEmbeddingModel}:predict`;
 
     const instances: any[] = [];
 

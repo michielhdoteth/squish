@@ -116,29 +116,66 @@ squish run web
 
 ### Security & Encryption
 - **Client-side encryption**: AES-256-GCM encryption for sensitive memories
-- **Passphrase management**: `squish_set_passphrase` and `squish_rotate_key` MCP tools
-- Optional encryption via `SQUISH_ENCRYPTION_PASSPHRASE` env var
+- **Passphrase management**: Via `SQUISH_ENCRYPTION_PASSPHRASE` env var (not exposed via MCP)
+- Encryption passphrase configured in `.env` file in data directory
 
 ### Universal Compatibility
-- **CLI**: `squish remember`, `squish search`, `squish recall`, `squish inspect`, `squish context`, `squish stats`, `squish doctor`
+- **CLI**: `squish remember`, `squish recall`, `squish inspect`, `squish context`, `squish stats`, `squish doctor`
 - **MCP Server**: Works with Claude Code, OpenCode, Cursor, VS Code, OpenClaw
 - **Web UI**: Inspect memories, projects, and recent observations locally
 - **SQLite**: Local, zero-config
 - **PostgreSQL**: Team mode with Supabase/pgvector
 - **QMD Integration**: Native .md file search via @tobilu/qmd npm package
 
-### Current MCP Tools
-- `squish_search`, `squish_timeline`, `squish_remember`, `squish_recall`, `squish_forget`
-- `squish_link`, `squish_context`, `squish_health`, `squish_stats`, `squish_inspect`
-- `squish_pin`, `squish_set_passphrase`, `squish_rotate_key`, `squish_recent`, `squish_stale`
+### Current MCP Tools (13 tools)
+- `squish_search` - Hybrid search across memories, QMD, and embeddings
+- `squish_timeline` - 3-layer progressive disclosure
+- `squish_remember` - Store memory or learning (auto-detects type)
+- `squish_recall` - Retrieve memory by ID
+- `squish_forget` - Delete memory by ID or bulk delete
+- `squish_link` - Manage memory associations
+- `squish_context` - Get project context
+- `squish_health` - Check system health
+- `squish_stats` - Get memory statistics
+- `squish_inspect` - Inspect memory retention
+- `squish_pin` - Pin/unpin memory
+- `squish_recent` - Get recent memories
+- `squish_stale` - Show stale memories
 
 ## Benchmark Results
 
-Real tests using [LoCoMo](https://github.com/snap-research/locomo) benchmark (22 questions):
+Real tests using academic benchmarks with both configurations:
 
+### LoCoMo (1540 questions)
+| Configuration | Score | Notes |
+|---------------|-------|-------|
+| **Without LLM** | **65.19%** | Vector-only |
+| With LLM | 67.34% | Vector + LLM extraction |
+| Mem0 | 66.88% | Requires LLM |
+| TrueMemory | 91.5% | Uses LLM |
+
+**Squish achieves competitive scores WITHOUT requiring LLM tokens.**
+
+#### LoCoMo Breakdown (No LLM)
+| Category | Score |
+|----------|-------|
+| Single-hop | 85.14% |
+| Multi-hop | 47.78% |
+| Temporal | 95.24% |
+| Open-domain | 98.00% |
+| Common-sense | 1.79% |
+
+### LongMemEval (100 questions)
+| Configuration | Score | Breakdown |
+|---------------|-------|-----------|
+| **Without LLM** | **67.00%** | Temporal: 85%, Multi-session: 40% |
+| With LLM | 67.00% | Temporal: 85%, Multi-session: 40% |
+
+Note: LLM extraction helps during storage but scoring uses retrieved context keyword matching.
+
+### Performance
 | Metric | Result |
 |--------|--------|
-| **LoCoMo Score** | **77%** |
 | Embedding Latency | 1-5ms |
 | API Latency | 1-20ms |
 | Max Throughput | 943 ops/sec |
@@ -195,8 +232,8 @@ DATABASE_URL=postgresql://user:pass@host/db
 - **Inspection path**: lets you inspect why a memory was retained and whether a raw fallback artifact exists
 
 ### Interfaces
-- **MCP**: Native agent integration
-- **HTTP**: REST + WebSocket
+- **packages/mcp**: Native agent integration via Model Context Protocol
+- **HTTP**: Streamable HTTP server
 - **CLI**: Shell and scripts
 
 ### Memory Lifecycle

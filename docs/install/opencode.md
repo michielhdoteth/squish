@@ -62,7 +62,7 @@ Once installed, Squish works automatically with OpenCode:
 4. Access advanced features via Squish CLI:
    ```bash
    squish remember "Important architectural decision"
-   squish search "architecture decisions"
+   squish recall "architecture decisions"
    squish core_memory
    ```
 

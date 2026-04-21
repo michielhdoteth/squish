@@ -92,6 +92,7 @@ CLAUDE.md
 
 # Generated MCP configs (local only)
 generated/mcp/
+benchmark/
 benchmarks/
 
 # Release artifacts

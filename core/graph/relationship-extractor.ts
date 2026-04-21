@@ -1,6 +1,6 @@
 /**
  * Relationship Extractor
- * 
+ *
  * Populates entity_relations table with typed relationships extracted
  * from memory content.
  */
@@ -15,6 +15,85 @@ import {
   type RelationType,
 } from './llm-entity-extractor.js';
 import type { ExtractedEntity } from '../memory/entity-extractor.js';
+
+// Fallback relationship types for non-LLM extraction
+const FALLBACK_RELATION_TYPES = {
+  CO_OCCURS: 'co_occurs_with' as RelationType,
+  SAME_SENTENCE: 'mentioned_together' as RelationType,
+  SEQUENTIAL: 'mentioned_before' as RelationType,
+};
+
+/**
+ * Generate fallback relationships from entity co-occurrence when LLM is unavailable.
+ * Creates edges between entities that appear in the same memory or sentence.
+ */
+function generateCoOccurrenceRelations(
+  entities: ExtractedEntity[],
+  content: string
+): ExtractedRelation[] {
+  const relations: ExtractedRelation[] = [];
+
+  if (entities.length < 2) return relations;
+
+  // Split content into sentences
+  const sentences = content.split(/[.!?]+/).filter(s => s.trim().length > 0);
+
+  // For each pair of entities, determine relationship strength based on proximity
+  for (let i = 0; i < entities.length; i++) {
+    for (let j = i + 1; j < entities.length; j++) {
+      const e1 = entities[i];
+      const e2 = entities[j];
+
+      // Skip if same entity
+      if (e1.name.toLowerCase() === e2.name.toLowerCase()) continue;
+
+      // Check if they appear in the same sentence
+      const sameSentence = sentences.some(sentence => {
+        return sentence.toLowerCase().includes(e1.name.toLowerCase()) &&
+               sentence.toLowerCase().includes(e2.name.toLowerCase());
+      });
+
+      // Check if e1 appears before e2 in text
+      const e1Index = content.toLowerCase().indexOf(e1.name.toLowerCase());
+      const e2Index = content.toLowerCase().indexOf(e2.name.toLowerCase());
+      const sequential = e1Index >= 0 && e2Index >= 0 && e1Index < e2Index;
+
+      // Determine relation type and confidence
+      let relationType: RelationType;
+      let confidence: number;
+
+      if (sameSentence) {
+        relationType = FALLBACK_RELATION_TYPES.SAME_SENTENCE;
+        confidence = 0.7;
+      } else if (sequential) {
+        relationType = FALLBACK_RELATION_TYPES.SEQUENTIAL;
+        confidence = 0.5;
+      } else {
+        relationType = FALLBACK_RELATION_TYPES.CO_OCCURS;
+        confidence = 0.3;
+      }
+
+      // Create bidirectional relationships
+      relations.push({
+        fromEntity: e1.name,
+        toEntity: e2.name,
+        relationType,
+        confidence,
+        context: `Co-occurrence in memory (${relationType})`,
+      });
+
+      relations.push({
+        fromEntity: e2.name,
+        toEntity: e1.name,
+        relationType,
+        confidence,
+        context: `Co-occurrence in memory (${relationType})`,
+      });
+    }
+  }
+
+  return relations;
+}
 
 export interface StoredRelation {
   id: string;
@@ -42,7 +121,7 @@ export async function extractAndStoreRelations(
 ): Promise<{
   entities: number;
   relations: number;
-  source: 'llm' | 'regex' | 'none';
+  source: 'llm' | 'regex' | 'fallback';
 }> {
   // Step 1: Extract entities and relations from content
   const extraction = await extractEntitiesAndRelations(content, options);
@@ -54,10 +133,20 @@ export async function extractAndStoreRelations(
   // Step 2: Store entities and get their IDs
   const entityIdMap = await storeEntities(extraction.entities, projectId);
 
-  // Step 3: Store relations between entities
-  const storedRelations = await storeRelations(extraction.relations, entityIdMap);
+  // Step 3: Generate fallback relationships if LLM didn't produce any
+  let relationsToStore = extraction.relations;
+  if (relationsToStore.length === 0 && extraction.entities.length >= 2) {
+    logger.debug('No relations extracted, generating co-occurrence fallback', {
+      entityCount: extraction.entities.length,
+    });
+    const fallbackRelations = generateCoOccurrenceRelations(extraction.entities, content);
+    relationsToStore = fallbackRelations;
+  }
 
-  // Step 4: Link entities to the memory record
+  // Step 4: Store relations between entities
+  const storedRelations = await storeRelations(relationsToStore, entityIdMap);
+
+  // Step 5: Link entities to the memory record
   await linkEntitiesToMemory(memoryId, extraction.entities, projectId);
 
   logger.info('Extracted and stored entities/relations', {
@@ -70,7 +159,7 @@ export async function extractAndStoreRelations(
   return {
     entities: entityIdMap.size,
     relations: storedRelations,
-    source: extraction.source,
+    source: extraction.source === 'none' ? 'fallback' : extraction.source,
   };
 }
 

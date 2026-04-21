@@ -34,39 +34,55 @@ export interface ExtractedEntity {
 
 // Regex patterns for entity detection
 const PATTERNS = {
-  // File paths: src/components/Button.tsx, ./config.json, /var/log/app.log
+  // File paths: src/components/Button.tsx
   filePath: /(?:^|[^\w])(?:\.?\/[\w.-]*[\w.-]*(?:\/[\w.-]+)*|[\w.-]+\.(?:ts|tsx|js|jsx|py|rb|go|java|cpp|c|h|json|yaml|yml|env|md|txt|csv|sql|graphql))\b/gm,
 
-  // Functions/methods: `functionName()`, `object.method()`, `Class.staticMethod()`
+  // Functions/methods
   functionCall: /\b([a-zA-Z_$][a-zA-Z0-9_$]*)\s*(?=\()/g,
 
-  // Classes: `class ClassName`, `new ClassName()`, `extends ClassName`
+  // Classes
   className: /\b(?:class|new|extends|implements)\s+([A-Z][a-zA-Z0-9_$]*)\b/g,
 
-  // Common names (capitalized words not at sentence start)
+  // Common names
   personName: /(?:^|[^.\w])\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b(?![^.\w])/g,
 
-  // Capitalized concepts: `Machine Learning`, `React Hooks`
-  concept: /\b(?:[A-Z][a-z]+\s+)+(?:System|Architecture|Pattern|Model|Algorithm|Framework|Library|Process|Concept|Theory|Method)\b/g,
+  // Capitalized concepts
+  concept: /\b(?:[A-Z][a-z]+\s+)+(?:System|Architecture|Pattern|Model|Algorithm|Framework|Library|Process|Concept|Method)\b/g,
 
-  // Technologies/Tools: React, Node.js, PostgreSQL, Docker, Kubernetes
-  tool: /\b(?:React|Vue|Angular|Node\.?js?|Express|Django|Flask|FastAPI|PostgreSQL|MongoDB|Redis|Docker|Kubernetes|Terraform|AWS|Azure|GCP|GitHub|GitLab|Jenkins|Figma|Sketch|Adobe|Webpack|Vite|npm|yarn|pnpm|TypeScript|JavaScript|Python|Go|Rust|Java|C\+\+|C#)\b/g,
+  // Tools
+  tool: /\b(?:React|Vue|Angular|Node\.?js?|Express|Django|Flask|FastAPI|PostgreSQL|MongoDB|Redis|Docker|Kubernetes)\b/g,
 
-  // Design patterns: `singleton pattern`, `factory method`, `observer pattern`
-  designPattern: /\b(?:abstract\s+)?(?:factory|singleton|observer|decorator|strategy|adapter|bridge|facade|proxy|chain\s+of\s+responsibility|composite|template\s+method|visitor|builder|prototype|memento|interpreter|command|state|mediator)\s+(?:pattern|method)\b/gi,
+  // Design patterns
+  designPattern: /\b(?:abstract\s+)?(?:factory|singleton|observer|decorator|strategy|adapter)\s+(?:pattern|method)\b/gi,
 
-  // Techniques/Methodologies: `memoization`, `caching`, `lazy loading`, `debouncing`
-  technique: /\b(?:memoization|caching|lazy\s+loading|debouncing|throttling|currying|composition|recursion|iteration|hashing|indexing|sharding|replication|optimization|refactoring|testing|debugging|profiling|monitoring|logging)\b/gi,
-
-  // Quoted concepts and important terms
-  quotedConcept: /["`]([^"`]+)["`]/g,
+  // Techniques
+  technique: /\b(?:memoization|caching|lazy\s+loading|debouncing|throttling)\b/gi,
 
   // ISO dates
   date: /\b(\d{4}-\d{2}-\d{2})(?:T\d{2}:\d{2}:\d{2})?\b/g,
-
-  // Common code keywords and variables
-  codeVariable: /\b(?:const|let|var|function|async|await|return|import|export|class|interface|type|enum)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\b/g,
 };
+
+/**
+ * Extract unique entity names for auto-linking
+ */
+export function extractEntityNames(content: string): string[] {
+  const names = new Set<string>();
+
+  // Extract person names
+  const namePattern = /(?:^|[^.\w])\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b(?![^.\w])/g;
+  let match;
+  while ((match = namePattern.exec(content)) !== null) {
+    names.add(match[1].toLowerCase());
+  }
+
+  // Extract capitalized concepts
+  const conceptPattern = /\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\b/g;
+  while ((match = conceptPattern.exec(content)) !== null) {
+    names.add(match[0].toLowerCase());
+  }
+
+  return Array.from(names).slice(0, 10);
+}
 
 /**
  * Extract entities from content

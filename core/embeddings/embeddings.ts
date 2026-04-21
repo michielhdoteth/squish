@@ -13,6 +13,17 @@ async function getTransformersLocal() {
 
 export type EmbeddingProvider = 'local' | 'openai' | 'ollama' | 'lmstudio' | 'transformers' | 'google' | 'none' | 'auto';
 
+function missingModelError(provider: string, envVar: string): Error {
+  return new Error(`Embedding provider "${provider}" requires ${envVar} to be set`);
+}
+
+function requireModel(provider: string, envVar: string, model: string): string {
+  if (!model.trim()) {
+    throw missingModelError(provider, envVar);
+  }
+  return model;
+}
+
 // Retry utility with exponential backoff
 async function withRetry<T>(
   fn: () => Promise<T>,
@@ -144,6 +155,7 @@ export async function getEmbedding(input: string | MultimodalInput): Promise<num
 
    // Handle multimodal input
    if (isMultimodalInput(input) && provider === 'google') {
+     requireModel('google', 'SQUISH_GOOGLE_EMBEDDING_MODEL', config.googleEmbeddingModel);
      const multimodalResult = await getGoogleMultimodalEmbedding(input);
      if (multimodalResult) {
        result = multimodalResult.embedding;
@@ -157,15 +169,20 @@ export async function getEmbedding(input: string | MultimodalInput): Promise<num
        if (provider === 'none') {
          result = null;
        } else if (provider === 'google') {
+         requireModel('google', 'SQUISH_GOOGLE_EMBEDDING_MODEL', config.googleEmbeddingModel);
          const multimodalResult = await getGoogleMultimodalEmbedding({ text: textInput });
          result = multimodalResult?.embedding || null;
        } else if (provider === 'openai') {
+         requireModel('openai', 'SQUISH_OPENAI_EMBEDDING_MODEL', config.openAiEmbeddingModel);
          result = await getOpenAiEmbedding(textInput);
        } else if (provider === 'ollama') {
+         requireModel('ollama', 'SQUISH_OLLAMA_EMBEDDING_MODEL', config.ollamaEmbeddingModel);
          result = await getOllamaEmbedding(textInput);
        } else if (provider === 'lmstudio') {
+         requireModel('lmstudio', 'SQUISH_LM_STUDIO_EMBEDDING_MODEL', config.lmStudioEmbeddingModel);
          result = await getLmStudioEmbedding(textInput);
        } else if (provider === 'transformers') {
+         requireModel('transformers', 'SQUISH_LOCAL_MODEL', config.transformersLocalModel);
          try {
            const mod = await getTransformersLocal();
            result = await mod.getEmbedding(textInput);
@@ -181,19 +198,19 @@ export async function getEmbedding(input: string | MultimodalInput): Promise<num
        } else {
          // Auto mode: cloud -> transformers -> TF-IDF (smart fallback)
          // Step 1: Try cloud providers
-         if (config.openAiApiKey) {
+         if (config.openAiApiKey && config.openAiEmbeddingModel) {
            result = await getOpenAiEmbedding(textInput);
          }
          // Step 2: Try Ollama
-         if (!result && config.ollamaUrl) {
+         if (!result && config.ollamaUrl && config.ollamaEmbeddingModel) {
            result = await getOllamaEmbedding(textInput);
          }
          // Step 3: Try LM Studio
-         if (!result && config.lmStudioUrl) {
+         if (!result && config.lmStudioUrl && config.lmStudioEmbeddingModel) {
            result = await getLmStudioEmbedding(textInput);
          }
          // Step 4: Try Transformers.js local
-         if (!result) {
+         if (!result && config.transformersLocalModel) {
            try {
              const mod = await getTransformersLocal();
              result = await mod.getEmbedding(textInput);
@@ -283,7 +300,7 @@ export function getEmbeddingCacheStats(): { size: number; maxSize: number } {
 
 /**
  * Local TF-IDF embedding using character n-grams and word hashing
- * Creates a 768-dimensional vector (same size as OpenAI text-embedding-3-small)
+ * Creates a 768-dimensional vector for fast offline similarity.
  * Fast, no API calls, works offline
  */
 function getLocalEmbedding(input: string): number[] | null {
@@ -366,6 +383,7 @@ function djb2Hash(str: string): number {
 
 async function getOpenAiEmbedding(input: string): Promise<number[] | null> {
   if (!config.openAiApiKey) return null;
+  if (!config.openAiEmbeddingModel) return null;
   
   try {
     const response = await fetchWithRetryAndTimeout(config.openAiApiUrl, {
@@ -396,12 +414,14 @@ async function getOpenAiEmbedding(input: string): Promise<number[] | null> {
 }
 
 async function getOllamaEmbedding(input: string): Promise<number[] | null> {
+  if (!config.ollamaEmbeddingModel) return null;
+
   try {
     const response = await fetchWithRetryAndTimeout(`${config.ollamaUrl}/api/embeddings`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: config.ollamaEmbeddingModel || 'nomic-embed-text',
+        model: config.ollamaEmbeddingModel,
         prompt: input,
       }),
     }, config.ollamaTimeoutMs);
@@ -422,12 +442,14 @@ async function getOllamaEmbedding(input: string): Promise<number[] | null> {
 
 // LM Studio uses OpenAI-compatible API
 async function getLmStudioEmbedding(input: string): Promise<number[] | null> {
+  if (!config.lmStudioEmbeddingModel) return null;
+
   try {
     const response = await fetchWithRetryAndTimeout(`${config.lmStudioUrl}/v1/embeddings`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: config.lmStudioEmbeddingModel || 'text-embedding-nomic-embed-text-v1.5',
+        model: config.lmStudioEmbeddingModel,
         input: input,
       }),
     }, config.ollamaTimeoutMs); // Reuse Ollama timeout
@@ -458,7 +480,7 @@ export async function checkEmbeddingProviderHealth(): Promise<Map<string, { avai
   results.set('local', { available: true, latencyMs: 0 });
   
   // Test OpenAI if configured
-  if (config.openAiApiKey) {
+  if (config.openAiApiKey && config.openAiEmbeddingModel) {
     const start = Date.now();
     try {
       const testInput = 'health check';
@@ -483,7 +505,7 @@ export async function checkEmbeddingProviderHealth(): Promise<Map<string, { avai
   }
   
   // Test Ollama if configured
-  if (config.ollamaUrl) {
+  if (config.ollamaUrl && config.ollamaEmbeddingModel) {
     const start = Date.now();
     try {
       const testInput = 'health check';
@@ -508,7 +530,7 @@ export async function checkEmbeddingProviderHealth(): Promise<Map<string, { avai
   }
   
   // Test LM Studio if configured
-  if (config.lmStudioUrl) {
+  if (config.lmStudioUrl && config.lmStudioEmbeddingModel) {
     const start = Date.now();
     try {
       const testInput = 'health check';
@@ -544,7 +566,12 @@ export async function checkEmbeddingProviderHealth(): Promise<Map<string, { avai
   };
 
   // Try to test transformers (library must be installed)
-  try {
+  if (!config.transformersLocalModel) {
+    results.set('transformers', {
+      available: false,
+      error: 'Not configured',
+    });
+  } else try {
     const start = Date.now();
     const mod = await getTransformersLocal();
     const health = await mod.checkHealth();
@@ -562,7 +589,7 @@ export async function checkEmbeddingProviderHealth(): Promise<Map<string, { avai
   }
 
   // Test Google if configured
-  if (config.googleCloudApiKey || config.googleCloudProject) {
+  if ((config.googleCloudApiKey || config.googleCloudProject) && config.googleEmbeddingModel) {
     const start = Date.now();
     try {
       const result = await withRetry(

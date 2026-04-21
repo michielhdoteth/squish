@@ -17,6 +17,9 @@ import { estimateTokens } from '../context/context-window.js';
 import { getDbClient } from '../lib/db-client.js';
 import { extractBeliefsFromMemory } from '../beliefs/extractor.js';
 import { upsertBeliefsForMemory } from '../beliefs/store.js';
+import { extractEntityNames } from './entity-extractor.js';
+import { autoLinkByEntities } from '../associations.js';
+import { addMemoryToGraph } from '../graph/graph-builder.js';
 import { MemoryRecord, MemoryType } from '../lib/types.js';
 import { parseEmbedding } from '../lib/parse-embedding.js';
 
@@ -38,6 +41,10 @@ export interface RememberInput {
   tier?: 'hot' | 'cold';  // Memory tier: hot = active, cold = archived (simplified: warm removed)
   // Namespace for grouping
   namespaceId?: string;   // Assign to namespace
+  // Session metadata for temporal queries (Task 1)
+  sessionId?: string;        // Session identifier for linking memories
+  sessionStartTime?: string; // When this session started
+  toolName?: string;     // Tool that generated this memory
 }
 
 export interface SearchInput {
@@ -46,6 +53,11 @@ export interface SearchInput {
   tags?: string[];
   limit?: number;
   project?: string;
+  // Place and session filters for unified search (Task 2, Task 3)
+  placeId?: string;        // Filter by place
+  placeType?: string;     // Filter by place type (inbox, wip, archive, etc.)
+  sessionId?: string;     // Filter by session
+  sessionStartTime?: string; // Session start for temporal queries
 }
 
 // SearchResult extends the shared MemoryRecord from normalization.ts
@@ -98,6 +110,12 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
       implicit: signals.implicit,
       priority: signals.priority,
       requiresConflictCheck: signals.implicit.correction,
+    },
+    // Session metadata for temporal queries (Task 1)
+    sessionMetadata: {
+      sessionId: input.sessionId,
+      sessionStartTime: input.sessionStartTime,
+      toolName: input.toolName,
     },
   };
   let metadataValue = serializeMetadata(enrichedMetadata);
@@ -159,6 +177,33 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
       logger.warn(`[Beliefs] Failed to derive beliefs for memory ${id}: ${beliefError}`);
     }
   }
+
+   // Auto-link by entity overlap (synchronous - Task 5)
+   // Now memories are immediately findable via associations after storage
+   const entityNames = extractEntityNames(input.content);
+   if (entityNames.length > 0 && project?.id) {
+     try {
+       const linked = await autoLinkByEntities(id, entityNames, project.id);
+       if (linked > 0) logger.debug(`[AutoLink] Linked memory ${id} to ${linked} related memories`);
+     } catch (err) {
+       logger.debug(`[AutoLink] Failed: ${err}`);
+     }
+   }
+
+   // Build graph for this memory (auto-build if enabled)
+   // This populates the entity_entities and entity_relations tables
+   if (config.graphAutoBuild && project?.id) {
+     try {
+       const graphResult = await addMemoryToGraph(id, {
+         preferLLM: config.llmEnabled,
+       });
+       if (graphResult.entitiesCreated > 0 || graphResult.relationsCreated > 0) {
+         logger.debug(`[Graph] Built graph for memory ${id}: ${graphResult.entitiesCreated} entities, ${graphResult.relationsCreated} relations`);
+       }
+     } catch (graphError) {
+       logger.debug(`[Graph] Failed to build graph for memory ${id}: ${graphError}`);
+     }
+   }
 
   // Append to Obsidian vault if enabled and hot tier (NEW)
   if (config.obsidianEnabled && config.obsidianVaultPath && insertValues.tier === 'hot') {
@@ -292,14 +337,9 @@ export async function search(input: SearchInput): Promise<SearchResult[]> {
   const limit = clampLimit(input.limit, 10, 1, 100);
   const tags = normalizeTags(input.tags);
 
-  // Get results from database (hybrid search: BM25 + vectors with RRF)
-  let dbResults: SearchResult[];
-  if (config.isTeamMode) {
-    dbResults = await searchMemoriesPostgres(input, tags, limit);
-  } else {
-    // Use hybrid search for SQLite (BM25 + vectors with RRF)
-    dbResults = await hybridSearchImpl(input, { limit });
-  }
+  // Always use hybrid search for both SQLite and PostgreSQL
+  // Graph boost requires hybrid path for proper scoring
+  const dbResults = await hybridSearchImpl(input, { limit });
 
   return dbResults.slice(0, limit);
 }

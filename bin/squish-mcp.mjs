@@ -26,7 +26,7 @@ const port = portIndex >= 0 ? parseInt(args[portIndex + 1]) : 8765;
 
 // Use bun to run the MCP server
 const bunPath = process.env.BUN?.replace(/\\/g, '/') || 'bun';
-const mcpPath = join(__dirname, '..', 'core', 'commands', 'mcp-server.ts');
+const mcpPath = join(__dirname, '..', 'packages', 'mcp', 'src', 'index.ts');
 
 if (isHealth) {
   // Health check mode - just run briefly and exit

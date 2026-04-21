@@ -70,7 +70,7 @@ Once installed, Squish works automatically:
 4. Use explicit memory commands via the Squish CLI:
    ```bash
    squish remember "User prefers TypeScript for new projects"
-   squish search "TypeScript preferences"
+   squish recall "TypeScript preferences"
    squish core_memory  # View your always-visible core memory
    ```
 

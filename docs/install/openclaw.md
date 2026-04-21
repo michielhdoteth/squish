@@ -79,7 +79,7 @@ Once installed, Squish works automatically with OpenClaw:
 4. Access advanced Squish features via CLI:
    ```bash
    squish remember "Important project decision"
-   squish search "project decisions"
+   squish recall "project decisions"
    squish core_memory
    ```
 

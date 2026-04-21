@@ -4,7 +4,7 @@
  * 
  * Usage:
  *   squish remember "Store this memory"
- *   squish search "query"
+ *   squish recall "query"
  *   squish context --list-projects
  */
 
@@ -12,7 +12,6 @@ import { Command } from 'commander';
 
 // Import all commands
 import { registerRememberCommand } from './commands/remember.js';
-import { registerSearchCommand } from './commands/search.js';
 import { registerRecallCommand } from './commands/recall.js';
 import { registerRecentCommand } from './commands/recent.js';
 import { registerContextCommand } from './commands/context.js';
@@ -36,7 +35,6 @@ program
 
 // Register all commands
 registerRememberCommand(program);
-registerSearchCommand(program);
 registerRecallCommand(program);
 registerRecentCommand(program);
 registerContextCommand(program);

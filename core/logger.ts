@@ -27,7 +27,7 @@ class Logger {
     if (this.isQuiet()) {
       return;
     }
-    console.log(this.format('info', message, context));
+    console.error(this.format('info', message, context));
   }
 
   warn(message: string, context?: LogContext): void {
@@ -51,7 +51,7 @@ class Logger {
 
   debug(message: string, context?: LogContext): void {
     if (this.debugEnabled && !this.isQuiet()) {
-      console.log(this.format('debug', message, context));
+      console.error(this.format('debug', message, context));
     }
   }
 }

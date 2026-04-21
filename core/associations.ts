@@ -62,8 +62,58 @@ export async function createAssociation(
 }
 
 /**
- * Track co-activation of multiple memories (used together)
+ * Auto-link memories that share entities
+ * Called after storing a memory to link it to related memories
  */
+export async function autoLinkByEntities(
+  newMemoryId: string,
+  entityNames: string[],
+  projectId: string
+): Promise<number> {
+  if (entityNames.length === 0) return 0;
+
+  try {
+    const db = await getDb();
+    const schema = await getSchema();
+
+    // Find existing memories that contain any of these entity names
+    // Use simple LIKE query for matching
+    const conditions = entityNames.slice(0, 5).map(name =>
+      sql<boolean>`LOWER(m.content) LIKE ${'%' + name + '%'}`
+    );
+
+    const existing = await (db as any)
+      .select({
+        id: schema.memories.id,
+        content: schema.memories.content
+      })
+      .from(schema.memories)
+      .where(
+        and(
+          eq(schema.memories.projectId, projectId),
+          sql`(${conditions.join(' OR ')})`,
+          sql`id != ${newMemoryId}`
+        )
+      )
+      .limit(10);
+
+    // Create associations for matching memories
+    let linked = 0;
+    for (const mem of existing) {
+      try {
+        await createAssociation(newMemoryId, mem.id, 'relates_to', 0.5);
+        linked++;
+      } catch (e) {
+        // Skip duplicates
+      }
+    }
+
+    return linked;
+  } catch (error) {
+    logger.error('Error auto-linking by entities', error);
+    return 0;
+  }
+}
 export async function trackCoactivation(memoryIds: string[]): Promise<void> {
   if (memoryIds.length < 2) return;
 

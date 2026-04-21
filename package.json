@@ -12,13 +12,14 @@
     "clean": "rm -rf dist && rm -f *.log",
     "build": "echo 'No build needed - runs TypeScript directly with bun. Use bun run start or bun run mcp instead.'",
     "start": "bun run core/index.ts 2>/dev/null || npx tsx core/index.ts",
-    "mcp": "bun run core/commands/mcp-server.ts 2>/dev/null || npx tsx core/commands/mcp-server.ts",
+    "mcp": "bun run packages/mcp/src/index.ts 2>/dev/null || npx tsx packages/mcp/src/index.ts",
     "dev": "bun --hot core/index.ts 2>/dev/null || npx tsx --watch core/index.ts",
-    "dev:mcp": "bun --hot core/commands/mcp-server.ts 2>/dev/null || npx tsx --watch core/commands/mcp-server.ts",
+    "dev:mcp": "bun --hot packages/mcp/src/index.ts 2>/dev/null || npx tsx --watch packages/mcp/src/index.ts",
     "test": "bun test ./tests/ 2>/dev/null || npx vitest",
-    "verify:mcp": "bun run core/commands/mcp-server.ts --health 2>/dev/null || npx tsx core/commands/mcp-server.ts --health",
+    "verify:mcp": "bun run packages/mcp/src/index.ts --health 2>/dev/null || npx tsx packages/mcp/src/index.ts --health",
     "bench": "bun benchmark/memory.ts 2>/dev/null || npx tsx --cwd . benchmark/memory.ts",
-    "bench:db": "bun benchmark/run.ts 2>/dev/null || npx tsx --cwd . benchmark/run.ts"
+    "bench:db": "bun benchmark/run.ts 2>/dev/null || npx tsx --cwd . benchmark/run.ts",
+    "bench:locomo": "bun benchmark/locomo-full.ts"
   },
   "repository": {
     "type": "git",

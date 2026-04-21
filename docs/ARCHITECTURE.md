@@ -2,18 +2,17 @@
 
 ## System Overview
 
-Squish is a **hybrid memory runtime** for AI agents implemented as an MCP server with HTTP/WebSocket fallbacks. It combines automatic signal distillation, session working-set continuity, durable memory, and hybrid retrieval.
+Squish is a **hybrid memory runtime** for AI agents implemented as an MCP server with HTTP fallback. It combines automatic signal distillation, session working-set continuity, durable memory, and hybrid retrieval.
 
 ```
 Any AI Agent
      ↓
-MCP (stdio/SSE) / HTTP / WebSocket / CLI
+MCP (stdio/Streamable HTTP) / CLI
      ↓
-Squish Server (index.ts)
-   ├─ MCP Handler (18+ tools)
-   ├─ Services Layer (15+ services)
-   ├─ Signal Engine
-   │   ├─ Distillation / suppression
+packages/mcp/src/index.ts
+   ├─ MCP Tools (13 tools)
+   ├─ Core Services
+   │   ├─ Signal Engine
    │   ├─ Session Working Set
    │   └─ Raw Fallback Snapshotting
    ├─ Durable Storage
@@ -22,43 +21,39 @@ Squish Server (index.ts)
    └─ Database Layer (Drizzle ORM)
 ```
 
-## Mono-Repo Structure
+## Package Structure
 
 The repository is organized as a Bun workspace:
 
 ```
 squish/
 ├── packages/
-│   ├── server/              # Core MCP server
+│   ├── mcp/                 # MCP server package
 │   │   ├── src/
-│   │   │   ├── index.ts            # Main MCP entry point
-│   │   │   ├── config.ts           # Configuration management
-│   │   │   ├── web.ts             # Web UI server
-│   │   │   ├── db/                # Database layer
-│   │   │   ├── services/          # Business logic services
-│   │   │   └── plugin/            # Claude Code plugin hooks
-│   │   ├── drizzle/               # Database schemas
-│   │   ├── package.json           # Published on npm as "squish"
-│   │   └── README.md
-│   └── installer/           # Installation scripts
-│       ├── get-squish.sh
-│       ├── get-squish-server.js
-│       ├── netlify.toml
+│   │   │   └── index.ts      # Main MCP entry point (13 tools)
+│   │   └── package.json
+│   └── cli/                  # CLI package
+│       ├── src/
+│       │   └── index.ts     # CLI entry point
 │       └── package.json
-├── infra/                   # Infrastructure
-│   ├── docker-compose.yml
-│   └── init.sql
-├── benchmarks/              # Performance tests
-├── docs/                    # Documentation
-├── package.json             # Workspace root
-└── bun.lockb                # Lock file
+├── bin/
+│   ├── squish-mcp.mjs       # MCP server binary
+│   └── squish.mjs           # CLI binary
+├── core/                    # Core library
+│   ├── memory/              # Memory management
+│   ├── graph/               # Knowledge graph
+│   ├── search/             # Search algorithms
+│   └── ...
+├─��� docs/                   # Documentation
+├── package.json           # Root workspace
+└── bun.lock                # Lock file
 ```
 
 ## Architecture Layers
 
-### 1. MCP Server (18+ Tools)
+### 1. MCP Server (13 Tools)
 
-The main entry point (`src/index.ts`) defines 18+ MCP tools covering memory management, search, observations, context, and system operations.
+The main entry point (`packages/mcp/src/index.ts`) defines 13 MCP tools covering memory management, search, learning, context, and system operations.
 
 - **remember** - Store memories with embeddings
 - **recall** - Get specific memory by ID

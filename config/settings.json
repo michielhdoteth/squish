@@ -1,52 +1,107 @@
 {
   "$schema": "./settings.schema.json",
+  "version": "1.2.0",
+  "data": {
+    "dir": ".squish"
+  },
+  "mcp": {
+    "serverPort": 8767,
+    "serverEnabled": true,
+    "mode": "stdio"
+  },
+  "database": {
+    "type": "sqlite",
+    "url": ""
+  },
   "embeddings": {
     "enabled": true,
     "provider": "local",
+    "timeout": 30000,
+    "maxRetries": 3,
+    "retryDelay": 1000,
     "models": {
       "openai": {
-        "model": "text-embedding-3-small",
-        "availableModels": [
-          "text-embedding-3-small",
-          "text-embedding-3-large"
-        ]
+        "model": "",
+        "apiUrl": "https://api.openai.com/v1/embeddings"
       },
       "google": {
-        "model": "gemini-embedding-001",
-        "availableModels": [
-          "gemini-embedding-001",
-          "gemini-embedding-2"
-        ]
+        "model": "",
+        "location": "us-central1"
       },
       "ollama": {
-        "model": "nomic-embed-text:v1.5",
-        "availableModels": [
-          "nomic-embed-text:v1.5",
-          "mxbai-embed-large"
-        ]
+        "url": "http://localhost:11434",
+        "model": ""
+      },
+      "lmstudio": {
+        "url": "http://localhost:1234",
+        "model": ""
+      },
+      "transformers": {
+        "model": ""
       }
     }
   },
   "api": {
     "openai": {
-      "apiKey": null,
       "apiUrl": "https://api.openai.com/v1/embeddings"
     },
     "google": {
-      "apiKey": null,
-      "projectId": null
+      "location": "us-central1"
     },
     "ollama": {
       "url": "http://localhost:11434"
+    },
+    "lmstudio": {
+      "url": "http://localhost:1234"
     }
   },
-  "mcp": {
-    "serverPort": 8767,
-    "serverEnabled": true
+  "security": {
+    "encryptionEnabled": false
   },
   "features": {
     "lifecycleEnabled": true,
     "summarizationEnabled": true,
-    "agentIsolation": true
+    "agentIsolation": true,
+    "governanceEnabled": true,
+    "consolidationEnabled": false,
+    "obsidianEnabled": false,
+    "externalMemoryEnabled": false,
+    "sessionAutoLoadEnabled": true,
+    "queryRewritingEnabled": true,
+    "queryRewritingFallbackEnabled": true,
+    "feedbackTrackingEnabled": true
+  },
+  "llm": {
+    "enabled": false,
+    "provider": "openai",
+    "endpoint": "",
+    "models": {
+      "extraction": "",
+      "reasoning": ""
+    }
+  },
+  "graph": {
+    "autoBuild": true,
+    "extractionMethod": "auto",
+    "maxContentLength": 10000
+  },
+  "scoring": {
+    "weights": {
+      "recency": 0.5,
+      "relevance": 3,
+      "importance": 2,
+      "vectorSim": 3,
+      "graphBoost": 1.5
+    }
+  },
+  "scheduler": {
+    "mode": "cron",
+    "cronEnabled": true,
+    "heartbeatInterval": 60000,
+    "jobRetentionDays": 30
+  },
+  "coreMemory": {
+    "totalBytes": 16384,
+    "sectionBytes": 4096
   }
 }

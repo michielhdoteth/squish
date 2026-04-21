@@ -8,9 +8,10 @@
 import { eq } from 'drizzle-orm';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
+import { logger } from '../logger.js';
+import { config } from '../../config.js';
 import { extractAndStoreRelations } from './relationship-extractor.js';
 import { deduplicateProjectEntities } from './entity-deduplicator.js';
-import { logger } from '../logger.js';
 
 export interface GraphBuildStats {
   memoriesProcessed: number;
@@ -24,7 +25,7 @@ export interface GraphBuildStats {
 export interface GraphAddStats {
   entitiesCreated: number;
   relationsCreated: number;
-  source: 'llm' | 'regex' | 'none';
+  source: 'llm' | 'regex' | 'fallback' | 'none';
 }
 
 /**
@@ -180,11 +181,14 @@ export async function addMemoryToGraph(
     return { entitiesCreated: 0, relationsCreated: 0, source: 'none' as const };
   }
 
+  // Use global config if not explicitly overridden
+  const preferLLM = options?.preferLLM ?? config.llmEnabled;
+
   const result = await extractAndStoreRelations(
     memoryId,
     memory.content,
     memory.projectId,
-    { preferLLM: options?.preferLLM ?? true }
+    { preferLLM }
   );
 
   return {

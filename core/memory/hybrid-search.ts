@@ -1,6 +1,8 @@
 /**
- * Hybrid Search - Combines BM25 keyword search with vector semantic search
- * Uses Reciprocal Rank Fusion (RRF) for result merging
+ * Vector Search - Pure semantic search with optional graph boosting + multi-session support
+ *
+ * Uses cosine similarity on embeddings + optional graph boost
+ * BM25 removed - use qmd-client for hot tier (BM25 + vectors + reranking)
  */
 
 import type { SearchResult, SearchInput } from './memories.js';
@@ -14,111 +16,486 @@ import { normalizeTimestamp } from '../lib/utils.js';
 import { parseEmbedding } from '../lib/parse-embedding.js';
 import { cosineSimilarity } from '../utils/vector-operations.js';
 import config from '../../config.js';
+import { getRelatedMemories } from '../associations.js';
+import { getPlaceMemories } from '../places/memory-places.js';
+import { getPlaceByType, type PlaceType } from '../places/places.js';
+import { multiHopSearch } from '../graph/multi-hop-retrieval.js';
+import { logger } from '../logger.js';
 
 /**
- * Reciprocal Rank Fusion (RRF) constant
- * Higher values = more influence from lower-ranked items
- * 60 is the standard value used in research
+ * Detect if query asks about time (temporal queries)
  */
-const RRF_K = 60;
+function isTemporalQuery(query: string): boolean {
+  const temporalIndicators = [
+    'when', 'how long', 'how many', 'ago', 'since', 'until',
+    'before', 'after', 'earlier', 'later', 'yesterday', 'tomorrow',
+    'last week', 'next week', 'last month', 'next month'
+  ];
+  const lower = query.toLowerCase();
+  return temporalIndicators.some(w => lower.includes(w));
+}
+
+/**
+ * Detect if query spans multiple sessions (multi-hop queries)
+ */
+function isMultiSessionQuery(query: string): boolean {
+  const multiSessionIndicators = [
+    'when', 'then', 'before', 'after', 'earlier', 'later',
+    'previous', 'next', 'first', 'later', 'subsequently',
+    'across', 'between', 'both', 'another', 'different'
+  ];
+  const lower = query.toLowerCase();
+  return multiSessionIndicators.some(w => lower.includes(w));
+}
+
+/**
+ * Check if content contains date/time references
+ */
+function hasDateReference(content: string): boolean {
+  const datePatterns = [
+    /\b\d{4}\b/,                    // Years: 2023, 2022
+    /\b\d{1,2}\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/i, // Month dates
+    /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+\d{1,2}\b/i,
+    /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/, // Dates: 5/7/2023
+    /\b(yesterday|today|tomorrow|last week|last month|last year)\b/i,
+    /\b(\d+)\s+(day|week|month|year)s?\s+(ago|before)\b/i,
+  ];
+  const lower = content.toLowerCase();
+  return datePatterns.some(p => p.test(content) || p.test(lower));
+}
+
+/**
+ * Expand query for multi-session retrieval
+ */
+function expandQueryForMultiSession(query: string): string[] {
+  const expansions = [query];
+  const lower = query.toLowerCase();
+
+  // Add time-based expansions
+  if (lower.includes('when')) {
+    expansions.push(query.replace(/when/i, '').trim());
+  }
+  if (lower.includes('before') || lower.includes('after')) {
+    expansions.push(query.replace(/before|after/i, '').trim());
+  }
+  if (lower.includes('earlier') || lower.includes('later')) {
+    expansions.push(query.replace(/earlier|later/i, '').trim());
+  }
+
+  // Add "mentioning" expansions for factual queries
+  if (lower.includes('what') || lower.includes('how')) {
+    expansions.push(query + ' mentioned');
+    expansions.push(query + ' said');
+  }
+
+  return [...new Set(expansions.filter(e => e.length > 2))];
+}
+
+/**
+ * Expand query for temporal retrieval - add date/temporal context
+ */
+function expandQueryForTemporal(query: string): string[] {
+  const expansions = [query];
+  const lower = query.toLowerCase();
+
+  // For "when" questions, search with entity + date context
+  if (lower.includes('when')) {
+    // Extract entity name (everything after "when did" or "when is")
+    const entityMatch = query.match(/when\s+(?:did|is|was|were)\s+(\w+)/i);
+    if (entityMatch) {
+      const entity = entityMatch[1];
+      // Search with entity name alone (might match date mentions)
+      expansions.push(entity);
+      expansions.push(query.replace(/when\s+(?:did|is|was|were)\s+/i, '').trim());
+    }
+  }
+
+  // Add "date" and "time" expansions
+  if (lower.includes('when') || lower.includes('how long') || lower.includes('ago')) {
+    expansions.push(query + ' date');
+    expansions.push(query + ' time');
+  }
+
+  return [...new Set(expansions.filter(e => e.length > 2))];
+}
 
 export interface HybridSearchOptions {
   limit?: number;
   project?: string;
   type?: string;
   tags?: string[];
-  /** Weight for BM25 results (0-1), default 0.5 */
-  bm25Weight?: number;
-  /** Weight for vector results (0-1), default 0.5 */
-  vectorWeight?: number;
-}
-
-interface RankedResult {
-  id: string;
-  rank: number;
-  score: number;
-  result: Omit<SearchResult, 'similarity'> & { similarity?: number };
+  enableMultiSession?: boolean; // Enable multi-session expansion
+  enableGraphTraversal?: boolean; // Enable multi-hop graph traversal (Task 4)
+  enableHeuristics?: boolean;
+  includeAssociations?: boolean;
 }
 
 /**
- * Main hybrid search function - combines BM25 and vector search with RRF
+ * Score with recency + similarity + entity boost (NO LLM required)
+ */
+function scoreWithHeuristics(
+  result: SearchResult,
+  query: string,
+  now: number
+): number {
+  let score = result.similarity ?? 0;
+
+  // 1. Recency boost: Recent = higher (up to +0.1)
+  if (result.createdAt) {
+    const created = new Date(result.createdAt).getTime();
+    const ageHours = (now - created) / (1000 * 60 * 60);
+    const recencyScore = Math.max(0, 0.1 * Math.exp(-ageHours / 720)); // Decay over 30 days
+    score += recencyScore;
+  }
+
+  // 2. Entity overlap: Query words appearing in content = boost
+  const queryWords = new Set(query.toLowerCase().split(/\s+/).filter(w => w.length > 3));
+  const contentWords = new Set((result.content ?? "").toLowerCase().split(/\s+/));
+  const overlap = [...queryWords].filter(w => contentWords.has(w)).length;
+  score += overlap * 0.02; // Small boost per matching word
+
+  return score;
+}
+
+/**
+ * Main search function - vectors + graph boost + heuristics + places + sessions
+ * Unified search integrating Places, Graph, and Memory
  */
 export async function hybridSearch(
   input: SearchInput,
   options: HybridSearchOptions = {}
 ): Promise<SearchResult[]> {
   const limit = options.limit ?? input.limit ?? 10;
-  const bm25Weight = options.bm25Weight ?? 0.5;
-  const vectorWeight = options.vectorWeight ?? 0.5;
+  const enableMultiSession = options.enableMultiSession !== false;
+  const enableHeuristics = options.enableHeuristics !== false;
+  const isMultiHop = enableMultiSession && isMultiSessionQuery(input.query);
+  const isTemporal = isTemporalQuery(input.query);
 
-  // Run both searches in parallel
-  const [bm25Results, vectorResults] = await Promise.all([
-    bm25Search(input, { ...options, limit: limit * 2 }),
-    vectorSearch(input, { ...options, limit: limit * 2 }),
-  ]);
+  let vectorResults: SearchResult[];
 
-  // Compute graph boost for the candidate memory IDs
-  const candidateIds = Array.from(new Set([...bm25Results.map(r => r.id), ...vectorResults.map(r => r.id)]));
+  if (isMultiHop) {
+    // Multi-hop: use expansion to get more coverage
+    const expandedQueries = expandQueryForMultiSession(input.query);
+    const allResults: SearchResult[] = [];
+
+    for (const expQuery of expandedQueries) {
+      const expResults = await vectorSearch(
+        { ...input, query: expQuery },
+        { ...options, limit: Math.ceil(limit * 2) }
+      );
+      allResults.push(...expResults);
+    }
+
+    const byId = new Map<string, SearchResult>();
+    for (const r of allResults) {
+      const existing = byId.get(r.id);
+      if (!existing || (r.similarity ?? 0) > (existing.similarity ?? 0)) {
+        byId.set(r.id, r);
+      }
+    }
+    vectorResults = Array.from(byId.values());
+  } else if (isTemporal) {
+    // Temporal: fetch more results
+    vectorResults = await vectorSearch(input, { ...options, limit: limit * 4 });
+  } else {
+    // Regular query
+    vectorResults = await vectorSearch(input, { ...options, limit: limit * 2 });
+  }
+
+  // Task 2: Integrate Places into retrieval
+  // If placeId or placeType specified, filter/boost results from that place
+  if (input.placeId || input.placeType) {
+    vectorResults = await applyPlaceFilterAndBoost(vectorResults, input, limit);
+  }
+
+  // Task 3: Add session temporal scope
+  // If sessionId specified, boost memories from same session
+  if (input.sessionId) {
+    vectorResults = applySessionBoost(vectorResults, input.sessionId);
+  }
+
+  // TEMPORAL: Boost results with dates for temporal queries
+  if (isTemporal) {
+    vectorResults = applyTemporalBoost(vectorResults);
+  }
+
+  // Apply heuristics if enabled (recency + entity overlap)
+  if (enableHeuristics) {
+    const now = Date.now();
+    vectorResults = vectorResults.map(r => ({
+      ...r,
+      similarity: scoreWithHeuristics(r, input.query, now)
+    }));
+  }
+
+  // Graph boost
+  const graphWeight = config.scoringWeights.graphBoost;
+  const candidateIds = vectorResults.map(r => r.id);
   const graphBoostMap = await computeGraphBoost(candidateIds);
 
-  // Apply RRF to merge results, incorporating graph boost
-  return reciprocalRankFusion(
-    bm25Results,
-    vectorResults,
-    { limit, bm25Weight, vectorWeight },
-    graphBoostMap
-  );
+  let results = applyGraphBoostWithWeight(vectorResults, graphBoostMap, limit, graphWeight);
+
+  // Expand with associated memories for better coverage
+  if (options.includeAssociations !== false) {
+    results = await expandWithAssociations(results, limit);
+  }
+
+  // Task 4: Enable multi-hop graph traversal by default
+  // If query is detected as multi-hop, use actual graph traversal
+  if (isMultiHop && options.enableGraphTraversal !== false && input.project) {
+    try {
+      const graphResults = await multiHopSearch({
+        query: input.query,
+        project: input.project,
+        limit: limit,
+        includeVectorResults: false,
+        includeGraphResults: true,
+      });
+
+      // Merge graph results with vector results
+      const existingIds = new Set(results.map(r => r.id));
+      for (const gr of graphResults) {
+        if (!existingIds.has(gr.id)) {
+          results.push({
+            ...gr,
+            similarity: (gr.similarity ?? 0) * 0.9 // Slightly lower weight
+          });
+        }
+      }
+
+      // Re-sort
+      results.sort((a, b) => (b.similarity ?? 0) - (a.similarity ?? 0));
+    } catch (e) {
+      // Multi-hop failed, continue with vector results
+      logger.debug(`[HybridSearch] Multi-hop failed: ${e}`);
+    }
+  }
+
+  return results;
 }
 
 /**
- * BM25 keyword search using SQLite FTS5
+ * Task 2: Filter and boost results by place
  */
-async function bm25Search(
+async function applyPlaceFilterAndBoost(
+  results: SearchResult[],
   input: SearchInput,
-  options: HybridSearchOptions
-): Promise<RankedResult[]> {
+  limit: number
+): Promise<SearchResult[]> {
+  let placeIds: string[] = [];
+
+  // Get place IDs from placeId or placeType
+  if (input.placeType && input.project) {
+    const project = await requireProject(input.project);
+    const place = await getPlaceByType(project.id, input.placeType as any);
+    if (place) {
+      placeIds = [place.id];
+    }
+  } else if (input.placeId) {
+    placeIds = [input.placeId];
+  }
+
+  if (placeIds.length === 0) {
+    return results;
+  }
+
+  // Get memories in this place
+  const placeMemories = new Set<string>();
+  for (const pid of placeIds) {
+    const memIds = await getPlaceMemories(pid, limit * 3);
+    for (const mid of memIds) {
+      placeMemories.add(mid);
+    }
+  }
+
+  // Boost memories from the specified place
+  const PLACE_BOOST = 0.15;
+  const boosted = results.map(r => {
+    if (placeMemories.has(r.id)) {
+      return {
+        ...r,
+        similarity: (r.similarity ?? 0) + PLACE_BOOST
+      };
+    }
+    return r;
+  });
+
+  // Re-sort with place boost
+  boosted.sort((a, b) => (b.similarity ?? 0) - (a.similarity ?? 0));
+
+  return boosted;
+}
+
+/**
+ * Task 3: Boost memories from the same session (temporal)
+ */
+function applySessionBoost(
+  results: SearchResult[],
+  sessionId: string
+): SearchResult[] {
+  const SESSION_BOOST = 0.1;
+
+  const boosted = results.map(r => {
+    // Check if memory's session matches query's session
+    const memSession = r.metadata?.sessionMetadata?.sessionId as string | undefined;
+    if (memSession === sessionId) {
+      return {
+        ...r,
+        similarity: (r.similarity ?? 0) + SESSION_BOOST
+      };
+    }
+    return r;
+  });
+
+  // Re-sort with session boost
+  boosted.sort((a, b) => (b.similarity ?? 0) - (a.similarity ?? 0));
+
+  return boosted;
+}
+
+/**
+ * TEMPORAL FIX: Boost memories that contain date references for "when" questions
+ * Also boost by date RECENCY - closer to today = higher for temporal queries
+ */
+function applyTemporalBoost(results: SearchResult[]): SearchResult[] {
+  const TEMPORAL_BOOST = 0.25; // Moderate boost for date-containing memories
+
+  const boosted = results.map(r => {
+    let boost = 0;
+
+    // Boost 1: Has date reference - high priority for temporal
+    if (hasDateReference(r.content ?? "")) {
+      boost += TEMPORAL_BOOST;
+    }
+
+    return {
+      ...r,
+      similarity: (r.similarity ?? 0) + boost
+    };
+  });
+
+  // Re-sort with temporal boost
+  boosted.sort((a, b) => (b.similarity ?? 0) - (a.similarity ?? 0));
+
+  return boosted;
+}
+
+/**
+ * MULTI-HOP FIX: Get memories from adjacent sessions using DB query
+ * This provides actual cross-session retrieval for multi-hop queries
+ */
+async function applySessionAdjacencyBoost(
+  results: SearchResult[],
+  input: SearchInput,
+  limit: number
+): Promise<SearchResult[]> {
+  if (!input.project) return results;
+
+  // Extract session tags from top results
+  const sessionTags = new Set<string>();
+  for (const r of results.slice(0, 5)) {
+    const sessionTag = extractSessionTag(r.tags);
+    if (sessionTag) {
+      sessionTags.add(sessionTag);
+    }
+  }
+
+  if (sessionTags.size === 0) {
+    return results;
+  }
+
+  // Get adjacent session tags
+  const adjacentSessionTags = new Set<string>();
+  for (const tag of sessionTags) {
+    const adjacent = getAdjacentSessionTags(tag);
+    for (const adj of adjacent) {
+      adjacentSessionTags.add(adj);
+    }
+  }
+
+  if (adjacentSessionTags.size === 0) {
+    return results;
+  }
+
+  // Fetch memories from adjacent sessions
+  const project = await requireProject(input.project);
+  const adjacentMemories: SearchResult[] = [];
+
+  for (const sessionTag of adjacentSessionTags) {
+    const memories = await getMemoriesBySession(project.id, sessionTag, limit);
+    adjacentMemories.push(...memories);
+  }
+
+  if (adjacentMemories.length === 0) {
+    return results;
+  }
+
+  // Merge with boost
+  const existingIds = new Set(results.map(r => r.id));
+  const ADJACENT_BOOST = 0.3;
+  const merged = [...results];
+
+  for (const mem of adjacentMemories) {
+    if (!existingIds.has(mem.id)) {
+      merged.push({
+        ...mem,
+        similarity: (mem.similarity ?? 0) + ADJACENT_BOOST
+      });
+    }
+  }
+
+  // Re-sort
+  merged.sort((a, b) => (b.similarity ?? 0) - (a.similarity ?? 0));
+
+  return merged.slice(0, limit * 2);
+}
+
+/**
+ * Expand results with directly associated memories
+ */
+async function expandWithAssociations(
+  results: SearchResult[],
+  limit: number
+): Promise<SearchResult[]> {
+  const allIds = new Set(results.map(r => r.id));
+  const expanded: SearchResult[] = [...results];
+
+  // Get related for top results only
+  for (const r of results.slice(0, 3)) {
+    try {
+      const related = await getRelatedMemories(r.id, 5);
+      for (const rel of related) {
+        if (!allIds.has(rel.id)) {
+          allIds.add(rel.id);
+          expanded.push({
+            ...rel,
+            similarity: (rel.similarity ?? 0) * 0.8 // Slightly lower weight
+          });
+        }
+      }
+    } catch (e) {
+      // Skip errors
+    }
+  }
+
+  // Re-sort and return top results
+  expanded.sort((a, b) => (b.similarity ?? 0) - (a.similarity ?? 0));
+  return expanded.slice(0, limit);
+}
+
+/**
+ * Get memories by session ID (stored in tags as "dialogue-1", "session-2", etc.)
+ */
+async function getMemoriesBySession(
+  projectId: string,
+  sessionTag: string,
+  limit: number
+): Promise<SearchResult[]> {
   try {
     const db = createDatabaseClient(await getDb());
     const sqlite = db.$client as any;
-    const limit = options.limit ?? 10;
-    const tags = normalizeTags(options.tags ?? input.tags);
 
-    // Build FTS5 query with proper escaping
-    const ftsQuery = buildFtsQuery(input.query);
-    const isEmptyQuery = ftsQuery === '*';
-
-    // Build WHERE conditions
-    const conditions: string[] = [];
-    const params: any[] = [];
-
-    // For non-empty queries, use FTS5 MATCH
-    if (!isEmptyQuery) {
-      conditions.push('memories_fts MATCH ?');
-      params.push(ftsQuery);
-    }
-
-    if (input.type) {
-      conditions.push('m.type = ?');
-      params.push(input.type);
-    }
-
-    if (tags.length) {
-      conditions.push('(' + tags.map(() => 'm.tags LIKE ?').join(' OR ') + ')');
-      params.push(...tags.map((tag) => `%${tag}%`));
-    }
-
-    let projectId: string | null = null;
-    if (input.project) {
-      const project = await requireProject(input.project);
-      projectId = project.id;
-      conditions.push('m.project_id = ?');
-      params.push(project.id);
-    }
-
-    // For empty query with no filters, use "1=1" to match all
-    const whereClause = conditions.length > 0 ? conditions.join(' AND ') : '1=1';
-
-    // Build query based on whether we have a search term or not
+    // Query memories where tags contain the session tag
     const statement = sqlite.prepare(`
       SELECT
         m.id as id,
@@ -128,16 +505,16 @@ async function bm25Search(
         m.summary as summary,
         m.tags as tags,
         m.metadata as metadata,
-        ${isEmptyQuery ? '0 as bm25Score' : 'bm25(memories_fts) as bm25Score'},
+        m.embedding as embedding,
+        m.embedding_json as embeddingJson,
         m.created_at as createdAt
       FROM memories m
-      ${isEmptyQuery ? '' : 'INNER JOIN memories_fts ON m.rowid = memories_fts.rowid'}
-      WHERE ${whereClause}
-      ${isEmptyQuery ? 'ORDER BY m.created_at DESC' : 'ORDER BY bm25(memories_fts)'}
+      WHERE m.project_id = ? AND m.tags LIKE ?
+      ORDER BY m.created_at DESC
       LIMIT ?
     `);
 
-    const rows = statement.all(...params, limit * 3) as Array<{
+    const rows = statement.all(projectId, `%${sessionTag}%`, limit) as Array<{
       id: string;
       projectId: string | null;
       type: string;
@@ -145,29 +522,69 @@ async function bm25Search(
       summary: string | null;
       tags: string | null;
       metadata: string | null;
-      bm25Score: number;
+      embedding: any;
+      embeddingJson: any;
       createdAt: string | null;
     }>;
 
-    // Return as ranked results (lower BM25 score = better rank)
-    return rows.map((row, index) => ({
+    return rows.map((row) => ({
       id: row.id,
-      rank: index + 1,
-      score: row.bm25Score,
-      result: {
-        id: row.id,
-        projectId: row.projectId,
-        type: row.type as any,
-        content: row.content,
-        summary: row.summary ?? undefined,
-        tags: deserializeTags(row.tags ?? null),
-        metadata: deserializeMetadata(row.metadata ?? null),
-        createdAt: row.createdAt ? (normalizeTimestamp(Number(row.createdAt)) ?? undefined) : undefined,
-      },
+      projectId: row.projectId,
+      type: row.type as any,
+      content: row.content,
+      summary: row.summary ?? undefined,
+      tags: deserializeTags(row.tags ?? null),
+      metadata: deserializeMetadata(row.metadata ?? null),
+      createdAt: row.createdAt ? (normalizeTimestamp(Number(row.createdAt)) ?? undefined) : undefined,
+      similarity: 0.5, // Default similarity for fetched memories
     }));
-  } catch (error: any) {
-    throw error;
+  } catch (error) {
+    logger.debug(`[HybridSearch] getMemoriesBySession failed: ${error}`);
+    return [];
   }
+}
+
+/**
+ * Extract session tag from memory tags (e.g., "dialogue-1", "session_1", "D1", "D2")
+ */
+function extractSessionTag(tags: string[] | undefined): string | null {
+  if (!tags) return null;
+  // Look for patterns:
+  // - "dialogue-1", "dialogue_1", "dialogue1"
+  // - "session-2", "session_2", "session2"
+  // - "conv-1", "conv_1", "conv1"
+  // - "D1", "D2" (capital D followed by number)
+  for (const tag of tags) {
+    const lower = tag.toLowerCase();
+    if (
+      /^(dialogue|session|conv|d)[_-]?\d+$/.test(lower)
+    ) {
+      return tag;
+    }
+  }
+  return null;
+}
+
+/**
+ * Get adjacent session tags (e.g., dialogue-1 -> dialogue-2, D1 -> D2)
+ */
+function getAdjacentSessionTags(currentTag: string): string[] {
+  const adjacent: string[] = [];
+
+  // Pattern: dialogue-N, session-N, D-N, conv-N (with or without hyphen)
+  const match = currentTag.match(/^(.*?)(\d+)$/i);
+  if (match) {
+    const prefix = match[1];
+    const num = parseInt(match[2], 10);
+
+    // Adjacent: previous and next
+    if (num > 1) {
+      adjacent.push(`${prefix}${num - 1}`);
+    }
+    adjacent.push(`${prefix}${num + 1}`);
+  }
+
+  return adjacent;
 }
 
 /**
@@ -176,7 +593,7 @@ async function bm25Search(
 async function vectorSearch(
   input: SearchInput,
   options: HybridSearchOptions
-): Promise<RankedResult[]> {
+): Promise<SearchResult[]> {
   try {
     const db = createDatabaseClient(await getDb());
     const sqlite = db.$client as any;
@@ -190,8 +607,6 @@ async function vectorSearch(
     let queryEmbedding: number[] | null = null;
     if (!isEmptyQuery) {
       queryEmbedding = await getEmbedding(input.query);
-      // If embedding fails but query is not empty, still proceed without semantic ranking
-      // Fall back to recency-based ranking
     }
 
     // Build WHERE conditions
@@ -254,21 +669,16 @@ async function vectorSearch(
 
     // If no embedding available, return results ordered by recency
     if (!queryEmbedding) {
-      return rows.slice(0, limit * 2).map((item, index) => ({
+      return rows.slice(0, limit * 2).map((item) => ({
         id: item.id,
-        rank: index + 1,
-        score: 0, // No similarity score available
-        result: {
-          id: item.id,
-          projectId: item.projectId,
-          type: item.type as any,
-          content: item.content,
-          summary: item.summary ?? undefined,
-          tags: deserializeTags(item.tags ?? null),
-          metadata: deserializeMetadata(item.metadata ?? null),
-          createdAt: item.createdAt ? (normalizeTimestamp(Number(item.createdAt)) ?? undefined) : undefined,
-          similarity: 0,
-        },
+        projectId: item.projectId,
+        type: item.type as any,
+        content: item.content,
+        summary: item.summary ?? undefined,
+        tags: deserializeTags(item.tags ?? null),
+        metadata: deserializeMetadata(item.metadata ?? null),
+        createdAt: item.createdAt ? (normalizeTimestamp(Number(item.createdAt)) ?? undefined) : undefined,
+        similarity: 0,
       }));
     }
 
@@ -278,7 +688,7 @@ async function vectorSearch(
         const embedding = parseEmbedding(row.embedding) ?? parseEmbedding(row.embeddingJson);
         if (!embedding) return null;
 
-        const similarity = cosineSimilarity(queryEmbedding, embedding);
+        const similarity = cosineSimilarity(queryEmbedding!, embedding);
         return {
           id: row.id,
           projectId: row.projectId,
@@ -293,24 +703,19 @@ async function vectorSearch(
       })
       .filter((item): item is NonNullable<typeof item> => item !== null);
 
-    // Sort by similarity (descending) and return as ranked results
+    // Sort by similarity (descending) and return
     scored.sort((a, b) => b.similarity - a.similarity);
 
-    return scored.slice(0, limit * 2).map((item, index) => ({
+    return scored.slice(0, limit * 2).map((item) => ({
       id: item.id,
-      rank: index + 1,
-      score: item.similarity,
-      result: {
-        id: item.id,
-        projectId: item.projectId,
-        type: item.type as any,
-        content: item.content,
-        summary: item.summary ?? undefined,
-        tags: deserializeTags(item.tags ?? null),
-        metadata: deserializeMetadata(item.metadata ?? null),
-        createdAt: item.createdAt ? (normalizeTimestamp(Number(item.createdAt)) ?? undefined) : undefined,
-        similarity: item.similarity,
-      },
+      projectId: item.projectId,
+      type: item.type as any,
+      content: item.content,
+      summary: item.summary ?? undefined,
+      tags: deserializeTags(item.tags ?? null),
+      metadata: deserializeMetadata(item.metadata ?? null),
+      createdAt: item.createdAt ? (normalizeTimestamp(Number(item.createdAt)) ?? undefined) : undefined,
+      similarity: item.similarity,
     }));
   } catch (error: any) {
     throw error;
@@ -318,103 +723,26 @@ async function vectorSearch(
 }
 
 /**
- * Reciprocal Rank Fusion (RRF) - merges ranked lists without score calibration
- *
- * RRF Formula: score(item) = sum(weight_i / (k + rank_i))
- * Where k is a constant (typically 60) that prevents high ranks from dominating
- *
- * Benefits:
- * - No need to calibrate different scoring systems (BM25 vs cosine similarity)
- * - Handles items that appear in only one list
- * - Proven to outperform weighted score fusion in most cases
+ * Apply small graph boost to results
+ * Graph boost is ADDITIVE (not dominating)
  */
-function reciprocalRankFusion(
-  bm25Results: RankedResult[],
-  vectorResults: RankedResult[],
-  options: { limit: number; bm25Weight: number; vectorWeight: number },
-  graphBoostMap: Record<string, number>
+function applyGraphBoostWithWeight(
+  results: SearchResult[],
+  graphBoostMap: Record<string, number>,
+  limit: number,
+  graphWeight: number
 ): SearchResult[] {
-  const { limit, bm25Weight, vectorWeight } = options;
-  const scores = new Map<string, { score: number; result: RankedResult['result'] }>();
-
-  // Process BM25 results
-  for (const item of bm25Results) {
-    const rrfScore = (bm25Weight * 2) / (RRF_K + item.rank);
-    const existing = scores.get(item.id);
-    if (existing) {
-      existing.score += rrfScore;
-    } else {
-      scores.set(item.id, { score: rrfScore, result: item.result });
-    }
-  }
-
-  // Process vector results
-  for (const item of vectorResults) {
-    const rrfScore = (vectorWeight * 2) / (RRF_K + item.rank);
-    const existing = scores.get(item.id);
-    if (existing) {
-      existing.score += rrfScore;
-    } else {
-      scores.set(item.id, { score: rrfScore, result: item.result });
-    }
-  }
-
-  // Add graph boost to each score
-  for (const [id, entry] of scores.entries()) {
-    const boost = graphBoostMap[id] ?? 0;
-    const weight = config.scoringWeights.graphBoost ?? 1;
-    entry.score += boost * weight;
-  }
-
-  // Sort by final score (descending) and return top results
-  return Array.from(scores.values())
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit)
-    .map((item) => ({
-      ...item.result,
-      similarity: item.result.similarity ?? 0,
-    }));
-}
-
-/**
- * Build FTS5 query string from user input
- * Handles phrase searches, OR operators for better recall, and special characters
- */
-function buildFtsQuery(query: unknown): string {
-  // Ensure query is a string
-  const queryString = typeof query === 'string' ? query : String(query ?? '');
-
-  // Remove special characters that could break FTS5 syntax (except quotes)
-  // Hyphens are problematic in FTS5 - they're treated as exclusion operators
-  let cleaned = queryString.replace(/[^\w\s"'-]/g, ' ');
-
-  // If query contains quotes, preserve as phrase search
-  if (cleaned.includes('"')) {
-    return cleaned || '*'; // Return * for empty after cleaning
-  }
-
-  // Split into terms
-  const terms = cleaned.trim().split(/\s+/).filter((t) => t.length > 0);
-  if (terms.length === 0) {
-    return '*'; // Match all for empty query
-  }
-
-  // Wrap terms containing hyphens in quotes (e.g., "trash-cli" prevents hyphen being interpreted as NOT)
-  const processedTerms = terms.map(term => {
-    if (term.includes('-')) {
-      return `"${term}"`;
-    }
-    return term;
+  // Apply SMALL additive boost to each result
+  // graphWeight should be 0.1-0.3, not > 1
+  const boosted = results.map(result => {
+    const boost = graphBoostMap[result.id] ?? 0;
+    // Add small nudge, don't replace similarity
+    const boostedSimilarity = (result.similarity ?? 0) + (boost * graphWeight);
+    return { ...result, similarity: boostedSimilarity };
   });
 
-  // For multi-word queries, use OR for better recall (any term matches)
-  // This is less restrictive than AND and finds more relevant results
-  if (processedTerms.length > 1) {
-    return processedTerms.join(' OR ');
-  }
+  // Re-sort by boosted similarity
+  boosted.sort((a, b) => (b.similarity ?? 0) - (a.similarity ?? 0));
 
-  return processedTerms[0];
+  return boosted.slice(0, limit);
 }
-
-
-

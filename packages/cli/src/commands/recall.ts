@@ -13,6 +13,9 @@ export function registerRecallCommand(program: Command) {
   program
     .command('recall <query>')
     .description('Search or get memory by ID')
+    .option('-t, --type <type>', 'Filter by memory type')
+    .option('--place <place>', 'Filter by place (inbox, ref, wip, sandbox, board, sparks, archive)')
+    .option('-l, --limit <number>', 'Max results', '5')
     .option('-P, --pretty', 'Human-friendly output', false)
     .option('-p, --project <project>', 'Project path', process.cwd())
     .action(async (query: string, options: any) => {
@@ -29,10 +32,12 @@ export function registerRecallCommand(program: Command) {
           }
           result = [memory];
         } else {
+          const limit = parseInt(options.limit) || 5;
           const memories = await search({
             query,
             project: options.project,
-            limit: 5
+            limit,
+            type: options.type
           });
           result = await Promise.all(memories.map(async (memory) => {
             const metadata = (memory.metadata ?? {}) as Record<string, unknown>;
@@ -65,7 +70,9 @@ export function registerRecallCommand(program: Command) {
         if (options.pretty) {
           console.log(`\nFound ${result.length} memories:\n`);
           result.forEach((r, i) => {
-            console.log(`${i + 1}. [${r.type}] ${r.content?.substring(0, 150)}...`);
+            console.log(`${i + 1}. [${r.type}] ${r.content?.substring(0, 100)}...`);
+            console.log(`   Tags: ${r.tags?.join(', ') || 'none'}`);
+            console.log(`   Similarity: ${r.similarity?.toFixed(3) || 'N/A'}`);
             console.log(`   ID: ${r.id}`);
             console.log(`   Created: ${r.createdAt || 'unknown'}\n`);
           });
@@ -73,7 +80,14 @@ export function registerRecallCommand(program: Command) {
           console.log(JSON.stringify({
             ok: true,
             count: result.length,
-            results: result
+            results: result.map(r => ({
+              id: r.id,
+              type: r.type,
+              content: r.content,
+              tags: r.tags,
+              similarity: r.similarity,
+              createdAt: r.createdAt
+            }))
           }, null, 2));
         }
       } catch (error: any) {

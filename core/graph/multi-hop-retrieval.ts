@@ -8,20 +8,25 @@
 import { eq } from 'drizzle-orm';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
-import { hybridSearch, type HybridSearchResult } from '../memory/hybrid-retrieval.js';
+import { hybridSearch, type SearchResult } from '../memory/hybrid-search.js';
 import { extractEntitiesAndRelations } from './llm-entity-extractor.js';
+import { extractEntityNames } from '../memory/entity-extractor.js';
 import { findEntitiesByName, findPaths, traverse, type GraphNode, type TraversalPath } from './graph-traversal.js';
 import { logger } from '../logger.js';
+import { config } from '../../config.js';
+import { extractEntityNames } from '../memory/entity-extractor.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
-export interface MultiHopResult extends HybridSearchResult {
+export interface MultiHopResult extends SearchResult {
   /** How this result was found: 'vector' (direct search) or 'graph' (via traversal) */
   retrievalPath: 'vector' | 'graph' | 'both';
   /** The graph path that led to this result (if found via graph) */
   graphPath?: TraversalPath;
   /** Entities that connected this result to the query */
   connectingEntities?: string[];
+  /** Hybrid score for backward compatibility */
+  hybridScore?: number;
 }
 
 export interface MultiHopSearchOptions {
@@ -65,15 +70,25 @@ export async function multiHopSearch(
   const results: MultiHopResult[] = [];
   const seenMemoryIds = new Set<string>();
 
-  // Step 1: Extract query entities
-  const extraction = await extractEntitiesAndRelations(query, { preferLLM: true });
-  const queryEntityNames = extraction.entities.map(e => e.name);
-
-  logger.debug('Multi-hop search: extracted query entities', {
-    query: query.substring(0, 100),
-    entities: queryEntityNames,
-    source: extraction.source,
-  });
+  // Step 1: Extract query entities (respect global LLM config)
+  let queryEntityNames: string[];
+  try {
+    const extraction = await extractEntitiesAndRelations(query, { preferLLM: config.llmEnabled });
+    queryEntityNames = extraction.entities.map(e => e.name);
+    logger.debug('Multi-hop search: entity extraction succeeded', {
+      query: query.substring(0, 100),
+      entities: queryEntityNames,
+      source: extraction.source,
+    });
+  } catch (error) {
+    // LLM failed or disabled - fall back to simple keyword extraction
+    logger.debug('Multi-hop search: entity extraction failed, falling back to keywords', { error });
+    const simpleEntities = extractEntityNames(query);
+    queryEntityNames = simpleEntities;
+    logger.debug('Multi-hop search: keyword extraction', {
+      entities: queryEntityNames,
+    });
+  }
 
   // Step 2: Vector search (baseline results)
   if (includeVectorResults) {
@@ -81,9 +96,6 @@ export async function multiHopSearch(
       query,
       project,
       limit: limit * 2, // Get more candidates for reranking
-      candidateLimit: 100,
-      resultLimit: limit * 2,
-      sessionId,
     });
 
     for (const result of vectorResults) {
@@ -114,8 +126,6 @@ export async function multiHopSearch(
         query: graphResult.entityName,
         project,
         limit: 5,
-        candidateLimit: 50,
-        resultLimit: 5,
       });
 
       for (const memory of expandedMemories) {
@@ -234,7 +244,7 @@ function rankMultiHopResults(
 ): MultiHopResult[] {
   return results
     .map(result => {
-      let score = result.hybridScore || 0;
+      let score = result.similarity || 0;
 
       // Boost for graph-connected results
       if (result.retrievalPath === 'graph' || result.retrievalPath === 'both') {
@@ -257,10 +267,11 @@ function rankMultiHopResults(
 
       return {
         ...result,
-        hybridScore: Math.round(score * 100) / 100,
+        similarity: Math.round(score * 1000) / 1000,
+        hybridScore: Math.round(score * 100) / 100, // Backward compat
       };
     })
-    .sort((a, b) => (b.hybridScore || 0) - (a.hybridScore || 0));
+    .sort((a, b) => (b.similarity || 0) - (a.similarity || 0));
 }
 
 // ─── Utility ────────────────────────────────────────────────────────────────
@@ -282,7 +293,7 @@ export function needsMultiHop(query: string): boolean {
  */
 export function explainRetrievalPath(result: MultiHopResult): string {
   if (result.retrievalPath === 'vector') {
-    return `Found via semantic search (score: ${result.hybridScore?.toFixed(2)})`;
+    return `Found via semantic search (score: ${result.similarity?.toFixed(2)})`;
   }
 
   if (result.retrievalPath === 'graph' && result.graphPath) {
@@ -296,7 +307,7 @@ export function explainRetrievalPath(result: MultiHopResult): string {
     const pathSteps = result.graphPath.nodes
       .map(n => n.name)
       .join(' → ');
-    return `Found via both search and graph: ${pathSteps} (score: ${result.hybridScore?.toFixed(2)})`;
+    return `Found via both search and graph: ${pathSteps} (score: ${result.similarity?.toFixed(2)})`;
   }
 
   return `Found via ${result.retrievalPath} search`;
