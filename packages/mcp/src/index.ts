@@ -24,7 +24,6 @@ import {
   buildStatsState,
   resolveProjectScope,
 } from "../../../core/runtime/trust-state.js";
-import { hybridSearch } from "../../../core/memory/hybrid-search.js";
 import { rememberMemory, search as searchMemories, getMemory, getRecent, type MemoryType } from "../../../core/memory/memories.js";
 import { getQMDClient } from "../../../core/embeddings/qmd-client.js";
 import { createAssociation, getRelatedMemories, type AssociationType } from "../../../core/associations.js";
@@ -90,34 +89,6 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
   let toolCount = 0;
 
   console.error(`[MCP] Starting tool registration...`);
-
-  // squish_search - Hybrid search across QMD, SQLite DB, and embeddings with graph expansion
-  if (safeRegisterTool(
-    server,
-    "squish_search",
-    {
-      description: "Hybrid search across QMD, SQLite DB, and embeddings with graph expansion",
-      inputSchema: {
-        query: z.string().describe("Search query"),
-        limit: z.number().min(1).max(100).default(5).describe("Maximum results"),
-        project: z.string().optional().describe("Project path filter"),
-        mode: z.enum(["hybrid", "qmd", "db", "semantic"]).default("hybrid").describe("Search mode")
-      }
-    },
-    async ({ query, limit = 5, project, mode = "hybrid" }: { query: string; limit?: number; project?: string; mode?: "hybrid" | "qmd" | "db" | "semantic" }) => {
-      const results = await hybridSearch({
-        query,
-        limit,
-        project
-      });
-
-      const formatted = results.map((r, i) =>
-        `${i + 1}. [${r.type || "memory"}] ${r.content?.substring(0, 200)}... (similarity: ${r.similarity?.toFixed(2)})`
-      ).join("\n");
-
-      return { content: [{ type: "text", text: `Found ${results.length} memories:\n\n${formatted}` }] };
-    }
-  )) toolCount++;
 
   // squish_timeline - 3-layer progressive disclosure
   if (safeRegisterTool(
@@ -289,22 +260,40 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
     }
   )) toolCount++;
 
-  // squish_recall - Retrieve a specific memory by ID
+  // squish_recall - Retrieve a memory by ID or query
   if (safeRegisterTool(
     server,
     "squish_recall",
     {
-      description: "Retrieve a specific memory by ID",
+      description: "Recall memories by query, or retrieve a specific memory by ID",
       inputSchema: {
-        memoryId: z.string().uuid().describe("Memory ID to retrieve")
+        query: z.string().describe("Query text or memory ID to recall"),
+        limit: z.number().min(1).max(100).default(5).describe("Maximum results for query recall"),
+        project: z.string().optional().describe("Project path filter"),
+        type: z.enum(["observation", "fact", "decision", "context", "preference", "note", "task"]).optional().describe("Filter by memory type"),
+        place: z.string().optional().describe("Filter by place (inbox, ref, wip, sandbox, board, sparks, archive)")
       }
     },
-    async ({ memoryId }: { memoryId: string }) => {
-      const memory = await getMemory(memoryId);
-      if (!memory) {
-        return { content: [{ type: "text", text: `Memory not found: ${memoryId}` }], isError: true };
+    async ({ query, limit = 5, project, type, place }: { query: string; limit?: number; project?: string; type?: MemoryType; place?: string }) => {
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(query);
+
+      if (isUuid) {
+        const memory = await getMemory(query);
+        if (!memory) {
+          return { content: [{ type: "text", text: `Memory not found: ${query}` }], isError: true };
+        }
+        return { content: [{ type: "text", text: JSON.stringify({ ok: true, count: 1, results: [memory] }, null, 2) }] };
       }
-      return { content: [{ type: "text", text: JSON.stringify(memory, null, 2) }] };
+
+      const results = await searchMemories({
+        query,
+        limit,
+        project,
+        type,
+        placeType: place
+      });
+
+      return { content: [{ type: "text", text: JSON.stringify({ ok: true, count: results.length, results }, null, 2) }] };
     }
   )) toolCount++;
 
@@ -816,7 +805,7 @@ async function runHttp(server: McpServer, port: number): Promise<void> {
 }
 
 async function runHealthCheck(): Promise<void> {
-  console.error(`[MCP] Runing health check...`);
+  console.error(`[MCP] Running health check...`);
 
   try {
     const { server, toolCount } = createSquishServer();

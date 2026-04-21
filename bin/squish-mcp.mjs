@@ -28,25 +28,19 @@ const port = portIndex >= 0 ? parseInt(args[portIndex + 1]) : 8765;
 const bunPath = process.env.BUN?.replace(/\\/g, '/') || 'bun';
 const mcpPath = join(__dirname, '..', 'packages', 'mcp', 'src', 'index.ts');
 
-if (isHealth) {
-  // Health check mode - just run briefly and exit
-  console.log('Squish MCP Server v1.2.0');
-  console.log('Health check: OK');
-  process.exit(0);
-}
+const mcpArgs = [];
 
 if (isHttp) {
-  // HTTP mode
-  const child = spawn(bunPath, [mcpPath, '--http', '--port', port.toString()], {
-    stdio: 'inherit',
-    cwd: join(__dirname, '..')
-  });
-  child.on('exit', (code) => process.exit(code || 0));
-} else {
-  // STDIO mode (default)
-  const child = spawn(bunPath, [mcpPath], {
-    stdio: 'inherit',
-    cwd: join(__dirname, '..')
-  });
-  child.on('exit', (code) => process.exit(code || 0));
+  mcpArgs.push('--http', '--port', port.toString());
 }
+
+if (isHealth) {
+  mcpArgs.push('--health');
+}
+
+const child = spawn(bunPath, [mcpPath, ...mcpArgs], {
+  stdio: 'inherit',
+  cwd: join(__dirname, '..')
+});
+
+child.on('exit', (code) => process.exit(code || 0));

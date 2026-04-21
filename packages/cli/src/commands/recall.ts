@@ -17,7 +17,7 @@ export function registerRecallCommand(program: Command) {
     .option('--place <place>', 'Filter by place (inbox, ref, wip, sandbox, board, sparks, archive)')
     .option('-l, --limit <number>', 'Max results', '5')
     .option('-P, --pretty', 'Human-friendly output', false)
-    .option('-p, --project <project>', 'Project path', process.cwd())
+    .option('-p, --project <project>', 'Project path')
     .action(async (query: string, options: any) => {
       try {
         const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(query);
@@ -37,7 +37,8 @@ export function registerRecallCommand(program: Command) {
             query,
             project: options.project,
             limit,
-            type: options.type
+            type: options.type,
+            placeType: options.place
           });
           result = await Promise.all(memories.map(async (memory) => {
             const metadata = (memory.metadata ?? {}) as Record<string, unknown>;

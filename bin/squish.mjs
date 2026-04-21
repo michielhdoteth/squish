@@ -6,8 +6,8 @@
  * 
  * Usage:
  *   squish remember "Store this memory"
- *   squish search "query"
- *   squish learn fix "Fixed bug in auth"
+ *   squish recall "query"
+ *   squish inspect <memory-id>
  *   squish context --list-projects
  */
 

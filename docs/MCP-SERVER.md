@@ -4,7 +4,7 @@ Universal memory layer for AI agents via Model Context Protocol (MCP).
 
 ## Features
 
-- **13 MCP Tools**: Search, remember, recall, timeline, context, health, stats, inspect, pin, recent, stale, link, forget
+- **12 MCP Tools**: remember, recall, timeline, context, health, stats, inspect, pin, recent, stale, link, forget
 - **Local Embeddings**: TF-IDF based, 768-dim vectors
 - **QMD Integration**: Local markdown search with BM25 + vector
 - **Hybrid Search**: Semantic + recency + importance scoring
@@ -41,23 +41,7 @@ Server runs on `http://localhost:8767` by default.
 
 ## Tools
 
-### 1. `squish_search`
-
-Search memories using hybrid scoring (semantic + recency + importance + graph).
-
-```json
-{
-  "name": "squish_search",
-  "arguments": {
-    "query": "authentication implementation",
-    "limit": 5,
-    "project": "/path/to/project",
-    "mode": "hybrid"
-  }
-}
-```
-
-### 2. `squish_timeline`
+### 1. `squish_timeline`
 
 3-layer progressive disclosure for memory exploration.
 
@@ -78,7 +62,7 @@ Depth options:
 - `timeline`: ~200 tokens per result (moderate detail)
 - `detail`: ~2000 tokens per result (full context)
 
-### 3. `squish_remember`
+### 2. `squish_remember`
 
 Store a new memory or learning. Auto-detects type and routes appropriately.
 
@@ -101,20 +85,33 @@ Auto-detection:
 - Detects TODO patterns
 - Routes to memory, learning, or note storage automatically
 
-### 4. `squish_recall`
+### 3. `squish_recall`
 
-Retrieve a specific memory by ID.
+Recall memories by query, or retrieve a specific memory by ID.
 
 ```json
 {
   "name": "squish_recall",
   "arguments": {
-    "memoryId": "uuid-string"
+    "query": "authentication implementation",
+    "limit": 5,
+    "project": "/path/to/project"
   }
 }
 ```
 
-### 5. `squish_forget`
+Retrieve by ID:
+
+```json
+{
+  "name": "squish_recall",
+  "arguments": {
+    "query": "uuid-string"
+  }
+}
+```
+
+### 4. `squish_forget`
 
 Delete memory by ID or bulk delete with filters.
 
@@ -140,7 +137,7 @@ Bulk delete:
 }
 ```
 
-### 6. `squish_link`
+### 5. `squish_link`
 
 Manage memory associations for graph-based reasoning.
 
@@ -161,7 +158,7 @@ Actions:
 - `add`: Create association between two memories
 - `list`: List all associations
 
-### 7. `squish_context`
+### 6. `squish_context`
 
 Get project context or list registered projects.
 
@@ -185,7 +182,7 @@ List all projects:
 }
 ```
 
-### 8. `squish_health`
+### 7. `squish_health`
 
 Check Squish health status.
 
@@ -207,7 +204,7 @@ Returns:
 }
 ```
 
-### 9. `squish_stats`
+### 8. `squish_stats`
 
 Get memory statistics for a project.
 
@@ -220,7 +217,7 @@ Get memory statistics for a project.
 }
 ```
 
-### 10. `squish_inspect`
+### 9. `squish_inspect`
 
 Explain why a memory was retained, where it was routed, and whether raw fallback exists.
 
@@ -233,7 +230,7 @@ Explain why a memory was retained, where it was routed, and whether raw fallback
 }
 ```
 
-### 11. `squish_pin`
+### 10. `squish_pin`
 
 Pin or unpin a memory to prevent consolidation/pruning.
 
@@ -247,7 +244,7 @@ Pin or unpin a memory to prevent consolidation/pruning.
 }
 ```
 
-### 12. `squish_recent`
+### 11. `squish_recent`
 
 Get recent memories by period.
 
@@ -264,7 +261,7 @@ Get recent memories by period.
 
 Period options: `today`, `yesterday`, `thisweek`, `7days`, `14days`, `30days`, `90days`
 
-### 13. `squish_stale`
+### 12. `squish_stale`
 
 Show stale memories (old, low-confidence, or rarely accessed).
 
@@ -328,10 +325,9 @@ SQUISH_QMD_FALLBACK=hybrid          # Fallback mode: qmd-only|cloud-first|hybrid
 ┌───────────────────────────────────��─────────┐
 │         Squish MCP Server (port 8767)        │
 │  ┌──────────────────────────────────────┐ │
-│  │  13 Tools: search, remember, recall,   │ │
-│  │  timeline, context, health, stats,     │ │
-│  │  inspect, pin, recent, stale, link   │ │
-│  │  forget                            │ │
+│  │  12 Tools: remember, recall, timeline, │ │
+│  │  context, health, stats, inspect, pin, │ │
+│  │  recent, stale, link, forget           │ │
 │  └──────────────────────────────────────┘ │
 │  ┌──────────────────────────────────────┐ │
 │  │  Embeddings: Local, QMD, Multimodal  │ │

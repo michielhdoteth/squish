@@ -25,8 +25,8 @@ squish-mcp --health
 Expected output:
 
 ```text
-Squish MCP Server v1.2.0
-Health check: OK
+[MCP] Running health check...
+[MCP] Health check passed. Server initialized with 12 tools.
 ```
 
 ## 3) Start Specific Surfaces
@@ -69,8 +69,8 @@ squish doctor --json --migrate
 ### squish-mcp --health
 
 ```text
-Squish MCP Server v1.2.0
-Health check: OK
+[MCP] Running health check...
+[MCP] Health check passed. Server initialized with 12 tools.
 ```
 
 ### squish run web

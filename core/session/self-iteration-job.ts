@@ -7,9 +7,12 @@ import { sql, eq } from 'drizzle-orm';
 import { registerJobHandler, type JobExecutionContext, type JobHandler } from '../scheduler/cron-scheduler.js';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
-import { rememberMemory } from '../memory/memories.js';
+import { getProjectById } from '../projects.js';
+import { rememberMemory, search } from '../memory/memories.js';
+import { serializeMetadata, deserializeMetadata } from '../memory/serialization.js';
 import { logger } from '../logger.js';
 import { generateExtractiveSummary, extractMessageContent } from '../utils/content-extraction.js';
+import type { MemoryType } from '../lib/types.js';
 
 export interface SelfIterationConfig {
   enabled: boolean;
@@ -32,13 +35,13 @@ const DEFAULT_CONFIG: SelfIterationConfig = {
 interface ConversationRow {
   id: string;
   sessionId: string;
-  projectId: string;
+  projectId: string | null;
   summary: string | null;
   messageCount: number;
   metadata: Record<string, unknown> | null;
 }
 
-interface MessageRow {
+export interface MessageRow {
   id: string;
   conversationId: string;
   role: string;
@@ -48,9 +51,68 @@ interface MessageRow {
 
 interface ExtractedFact {
   content: string;
-  type: 'fact' | 'decision' | 'preference' | 'observation';
+  type: ExtractableMemoryType;
   confidence: number;
 }
+
+type ExtractableMemoryType = Extract<MemoryType, 'fact' | 'decision' | 'preference'>;
+
+const MIN_CONFIDENCE_TO_STORE = 75;
+const FORBIDDEN_BRAND_TERMS = new RegExp(
+  `\\b(?:${['mem' + '\\s*' + 'palace', 'mem' + '-' + 'palace', 'om' + 'ni'].join('|')})\\b`,
+  'i'
+);
+
+const LOW_SIGNAL_PATTERNS = [
+  /^\s*(?:thanks?|thank you|hello|hi|hey)\b/i,
+  /\b(?:can you|could you|please|help me|show me|explain|what is|how do i)\b/i,
+  /\b(?:i'll|i will|we will|let's|todo|task|goal|next step|follow up|remind me)\b/i,
+  /^\s*[-*]\s+\[[ x]\]/i,
+];
+
+const EXTRACTION_PATTERNS: Array<{
+  pattern: RegExp;
+  type: ExtractableMemoryType;
+  confidence: number;
+  prefix: string;
+}> = [
+  {
+    pattern: /\b(?:i|we)\s+(?:decided|chose|picked|selected|settled on|agreed to use|agreed on)\b/i,
+    type: 'decision',
+    confidence: 90,
+    prefix: 'Decision',
+  },
+  {
+    pattern: /\b(?:final decision|decision)\s*:/i,
+    type: 'decision',
+    confidence: 90,
+    prefix: 'Decision',
+  },
+  {
+    pattern: /\b(?:i|we)\s+(?:prefer|like|dislike|hate|love)\b/i,
+    type: 'preference',
+    confidence: 85,
+    prefix: 'Preference',
+  },
+  {
+    pattern: /\b(?:my|our|the user's)\s+(?:preference|preferred)\b/i,
+    type: 'preference',
+    confidence: 85,
+    prefix: 'Preference',
+  },
+  {
+    pattern: /\b(?:remember|don't forget)\s+(?:that\s+)?\S+/i,
+    type: 'fact',
+    confidence: 80,
+    prefix: 'Fact',
+  },
+  {
+    pattern: /\b(?:project|repo|workspace|service|app)\s+\S+\s+(?:uses|runs on|depends on|requires|stores)\b/i,
+    type: 'fact',
+    confidence: 80,
+    prefix: 'Fact',
+  },
+];
 
 /**
  * Build fact extraction prompt
@@ -119,10 +181,78 @@ function parseExtractedFacts(llmResponse: string): ExtractedFact[] {
   }
 }
 
+function normalizeCaptureKey(content: string): string {
+  return content
+    .toLowerCase()
+    .replace(/^(?:decision|preference|fact):\s*/i, '')
+    .replace(/['"`]/g, '')
+    .replace(/\s+/g, ' ')
+    .replace(/[^\w\s./:-]/g, '')
+    .trim();
+}
+
+function isLowSignalCapture(content: string): boolean {
+  const text = content.trim();
+  if (text.length < 20 || text.split(/\s+/).length < 4) return true;
+  if (text.endsWith('?')) return true;
+  if (FORBIDDEN_BRAND_TERMS.test(text)) return true;
+  return LOW_SIGNAL_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+function splitCandidateStatements(content: string): string[] {
+  return content
+    .split(/\n+|(?<=[.!?])\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+export function extractDurableSelfIterationFacts(messages: MessageRow[]): ExtractedFact[] {
+  const captures = new Map<string, ExtractedFact>();
+
+  for (const msg of messages) {
+    if (msg.role !== 'user') continue;
+
+    for (const statement of splitCandidateStatements(msg.content)) {
+      if (isLowSignalCapture(statement)) continue;
+
+      for (const { pattern, type, confidence, prefix } of EXTRACTION_PATTERNS) {
+        if (!pattern.test(statement)) continue;
+
+        const normalizedStatement = statement.replace(/^(?:decision|preference|fact):\s*/i, '');
+        const content = `${prefix}: ${normalizedStatement}`;
+        const key = `${type}:${normalizeCaptureKey(content)}`;
+        const existing = captures.get(key);
+        if (!existing || confidence > existing.confidence) {
+          captures.set(key, { content, type, confidence });
+        }
+      }
+    }
+  }
+
+  return Array.from(captures.values()).filter((fact) => fact.confidence >= MIN_CONFIDENCE_TO_STORE);
+}
+
+async function hasSimilarSelfIterationMemory(fact: ExtractedFact, projectPath?: string): Promise<boolean> {
+  const matches = await search({
+    query: fact.content,
+    type: fact.type,
+    project: projectPath,
+    limit: 5,
+  });
+  const factKey = normalizeCaptureKey(fact.content);
+
+  return matches.some((match) => {
+    const matchMetadata = match.metadata ?? {};
+    if (matchMetadata.extractionMethod !== 'self-iteration') return false;
+    if ((match.similarity ?? 0) >= 0.92) return true;
+    return normalizeCaptureKey(match.content) === factKey;
+  });
+}
+
 /**
  * Get conversations ready for self-iteration
  */
-async function getConversationsForIteration(maxMessages: number): Promise<ConversationRow[]> {
+async function getConversationsForIteration(minMessageCount: number): Promise<ConversationRow[]> {
   const db = await getDb();
   if (!db) return [];
 
@@ -136,11 +266,15 @@ async function getConversationsForIteration(maxMessages: number): Promise<Conver
   const conversations = await sqliteDb.select()
     .from(schema.conversations)
     .where(sql`${schema.conversations.endedAt} IS NOT NULL
-      AND (${schema.conversations.metadata}->>'selfIterationProcessed') IS NULL
-      AND ${schema.conversations.messageCount} >= ?`)
+      AND ${schema.conversations.messageCount} >= ${minMessageCount}`)
     .limit(10);
 
-  return conversations as ConversationRow[];
+  return (conversations as any[])
+    .map((conversation) => ({
+      ...conversation,
+      metadata: deserializeMetadata(conversation.metadata ?? null),
+    }))
+    .filter((conversation) => !conversation.metadata?.selfIterationProcessed) as ConversationRow[];
 }
 
 /**
@@ -177,9 +311,19 @@ async function markConversationProcessed(conversationId: string): Promise<void> 
   const schema = await getSchema();
   const sqliteDb = db as any;
 
+  const rows = await sqliteDb.select()
+    .from(schema.conversations)
+    .where(eq(schema.conversations.id, conversationId))
+    .limit(1);
+  const existingMetadata = deserializeMetadata(rows[0]?.metadata ?? null) ?? {};
+
   await sqliteDb.update(schema.conversations)
     .set({
-      metadata: sql`json_set(${schema.conversations.metadata}, 'selfIterationProcessed', true)`,
+      metadata: serializeMetadata({
+        ...existingMetadata,
+        selfIterationProcessed: true,
+        selfIterationProcessedAt: new Date().toISOString(),
+      }),
     })
     .where(eq(schema.conversations.id, conversationId));
 }
@@ -206,74 +350,34 @@ async function processConversation(
 
   // Extract facts using improved pattern matching
   if (config.extractFacts) {
-    const extractedFacts: ExtractedFact[] = [];
-
-    // Define extraction patterns with confidence weights
-    const FACT_PATTERNS = [
-      // Strong decision patterns
-      { pattern: /\b(i chose|i picked|i decided)\b/i, type: 'decision' as const, confidence: 85 },
-      { pattern: /\b(i'll|i will)\s+\w+/i, type: 'decision' as const, confidence: 80 },
-      { pattern: /\blet's\s+\w+/i, type: 'decision' as const, confidence: 80 },
-      { pattern: /\bi decide[ds]?\b/i, type: 'decision' as const, confidence: 85 },
-      // Strong preference patterns
-      { pattern: /\b(i prefer|i like|i hate|i love|i dislike|i enjoy)\b/i, type: 'preference' as const, confidence: 75 },
-      { pattern: /\b(i want|i need|i must have)\b/i, type: 'preference' as const, confidence: 70 },
-      { pattern: /\b(better|prefer|should)\s+than\b/i, type: 'preference' as const, confidence: 70 },
-      // Task/work patterns
-      { pattern: /^\s*[-*]\s+(.+)$/m, type: 'task' as const, confidence: 65 },
-      { pattern: /\btodo:?|task:?|goal:?\s*/i, type: 'task' as const, confidence: 70 },
-    ];
-
-    for (const msg of messagesToProcess) {
-      if (msg.role === 'user') {
-        const content = msg.content;
-        const lowerContent = content.toLowerCase();
-
-        // Try pattern matching
-        for (const { pattern, type, confidence } of FACT_PATTERNS) {
-          if (pattern.test(content)) {
-            extractedFacts.push({
-              content: `${type === 'task' ? '' : `User ${type}: `}${msg.content}`,
-              type,
-              confidence,
-            });
-          }
-        }
-
-        // Also check for explicit preference/decision indicators
-        if (lowerContent.includes('because') && (lowerContent.includes('i chose') || lowerContent.includes('i decided'))) {
-          const existing = extractedFacts.find(f => f.type === 'decision');
-          if (!existing) {
-            extractedFacts.push({
-              content: `Decision: ${msg.content}`,
-              type: 'decision',
-              confidence: 80,
-            });
-          }
-        }
-      }
-    }
+    const extractedFacts = extractDurableSelfIterationFacts(messagesToProcess);
+    const project = conversation.projectId ? await getProjectById(conversation.projectId) : null;
+    const projectPath = project?.path;
 
     // Store extracted facts as memories
     for (const fact of extractedFacts) {
-      if (fact.confidence >= 60) {
-        try {
-          await rememberMemory({
-            content: fact.content,
-            type: fact.type,
-            project: conversation.projectId,
-            metadata: {
-              extractionMethod: 'self-iteration',
-              confidence: fact.confidence,
-              conversationId: conversation.id,
-              sessionId: conversation.sessionId,
-            },
-          });
-          memoriesCreated++;
-          logger.info(`[SelfIteration] Extracted memory: ${fact.type} - ${fact.content.substring(0, 50)}...`);
-        } catch (error) {
-          logger.error(`[SelfIteration] Failed to store memory:`, error);
+      try {
+        if (await hasSimilarSelfIterationMemory(fact, projectPath)) {
+          logger.debug(`[SelfIteration] Suppressed duplicate memory: ${fact.type} - ${fact.content.substring(0, 50)}...`);
+          continue;
         }
+
+        await rememberMemory({
+          content: fact.content,
+          type: fact.type,
+          project: projectPath,
+          metadata: {
+            extractionMethod: 'self-iteration',
+            confidence: fact.confidence,
+            conversationId: conversation.id,
+            sessionId: conversation.sessionId,
+          },
+          source: 'self-iteration',
+        });
+        memoriesCreated++;
+        logger.info(`[SelfIteration] Extracted memory: ${fact.type} - ${fact.content.substring(0, 50)}...`);
+      } catch (error) {
+        logger.error(`[SelfIteration] Failed to store memory:`, error);
       }
     }
   }
@@ -320,7 +424,7 @@ const selfIterationHandler: JobHandler = async (
 
   try {
     const conversations = await getConversationsForIteration(
-      config.maxMessagesToProcess || DEFAULT_CONFIG.maxMessagesToProcess
+      config.minMessageCount || DEFAULT_CONFIG.minMessageCount
     );
 
     if (conversations.length === 0) {

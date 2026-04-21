@@ -127,11 +127,10 @@ squish run web
 - **PostgreSQL**: Team mode with Supabase/pgvector
 - **QMD Integration**: Native .md file search via @tobilu/qmd npm package
 
-### Current MCP Tools (13 tools)
-- `squish_search` - Hybrid search across memories, QMD, and embeddings
+### Current MCP Tools (12 tools)
 - `squish_timeline` - 3-layer progressive disclosure
 - `squish_remember` - Store memory or learning (auto-detects type)
-- `squish_recall` - Retrieve memory by ID
+- `squish_recall` - Recall memories by query or retrieve memory by ID
 - `squish_forget` - Delete memory by ID or bulk delete
 - `squish_link` - Manage memory associations
 - `squish_context` - Get project context

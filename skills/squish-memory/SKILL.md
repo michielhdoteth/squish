@@ -3,7 +3,7 @@ name: squish-memory
 description: Squish - Persistent memory system for AI assistants. Store facts, decisions, context, and notes with CLI and MCP workflows.
 version: 1.2.0
 author: michielhdoteth
-tags: [memory, persistence, search, semantic-search, ai-assistant, mcp, cli]
+tags: [memory, persistence, recall, semantic-retrieval, ai-assistant, mcp, cli]
 emoji: brain
 ---
 
@@ -31,7 +31,7 @@ squish run web
 | `squish-cli` | CLI command reference | `npx skills add michielhdoteth/squish --skill squish-cli` |
 | `memory-guide` | Usage patterns and best practices | `npx skills add michielhdoteth/squish --skill memory-guide` |
 
-## MCP Tools (17) - Unified Write Path
+## MCP Tools (12) - Unified Write Path
 
 **THE memory write tool for agents: `squish_remember`**
 - Auto-detects memory vs learning routing
@@ -41,8 +41,7 @@ squish run web
 | Tool | Purpose | Typical Input |
 |------|---------|---------------|
 | `squish_remember` | **RECOMMENDED** - Unified memory write with auto-detection | `content`, `project`, `tags`, `tier`, `type`, `route` |
-| `squish_search` | Search memories | `query`, optional `limit`, `project`, `mode` |
-| `squish_recall` | Fetch memory by ID | `memoryId` |
+| `squish_recall` | Recall memories by query or fetch by ID | `query`, optional `limit`, `project`, `type`, `place` |
 | `squish_forget` | Delete memory | `memoryId` or bulk filters |
 | `squish_update` | Update memory | `memoryId`, changed fields |
 | `squish_link` | Graph operations | `action`, memory IDs |
@@ -65,7 +64,6 @@ squish run web
 - `squish run web` - Start web UI
 - `squish config` - View or update config
 - `squish remember` - **RECOMMENDED** - Store memory/learning with auto-detection
-- `squish search` - Search memories
 - `squish recall` - Search or fetch by ID
 - `squish recent` - Show recent memories
 - `squish update` - Update memory
@@ -87,8 +85,8 @@ squish remember "Failed because the API returned 404" --project /myproject
 squish remember "User prefers TypeScript over JavaScript" --type preference
 squish remember "Important decision made" --tier hot --type decision
 
-# Search and retrieve
-squish search "coding preferences"
+# Recall and retrieve
+squish recall "coding preferences"
 squish context --list-projects
 squish context
 ```

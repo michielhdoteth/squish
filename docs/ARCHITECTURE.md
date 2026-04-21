@@ -10,7 +10,7 @@ Any AI Agent
 MCP (stdio/Streamable HTTP) / CLI
      ↓
 packages/mcp/src/index.ts
-   ├─ MCP Tools (13 tools)
+   ├─ MCP Tools (12 tools)
    ├─ Core Services
    │   ├─ Signal Engine
    │   ├─ Session Working Set
@@ -30,7 +30,7 @@ squish/
 ├── packages/
 │   ├── mcp/                 # MCP server package
 │   │   ├── src/
-│   │   │   └── index.ts      # Main MCP entry point (13 tools)
+│   │   │   └── index.ts      # Main MCP entry point (12 tools)
 │   │   └── package.json
 │   └── cli/                  # CLI package
 │       ├── src/
@@ -51,13 +51,13 @@ squish/
 
 ## Architecture Layers
 
-### 1. MCP Server (13 Tools)
+### 1. MCP Server (12 Tools)
 
-The main entry point (`packages/mcp/src/index.ts`) defines 13 MCP tools covering memory management, search, learning, context, and system operations.
+The main entry point (`packages/mcp/src/index.ts`) defines 12 MCP tools covering memory management, recall, timeline, context, and system operations.
 
 - **remember** - Store memories with embeddings
-- **recall** - Get specific memory by ID
-- **search** - Full-text + semantic search
+- **recall** - Query memories or get a specific memory by ID
+- **timeline** - Progressive disclosure over retrieved memory
 - **conversations** - Search conversation history
 - **recent** - Get recent memories
 - **observe** - Store tool usage observations

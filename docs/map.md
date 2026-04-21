@@ -153,12 +153,11 @@ Result Ranking & Filtering
 Response Formatting
 ```
 
-## 🛠️ **MCP Tools (16 Total)**
+## 🛠️ **MCP Tools (12 Total)**
 
-### **Memory Management (4 tools)**
+### **Memory Management**
 - `remember` - Store new memories
-- `recall` - Retrieve specific memory
-- `search` - Full-text + semantic search
+- `recall` - Query memories or retrieve a specific memory
 - `get_related` - Association-based retrieval
 
 ### **Conversation Management (2 tools)**

@@ -32,21 +32,44 @@ jobs:
         run: bun run build
 
       - name: Test
-        run: echo "No tests configured - skipping"
-
-      - name: Verify MCP artifacts
-        run: bun run scripts/verify-mcp.mjs || echo "MCP verification skipped"
+        run: |
+          bun test \
+            tests/cli/launch-paths.test.ts \
+            tests/config \
+            tests/core/belief-explain.test.ts \
+            tests/core/belief-extractor.test.ts \
+            tests/core/content-extraction.test.ts \
+            tests/core/contradiction-resolver.test.ts \
+            tests/core/db-client.test.ts \
+            tests/core/encryption.test.ts \
+            tests/core/filter-builder.test.ts \
+            tests/core/hybrid-scorer.test.ts \
+            tests/core/memory-explain.test.ts \
+            tests/core/projects.test.ts \
+            tests/core/schemas.test.ts \
+            tests/core/self-iteration-job.test.ts \
+            tests/core/session-working-set.test.ts \
+            tests/core/signal-engine.test.ts \
+            tests/core/snapshots-comparison.test.ts \
+            tests/core/summarization-strategies.test.ts \
+            tests/core/telemetry.test.ts \
+            tests/core/temporal-facts.test.ts \
+            tests/core/trigger-detector.test.ts \
+            tests/core/trust-report.test.ts \
+            tests/core/utils.test.ts \
+            tests/core/validation.test.ts \
+            tests/core/vector-operations.test.ts \
+            tests/core/write-gate.test.ts \
+            tests/core/memory \
+            tests/merge \
+            tests/mcp/recall-surface.test.ts \
+            --pass-with-no-tests
 
       - name: Extract version from tag
         id: version
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-
-      - name: Create release binaries
-        run: |
-          chmod +x scripts/build-release.sh
-          scripts/build-release.sh
 
       - name: Publish to npm
         if: contains(github.ref, 'tags/v')
@@ -80,10 +103,7 @@ jobs:
 
             Or visit: https://github.com/michielhdoteth/squish
 
-            ## Assets
-            Pre-built binaries are available below for Linux, macOS, and Windows.
-          files: |
-            squish-v${{ steps.version.outputs.version }}-*.tar.gz
-            squish-v${{ steps.version.outputs.version }}-*.zip
+            ## Distribution
+            This release is published to npm as `squish-memory`.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
