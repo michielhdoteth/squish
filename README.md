@@ -7,10 +7,12 @@
 
 **Your agent forgets. Squish fixes that.** It auto-captures useful context, derives durable beliefs like decisions and constraints, and restores that context through CLI, MCP, and a local web UI.
 
+![Squish Demo](squish-demo.gif)
+
 > Squish does not have a crypto token, has no token launch planned, and nobody is authorized to launch one on behalf of the project.
 
 ```bash
-bun add squish-memory
+npm install -g squish-memory
 ```
 
 ## Why Squish
@@ -50,17 +52,12 @@ User Action ──► Signal Distillation ──► Write Gate ──► Session
 
 ## Quick Start
 
-### Install with add-mcp (Recommended)
-One command installs Squish into Claude Code, OpenCode, Cursor, VS Code, Codex, and other MCP-capable clients:
+### Install the runtime (Recommended)
+Install Squish once, then write MCP configs for Claude Code, OpenCode, Codex, and OpenClaw:
 
 ```bash
-npx add-mcp squish-memory
-```
-
-Or install the package directly:
-
-```bash
-bun add squish-memory
+npm install -g squish-memory
+squish install --all
 ```
 
 New installs should work on first run with the current schema. If you are upgrading an older local install, use `squish doctor --migrate` to repair it forward.
@@ -100,10 +97,10 @@ squish run web
 - Handles contradictions when facts change
 - Temporal facts with expiration ("until January")
 - Confidence scoring for each memory
-- **Memory Runtime**: Hot/cold memory lifecycle with automatic decay (hot=active, cold=archived)
+- **Memory Lifecycle**: Hot/cold tier system with automatic decay and expiration
 - **Graph-boosted retrieval**: associations between memories boost relevance
-- **Belief System**: Derived semantic layer - decisions, preferences, constraints extracted from memories
-- **Persistent Hot Cache**: Karpathy-style wiki layer that survives restarts (not just session)
+- **Derived beliefs**: decisions, preferences, and constraints extracted from memories
+- **Persistent runtime state**: survives restarts instead of resetting every session
 - **Scheduler Resilience**: Jobs catch up after machine sleep/wake - no missed maintenance
 
 ### Retrieval Quality
@@ -125,9 +122,8 @@ squish run web
 - **Web UI**: Inspect memories, projects, and recent observations locally
 - **SQLite**: Local, zero-config
 - **PostgreSQL**: Team mode with Supabase/pgvector
-- **QMD Integration**: Native .md file search via @tobilu/qmd npm package
 
-### Current MCP Tools (12 tools)
+### Current MCP Tools (15 tools)
 - `squish_timeline` - 3-layer progressive disclosure
 - `squish_remember` - Store memory or learning (auto-detects type)
 - `squish_recall` - Recall memories by query or retrieve memory by ID
@@ -143,26 +139,17 @@ squish run web
 
 ## Benchmark Results
 
-Real tests using academic benchmarks with both configurations:
+Real tests using academic benchmarks with local embeddings (no LLM required).
 
-### LoCoMo (1540 questions)
-| Configuration | Score | Notes |
-|---------------|-------|-------|
-| **Without LLM** | **65.19%** | Vector-only |
-| With LLM | 67.34% | Vector + LLM extraction |
-| Mem0 | 66.88% | Requires LLM |
-| TrueMemory | 91.5% | Uses LLM |
-
-**Squish achieves competitive scores WITHOUT requiring LLM tokens.**
-
-#### LoCoMo Breakdown (No LLM)
+### LoCoMo Memory (1540 questions)
 | Category | Score |
 |----------|-------|
-| Single-hop | 85.14% |
-| Multi-hop | 47.78% |
-| Temporal | 95.24% |
-| Open-domain | 98.00% |
-| Common-sense | 1.79% |
+| Single-hop | 85% |
+| Temporal | 95% |
+| Open-domain | 98% |
+| Multi-hop | 48% |
+| Common-sense | 2% |
+| **Overall** | **65%** |
 
 ### LongMemEval (100 questions)
 | Configuration | Score | Breakdown |
@@ -175,10 +162,11 @@ Note: LLM extraction helps during storage but scoring uses retrieved context key
 ### Performance
 | Metric | Result |
 |--------|--------|
+| LoCoMo Score | **65%** (no LLM) |
 | Embedding Latency | 1-5ms |
 | API Latency | 1-20ms |
 | Max Throughput | 943 ops/sec |
-| Package Size | **283 KB** |
+| Package Size | **283 KB** (gzipped) |
 
 ### Local Runtime Characteristics
 
@@ -220,8 +208,8 @@ DATABASE_URL=postgresql://user:pass@host/db
 ## Architecture
 
 ### Two-Tier Memory
-- **QMD (Files)**: BM25 + vectors for fast recall
 - **SQLite/PostgreSQL**: ACID-compliant persistent storage
+- **Hybrid retrieval**: combines semantic and keyword ranking for recall
 
 ### Runtime Pipeline
 - **Signal engine**: classifies captured events as discard, session-only, durable-distilled, or durable-with-raw-fallback
@@ -243,10 +231,10 @@ DATABASE_URL=postgresql://user:pass@host/db
 ## Development
 
 ```bash
-bun install
-bun run build
-bun test
-bun run verify:mcp
+npm install
+npm run build
+npm test
+npm run verify:mcp
 ```
 
 ## Troubleshooting
