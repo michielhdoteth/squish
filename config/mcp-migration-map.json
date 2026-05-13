@@ -1,0 +1,17 @@
+{
+  "from": "profile-based",
+  "to": "universal",
+  "legacyProfiles": [
+    "default",
+    "openclaw",
+    "nanoclaw",
+    "picoclaw",
+    "claude-code",
+    "opencode",
+    "codex"
+  ],
+  "outputChange": {
+    "from": "generated/mcp/{profile}/",
+    "to": "generated/mcp/"
+  }
+}

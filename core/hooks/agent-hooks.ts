@@ -119,9 +119,20 @@ export async function handleSessionStart(params: {
     return `${i + 1}. [${m.type}] ${compressed}`;
   }).join('\n');
   
+  // Inject pinned memories alongside recent ones
+  let pinnedSection = '';
+  try {
+    const { getPinnedMemoriesForContext } = await import('../security/governance.js');
+    const pinnedContext = await getPinnedMemoriesForContext();
+    if (pinnedContext.length > 0) {
+      pinnedSection = '\n\n### Pinned\n' + pinnedContext.map((p: string) => `- ${p}`).join('\n');
+      logger.info(`[Hooks] Added ${pinnedContext.length} pinned memories to context`);
+    }
+  } catch {}
+
   const workingSetContext = compactedWorkingSet.summary ? `Session working set:\n${compactedWorkingSet.summary}\n\n` : '';
-  const allContent = workingSetContext + formatted + placesContext;
-  
+  const allContent = workingSetContext + formatted + pinnedSection + placesContext;
+
   // Get agent preferences for context injection
   let preferences: Array<{key: string; value: string}> = [];
   try {

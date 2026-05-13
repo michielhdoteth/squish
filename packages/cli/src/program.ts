@@ -1,0 +1,97 @@
+import { Command } from 'commander';
+
+import { probeSchemaHealth, fixSchemaIssues } from '../../../db/schema-health.js';
+import { config } from '../../../config.js';
+
+import { registerRememberCommand } from './commands/remember.js';
+import { registerRecallCommand } from './commands/recall.js';
+import { registerRecentCommand } from './commands/recent.js';
+import { registerContextCommand } from './commands/context.js';
+import { registerStatsCommand } from './commands/stats.js';
+import { registerForgetCommand } from './commands/forget.js';
+import { registerLinkCommand } from './commands/link.js';
+import { registerStaleCommand } from './commands/stale.js';
+import { registerCleanCommand } from './commands/clean.js';
+import { registerMigrateCommand } from './commands/migrate.js';
+import { registerRunCommand } from './commands/run.js';
+import { registerDoctorCommand } from './commands/doctor.js';
+import { registerInspectCommand } from './commands/inspect.js';
+import { registerHealthCommand } from './commands/health.js';
+import { registerExportCommand } from './commands/export.js';
+import { registerInstallCommand } from './commands/install.js';
+
+export function createProgram(): Command {
+  const program = new Command();
+
+  program
+    .name('squish')
+    .description('Universal Memory for AI Agents - CLI')
+    .version('1.3.0');
+
+  program.hook('preAction', async (_thisCommand, actionCommand) => {
+    const commandName = actionCommand.name();
+    const exempt = new Set(['doctor', 'health', 'install', 'install-plugin']);
+    if (exempt.has(commandName)) return;
+
+    const probe = await probeSchemaHealth();
+    if (probe.status === 'ok') return;
+
+    // Auto-migrate if SQUISH_AUTO_MIGRATE=true
+    if (probe.status === 'drifted' && config.autoMigrate) {
+      try {
+        const actions = await fixSchemaIssues({ fixAll: true, verbose: false });
+        if (actions.length > 0) {
+          const recheck = await probeSchemaHealth();
+          if (recheck.status === 'ok') {
+            return; // Auto-migration succeeded, continue with command
+          }
+        }
+      } catch {
+        // Fall through to error below
+      }
+    }
+
+    const errorPayload = {
+      ok: false,
+      error: probe.status === 'drifted' ? 'schema_drift' : 'database_unavailable',
+      backend: probe.backend,
+      detail: probe.detail,
+      missingTables: probe.missingTables,
+      remediation: probe.remediation,
+    };
+
+    const jsonFlag = actionCommand.opts()?.json === true;
+    const text = JSON.stringify(errorPayload, null, 2);
+    if (jsonFlag) {
+      console.log(text);
+    } else {
+      console.error(text);
+    }
+    if (probe.status === 'drifted') {
+      console.error(`Schema needs migration. Run 'squish doctor --fix' to update.`);
+      if (config.autoMigrate) {
+        console.error(`(SQUISH_AUTO_MIGRATE is set but auto-migration did not fully resolve the drift)`);
+      }
+    }
+    process.exit(1);
+  });
+
+  registerRememberCommand(program);
+  registerRecallCommand(program);
+  registerRecentCommand(program);
+  registerContextCommand(program);
+  registerStatsCommand(program);
+  registerForgetCommand(program);
+  registerLinkCommand(program);
+  registerStaleCommand(program);
+  registerCleanCommand(program);
+  registerMigrateCommand(program);
+  registerRunCommand(program);
+  registerDoctorCommand(program);
+  registerInspectCommand(program);
+  registerHealthCommand(program);
+  registerExportCommand(program);
+  registerInstallCommand(program);
+
+  return program;
+}

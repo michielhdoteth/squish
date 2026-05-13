@@ -70,7 +70,7 @@ export async function withDatabaseErrorHandling<T>(
   }
 }
 
-export function clampLimit(value: number | undefined, defaultValue: number, min: number = 1, max: number = 100): number {
+export function clampLimit(value: number | undefined, defaultValue: number, min: number = 1, max: number = 500): number {
   return Math.min(Math.max(value ?? defaultValue, min), max);
 }
 

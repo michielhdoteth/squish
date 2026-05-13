@@ -22,3 +22,8 @@ export type { MultiHopResult, MultiHopSearchOptions } from './multi-hop-retrieva
 
 export { buildGraphForProject, addMemoryToGraph, getGraphStats } from './graph-builder.js';
 export type { GraphBuildStats, GraphAddStats } from './graph-builder.js';
+
+// Export graph backend abstraction
+// Note: GraphBackend is an interface (types only, erased at runtime)
+export { InMemoryGraphBackend, KuzuBackend, createGraphBackend } from './backend.js';
+export type { GraphBackend, BFSResult } from './backend.js';

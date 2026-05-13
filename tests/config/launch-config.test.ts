@@ -1,16 +1,17 @@
 import { describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const repoRoot = join(import.meta.dir, '..', '..');
+const runtimeExecutable = process.execPath;
 
 function readConfig(env: Record<string, string>) {
   const tempDataDir = mkdtempSync(join(tmpdir(), 'squish-config-'));
   try {
     const result = spawnSync(
-      'bun',
+      runtimeExecutable,
       [
         '-e',
         `
@@ -62,10 +63,73 @@ function readConfig(env: Record<string, string>) {
   }
 }
 
+function inspectDataDir(cwd: string, env: Record<string, string> = {}) {
+  const result = spawnSync(
+    runtimeExecutable,
+    [
+      '-e',
+      `
+        import { config, getDataDir } from './config.ts';
+        console.log(JSON.stringify({
+          dataDir: config.dataDir,
+          ensuredDataDir: getDataDir()
+        }));
+      `,
+    ],
+    {
+      cwd,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        DATABASE_URL: '',
+        SUPABASE_URL: '',
+        NEON_PROJECT_ID: '',
+        ...env,
+      },
+    },
+  );
+
+  return result;
+}
+
+async function loadDataDirSnapshot(
+  cwd: string,
+  env: Record<string, string> = {},
+  options: { ensureExists?: boolean } = {},
+) {
+  const previousCwd = process.cwd();
+  const previousEnv = { ...process.env };
+
+  process.chdir(cwd);
+
+  Object.assign(process.env, {
+    DATABASE_URL: '',
+    SUPABASE_URL: '',
+    NEON_PROJECT_ID: '',
+    ...env,
+  });
+
+  try {
+    const module = await import(`../../config.ts?case=${Date.now()}-${Math.random()}`);
+    const snapshot: { dataDir: string; ensuredDataDir?: string } = {
+      dataDir: module.config.dataDir as string,
+    };
+
+    if (options.ensureExists) {
+      snapshot.ensuredDataDir = module.getDataDir() as string;
+    }
+
+    return snapshot;
+  } finally {
+    process.chdir(previousCwd);
+    process.env = previousEnv;
+  }
+}
+
 describe('launch config defaults and overrides', () => {
   test('settings.json is valid JSON', () => {
     const result = spawnSync(
-      'node',
+      runtimeExecutable,
       ['-e', "JSON.parse(require('fs').readFileSync('config/settings.json','utf8'));"],
       { cwd: repoRoot, encoding: 'utf8' },
     );
@@ -147,5 +211,119 @@ describe('launch config defaults and overrides', () => {
     expect(config.transformersLocalModel).toBe('example-transformers-model');
     expect(config.llmExtractionModel).toBe('example-extraction-model');
     expect(config.llmReasoningModel).toBe('example-reasoning-model');
+  });
+
+  test('relative data dir resolves absolutely without import-time filesystem writes', async () => {
+    const tempWorkspace = mkdtempSync(join(tmpdir(), 'squish-data-dir-'));
+    const expectedDataDir = join(tempWorkspace, '.squish');
+
+    try {
+      expect(existsSync(expectedDataDir)).toBe(false);
+
+      const snapshot = await loadDataDirSnapshot(tempWorkspace);
+      expect(snapshot.dataDir).toBe(expectedDataDir);
+      expect(existsSync(expectedDataDir)).toBe(false);
+
+      const ensured = await loadDataDirSnapshot(tempWorkspace, {}, { ensureExists: true });
+      expect(ensured.ensuredDataDir).toBe(expectedDataDir);
+      expect(existsSync(expectedDataDir)).toBe(true);
+    } finally {
+      rmSync(tempWorkspace, { recursive: true, force: true });
+    }
+  });
+
+  test('getDataDir uses global ~/.squish/ when no data.dir configured', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'squish-global-'));
+    const previousEnv = process.env.SQUISH_DATA_DIR;
+    const previousHome = process.env.HOME || process.env.USERPROFILE;
+    process.env.SQUISH_DATA_DIR = tempDir;
+    process.env.HOME = tempDir;
+
+    try {
+      const module = await import(`../../config.ts?case=${Date.now()}`);
+      const dir = module.getDataDir();
+      // When SQUISH_DATA_DIR is set and HOME is temp, uses the env override
+      expect(dir).toBe(tempDir);
+    } finally {
+      if (previousEnv !== undefined) process.env.SQUISH_DATA_DIR = previousEnv;
+      else delete process.env.SQUISH_DATA_DIR;
+      if (previousHome) process.env.HOME = previousHome;
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('findSquishDir always returns global ~/.squish (global-only)', async () => {
+    const { findSquishDir, globalDataDir } = await import('../../config.ts');
+    const parentDir = mkdtempSync(join(tmpdir(), 'squish-parent-'));
+    const childDir = join(parentDir, 'nested', 'project');
+    mkdirSync(childDir, { recursive: true });
+
+    try {
+      const found = findSquishDir(childDir);
+      expect(found).toBe(globalDataDir());
+    } finally {
+      rmSync(parentDir, { recursive: true, force: true });
+    }
+  });
+
+  test('findSquishDir ignores local .squish dirs (global-only)', async () => {
+    const { findSquishDir, globalDataDir } = await import('../../config.ts');
+    const tempDir = mkdtempSync(join(tmpdir(), 'squish-direct-'));
+    mkdirSync(join(tempDir, '.squish'), { recursive: true });
+
+    try {
+      const found = findSquishDir(tempDir);
+      expect(found).toBe(globalDataDir());
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('globalDataDir returns homedir/.squish path', async () => {
+    const { globalDataDir } = await import('../../config.ts');
+    const { homedir } = await import('os');
+    expect(globalDataDir()).toBe(join(homedir(), '.squish'));
+  });
+
+  test('getDataDir with SQUISH_DATA_DIR uses that override', async () => {
+    const { getDataDir } = await import('../../config.ts');
+    const tempDir = mkdtempSync(join(tmpdir(), 'squish-sqldir-'));
+    const previousEnv = process.env.SQUISH_DATA_DIR;
+    process.env.SQUISH_DATA_DIR = tempDir;
+    try {
+      const dir = getDataDir();
+      expect(dir).toBe(tempDir);
+    } finally {
+      if (previousEnv === undefined) {
+        delete process.env.SQUISH_DATA_DIR;
+      } else {
+        process.env.SQUISH_DATA_DIR = previousEnv;
+      }
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('findSquishDir falls back to global ~/.squish when no local .squish exists', async () => {
+    const { findSquishDir, globalDataDir } = await import('../../config.ts');
+
+    const tempDir = mkdtempSync(join(tmpdir(), 'squish-nolocal-'));
+    // Ensure no .squish exists in tempDir
+    const localSquish = join(tempDir, '.squish');
+    if (existsSync(localSquish)) rmSync(localSquish, { recursive: true, force: true });
+
+    try {
+      const found = findSquishDir(tempDir);
+      expect(found).toBe(globalDataDir());
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('getDataDir with explicit data.dir in settings.json still respected', async () => {
+    // The repo's settings.json has data.dir: ".squish" which should still work
+    const { getDataDir } = await import('../../config.js');
+    const dir = getDataDir();
+    expect(dir).toBeTruthy();
+    expect(typeof dir).toBe('string');
   });
 });

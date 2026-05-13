@@ -49,6 +49,11 @@ if (!db) {
   return db;
 }
 
+export function resetDb(): void {
+  db = null;
+  dbError = null;
+}
+
 export async function checkDatabaseHealth(): Promise<boolean> {
   try {
     const database = await getDb();

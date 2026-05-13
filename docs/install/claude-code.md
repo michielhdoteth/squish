@@ -10,24 +10,27 @@ Squish integrates with Claude Code as a plugin that provides persistent memory c
 
 ## Installation Methods
 
-### Method 1: add-mcp (Recommended)
+### Method 1: squish install (Recommended)
 ```bash
-# One command installs Squish MCP for Claude Code, Cursor, OpenCode, and more
-npx add-mcp squish-memory
+# Install Squish globally
+npm install -g squish-memory
+
+# Install Squish MCP and plugins for all detected clients
+squish install --all
 ```
 
-That's it! The add-mcp tool will automatically detect your coding agents and configure Squish for them.
+That's it! The installer will automatically detect your coding agents and configure Squish MCP and plugins for them.
 
-### Method 2: Universal Plugin Installer
+### Method 2: Manual Per-Client Installer
 ```bash
 # Install Squish if not already installed
 npm install -g squish-memory
 
-# Install the Claude Code plugin
-npx squish-memory install-plugin --client=claude-code
+# Install for specific clients
+squish install --clients=claude-code,opencode
 
-# Verify installation
-npx squish-memory install-plugin --client=claude-code --verify
+# Or interactive mode to pick clients
+squish install
 ```
 
 ### Method 3: Legacy Marketplace Installation
@@ -39,7 +42,7 @@ npx squish-memory install-plugin --client=claude-code --verify
 
 ## What Gets Installed
 
-With add-mcp, the MCP server configuration is automatically added to your project or global Claude Code config. This tells Claude Code to load the Squish memory server as an MCP tool.
+With `squish install`, the MCP server configuration and plugin hooks are automatically added to your global Claude Code config. This tells Claude Code to load the Squish memory server as an MCP tool and enables auto-save hooks.
 
 ## Features Enabled
 
@@ -92,8 +95,8 @@ Squish reserves 16KB total for core memory (configurable):
 ## Troubleshooting
 
 ### Plugin Not Loading
-1. Verify installation: `npx squish-memory install-plugin --client=claude-code --verify`
-2. Check that `~/.claude/plugin.json` exists and contains valid JSON
+1. Verify MCP config exists: `cat ~/.claude/mcp.json`
+2. Check that `~/.claude/settings.json` contains the hooks configuration
 3. Restart Claude Code completely
 4. Check Squish logs: `tail -f ~/.squish/squish.log`
 
@@ -110,11 +113,18 @@ Squish reserves 16KB total for core memory (configurable):
 
 ## Uninstallation
 
+To remove Squish from Claude Code, manually delete the MCP config and hooks:
+
 ```bash
-npx squish-memory uninstall-plugin --client=claude-code
+# Remove MCP server config
+rm ~/.claude/mcp.json
+
+# Remove hooks from settings.json (edit manually to remove squish entries)
+# Or reset settings entirely:
+rm ~/.claude/settings.json
 ```
 
-This removes `~/.claude/plugin.json` but preserves your Squish data and memories.
+Your Squish data and memories in `~/.squish/` are preserved.
 
 ## Compatibility
 

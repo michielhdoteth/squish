@@ -11,9 +11,13 @@ export interface DatabaseClient {
 }
 
 export function createDatabaseClient(db: any): DatabaseClient {
-  const isSqlite = typeof (db.$client as any).prepare === 'function';
+  if (!db) {
+    throw new Error('Database client is null or undefined');
+  }
+  const client = db.$client ?? db;
+  const isSqlite = client && typeof client.prepare === 'function';
   return {
-    $client: db.$client,
+    $client: client,
     $clientType: isSqlite ? 'sqlite' : 'postgres',
     select: (...args: any[]) => db.select(...args),
     insert: (...args: any[]) => db.insert(...args),

@@ -19,7 +19,7 @@ export function registerCleanCommand(program: Command) {
     .command('clean')
     .description('Auto-run deduplication and consolidation')
     .option('--confirm', 'Actually run (default is dry-run)', false)
-    .option('--project <project>', 'Project path', process.cwd())
+    .option('--project <project>', 'Project path (global if omitted)')
     .option('--dry-run', 'Show what would be consolidated without doing it', false)
     .action(async (options: any) => {
       try {

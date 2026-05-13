@@ -212,5 +212,5 @@ squish context --json
 squish health
 
 # MCP verification
-bun run verify:mcp
+squish-mcp --health
 ```

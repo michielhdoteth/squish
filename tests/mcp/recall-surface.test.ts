@@ -29,6 +29,6 @@ describe("MCP recall surface", () => {
 
     expect(wrapper).not.toContain(hardcodedSuccess);
     expect(wrapper).toContain("mcpArgs.push('--health')");
-    expect(wrapper).toContain("spawn(bunPath, [mcpPath, ...mcpArgs]");
+    expect(wrapper).toContain("const child = spawn(runtime.command, runtime.args");
   });
 });

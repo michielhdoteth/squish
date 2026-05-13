@@ -47,3 +47,41 @@ export interface SafetyCheckResult {
   warnings: string[];
   blockers: string[]; // Hard failures
 }
+
+/**
+ * Geometry statistics for a memory cluster.
+ * Captures the spatial properties of embeddings within a cluster.
+ */
+export interface ClusterGeometry {
+  n: number;             // number of items in cluster
+  centroid: number[];    // mean embedding vector
+  dBar: number;          // mean within-cluster cosine distance
+  dEff: number;          // estimated effective dimension
+  theta: number;         // actual spread measure (same as dBar)
+  thetaPrime: number;    // safety threshold
+}
+
+/**
+ * Result of evaluating whether a cluster is safe to consolidate.
+ */
+export interface ConsolidationDecision {
+  safeToCompress: boolean;
+  recommendedRepresentatives: number;
+  reason: string;
+  dBar: number;
+  dEff: number;
+}
+
+/**
+ * Statistics for a single consolidation operation.
+ */
+export interface ConsolidationStats {
+  clusterId: string;
+  n: number;
+  dBar: number;
+  dEff: number;
+  theta: number;
+  thetaPrime: number;
+  safeToCompress: boolean;
+  recommendedRepresentatives: number;
+}

@@ -15,6 +15,7 @@ function getSalt(): Buffer {
   const fs = require('fs');
   const path = require('path');
   const saltPath = path.join(config.dataDir, 'salt');
+  fs.mkdirSync(path.dirname(saltPath), { recursive: true });
   if (!fs.existsSync(saltPath)) {
     const salt = randomBytes(16).toString('hex');
     fs.writeFileSync(saltPath, salt);

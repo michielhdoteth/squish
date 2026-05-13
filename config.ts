@@ -1,5 +1,6 @@
-import { join } from 'path';
+import { isAbsolute, join, resolve, parse as parsePath } from 'path';
 import { mkdirSync, existsSync, readFileSync } from 'fs';
+import { homedir } from 'os';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 
@@ -81,11 +82,114 @@ function getEnum<T extends readonly string[]>(
   return allowed.includes(value) ? value : defaultValue;
 }
 
+/**
+ * Detects the current project root directory.
+ * Uses a unified WORKING_DIRECTORY approach - all agents set the same thing.
+ * Priority: SQUISH_WORKING_DIRECTORY > INIT_CWD > cwd
+ */
+function detectProjectRoot(): string {
+  return process.env.SQUISH_WORKING_DIRECTORY
+    ?? process.env.INIT_CWD
+    ?? process.cwd();
+}
+
+/**
+ * Detects the current project scope for MemoryScope auto-filtering.
+ * Returns project path or null if truly global (no project context).
+ * Used by rememberMemory() and search() to auto-scope when no --project given.
+ */
+export function detectProjectScope(): string | null {
+  const root = detectProjectRoot();
+  // Only return a scope if we have meaningful project context
+  return root || null;
+}
+
+/**
+ * Returns the global data directory path (~/.squish/)
+ */
+export function globalDataDir(): string {
+  return join(homedir(), '.squish');
+}
+
+/**
+ * Returns the global ~/.squish/ directory.
+ * No per-project .squish/ directories -- all memory is global.
+ */
+export function findSquishDir(_startPath?: string): string {
+  return globalDataDir();
+}
+
+export function findAllSquishDirs(_startPath?: string): string[] {
+  return [globalDataDir()];
+}
+
 export function getDataDir(): string {
-  const projectRoot = process.env.CLAUDE_WORKING_DIRECTORY || process.cwd();
-  const dir = getString('data.dir', 'SQUISH_DATA_DIR', join(projectRoot, '.squish'));
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  return dir;
+  // 1. If SQUISH_DATA_DIR is explicitly set, use it
+  if (process.env.SQUISH_DATA_DIR) {
+    const dir = isAbsolute(process.env.SQUISH_DATA_DIR)
+      ? process.env.SQUISH_DATA_DIR
+      : resolve(process.cwd(), process.env.SQUISH_DATA_DIR);
+    if (!existsSync(dir)) {
+      try {
+        mkdirSync(dir, { recursive: true });
+      } catch (err: any) {
+        if (err.code === 'EPERM' || err.code === 'EACCES') {
+          const fallbackDir = globalDataDir();
+          if (!existsSync(fallbackDir)) mkdirSync(fallbackDir, { recursive: true });
+          console.warn(`Warning: no permission to create ${dir}, using ${fallbackDir}`);
+          return fallbackDir;
+        }
+        throw err;
+      }
+    }
+    return dir;
+  }
+
+  // 2. Check settings.json for data.dir
+  const projectRoot = detectProjectRoot();
+  const settingsDir = readPath('data.dir');
+  if (typeof settingsDir === 'string' && settingsDir.length > 0) {
+    const dir = isAbsolute(settingsDir) ? settingsDir : resolve(projectRoot, settingsDir);
+    if (!existsSync(dir)) {
+      try {
+        mkdirSync(dir, { recursive: true });
+      } catch {
+        // fall through to default
+      }
+    }
+    if (existsSync(dir)) return dir;
+  }
+
+  // 4. Default to global ~/.squish/
+  const global = globalDataDir();
+  if (!existsSync(global)) {
+    try {
+      mkdirSync(global, { recursive: true });
+    } catch (err: any) {
+      if (err.code === 'EPERM' || err.code === 'EACCES') {
+        console.warn(`Warning: no permission to create ${global}`);
+      }
+      throw err;
+    }
+  }
+  return global;
+}
+
+function resolveDataDir(): string {
+  // Match the same priority as getDataDir but don't create dirs
+  if (process.env.SQUISH_DATA_DIR) {
+    const dir = isAbsolute(process.env.SQUISH_DATA_DIR)
+      ? process.env.SQUISH_DATA_DIR
+      : resolve(process.cwd(), process.env.SQUISH_DATA_DIR);
+    return dir;
+  }
+
+  const settingsDir = readPath('data.dir');
+  if (typeof settingsDir === 'string' && settingsDir.length > 0) {
+    return isAbsolute(settingsDir) ? settingsDir : resolve(process.cwd(), settingsDir);
+  }
+
+  return globalDataDir();
 }
 
 const databaseUrl = process.env.DATABASE_URL || '';
@@ -104,6 +208,7 @@ const llmEnabled = getBoolean('llm.enabled', 'SQUISH_LLM_ENABLED', false);
 const llmProvider = getEnum('llm.provider', 'SQUISH_LLM_PROVIDER', LLM_PROVIDERS, 'openai');
 const llmEndpoint = getString('llm.endpoint', 'SQUISH_LLM_ENDPOINT', '');
 const graphAutoBuild = getBoolean('graph.autoBuild', 'SQUISH_GRAPH_AUTO_BUILD', true);
+const graphAutoExport = getBoolean('graph.autoExport', 'SQUISH_GRAPH_AUTO_EXPORT', false);
 const graphExtractionMethod = getEnum('graph.extractionMethod', 'SQUISH_GRAPH_EXTRACTION_METHOD', GRAPH_EXTRACTION_METHODS, 'auto');
 const graphMaxContentLength = getNumber('graph.maxContentLength', 'SQUISH_GRAPH_MAX_CONTENT_LENGTH', 10000);
 
@@ -112,7 +217,7 @@ const scoringWeights = {
   relevance: getNumber('scoring.weights.relevance', 'SQUISH_WEIGHT_RELEVANCE', 3),
   importance: getNumber('scoring.weights.importance', 'SQUISH_WEIGHT_IMPORTANCE', 2),
   vectorSim: getNumber('scoring.weights.vectorSim', 'SQUISH_WEIGHT_VECTOR_SIM', 3),
-  graphBoost: getNumber('scoring.weights.graphBoost', 'SQUISH_WEIGHT_GRAPH_BOOST', 1.5),
+  graphBoost: getNumber('scoring.weights.graphBoost', 'SQUISH_WEIGHT_GRAPH_BOOST', 0.2),
 };
 
 export const config = {
@@ -124,12 +229,12 @@ export const config = {
   remoteBackend: getEnum('remote.backend', 'SQUISH_REMOTE_BACKEND', ['supabase', 'neon'] as const, 'supabase'),
 
   isManagedMode: getBoolean('managed.enabled', 'SQUISH_MANAGED_MODE', false),
-  managedMode: getBoolean('managed.enabled', 'SQUISH_MANAGED_MODE', false),
   managedApiUrl: getString('managed.apiUrl', 'SQUISH_MANAGED_API_URL', 'https://api.squish.dev'),
   managedApiKey: getString('managed.apiKey', 'SQUISH_MANAGED_API_KEY', ''),
   redisEnabled: Boolean(process.env.REDIS_URL),
-  dataDir: getDataDir(),
+  dataDir: resolveDataDir(),
   mcpServerPort: getNumber('mcp.serverPort', 'SQUISH_MCP_PORT', 8767),
+  autoMigrate: getBoolean('autoMigrate', 'SQUISH_AUTO_MIGRATE', false),
 
   embeddingsProvider,
   openAiApiKey: process.env.SQUISH_OPENAI_API_KEY || process.env.OPENAI_API_KEY || '',
@@ -171,6 +276,15 @@ export const config = {
   governanceEnabled: getBoolean('features.governanceEnabled', 'SQUISH_GOVERNANCE_ENABLED', true),
   consolidationEnabled: getBoolean('features.consolidationEnabled', 'SQUISH_CONSOLIDATION_ENABLED', false),
   consolidationSimilarityThreshold: getNumber('consolidation.similarityThreshold', 'SQUISH_CONSOLIDATION_THRESHOLD', 0.8),
+
+  // Geometry-aware consolidation config
+  consolidationGeometryEnabled: getBoolean('consolidation.geometry.enabled', 'SQUISH_GEOMETRY_CONSOLIDATION', true),
+  consolidationGeometryThetaPrime: getNumber('consolidation.geometry.thetaPrime', 'SQUISH_GEOMETRY_THETA_PRIME', 0.15),
+  consolidationGeometryMinClusterSize: getNumber('consolidation.geometry.minClusterSize', 'SQUISH_GEOMETRY_MIN_CLUSTER_SIZE', 3),
+  consolidationGeometryAutoConsolidate: getBoolean('consolidation.geometry.autoConsolidate', 'SQUISH_GEOMETRY_AUTO_CONSOLIDATE', true),
+  consolidationGeometryAutoSplit: getBoolean('consolidation.geometry.autoSplit', 'SQUISH_GEOMETRY_AUTO_SPLIT', true),
+  consolidationGeometryPreservePinned: getBoolean('consolidation.geometry.preservePinned', 'SQUISH_GEOMETRY_PRESERVE_PINNED', true),
+  enableV2ContradictionCheck: getBoolean('features.enableV2ContradictionCheck', 'SQUISH_V2_CONTRADICTION_CHECK', false),
   obsidianEnabled: getBoolean('features.obsidianEnabled', 'SQUISH_OBSIDIAN_ENABLED', false),
   obsidianVaultPath: getString('obsidian.vaultPath', 'SQUISH_OBSIDIAN_VAULT_PATH', ''),
   externalMemoryEnabled: getBoolean('features.externalMemoryEnabled', 'SQUISH_EXTERNAL_MEMORY_ENABLED', false),
@@ -210,9 +324,12 @@ export const config = {
   llm: { enabled: llmEnabled, provider: llmProvider, endpoint: llmEndpoint },
 
   graphAutoBuild,
+  graphAutoExport,
   graphExtractionMethod,
   graphMaxContentLength,
-  graph: { autoBuild: graphAutoBuild, extractionMethod: graphExtractionMethod, maxContentLength: graphMaxContentLength },
+  graphBackend: getEnum('graph.backend', 'SQUISH_GRAPH_BACKEND', ['memory', 'kuzu'] as const, 'memory'),
+  kuzuPath: getString('graph.kuzuPath', 'SQUISH_KUZU_PATH', './squish.graph'),
+  graph: { autoBuild: graphAutoBuild, autoExport: graphAutoExport, extractionMethod: graphExtractionMethod, maxContentLength: graphMaxContentLength },
 };
 
 export default config;

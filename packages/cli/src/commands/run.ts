@@ -10,8 +10,14 @@
 import { Command } from 'commander';
 import { spawn } from 'child_process';
 import { join } from 'path';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+import { resolveRuntimeLaunch } from '../../../../bin/runtime-launcher.mjs';
 
 export function registerRunCommand(program: Command) {
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = dirname(__filename);
+  const rootDir = join(__dirname, '../../../..');
   const run = new Command('run');
   run.description('Start Squish services');
 
@@ -31,9 +37,14 @@ export function registerRunCommand(program: Command) {
 
       console.log(`\x1b[36mStarting Squish web UI on ${url}...\x1b[0m`);
 
-      // Spawn bun to run the server - keep it in foreground like `bun run dev`
-      const child = spawn('bun', ['run', 'webui/server.ts'], {
-        cwd: process.cwd(),
+      const runtime = resolveRuntimeLaunch({
+        rootDir,
+        entryRelativePath: 'webui/server.ts',
+        extraArgs: [],
+      });
+
+      const child = spawn(runtime.command, runtime.args, {
+        cwd: rootDir,
         stdio: 'inherit',
         env: { ...process.env, SQUISH_WEB_PORT: String(port) }
       });

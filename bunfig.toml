@@ -1,0 +1,3 @@
+[test]
+# Exclude stale task-verification tests that check old file locations
+exclude = ["tests/archive/**"]

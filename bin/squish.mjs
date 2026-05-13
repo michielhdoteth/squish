@@ -13,19 +13,24 @@
 
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { resolveRuntimeLaunch } from './runtime-launcher.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Use bun to run the CLI directly with ts support
 const { spawn } = await import('child_process');
-const bunPath = process.env.BUN?.replace(/\\/g, '/') || 'bun';
-const cliPath = join(__dirname, '..', 'packages', 'cli', 'src', 'index.ts');
+const rootDir = join(__dirname, '..');
 
 const args = process.argv.slice(2);
-const child = spawn(bunPath, [cliPath, ...args], {
+const runtime = resolveRuntimeLaunch({
+  rootDir,
+  entryRelativePath: 'packages/cli/src/index.ts',
+  extraArgs: args,
+});
+
+const child = spawn(runtime.command, runtime.args, {
   stdio: 'inherit',
-  cwd: join(__dirname, '..')
+  cwd: rootDir
 });
 
 child.on('exit', (code) => {

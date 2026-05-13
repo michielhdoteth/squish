@@ -13,6 +13,7 @@ import { z } from "zod";
 import { config } from "../../../config.js";
 import { getDb } from "../../../db/index.js";
 import { getSchema } from "../../../db/schema.js";
+import { isSchemaDriftError, probeSchemaHealth, type SchemaProbeResult } from "../../../db/schema-health.js";
 import { eq } from "drizzle-orm";
 import { startWorker, stopWorker } from "../../../core/worker.js";
 import { initializeScheduler } from "../../../core/scheduler/cron-scheduler.js";
@@ -32,7 +33,7 @@ import { getAllProjects } from "../../../core/projects.js";
 import { logger } from "../../../core/logger.js";
 
 const SERVER_NAME = "squish-memory";
-const SERVER_VERSION = "1.2.0";
+const SERVER_VERSION = "1.3.0";
 
 // Create server instance ONCE (not per-session)
 const { server: SQUISH_SERVER, toolCount: SQUISH_TOOL_COUNT } = createSquishServer();
@@ -71,13 +72,52 @@ function safeRegisterTool(
   handler: any
 ): boolean {
   try {
-    server.registerTool(name, definition, handler);
+    server.registerTool(name, definition, async (input: any) => {
+      if (name !== "squish_health") {
+        const probe = await probeSchemaHealth();
+        if (probe.status !== "ok") {
+          return schemaProbeErrorResult(probe);
+        }
+      }
+
+      try {
+        return await handler(input);
+      } catch (error) {
+        if (isSchemaDriftError(error)) {
+          return schemaProbeErrorResult(error.probe);
+        }
+
+        const probe = await probeSchemaHealth();
+        if (probe.status !== "ok") {
+          return schemaProbeErrorResult(probe);
+        }
+
+        throw error;
+      }
+    });
     console.error(`[MCP] Registered tool: ${name}`);
     return true;
   } catch (error) {
     console.error(`[MCP] Failed to register tool ${name}:`, error);
     return false;
   }
+}
+
+function schemaProbeErrorResult(probe: SchemaProbeResult) {
+  return {
+    content: [{
+      type: "text",
+      text: JSON.stringify({
+        ok: false,
+        error: probe.status === "drifted" ? "schema_drift" : "database_unavailable",
+        backend: probe.backend,
+        detail: probe.detail,
+        missingTables: probe.missingTables,
+        remediation: probe.remediation,
+      }, null, 2),
+    }],
+    isError: true,
+  };
 }
 
 function createSquishServer(): { server: McpServer; toolCount: number } {
@@ -249,6 +289,19 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
         if (graphResult) {
           (result as any).graph = { entities: graphResult.entitiesCreated, relations: graphResult.relationsCreated };
         }
+
+        // Push to cloud if managed mode is active (paid users)
+        if (config.isManagedMode) {
+          const { pushMemory } = await import('../../../core/cloud/cloud-sync.js');
+          pushMemory({
+            id: memory.id,
+            content: memory.content,
+            type: memory.type,
+            tags: memory.tags,
+            importance_score: memory.importanceScore,
+            source: memory.source,
+          }).catch((e: Error) => console.warn('[Cloud] Push failed:', e.message));
+        }
       }
 
       return {
@@ -317,7 +370,9 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
       const db = await getDb();
       const schema = await getSchema();
       const sqliteDb = db as any;
-      const proj = project || process.cwd();
+      // Global-only: no project falls back to global search (not process.cwd())
+      // If project is provided, use it as a filter; if not, search all memories
+      const proj = project || undefined;
 
       // Single memory deletion
       if (memoryId) {
@@ -483,13 +538,13 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
     server,
     "squish_stats",
     {
-      description: "Get memory statistics for a project",
+      description: "Get memory statistics (global if no project)",
       inputSchema: {
-        project: z.string().optional().describe("Project path (defaults to current)")
+        project: z.string().optional().describe("Project path filter (global if omitted)")
       }
     },
     async ({ project }: { project?: string }) => {
-      const stats = await buildStatsState(project || process.cwd());
+      const stats = await buildStatsState(project);
       return { content: [{ type: "text", text: JSON.stringify({ ok: true, ...stats }, null, 2) }] };
     }
   )) toolCount++;
@@ -548,11 +603,11 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
         since: z.string().optional().describe("Start date (alternative to period, e.g., '3 days', '2026-01-01')"),
         until: z.string().optional().describe("End date (alternative to period, e.g., 'now', '2026-01-15')"),
         limit: z.number().optional().describe("Max results to return"),
-        project: z.string().optional().describe("Project path (defaults to current)")
+        project: z.string().optional().describe("Project path filter (global if omitted)")
       }
     },
     async ({ period = 'today', since, until, limit = 10, project }: { period?: string; since?: string; until?: string; limit?: number; project?: string }) => {
-      const proj = project || process.cwd();
+      const proj = project; // global if undefined
       let sinceDate: string, untilDate: string;
 
       if (since && until) {
@@ -596,11 +651,11 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
       inputSchema: {
         days: z.number().optional().describe("Show memories older than N days"),
         limit: z.number().optional().describe("Max results to return"),
-        project: z.string().optional().describe("Project path (defaults to current)")
+        project: z.string().optional().describe("Project path filter (global if omitted)")
       }
     },
     async ({ days = 30, limit = 20, project }: { days?: number; limit?: number; project?: string }) => {
-      const proj = project || process.cwd();
+      const proj = project; // global if undefined
       const cutoffDate = new Date(Date.now() - days * 86400000);
       const results = await getRecent(proj, 500);
       const stale = results.filter((m: any) => {
@@ -621,6 +676,89 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
     }
   )) toolCount++;
 
+  // squish_on_session_start - Trigger session start
+  if (safeRegisterTool(
+    server,
+    "squish_on_session_start",
+    {
+      description: "Trigger session start - injects context from previous sessions, initializes session tracking",
+      inputSchema: {
+        projectPath: z.string().optional().describe("Project path (global if omitted)"),
+        mode: z.enum(["startup", "resume", "compact"]).default("startup").describe("Session mode")
+      }
+    },
+    async ({ projectPath, mode = "startup" }: { projectPath?: string; mode?: "startup" | "resume" | "compact" }) => {
+      const { handleSessionStart } = await import('../../../core/hooks/agent-hooks.js');
+      const result = await handleSessionStart({
+        projectPath: projectPath, // undefined = global scope
+        mode,
+        agentType: 'opencode'
+      });
+      return {
+        content: [{
+          type: "text",
+          text: `Session started: ${result.sessionId}\nMemories injected: ${result.count}\n\n${result.memories?.join('\n') || 'No recent memories'}`
+        }]
+      };
+    }
+  )) toolCount++;
+
+  // squish_on_tool_use - Capture tool use event
+  if (safeRegisterTool(
+    server,
+    "squish_on_tool_use",
+    {
+      description: "Capture a tool use event for memory - stores observation about tool execution",
+      inputSchema: {
+        toolName: z.string().describe("Name of the tool used"),
+        toolInput: z.record(z.string(), z.any()).describe("Tool input/arguments"),
+        toolResult: z.any().optional().describe("Tool result/output"),
+        projectPath: z.string().optional().describe("Project path")
+      }
+    },
+    async ({ toolName, toolInput, toolResult, projectPath }: { toolName: string; toolInput: Record<string, any>; toolResult?: any; projectPath?: string }) => {
+      const { handleToolUse } = await import('../../../core/hooks/agent-hooks.js');
+      const result = await handleToolUse({
+        toolName,
+        toolInput,
+        toolResult,
+        projectPath: projectPath, // undefined = global scope
+        agentType: 'opencode'
+      });
+      return {
+        content: [{
+          type: "text",
+          text: `Tool use captured: ${toolName}\nObservation stored: ${result.observationId}\nMemory ID: ${result.memoryId || 'N/A'}`
+        }]
+      };
+    }
+  )) toolCount++;
+
+  // squish_on_session_end - Trigger session end
+  if (safeRegisterTool(
+    server,
+    "squish_on_session_end",
+    {
+      description: "Trigger session end - performs cleanup and signals session completion",
+      inputSchema: {
+        projectPath: z.string().optional().describe("Project path (global if omitted)")
+      }
+    },
+    async ({ projectPath }: { projectPath?: string }) => {
+      const { handleSessionEnd } = await import('../../../core/hooks/agent-hooks.js');
+      const result = await handleSessionEnd({
+        projectPath: projectPath, // undefined = global scope
+        agentType: 'opencode'
+      });
+      return {
+        content: [{
+          type: "text",
+          text: `Session ended: ${result.sessionId}\nConsolidated: ${result.consolidatedCount} memories\nCleaned up: ${result.cleanedUpCount} stale entries`
+        }]
+      };
+    }
+  )) toolCount++;
+
   console.error(`[MCP] Tool registration complete. Registered ${toolCount} tools.`);
 
   return { server, toolCount };
@@ -628,6 +766,13 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
 
 async function runStdio(server: McpServer, toolCount: number): Promise<void> {
   console.error(`[MCP] Starting in STDIO mode...`);
+  const probe = await probeSchemaHealth();
+  if (probe.status !== "ok") {
+    console.error(`[MCP] Degraded startup: ${probe.detail}`);
+    if (probe.remediation) {
+      console.error(`[MCP] Remediation: ${probe.remediation}`);
+    }
+  }
   const transport = new StdioServerTransport();
 
   transport.onclose = () => {
@@ -658,6 +803,13 @@ async function runStdio(server: McpServer, toolCount: number): Promise<void> {
 
 async function runHttp(server: McpServer, port: number): Promise<void> {
   console.error(`[MCP] Starting in Streamable HTTP mode on port ${port}...`);
+  const startupProbe = await probeSchemaHealth();
+  if (startupProbe.status !== "ok") {
+    console.error(`[MCP] Degraded startup: ${startupProbe.detail}`);
+    if (startupProbe.remediation) {
+      console.error(`[MCP] Remediation: ${startupProbe.remediation}`);
+    }
+  }
 
   const app = express();
   app.use(express.json({ strict: false }));
@@ -672,11 +824,42 @@ async function runHttp(server: McpServer, port: number): Promise<void> {
 
   // Health check endpoint
   app.get("/health", (req, res) => {
-    res.json({ status: "ok", server: SERVER_NAME, version: SERVER_VERSION });
+    void probeSchemaHealth().then((probe) => {
+      res.json({
+        status: probe.status === "ok" ? "ok" : (probe.status === "drifted" ? "degraded" : "broken"),
+        server: SERVER_NAME,
+        version: SERVER_VERSION,
+        backend: probe.backend,
+        detail: probe.detail,
+        remediation: probe.remediation,
+        missingTables: probe.missingTables,
+      });
+    }).catch((error: any) => {
+      res.status(500).json({
+        status: "broken",
+        server: SERVER_NAME,
+        version: SERVER_VERSION,
+        detail: error?.message ?? "Health check failed",
+      });
+    });
   });
+
+  // API key auth for HTTP mode
+  const MCP_API_KEY = process.env.SQUISH_MCP_API_KEY || '';
+  function checkMcpAuth(req: express.Request, res: express.Response): boolean {
+    if (!MCP_API_KEY) return true; // No key configured = no auth required (local default)
+    const provided = req.headers['x-api-key'] as string || req.headers['authorization']?.replace('Bearer ', '') || '';
+    if (provided !== MCP_API_KEY) {
+      res.status(401).json({ error: 'Unauthorized. Set SQUISH_MCP_API_KEY or provide x-api-key header.' });
+      return false;
+    }
+    return true;
+  }
 
   // Streamable HTTP POST endpoint
   app.post("/mcp", async (req, res) => {
+    if (!checkMcpAuth(req, res)) return;
+
     const sessionId = req.headers["mcp-session-id"] as string | undefined;
     const body = req.body;
 
@@ -809,8 +992,15 @@ async function runHealthCheck(): Promise<void> {
 
   try {
     const { server, toolCount } = createSquishServer();
+    const probe = await probeSchemaHealth();
     console.error(`[MCP] Health check passed. Server initialized with ${toolCount} tools.`);
-    process.exit(0);
+    if (probe.status !== "ok") {
+      console.error(`[MCP] Degraded: ${probe.detail}`);
+      if (probe.remediation) {
+        console.error(`[MCP] Remediation: ${probe.remediation}`);
+      }
+    }
+    process.exit(probe.status === "unavailable" ? 1 : 0);
   } catch (error) {
     console.error(`[MCP] Health check failed:`, error);
     process.exit(1);

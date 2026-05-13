@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Squish MCP Universal Config",
+  "type": "object",
+  "required": ["version", "defaults", "servers"],
+  "properties": {
+    "version": {
+      "type": "integer"
+    },
+    "defaults": {
+      "type": "object"
+    },
+    "servers": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": true
+}

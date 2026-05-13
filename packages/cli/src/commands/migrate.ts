@@ -8,17 +8,23 @@ import { Command } from 'commander';
 import { migrateMemories, type MigrateResult } from '../../../../core/memory/migrate.js';
 import { existsSync } from 'fs';
 import { join } from 'path';
+import { homedir } from 'os';
+
+function getGlobalSquishDir(): string {
+  return join(homedir(), '.squish');
+}
 
 export function registerMigrateCommand(program: Command) {
   program
     .command('migrate <source>')
     .description('Migrate memories from one .squish directory to another (unify multiple .squish folders)')
-    .option('-t, --target <path>', 'Target .squish directory (default: current directory)', process.cwd())
+    .option('-t, --target <path>', 'Target .squish directory (default: current directory)')
+    .option('-g, --global', 'Migrate to global ~/.squish/ directory', false)
     .option('-d, --delete-source', 'Delete source directory after successful migration (requires --yes)')
     .option('-y, --yes', 'Skip confirmation prompts')
     .option('-n, --dry-run', 'Preview migration without making changes', false)
     .action(async (source: string, options: any) => {
-      const target = options.target || process.cwd();
+      const target = options.global ? getGlobalSquishDir() : (options.target || process.cwd());
       const dryRun = options.dryRun || false;
       const deleteSource = options.deleteSource || false;
       const confirmed = options.yes || false;
@@ -38,8 +44,17 @@ export function registerMigrateCommand(program: Command) {
       }
 
       if (!existsSync(targetDbPath)) {
-        console.error(`Error: Target is not a .squish directory (no squish.db found): ${target}`);
-        process.exit(1);
+        if (options.global) {
+          // Auto-create global directory
+          const { mkdirSync } = await import('fs');
+          mkdirSync(target, { recursive: true });
+          const { bootstrapDatabase } = await import('../../../../db/bootstrap.js');
+          await bootstrapDatabase(target);
+          console.log(`Created global ~/.squish/ directory`);
+        } else {
+          console.error(`Error: Target is not a .squish directory (no squish.db found): ${target}`);
+          process.exit(1);
+        }
       }
 
       // Show plan

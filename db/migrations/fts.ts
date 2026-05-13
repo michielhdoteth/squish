@@ -15,7 +15,8 @@ export async function runFtsMigrations(sqlite: Database): Promise<void> {
   const ftsInfo = sqlite.prepare("PRAGMA table_info(memories_fts)").all() as Array<{ name: string }>;
   const existingFtsColumns = new Set(ftsInfo.map(col => col.name));
 
-  if (!existingFtsColumns.has('summary') && existingFtsColumns.has('tags')) {
+  // Fix: Check if EITHER summary or tags column is missing
+  if (!existingFtsColumns.has('summary') || !existingFtsColumns.has('tags')) {
     logger.info('Migration: Recreating memories_fts table to add summary column...');
     try {
       sqlite.exec('DROP TRIGGER IF EXISTS memories_ai');

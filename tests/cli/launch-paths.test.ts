@@ -120,7 +120,7 @@ describe('launch-path CLI commands', () => {
     }
   });
 
-  test('doctor migrates an older sqlite install forward before writes', () => {
+  test('doctor migrates an older sqlite install forward before writes', { timeout: 20000 }, () => {
     const tempDataDir = mkdtempSync(join(tmpdir(), 'squish-upgrade-'));
     const dbPath = join(tempDataDir, 'squish.db');
     mkdirSync(tempDataDir, { recursive: true });
@@ -171,6 +171,49 @@ describe('launch-path CLI commands', () => {
       );
 
       expect(bootstrapOldInstall.status).toBe(0);
+
+      const blockedRemember = spawnSync(
+        'bun',
+        [
+          'run',
+          'packages/cli/src/index.ts',
+          'remember',
+          'This should be blocked until doctor repairs the schema',
+          '--type',
+          'decision',
+        ],
+        {
+          cwd: repoRoot,
+          encoding: 'utf8',
+          env,
+        },
+      );
+
+      expect(blockedRemember.status).toBe(1);
+      expect(blockedRemember.stderr).toContain('"error": "schema_drift"');
+      expect(blockedRemember.stderr).toContain('squish doctor --migrate');
+
+      const degradedHealth = spawnSync(
+        'bun',
+        ['run', 'packages/cli/src/index.ts', 'health', '--json'],
+        {
+          cwd: repoRoot,
+          encoding: 'utf8',
+          env,
+        },
+      );
+
+      expect(degradedHealth.status).toBe(0);
+      const healthJson = JSON.parse(degradedHealth.stdout);
+      expect(healthJson.severity).toBe('degraded');
+      expect(healthJson.checks).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: 'database',
+            status: 'degraded',
+          }),
+        ]),
+      );
 
       const doctor = spawnSync(
         'bun',

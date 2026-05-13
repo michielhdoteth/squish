@@ -14,6 +14,7 @@ import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
 import { logger } from '../logger.js';
 import type { PlaceType } from './places.js';
+import { ensureGlobalProject } from './places.js';
 
 export interface PlaceRule {
   id: string;
@@ -31,7 +32,7 @@ export interface PlaceRule {
 }
 
 export interface PlaceRuleCreateInput {
-  projectId: string;
+  projectId?: string;
   name: string;
   placeType: PlaceType;
   matchTool?: string;
@@ -95,9 +96,11 @@ export async function createPlaceRule(input: PlaceRuleCreateInput): Promise<Plac
   const sqliteDb = db as any;
   const id = randomUUID();
 
+  const resolvedProjectId = input.projectId || (await ensureGlobalProject()).id;
+
   await sqliteDb.insert(schema.placeRules).values({
     id,
-    projectId: input.projectId,
+    projectId: resolvedProjectId,
     name: input.name,
     placeType: input.placeType,
     matchTool: input.matchTool || null,
@@ -112,7 +115,7 @@ export async function createPlaceRule(input: PlaceRuleCreateInput): Promise<Plac
 
   return {
     id,
-    projectId: input.projectId,
+    projectId: resolvedProjectId,
     name: input.name,
     placeType: input.placeType,
     matchTool: input.matchTool || null,
@@ -127,18 +130,20 @@ export async function createPlaceRule(input: PlaceRuleCreateInput): Promise<Plac
 }
 
 /**
- * Get rules for a project
+ * Get rules for a project or global scope
  */
-export async function getProjectRules(projectId: string): Promise<PlaceRule[]> {
+export async function getProjectRules(projectId?: string): Promise<PlaceRule[]> {
   const db = await getDb();
   if (!db) return [];
 
   const schema = await getSchema();
   const sqliteDb = db as any;
 
+  const resolvedProjectId = projectId || (await ensureGlobalProject()).id;
+
   const results = await sqliteDb.select()
     .from(schema.placeRules)
-    .where(eq(schema.placeRules.projectId, projectId))
+    .where(eq(schema.placeRules.projectId, resolvedProjectId))
     .orderBy(desc(schema.placeRules.priority));
 
   return results.map((row: any) => ({
@@ -200,7 +205,7 @@ export function matchesRule(rule: PlaceRule, input: RuleMatchInput): boolean {
  * Find matching place for a memory based on rules
  */
 export async function findMatchingPlace(
-  projectId: string,
+  projectId: string | undefined,
   input: RuleMatchInput
 ): Promise<PlaceType | null> {
   const rules = await getProjectRules(projectId);
@@ -221,20 +226,37 @@ export async function findMatchingPlace(
 }
 
 /**
- * Initialize default rules for a project
+ * Initialize default rules for a project or global scope.
+ * If no projectId provided, uses the global scope.
  */
-export async function initializeDefaultRules(projectId: string): Promise<PlaceRule[]> {
+export async function initializeDefaultRules(projectId?: string): Promise<PlaceRule[]> {
+  const resolvedProjectId = projectId || (await ensureGlobalProject()).id;
   const created: PlaceRule[] = [];
+
+  // Check if rules already exist for this project (skip if yes)
+  const db = await getDb();
+  if (db) {
+    const schema = await getSchema();
+    const sqliteDb = db as any;
+    const existing = await sqliteDb.select()
+      .from(schema.placeRules)
+      .where(eq(schema.placeRules.projectId, resolvedProjectId))
+      .limit(1);
+    if (existing.length > 0) {
+      logger.debug(`[PlaceRules] Rules already exist for project: ${resolvedProjectId}, skipping initialization`);
+      return existing;
+    }
+  }
 
   for (const ruleConfig of DEFAULT_RULES) {
     const rule = await createPlaceRule({
-      projectId,
+      projectId: resolvedProjectId,
       ...ruleConfig,
     });
     created.push(rule);
   }
 
-  logger.info(`[PlaceRules] Initialized ${created.length} default rules for project: ${projectId}`);
+  logger.info(`[PlaceRules] Initialized ${created.length} default rules for project: ${resolvedProjectId}`);
   return created;
 }
 

@@ -7,13 +7,16 @@ Launch-ready install and verification paths for the current release.
 Recommended:
 
 ```bash
-npx add-mcp squish-memory
+npm install -g squish-memory
+squish install --all
 ```
 
-Or traditional package install:
+Or traditional package install only (MCP config manual):
 
 ```bash
-bun add squish-memory
+npm install -g squish-memory
+yarn global add squish-memory
+bun add -g squish-memory
 ```
 
 ## 2) Verify The MCP Server
@@ -26,7 +29,7 @@ Expected output:
 
 ```text
 [MCP] Running health check...
-[MCP] Health check passed. Server initialized with 12 tools.
+[MCP] Health check passed. Server initialized with 15 tools.
 ```
 
 ## 3) Start Specific Surfaces
@@ -70,7 +73,7 @@ squish doctor --json --migrate
 
 ```text
 [MCP] Running health check...
-[MCP] Health check passed. Server initialized with 12 tools.
+[MCP] Health check passed. Server initialized with 15 tools.
 ```
 
 ### squish run web

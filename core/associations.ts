@@ -13,11 +13,20 @@ export type AssociationType = 'co_occurred' | 'supersedes' | 'contradicts' | 'su
 /**
  * Create or update an association between two memories
  */
+/**
+ * Confidence tags for associations (inspired by Graphify's tagging system)
+ * - EXTRACTED: Found directly from data (co-occurrence, explicit user link)
+ * - INFERRED: Reasonable inference (LLM-extracted, entity overlap)
+ * - AMBIGUOUS: Uncertain relationship
+ */
+export type AssociationConfidence = 'EXTRACTED' | 'INFERRED' | 'AMBIGUOUS';
+
 export async function createAssociation(
   fromMemoryId: string,
   toMemoryId: string,
   type: AssociationType,
-  weight: number = 1
+  weight: number = 1,
+  confidence?: { tag: AssociationConfidence; score: number }
 ): Promise<void> {
   try {
     const db = await getDb();
@@ -47,14 +56,22 @@ export async function createAssociation(
         .where(eq(schema.memoryAssociations.id, existing[0].id));
     } else {
       // Create new association
-      await (db as any).insert(schema.memoryAssociations).values({
+      const values: any = {
         fromMemoryId,
         toMemoryId,
         associationType: type,
         weight,
         coactivationCount: 1,
         lastCoactivatedAt: new Date(),
-      });
+      };
+      // Add confidence metadata if provided (Graphify-inspired tagging)
+      if (confidence) {
+        values.metadata = JSON.stringify({
+          confidence: confidence.tag,
+          confidence_score: confidence.score,
+        });
+      }
+      await (db as any).insert(schema.memoryAssociations).values(values);
     }
   } catch (error) {
     logger.error('Error creating association', error);
@@ -101,7 +118,7 @@ export async function autoLinkByEntities(
     let linked = 0;
     for (const mem of existing) {
       try {
-        await createAssociation(newMemoryId, mem.id, 'relates_to', 0.5);
+        await createAssociation(newMemoryId, mem.id, 'relates_to', 0.5, { tag: 'EXTRACTED', score: 1.0 });
         linked++;
       } catch (e) {
         // Skip duplicates

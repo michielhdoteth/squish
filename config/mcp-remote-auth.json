@@ -1,0 +1,13 @@
+{
+  "methods": ["oauth", "token"],
+  "defaultMethod": "token",
+  "precedence": ["token", "oauth"],
+  "token": {
+    "requiredEnv": ["SQUISH_REMOTE_TOKEN"]
+  },
+  "cli": {
+    "openclaw": {
+      "default": "token"
+    }
+  }
+}

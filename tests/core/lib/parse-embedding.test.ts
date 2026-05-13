@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseEmbedding } from './parse-embedding';
+import { parseEmbedding } from '../../../core/lib/parse-embedding.js';
 
 describe('parseEmbedding', () => {
   describe('null/undefined handling', () => {

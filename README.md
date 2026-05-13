@@ -1,4 +1,4 @@
-# Squish - Memory Runtime for AI Agents
+# Squish - Memory runtime for production AI agents
 
 [![npm version](https://img.shields.io/npm/v/squish-memory)](https://www.npmjs.com/package/squish-memory)
 [![npm downloads](https://img.shields.io/npm/dm/squish-memory)](https://www.npmjs.com/package/squish-memory)
@@ -23,6 +23,19 @@ npm install -g squish-memory
 | Repeats the same mistakes | Learns from past decisions |
 | No project awareness | Builds understanding over time |
 | Can't track preferences | Adapts to your style |
+
+## Why no second LLM?
+
+Most memory tools require a second LLM to extract, summarize, and manage memories. This adds cost, latency, and complexity to every interaction. Squish takes a different approach:
+
+- **Local-first embeddings**: Memory retrieval uses local embedding models that run on your machine with 1-5ms latency. No API calls, no per-token costs.
+- **No memory LLM required**: Signal extraction, belief derivation, and context restoration all work without a secondary language model. Squish uses geometric and keyword-based methods that are deterministic and fast.
+- **Lower cost**: Running memory through an LLM adds per-interaction cost. Squish's default path costs $0.
+- **Better privacy**: Since no data leaves your machine for memory processing, sensitive context stays local. Encryption and local SQLite storage keep control in your hands.
+- **Lower latency**: LLM-based memory extraction typically takes 500-5000ms. Squish processes memory operations in 1-20ms.
+- **Simpler setup**: One command install. No API keys. No model configuration. No prompt engineering for memory extraction.
+
+This makes Squish suitable not just for coding assistants but for any agent that needs reliable, fast, and private memory.
 
 ## What It Does
 
@@ -49,6 +62,18 @@ User Action ──► Signal Distillation ──► Write Gate ──► Session
 - **Graph enrichment**: Durable memories strengthen entity and relationship structure used by retrieval scoring.
 - **Durable memory**: Stable facts, corrections, decisions, and fixes are stored for long-term retrieval.
 - **Raw fallback**: Nuance-sensitive output can keep an internal raw artifact for inspection without polluting normal context.
+
+## For production agents
+
+Squish is built for agents that run autonomously, not just interactive coding sessions. Use cases include:
+
+- **Autonomous agents**: Give long-running agents durable memory so they maintain context across restarts, task switches, and schedule-driven operations.
+- **Multi-agent systems**: Shared memory across agent instances enables coordination without requiring agents to share raw conversation history.
+- **Embedded devices and edge**: The small package (283 KB gzipped) and local-first design make Squish suitable for resource-constrained environments.
+- **Team workflows**: PostgreSQL backend supports shared memory across a team, with the same retrieval and consolidation pipeline running server-side.
+- **Scheduled and background agents**: Scheduler resilience means memory operations survive machine sleep and wake cycles without missed maintenance.
+
+The CLI, MCP, and SDK interfaces let you integrate Squish into any agent framework without modifying the agent's core implementation.
 
 ## Quick Start
 
@@ -137,7 +162,20 @@ squish run web
 - `squish_recent` - Get recent memories
 - `squish_stale` - Show stale memories
 
+## Get Started in 10 Seconds
+
+```bash
+npm install -g squish-memory
+squish install --all
+```
+
+Then start using memory in your agent. Zero config. No API keys.
+
+---
+
 ## Benchmark Results
+
+Squish achieves 65% on the LoCoMo memory benchmark using local embeddings only -- no memory LLM required. Where an LLM is available for extraction assistance, recall quality improves further.
 
 Real tests using academic benchmarks with local embeddings (no LLM required).
 
@@ -228,6 +266,16 @@ DATABASE_URL=postgresql://user:pass@host/db
 - **Tiers**: hot (recent), warm (accessible), cold (archived)
 - **Status**: active, merged, superseded, expired
 
+### Memory consolidation
+
+Squish uses a geometry-aware approach to keep memory size manageable while preserving signal quality:
+
+- **Hot/warm/cold tier system**: Memories automatically decay through temperature tiers. Hot memories are immediately accessible, warm memories retain relevance scoring, cold memories are compressed and archived.
+- **Spatial segmentation via Places**: Durable memories are routed into spatial buckets (WIP, Sandbox, Board, Ref) that constrain retrieval to relevant subspaces, reducing noise.
+- **Graph enrichment**: Co-occurrence and explicit associations between memories build a graph structure that boosts relevant results during recall without requiring explicit linking.
+- **Contradiction handling**: When new facts conflict with stored beliefs, Squish marks prior memories as superseded and preserves revision history rather than overwriting.
+- **Expiration and decay**: Temporal facts with expiration dates are automatically pruned. Confidence scores determine how long a memory persists before archival.
+
 ## Development
 
 ```bash
@@ -253,6 +301,20 @@ squish-mcp --health
 ## License
 
 MIT License. See [LICENSE](LICENSE).
+
+---
+
+**Ready to give your agent a memory?**
+
+```bash
+npm install -g squish-memory
+```
+
+Or visit [squishplugin.dev](https://squishplugin.dev) for docs, benchmarks, and setup guides.
+
+Follow [@squishmem](https://twitter.com/squishmem) for updates.
+
+---
 
 ## Links
 

@@ -1,53 +1,6 @@
-/**
- * Squish CLI - Main Entry Point
- * Universal Memory for AI Agents
- * 
- * Usage:
- *   squish remember "Store this memory"
- *   squish recall "query"
- *   squish context --list-projects
- */
+import { createProgram } from './program.js';
 
-import { Command } from 'commander';
-
-// Import all commands
-import { registerRememberCommand } from './commands/remember.js';
-import { registerRecallCommand } from './commands/recall.js';
-import { registerRecentCommand } from './commands/recent.js';
-import { registerContextCommand } from './commands/context.js';
-import { registerStatsCommand } from './commands/stats.js';
-import { registerForgetCommand } from './commands/forget.js';
-import { registerLinkCommand } from './commands/link.js';
-import { registerStaleCommand } from './commands/stale.js';
-import { registerCleanCommand } from './commands/clean.js';
-import { registerMigrateCommand } from './commands/migrate.js';
-import { registerRunCommand } from './commands/run.js';
-import { registerDoctorCommand } from './commands/doctor.js';
-import { registerInspectCommand } from './commands/inspect.js';
-import { registerHealthCommand } from './commands/health.js';
-
-const program = new Command();
-
-program
-  .name('squish')
-  .description('Universal Memory for AI Agents - CLI')
-  .version('1.2.0');
-
-// Register all commands
-registerRememberCommand(program);
-registerRecallCommand(program);
-registerRecentCommand(program);
-registerContextCommand(program);
-registerStatsCommand(program);
-registerForgetCommand(program);
-registerLinkCommand(program);
-registerStaleCommand(program);
-registerCleanCommand(program);
-registerMigrateCommand(program);
-registerRunCommand(program);
-registerDoctorCommand(program);
-registerInspectCommand(program);
-registerHealthCommand(program);
+const program = createProgram();
 
 // Default: show help if no arguments
 if (process.argv.length === 2) {

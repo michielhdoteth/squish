@@ -1,6 +1,6 @@
 {
   "$schema": "./settings.schema.json",
-  "version": "1.2.0",
+  "version": "1.2.3",
   "data": {
     "dir": ".squish"
   },
@@ -91,7 +91,7 @@
       "relevance": 3,
       "importance": 2,
       "vectorSim": 3,
-      "graphBoost": 1.5
+        "graphBoost": 0.2
     }
   },
   "scheduler": {

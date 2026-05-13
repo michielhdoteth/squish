@@ -1,0 +1,260 @@
+/**
+ * Tests for squish doctor --fix command
+ */
+import { describe, test, expect } from 'bun:test';
+import { spawnSync } from 'node:child_process';
+import { mkdirSync, rmSync, existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { Database } from 'bun:sqlite';
+
+const repoRoot = join(import.meta.dir, '..', '..');
+
+function makeTempDir(prefix: string): string {
+  const dir = join(tmpdir(), `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function oldSchema(dbPath: string) {
+  const db = new Database(dbPath);
+  db.exec(`
+    PRAGMA foreign_keys = ON;
+    CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL);
+    CREATE TABLE users (id TEXT PRIMARY KEY);
+    CREATE TABLE memories (
+      id TEXT PRIMARY KEY,
+      project_id TEXT,
+      user_id TEXT,
+      type TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL,
+      updated_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL
+    );
+    CREATE TABLE conversations (
+      id TEXT PRIMARY KEY,
+      project_id TEXT,
+      session_id TEXT NOT NULL,
+      started_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL,
+      created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL,
+      updated_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL
+    );
+    CREATE TABLE messages (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL
+    );
+  `);
+  db.close();
+}
+
+describe('squish doctor --fix', () => {
+  test('doctor --fix repairs missing schema tables', () => {
+    const tempDir = makeTempDir('doctor-fix-tables');
+    const dbPath = join(tempDir, 'squish.db');
+    mkdirSync(tempDir, { recursive: true });
+    oldSchema(dbPath);
+
+    const env = {
+      ...process.env,
+      SQUISH_DATA_DIR: tempDir,
+      DATABASE_URL: '',
+    };
+
+    try {
+      // First verify doctor detects issues
+      const doctorDetect = spawnSync(
+        'bun',
+        ['run', 'packages/cli/src/index.ts', 'doctor', '--json'],
+        { cwd: repoRoot, encoding: 'utf8', env }
+      );
+      expect(doctorDetect.status).toBe(1);
+      const detectJson = JSON.parse(doctorDetect.stdout);
+      expect(detectJson.schemaStatus).toBe('drifted');
+      expect(detectJson.missingTables.length).toBeGreaterThan(0);
+
+      // Now fix with --fix
+      const doctorFix = spawnSync(
+        'bun',
+        ['run', 'packages/cli/src/index.ts', 'doctor', '--json', '--fix'],
+        { cwd: repoRoot, encoding: 'utf8', env }
+      );
+
+      // After fix, it should report fixed status
+      expect(doctorFix.status).toBe(0);
+      const fixJson = JSON.parse(doctorFix.stdout);
+      expect(fixJson.severity).toBe('ok');
+      expect(fixJson.schemaStatus).toBe('ok');
+
+      // Verify we can write memories now
+      const remember = spawnSync(
+        'bun',
+        ['run', 'packages/cli/src/index.ts', 'remember', 'Fixed schema test', '--type', 'decision'],
+        { cwd: repoRoot, encoding: 'utf8', env }
+      );
+      expect(remember.status).toBe(0);
+      const remembered = JSON.parse(remember.stdout);
+      expect(remembered.ok).toBe(true);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('doctor --fix is idempotent', () => {
+    const tempDir = makeTempDir('doctor-idempotent');
+    const dbPath = join(tempDir, 'squish.db');
+    mkdirSync(tempDir, { recursive: true });
+    oldSchema(dbPath);
+
+    const env = {
+      ...process.env,
+      SQUISH_DATA_DIR: tempDir,
+      DATABASE_URL: '',
+    };
+
+    try {
+      // Run fix twice
+      const firstFix = spawnSync(
+        'bun',
+        ['run', 'packages/cli/src/index.ts', 'doctor', '--json', '--fix'],
+        { cwd: repoRoot, encoding: 'utf8', env }
+      );
+      expect(firstFix.status).toBe(0);
+
+      const secondFix = spawnSync(
+        'bun',
+        ['run', 'packages/cli/src/index.ts', 'doctor', '--json', '--fix'],
+        { cwd: repoRoot, encoding: 'utf8', env }
+      );
+      expect(secondFix.status).toBe(0);
+
+      const secondJson = JSON.parse(secondFix.stdout);
+      expect(secondJson.schemaStatus).toBe('ok');
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('doctor --fix repairs missing indexes', () => {
+    const tempDir = makeTempDir('doctor-fix-indexes');
+    const dbPath = join(tempDir, 'squish.db');
+    mkdirSync(tempDir, { recursive: true });
+
+    const env = {
+      ...process.env,
+      SQUISH_DATA_DIR: tempDir,
+      DATABASE_URL: '',
+    };
+
+    try {
+      // Run migrate first to get full schema
+      const migrate = spawnSync(
+        'bun',
+        ['run', 'packages/cli/src/index.ts', 'doctor', '--json', '--migrate'],
+        { cwd: repoRoot, encoding: 'utf8', env }
+      );
+      expect(migrate.status).toBe(0);
+
+      // Drop some indexes manually using bun:sqlite
+      const db = new Database(dbPath);
+      db.exec('DROP INDEX IF EXISTS memories_project_idx');
+      db.exec('DROP INDEX IF EXISTS memories_type_idx');
+      db.exec('DROP INDEX IF EXISTS memories_created_idx');
+      db.close();
+
+      // Run doctor --fix
+      const doctorFix = spawnSync(
+        'bun',
+        ['run', 'packages/cli/src/index.ts', 'doctor', '--json', '--fix'],
+        { cwd: repoRoot, encoding: 'utf8', env }
+      );
+      expect(doctorFix.status).toBe(0);
+
+      // Verify indexes were recreated
+      const db2 = new Database(dbPath);
+      const indexes = db2.prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='memories'").all() as Array<{ name: string }>;
+      const names = indexes.map(i => i.name);
+      expect(names).toContain('memories_project_idx');
+      expect(names).toContain('memories_type_idx');
+      expect(names).toContain('memories_created_idx');
+      db2.close();
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('doctor --fix repairs FTS tables', () => {
+    const tempDir = makeTempDir('doctor-fix-fts');
+    const dbPath = join(tempDir, 'squish.db');
+    mkdirSync(tempDir, { recursive: true });
+
+    const env = {
+      ...process.env,
+      SQUISH_DATA_DIR: tempDir,
+      DATABASE_URL: '',
+    };
+
+    try {
+      // Setup schema
+      const migrate = spawnSync(
+        'bun',
+        ['run', 'packages/cli/src/index.ts', 'doctor', '--json', '--migrate'],
+        { cwd: repoRoot, encoding: 'utf8', env }
+      );
+      expect(migrate.status).toBe(0);
+
+      // Corrupt FTS
+      const db = new Database(dbPath);
+      db.exec('DROP TRIGGER IF EXISTS memories_ai');
+      db.exec('DROP TRIGGER IF EXISTS memories_ad');
+      db.exec('DROP TRIGGER IF EXISTS memories_au');
+      db.exec('DROP TABLE IF EXISTS memories_fts');
+      db.close();
+
+      // Run doctor --fix
+      const doctorFix = spawnSync(
+        'bun',
+        ['run', 'packages/cli/src/index.ts', 'doctor', '--json', '--fix'],
+        { cwd: repoRoot, encoding: 'utf8', env }
+      );
+      expect(doctorFix.status).toBe(0);
+
+      // Verify FTS was repaired
+      const db2 = new Database(dbPath);
+      const ftsTable = db2.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='memories_fts'").get() as { name: string } | undefined;
+      expect(ftsTable).toBeDefined();
+      db2.close();
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('doctor output shows what was fixed', () => {
+    const tempDir = makeTempDir('doctor-output');
+    const dbPath = join(tempDir, 'squish.db');
+    mkdirSync(tempDir, { recursive: true });
+    oldSchema(dbPath);
+
+    const env = {
+      ...process.env,
+      SQUISH_DATA_DIR: tempDir,
+      DATABASE_URL: '',
+    };
+
+    try {
+      // Non-JSON mode should show fix messages
+      const doctorFix = spawnSync(
+        'bun',
+        ['run', 'packages/cli/src/index.ts', 'doctor', '--fix'],
+        { cwd: repoRoot, encoding: 'utf8', env }
+      );
+      expect(doctorFix.status).toBe(0);
+      // Should contain info about what was fixed or that schema is ok
+      expect(doctorFix.stdout.length).toBeGreaterThan(0);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+});

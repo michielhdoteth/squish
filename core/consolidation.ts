@@ -6,6 +6,7 @@ import { config } from '../config.js';
 import { createAssociation } from './associations.js';
 import { logger } from './logger.js';
 import { consolidateMemories, getConsolidationStats } from './memory/consolidation.js';
+import { callLLM } from './llm/client.js';
 
 export interface ConsolidationStats {
   clustered: number;
@@ -13,6 +14,11 @@ export interface ConsolidationStats {
   tokensRecovered: number;
   deduped: number;
   consolidated: number;
+  // Geometry-aware consolidation stats
+  geometrySafeClusters?: number;
+  geometrySkippedClusters?: number;
+  avgDBar?: number;
+  avgDEff?: number;
 }
 
 export interface DeduplicationResult {
@@ -63,13 +69,42 @@ export async function runDeduplicationJob(projectId?: string): Promise<Deduplica
       return result;
     }
     
-    // Find duplicate groups using SimHash
+    // Find duplicate groups using SimHash (fast structural dedup)
     const duplicateGroups = await findDuplicatesBySimHash(memories);
     
     result.duplicatesFound = duplicateGroups.reduce(
       (sum, g) => sum + g.duplicateIds.length,
       0
     );
+
+    // Second pass: semantic dedup using LLM when available
+    // This catches near-duplicates that SimHash misses (different wording, same meaning)
+    if (config.llmEnabled && memories.length >= 2) {
+      try {
+        const processedIds = new Set<string>();
+        for (const g of duplicateGroups) {
+          processedIds.add(g.canonicalId);
+          for (const d of g.duplicateIds) processedIds.add(d);
+        }
+
+        const semanticGroups = await findSemanticDuplicates(
+          memories,
+          processedIds
+        );
+
+        for (const group of semanticGroups) {
+          duplicateGroups.push(group);
+          result.duplicatesFound += group.duplicateIds.length;
+        }
+
+        if (semanticGroups.length > 0) {
+          logger.debug(`Semantic dedup found ${semanticGroups.length} additional groups`);
+        }
+      } catch {
+        // LLM semantic dedup failed silently - continue with SimHash results
+        logger.debug('Semantic dedup pass failed, continuing with SimHash results');
+      }
+    }
     
     // Auto-merge high-confidence duplicates (>0.95 similarity)
     for (const group of duplicateGroups) {
@@ -158,8 +193,9 @@ async function findDuplicatesBySimHash(memories: any[]): Promise<DuplicateGroup[
 
 /**
  * Compute SimHash for text (64-bit fingerprint)
+ * Exported for testing.
  */
-function computeSimHash(text: string): bigint {
+export function computeSimHash(text: string): bigint {
   const tokens = text.toLowerCase().split(/\s+/).filter(t => t.length > 2);
   const weights = new Array(64).fill(0);
   
@@ -208,6 +244,63 @@ function computeHammingDistance(a: bigint, b: bigint): number {
     xor >>= 1n;
   }
   return distance;
+}
+
+/**
+ * Find semantic near-duplicates using LLM.
+ * This catches pairs that SimHash misses (different wording, same meaning).
+ * Only checks memories not already in SimHash groups.
+ * LLM is optional - returns empty array on any failure.
+ */
+async function findSemanticDuplicates(
+  memories: any[],
+  alreadyProcessed: Set<string>
+): Promise<DuplicateGroup[]> {
+  const groups: DuplicateGroup[] = [];
+
+  // Only check candidates not already processed
+  const candidates = memories.filter(m => !alreadyProcessed.has(m.id));
+
+  // Limit comparisons to avoid excessive LLM calls
+  const MAX_COMPARISONS = 10;
+  let comparisons = 0;
+
+  for (let i = 0; i < candidates.length && comparisons < MAX_COMPARISONS; i++) {
+    for (let j = i + 1; j < candidates.length && comparisons < MAX_COMPARISONS; j++) {
+      comparisons++;
+
+      const content1 = candidates[i].content || '';
+      const content2 = candidates[j].content || '';
+
+      // Skip if contents are too short to compare meaningfully
+      if (content1.length < 10 || content2.length < 10) continue;
+
+      try {
+        const prompt = `Compare these two texts. Are they semantically similar (same meaning, different wording)?
+
+TEXT 1: ${content1.slice(0, 300)}
+TEXT 2: ${content2.slice(0, 300)}
+
+Answer with just "yes" or "no":`;
+
+        const response = await callLLM(prompt);
+        if (response && response.toLowerCase().startsWith('yes')) {
+          groups.push({
+            canonicalId: candidates[i].id,
+            duplicateIds: [candidates[j].id],
+            similarity: 0.9, // LLM-detected duplicates get high similarity
+            reason: 'semantic-similarity',
+          });
+          alreadyProcessed.add(candidates[j].id);
+        }
+      } catch {
+        // Silent failure for individual comparison
+        continue;
+      }
+    }
+  }
+
+  return groups;
 }
 
 /**
@@ -289,6 +382,23 @@ export async function runFullConsolidationJob(projectId?: string): Promise<Conso
       (sum, r) => sum + r.clusterSize,
       0
     );
+
+    // Aggregate geometry stats if available
+    const resultsWithGeo = consolidationResults.filter(r => r.geometrySafe !== undefined);
+    if (resultsWithGeo.length > 0) {
+      stats.geometrySafeClusters = resultsWithGeo.filter(r => r.geometrySafe).length;
+      stats.geometrySkippedClusters = resultsWithGeo.filter(r => !r.geometrySafe).length;
+
+      const dBarValues = resultsWithGeo.filter(r => r.dBar !== undefined).map(r => r.dBar!);
+      const dEffValues = resultsWithGeo.filter(r => r.dEff !== undefined).map(r => r.dEff!);
+
+      if (dBarValues.length > 0) {
+        stats.avgDBar = dBarValues.reduce((s, v) => s + v, 0) / dBarValues.length;
+      }
+      if (dEffValues.length > 0) {
+        stats.avgDEff = dEffValues.reduce((s, v) => s + v, 0) / dEffValues.length;
+      }
+    }
   }
   
   logger.info('Full consolidation job completed', stats);

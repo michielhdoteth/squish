@@ -19,7 +19,7 @@ export function registerForgetCommand(program: Command) {
     .option('--type <type>', 'Filter by memory type')
     .option('--confirm', 'Actually delete (default is dry-run)', false)
     .option('-l, --limit <number>', 'Max memories to delete', '100')
-    .option('-p, --project <project>', 'Project path', process.cwd())
+    .option('-p, --project <project>', 'Project path (global if omitted)')
     .action(async (memoryId: string, options: any) => {
       try {
         const { db, schema } = await getDbClient();

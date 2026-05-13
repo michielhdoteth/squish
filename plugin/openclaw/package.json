@@ -1,0 +1,15 @@
+{
+  "name": "@squish/openclaw",
+  "version": "1.2.3",
+  "description": "Squish plugin for OpenClaw - uses the installed squish CLI for memory actions",
+  "main": "index.ts",
+  "type": "module",
+  "openclaw": {
+    "extensions": ["./index.ts"],
+    "pluginApi": "2026.3.24-beta.2"
+  },
+  "devDependencies": {
+    "@sinclair/typebox": "^0.32.0",
+    "typescript": "^5.0.0"
+  }
+}

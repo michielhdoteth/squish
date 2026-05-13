@@ -259,25 +259,26 @@ CREATE INDEX IF NOT EXISTS relations_type_idx ON entity_relations(type);
 CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
   content,
   tags,
+  summary,
   content='memories',
   content_rowid='rowid'
 );
 
 CREATE TRIGGER IF NOT EXISTS memories_ai AFTER INSERT ON memories BEGIN
-  INSERT INTO memories_fts(rowid, content, tags)
-  VALUES (new.rowid, new.content, COALESCE(new.tags, ''));
+  INSERT INTO memories_fts(rowid, content, tags, summary)
+  VALUES (new.rowid, new.content, COALESCE(new.tags, ''), COALESCE(new.summary, ''));
 END;
 
 CREATE TRIGGER IF NOT EXISTS memories_ad AFTER DELETE ON memories BEGIN
-  INSERT INTO memories_fts(memories_fts, rowid, content, tags)
-  VALUES ('delete', old.rowid, old.content, COALESCE(old.tags, ''));
+  INSERT INTO memories_fts(memories_fts, rowid, content, tags, summary)
+  VALUES ('delete', old.rowid, old.content, COALESCE(old.tags, ''), COALESCE(old.summary, ''));
 END;
 
 CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE ON memories BEGIN
-  INSERT INTO memories_fts(memories_fts, rowid, content, tags)
-  VALUES ('delete', old.rowid, old.content, COALESCE(old.tags, ''));
-  INSERT INTO memories_fts(rowid, content, tags)
-  VALUES (new.rowid, new.content, COALESCE(new.tags, ''));
+  INSERT INTO memories_fts(memories_fts, rowid, content, tags, summary)
+  VALUES ('delete', old.rowid, old.content, COALESCE(old.tags, ''), COALESCE(old.summary, ''));
+  INSERT INTO memories_fts(rowid, content, tags, summary)
+  VALUES (new.rowid, new.content, COALESCE(new.tags, ''), COALESCE(new.summary, ''));
 END;
 
 CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(

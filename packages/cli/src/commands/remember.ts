@@ -16,7 +16,7 @@ export function registerRememberCommand(program: Command) {
     .description('Store a memory (auto-detects learning/note/memory type)')
     .option('-t, --type <type>', 'Memory type (observation, fact, decision, context, preference)', 'observation')
     .option('-T, --tags <tags>', 'Comma-separated tags')
-    .option('-p, --project <project>', 'Project path', process.cwd())
+    .option('-p, --project <project>', 'Project path (global if omitted)')
     .option('-s, --source <source>', 'Source (cli, voice, chat, document)', 'cli')
     .option('-r, --reasoning <reasoning>', 'Why this memory is important')
     .option('-c, --context <context>', 'What triggered this memory')
@@ -111,6 +111,25 @@ export function registerRememberCommand(program: Command) {
             }
           } catch (e: any) {
             // Ignore graph errors - don't fail the remember command
+          }
+
+          // Auto-assign to place if specified
+          if (options.place) {
+            try {
+              const { manualAssignMemory } = await import('../../../../core/places/memory-places.js');
+              const { getProjectByPath } = await import('../../../../core/projects.js');
+              const project = await getProjectByPath(options.project);
+              if (project) {
+                await manualAssignMemory({
+                  memoryId: result.id,
+                  projectId: project.id,
+                  placeType: options.place as any,
+                });
+                console.error(`[Places] Assigned to ${options.place}`);
+              }
+            } catch (e: any) {
+              console.error(`[Places] Failed to assign: ${e.message}`);
+            }
           }
         }
 

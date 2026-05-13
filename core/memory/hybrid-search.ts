@@ -20,6 +20,7 @@ import { getRelatedMemories } from '../associations.js';
 import { getPlaceMemories } from '../places/memory-places.js';
 import { getPlaceByType, type PlaceType } from '../places/places.js';
 import { multiHopSearch } from '../graph/multi-hop-retrieval.js';
+import { callLLM } from '../llm/client.js';
 import { logger } from '../logger.js';
 
 /**
@@ -37,12 +38,13 @@ function isTemporalQuery(query: string): boolean {
 
 /**
  * Detect if query spans multiple sessions (multi-hop queries)
+ * Only triggers for explicit multi-session indicators, NOT temporal words
  */
 function isMultiSessionQuery(query: string): boolean {
   const multiSessionIndicators = [
-    'when', 'then', 'before', 'after', 'earlier', 'later',
-    'previous', 'next', 'first', 'later', 'subsequently',
-    'across', 'between', 'both', 'another', 'different'
+    'across sessions', 'between sessions', 'another session',
+    'different session', 'previous session', 'next session',
+    'session', 'dialogue', 'conversation'
   ];
   const lower = query.toLowerCase();
   return multiSessionIndicators.some(w => lower.includes(w));
@@ -202,6 +204,13 @@ export async function hybridSearch(
     vectorResults = await vectorSearch(input, { ...options, limit: limit * 2 });
   }
 
+  // FTS5 keyword search + RRF fusion: add keyword signal and fuse with vector results
+  // This is the industry standard (TrueMemory episodic layer, MemPalace FTS5, etc.)
+  const keywordResults = await keywordSearch(input, limit * 2);
+  if (keywordResults.length > 0) {
+    vectorResults = rrfFusion(vectorResults, keywordResults, limit * 3);
+  }
+
   // Task 2: Integrate Places into retrieval
   // If placeId or placeType specified, filter/boost results from that place
   if (input.placeId || input.placeType) {
@@ -268,6 +277,17 @@ export async function hybridSearch(
     } catch (e) {
       // Multi-hop failed, continue with vector results
       logger.debug(`[HybridSearch] Multi-hop failed: ${e}`);
+    }
+  }
+
+  // LLM reranking: when LLM is enabled and query is meaningful, optionally rerank
+  // This is a config-gated enhancement, not the default behavior
+  if (config.llmEnabled && input.query && input.query.trim().length > 5) {
+    try {
+      results = await rerankWithLLM(results, input.query, limit);
+    } catch {
+      // LLM reranking failed silently - continue with existing results
+      logger.debug('[HybridSearch] LLM reranking failed, using original order');
     }
   }
 
@@ -588,8 +608,136 @@ function getAdjacentSessionTags(currentTag: string): string[] {
 }
 
 /**
- * Vector semantic search using cosine similarity
+ * FTS5 keyword search using SQLite's built-in FTS5.
+ * Squish already has memories_fts table - this connects it to hybrid search.
+ * Provides keyword-based retrieval as a second signal alongside vector similarity.
  */
+export async function keywordSearch(
+  input: SearchInput,
+  limit: number
+): Promise<SearchResult[]> {
+  try {
+    const db = createDatabaseClient(await getDb());
+    const sqlite = db.$client as any;
+
+    // Sanitize query for FTS5: remove special chars, keep meaningful words
+    const ftsQuery = (input.query || '')
+      .replace(/[^\w\s]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length > 2)
+      .map(w => `"${w}"`)
+      .join(' OR ');
+
+    if (!ftsQuery) return [];
+
+    const conditions: string[] = ['memories_fts MATCH ?'];
+    const params: any[] = [ftsQuery];
+
+    if (input.project) {
+      const project = await requireProject(input.project);
+      conditions.push('m.project_id = ?');
+      params.push(project.id);
+    }
+
+    if (input.type) {
+      conditions.push('m.type = ?');
+      params.push(input.type);
+    }
+
+    const whereClause = 'WHERE ' + conditions.join(' AND ');
+
+    const query = `
+      SELECT
+        m.id as id,
+        m.project_id as projectId,
+        m.type as type,
+        m.content as content,
+        m.summary as summary,
+        m.tags as tags,
+        m.metadata as metadata,
+        m.created_at as createdAt,
+        rank as similarity
+      FROM memories_fts
+      JOIN memories m ON memories_fts.rowid = m.rowid
+      ${whereClause}
+      ORDER BY rank
+      LIMIT ?
+    `;
+
+    const rows = sqlite.prepare(query).all(...params, limit) as Array<{
+      id: string;
+      projectId: string | null;
+      type: string;
+      content: string;
+      summary: string | null;
+      tags: string | null;
+      metadata: string | null;
+      createdAt: string | null;
+      similarity: number;
+    }>;
+
+    return rows.map(item => ({
+      id: item.id,
+      projectId: item.projectId,
+      type: item.type as any,
+      content: item.content,
+      summary: item.summary ?? undefined,
+      tags: deserializeTags(item.tags ?? null),
+      metadata: deserializeMetadata(item.metadata ?? null),
+      createdAt: item.createdAt ? (normalizeTimestamp(Number(item.createdAt)) ?? undefined) : undefined,
+      similarity: -item.similarity, // FTS5 rank is negative (lower = better), negate for consistency
+    }));
+  } catch (error: any) {
+    // FTS5 may fail if no content table or malformed query
+    logger.debug(`[FTS5] Keyword search failed: ${error.message}`);
+    return [];
+  }
+}
+
+/**
+ * Reciprocal Rank Fusion (RRF) for combining multiple search signals.
+ * Fuses vector similarity results with FTS5 keyword results.
+ * This is the industry standard approach (Mem0, TrueMemory, etc.).
+ */
+export function rrfFusion(
+  vectorResults: SearchResult[],
+  keywordResults: SearchResult[],
+  limit: number,
+  k: number = 60
+): SearchResult[] {
+  const scores = new Map<string, { result: SearchResult; score: number }>();
+
+  // Add vector results with RRF score
+  vectorResults.forEach((result, index) => {
+    const rank = index + 1;
+    const rrfScore = 1.0 / (k + rank);
+    scores.set(result.id, { result, score: rrfScore });
+  });
+
+  // Add keyword results with RRF score (fused)
+  keywordResults.forEach((result, index) => {
+    const rank = index + 1;
+    const rrfScore = 1.0 / (k + rank);
+    const existing = scores.get(result.id);
+    if (existing) {
+      existing.score += rrfScore;
+    } else {
+      scores.set(result.id, { result, score: rrfScore });
+    }
+  });
+
+  // Sort by fused RRF score descending
+  const fused = Array.from(scores.values())
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
+
+  // Normalize similarity to [0, 1] for consistency with existing pipeline
+  const maxScore = fused.length > 0 ? fused[0].score : 1;
+  return fused.map(item => ({
+    ...item.result,
+    similarity: maxScore > 0 ? item.score / maxScore : 0,
+  }));
+}
 async function vectorSearch(
   input: SearchInput,
   options: HybridSearchOptions
@@ -720,6 +868,63 @@ async function vectorSearch(
   } catch (error: any) {
     throw error;
   }
+}
+
+/**
+ * Optional LLM reranking of search results.
+ * Uses LLM to score top results against the query.
+ * Falls back silently on any error - never blocks search.
+ * Limited to top results for performance.
+ * Exported for testing.
+ */
+export async function rerankWithLLM(
+  results: SearchResult[],
+  query: string,
+  limit: number
+): Promise<SearchResult[]> {
+  const TOP_K = 5; // Only rerank top N results
+  const candidates = results.slice(0, TOP_K);
+
+  if (candidates.length < 2) return results;
+
+  // Build a prompt asking LLM to rank by relevance
+  const items = candidates
+    .map((r, i) => `[${i + 1}] ${(r.content ?? '').slice(0, 200)}`)
+    .join('\n\n');
+
+  const prompt = `Given the search query: "${query}"
+
+Rate each result's relevance to the query from 0 (not relevant) to 10 (highly relevant).
+Return ONLY a comma-separated list of scores, one per result.
+
+Results:
+${items}
+
+Scores:`;
+
+  const response = await callLLM(prompt);
+  if (!response) return results;
+
+  // Parse scores: expect comma-separated numbers
+  const scoreStrs = response.split(',').map(s => s.trim());
+  if (scoreStrs.length !== candidates.length) return results;
+
+  const scores = scoreStrs.map(s => {
+    const num = parseFloat(s);
+    return isNaN(num) ? 5 : Math.max(0, Math.min(10, num));
+  });
+
+  // Blend LLM score with existing similarity (50/50 blend)
+  const blended = candidates.map((r, i) => ({
+    ...r,
+    similarity: ((r.similarity ?? 0) * 0.5) + ((scores[i] / 10) * 0.5),
+  }));
+
+  // Sort by blended score, then append remaining results
+  blended.sort((a, b) => (b.similarity ?? 0) - (a.similarity ?? 0));
+
+  const remaining = results.slice(TOP_K);
+  return [...blended, ...remaining].slice(0, limit);
 }
 
 /**

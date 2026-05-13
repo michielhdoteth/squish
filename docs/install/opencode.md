@@ -125,6 +125,67 @@ npx squish-memory uninstall-plugin --client=opencode
 
 This removes the Squish entry from OpenCode's MCP configuration but preserves your Squish data and memories.
 
+## Auto-Capture (Coming Soon)
+
+Squish can automatically capture your OpenCode session activity and build persistent memories. This feature requires OpenCode to call the lifecycle MCP tools.
+
+### Enabling Auto-Capture
+
+OpenCode should call these tools at the appropriate times:
+
+1. **Session Start** - Call `squish_on_session_start` at the beginning of each session:
+```json
+{
+  "tool": "squish_on_session_start",
+  "params": {
+    "projectPath": "/path/to/project",
+    "mode": "startup"
+  }
+}
+```
+
+2. **Tool Use** - Call `squish_on_tool_use` after each tool execution:
+```json
+{
+  "tool": "squish_on_tool_use",
+  "params": {
+    "toolName": "write",
+    "toolInput": { "filePath": "src/index.ts" },
+    "toolResult": { "success": true },
+    "projectPath": "/path/to/project"
+  }
+}
+```
+
+3. **Session End** - Call `squish_on_session_end` when the session completes:
+```json
+{
+  "tool": "squish_on_session_end",
+  "params": {
+    "projectPath": "/path/to/project"
+  }
+}
+```
+
+### What Gets Captured
+
+When auto-capture is enabled:
+- File modifications (Write, Edit tools)
+- Command executions
+- Session context and active files
+- Failed attempts and hypotheses
+- Key decisions and observations
+
+### Places System
+
+Memories are automatically organized into places:
+- **inbox**: New observations
+- **wip**: Work in progress
+- **ref**: Reference materials and research
+- **board**: Plans and decisions
+- **sandbox**: Experimental code and tests
+- **sparks**: Ideas and future possibilities
+
 ## Compatibility
 
 - OpenCode: v0.1.0+

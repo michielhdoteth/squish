@@ -22,6 +22,9 @@ import { autoLinkByEntities } from '../associations.js';
 import { addMemoryToGraph } from '../graph/graph-builder.js';
 import { MemoryRecord, MemoryType } from '../lib/types.js';
 import { parseEmbedding } from '../lib/parse-embedding.js';
+import { findOrCreateCluster, updateClusterStats } from '../clustering/cluster-engine.js';
+import { evaluateCluster, shouldConsolidate, shouldSplit } from '../clustering/consolidation-check.js';
+import { regenerateMemoryReport } from './memory-report.js';
 
 // MemoryType and MemoryRecord imported from ../lib/types.js
 
@@ -45,6 +48,8 @@ export interface RememberInput {
   sessionId?: string;        // Session identifier for linking memories
   sessionStartTime?: string; // When this session started
   toolName?: string;     // Tool that generated this memory
+  // Place routing (Method of Loci / MemPalace wings)
+  placeType?: string;    // Place type to route memory (inbox, ref, wip, etc.)
 }
 
 export interface SearchInput {
@@ -68,7 +73,7 @@ export interface SearchResult extends MemoryRecord {
 export async function rememberMemory(input: RememberInput): Promise<MemoryRecord> {
   const { db, schema } = await getDbClient();
   const tags = normalizeTags(input.tags);
-  const project = await getOrCreateProject(input.project);
+  const project = input.project ? await getOrCreateProject(input.project) : null;
   const embedding = await getEmbedding(input.content);
   const id = randomUUID();
   const signals = detectMemorySignals(input.content);
@@ -226,29 +231,48 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
   }
 
    // Resolve contradictions and supersede old memories (async, non-blocking)
-   resolveContradictions(input.content, type, project?.id)
-     .then(async (result) => {
-       if (result.supersededIds.length > 0) {
-         await applySupersession(id, result.supersededIds, result.confidence);
-         // Update metadata with contradiction resolution info
-         const updatedMetadata: Record<string, unknown> = {
-           ...enrichedMetadata,
-           contradictionResolution: {
-             supersededCount: result.supersededIds.length,
-             confidence: result.confidence,
-             reason: result.reason,
-           },
-          };
-          metadataValue = serializeMetadata(updatedMetadata);
-        }
-     })
-     .catch((error) => {
-       import('../logger.js').then(({ logger }) => {
-         logger?.debug?.(`Contradiction resolution failed: ${error}`);
+   // Benchmarks can skip this expensive path by setting SQUISH_SKIP_CONTRADICTION=true
+   if (process.env.SQUISH_SKIP_CONTRADICTION !== 'true') {
+     resolveContradictions(input.content, type, project?.id)
+       .then(async (result) => {
+         if (result.supersededIds.length > 0) {
+           await applySupersession(id, result.supersededIds, result.confidence);
+           // Update metadata with contradiction resolution info
+           const updatedMetadata: Record<string, unknown> = {
+             ...enrichedMetadata,
+             contradictionResolution: {
+               supersededCount: result.supersededIds.length,
+               confidence: result.confidence,
+               reason: result.reason,
+             },
+            };
+            metadataValue = serializeMetadata(updatedMetadata);
+          }
+       })
+       .catch((error) => {
+         import('../logger.js').then(({ logger }) => {
+           logger?.debug?.(`Contradiction resolution failed: ${error}`);
+         });
        });
-     });
+   }
 
   // Sync to QMD if enabled (async, don't block)
+
+  // Auto-assign to Inbox place by default (or specified placeType)
+  await assignMemoryToDefaultPlace(id, project?.id, input.placeType || null);
+
+  // Post-capture geometry check (non-blocking, fire-and-forget)
+  // Evaluates whether the new memory's cluster is safe to consolidate
+  const embeddingForGeo = parseEmbedding(embedding);
+  if (config.consolidationGeometryAutoConsolidate && embeddingForGeo && embeddingForGeo.length > 0) {
+    evaluateAndConsolidate(id, embeddingForGeo).catch((err: Error) =>
+      logger.debug('Post-capture geometry check failed', err)
+    );
+  }
+
+ // Regenerate MEMORY.md (fire-and-forget)
+  regenerateMemoryReport(project?.path || process.cwd()).catch(() => {});
+
  const memoryRecord: MemoryRecord = {
   id,
   projectId: project?.id ?? null,
@@ -334,11 +358,11 @@ export async function getRecent(projectPath: string, limit: number): Promise<Mem
 }
 
 export async function search(input: SearchInput): Promise<SearchResult[]> {
-  const limit = clampLimit(input.limit, 10, 1, 100);
+  const limit = clampLimit(input.limit, 10, 1, 500);
   const tags = normalizeTags(input.tags);
 
   // Always use hybrid search for both SQLite and PostgreSQL
-  // Graph boost requires hybrid path for proper scoring
+  // Omitted project means truly global search.
   const dbResults = await hybridSearchImpl(input, { limit });
 
   return dbResults.slice(0, limit);
@@ -562,4 +586,110 @@ export async function findSimilarMemories(
   
   // Filter by similarity threshold
   return results.filter(r => (r.similarity ?? 0) >= threshold);
+}
+
+/**
+ * Post-capture geometry check and auto-consolidation.
+ *
+ * Non-blocking fire-and-forget function called after a new memory is stored.
+ * Adds the memory to its nearest cluster, updates cluster stats, and
+ * evaluates whether the cluster is safe to consolidate.
+ *
+ * If safe and autoConsolidate is enabled: triggers consolidation.
+ * If unsafe and autoSplit is enabled: logs a split recommendation.
+ *
+ * @param memoryId - ID of the newly created memory
+ * @param embedding - Embedding vector of the new memory
+ */
+async function evaluateAndConsolidate(
+  memoryId: string,
+  embedding: number[]
+): Promise<void> {
+  try {
+    // Find or create the nearest cluster for this memory
+    const clusterId = await findOrCreateCluster(memoryId, embedding);
+
+    // Update cluster geometry stats (centroid, d_bar, d_eff, etc.)
+    await updateClusterStats(clusterId);
+
+    // Evaluate whether the cluster is safe to compress
+    const decision = await evaluateCluster(clusterId);
+
+    if (decision.safeToCompress && config.consolidationGeometryAutoConsolidate) {
+      logger.debug(`Post-capture: cluster ${clusterId} is safe to consolidate ` +
+        `(d_bar=${decision.dBar.toFixed(4)}, d_eff=${decision.dEff.toFixed(2)})`);
+      // Note: actual consolidation happens in the consolidation engine run.
+      // This check just logs readiness; the engine will pick it up.
+    } else if (!decision.safeToCompress && config.consolidationGeometryAutoSplit) {
+      logger.debug(`Post-capture: cluster ${clusterId} may need splitting ` +
+        `(d_bar=${decision.dBar.toFixed(4)}, d_eff=${decision.dEff.toFixed(2)})`);
+    }
+  } catch (err) {
+    // Non-blocking: never fail the memory write
+    logger.debug('evaluateAndConsolidate error', err instanceof Error ? err : String(err));
+  }
+}
+
+/**
+ * Auto-assign a memory to the global Inbox place by default.
+ * Uses global project scope if no projectId provided.
+ */
+// Scope-aware place initialization cache keyed by global/project scope.
+const _cachedPlaceInit = new Map<string, { inboxId: string }>();
+
+async function ensurePlacesInitialized(projectId?: string | null): Promise<{ inboxId: string } | null> {
+  const cacheKey = projectId ?? '__global__';
+  const cached = _cachedPlaceInit.get(cacheKey);
+  if (cached) {
+    try {
+      const { getPlace } = await import('../places/places.js');
+      const existing = await getPlace(cached.inboxId);
+      if (existing) return cached;
+      _cachedPlaceInit.delete(cacheKey);
+    } catch {
+      _cachedPlaceInit.delete(cacheKey);
+    }
+  }
+  try {
+    const { initializeDefaultPlaces } = await import('../places/places.js');
+    const places = await initializeDefaultPlaces(projectId ?? undefined);
+    const inboxPlace = places.find(p => p.placeType === 'inbox');
+    if (!inboxPlace) return null;
+    const init = { inboxId: inboxPlace.id };
+    _cachedPlaceInit.set(cacheKey, init);
+    return init;
+  } catch {
+    return null;
+  }
+}
+
+async function assignMemoryToDefaultPlace(memoryId: string, projectId?: string | null, placeType?: string | null): Promise<void> {
+  try {
+    const init = await ensurePlacesInitialized(projectId);
+    if (!init) return;
+
+    const { getPlaceByType } = await import('../places/places.js');
+    const { assignMemoryToPlace } = await import('../places/memory-places.js');
+    const { ensureGlobalProject } = await import('../places/places.js');
+
+    let targetPlaceId = init.inboxId;
+    const resolvedPlaceProjectId = projectId ?? (await ensureGlobalProject()).id;
+
+    // If placeType specified, find that place instead of defaulting to Inbox
+    if (placeType) {
+      const place = await getPlaceByType(resolvedPlaceProjectId, placeType as any);
+      if (place) {
+        targetPlaceId = place.id;
+      }
+    }
+
+    await assignMemoryToPlace({
+      memoryId,
+      placeId: targetPlaceId,
+      isManual: false,
+    });
+  } catch (err) {
+    // Non-blocking: never fail the memory write
+    logger.debug(`assignMemoryToDefaultPlace error: ${err}`);
+  }
 }

@@ -15,7 +15,7 @@ describe('Summarization Helpers', () => {
   describe('estimateTokens', () => {
     it('should estimate tokens based on character count', () => {
       // Rough approximation: 1 token ≈ 4 characters
-      expect(estimateTokens('hello')).toBe(1); // 5 chars / 4 = 1.25 -> 2, but ceil
+      expect(estimateTokens('hello')).toBe(2); // 5 chars / 4 = 1.25 -> 2 with ceil
     });
 
     it('should handle empty strings', () => {

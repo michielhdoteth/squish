@@ -1,4 +1,5 @@
 import { Command } from 'commander';
+import { getInstallShadowDiagnostic } from '../../../../core/runtime/install-diagnostics.js';
 import { buildHealthState } from '../../../../core/runtime/trust-state.js';
 import { formatHealthReport } from '../../../../core/runtime/trust-report.js';
 
@@ -14,6 +15,23 @@ export function registerHealthCommand(program: Command) {
         process.env.SQUISH_QUIET = '1';
       }
       try {
+        const installDiagnostic = getInstallShadowDiagnostic();
+        if (installDiagnostic.status === 'broken') {
+          const payload = {
+            ok: false,
+            error: 'shadowed_global_install',
+            detail: installDiagnostic.detail,
+            remediation: installDiagnostic.remediation,
+            binaries: installDiagnostic.binaries,
+          };
+          if (options.json) {
+            console.log(JSON.stringify(payload, null, 2));
+          } else {
+            console.error(JSON.stringify(payload, null, 2));
+          }
+          process.exit(1);
+        }
+
         const health = await buildHealthState(options.project);
         if (options.json) {
           console.log(JSON.stringify({ ok: true, ...health }, null, 2));

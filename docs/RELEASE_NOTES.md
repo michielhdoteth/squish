@@ -43,12 +43,12 @@ This release turns Squish from a command-heavy memory store into a more automati
 ## Verification Used For Release Prep
 
 - `bun test tests/core/trust-report.test.ts tests/core/trust-state.test.ts tests/core/memory-explain.test.ts tests/core/session-working-set.test.ts tests/core/signal-engine.test.ts tests/core/write-gate.test.ts`
-- `bun run packages/cli/src/index.ts doctor`
-- `bun run packages/cli/src/index.ts doctor --json`
-- `bun run packages/cli/src/index.ts context --json --limit 2`
-- `bun run packages/cli/src/index.ts stats`
-- `bun run packages/cli/src/index.ts inspect <legacy-memory-id>`
-- `bun run verify:mcp`
+- `squish doctor`
+- `squish doctor --json`
+- `squish context --json --limit 2`
+- `squish stats`
+- `squish inspect <legacy-memory-id>`
+- `squish-mcp --health`
 
 ## Notes
 

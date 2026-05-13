@@ -4,7 +4,7 @@
  * Connects to QMD (Quick Markdown Search) MCP server for hybrid search capabilities.
  * QMD provides BM25 full-text search, vector semantic search, and LLM re-ranking.
  *
- * Installation: bun install -g qmd
+ * Installation: install qmd globally with your package manager (for example: npm install -g qmd)
  * GitHub: https://github.com/tobi/qmd
  *
  * QMD MCP Tools:
@@ -92,7 +92,7 @@ export class QMDClient {
 
   /**
    * Connect to QMD MCP server
-   * QMD must be installed: bun install -g qmd
+   * QMD must be installed globally and available on PATH
    */
   async connect(): Promise<boolean> {
     if (this.connected || this.connecting) {
@@ -105,7 +105,7 @@ export class QMDClient {
       // Check if QMD is installed
       const installed = await this.checkQMDInstalled();
       if (!installed) {
-        logger.warn('QMD is not installed. Install with: bun install -g qmd');
+        logger.warn('QMD is not installed. Install it globally with your package manager, for example: npm install -g qmd');
         this.connecting = false;
         return false;
       }

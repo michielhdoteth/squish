@@ -14,7 +14,7 @@ export function registerRecentCommand(program: Command) {
     .description('Recent memories (today/yesterday/thisweek/7days/30days)')
     .option('--period <period>', 'Period: today, yesterday, thisweek, 7days, 14days, 30days, 90days', 'today')
     .option('-l, --limit <number>', 'Max results', '10')
-    .option('-p, --project <project>', 'Project path', process.cwd())
+    .option('-p, --project <project>', 'Project path (global if omitted)')
     .option('-P, --pretty', 'Human-friendly output', false)
     .action(async (options: any) => {
       try {

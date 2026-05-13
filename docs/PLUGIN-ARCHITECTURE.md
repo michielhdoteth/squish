@@ -5,10 +5,10 @@ Squish provides a universal plugin system that works as a plugin across all majo
 ## Overview
 
 The universal plugin architecture replaces fragmented installation methods with a single source of truth:
-- **One manifest** (`config/plugin-manifest.json`) defines the plugin for all clients
-- **One installer** (`npx squish-memory install-plugin`) handles all installations
-- **Automatic dependency management** with version pinning for stability
-- **Unified verification** and troubleshooting
+- **One installer** (`squish install`) detects agents and configures everything
+- **MCP configs** per client for Model Context Protocol integration
+- **Plugin files** (hooks, scripts) for enhanced IDE integration
+- **Automatic detection** of installed agents with zero configuration
 
 ## How It Works
 
@@ -23,36 +23,40 @@ The manifest is the single source of truth that defines:
 
 See `config/plugin-manifest.schema.json` for the complete schema definition.
 
-## add-mcp (Recommended)
+## squish install (Recommended)
 
-The recommended way to install Squish is using [add-mcp](https://github.com/neondatabase/add-mcp), a universal CLI that installs MCP servers across all major coding agents with a single command:
+The recommended way to install Squish is using the built-in installer that ships with the CLI. It detects your coding agents and configures both MCP servers and plugins in one step:
 
 ```bash
-npx add-mcp squish-memory
+npm install -g squish-memory
+squish install --all
 ```
 
-This automatically installs Squish for:
+This automatically installs Squish MCP configs and plugins for:
 - Claude Code
 - OpenCode
-- Cursor
-- VS Code
+- OpenClaw
 - Codex
-- And other supported agents
 
 Benefits:
-- Single command for all agents
-- Project-level or global installation
+- Single command for all detected agents
+- Global installation (works across all projects)
 - Automatic detection of installed agents
+- Installs both MCP configs and auto-save hooks
 - Future-proof as new agents are added
 
 ### Installation Process
-1. **Manifest Loading**: Installer reads `config/plugin-manifest.json`
-2. **Dependency Resolution**: Checks and installs required dependencies (mcporter, qmd) with pinned versions
-3. **Client-Specific Installation**: Applies target-specific installation steps:
-   - Claude Code: Copies `.claude-plugin/` hooks
-   - OpenClaw: Runs bootstrap script to configure MCP bridge
-   - Others: Generates/updates MCP server configuration files
-4. **Verification**: Runs target-specific verification steps
+1. **Agent Detection**: Installer scans home directory for known agent config directories
+2. **MCP Config Generation**: Writes client-specific MCP server configuration:
+   - Claude Code: `~/.claude/mcp.json`
+   - OpenCode: `~/.config/opencode/mcp-servers.json` + plugin
+   - OpenClaw: `~/.openclaw/mcporter.json` + plugin
+   - Codex: `~/.codex/config.toml`
+3. **Plugin Installation**: Copies hooks and plugins:
+   - Claude Code: Hook scripts + settings.json updates
+   - OpenCode: Plugin files + config merge
+   - OpenClaw: Plugin files + config merge
+4. **Verification**: Runs `squish-mcp --health` to confirm MCP server is reachable
 5. **Reporting**: Provides installation summary and next steps
 
 ### Supported Clients

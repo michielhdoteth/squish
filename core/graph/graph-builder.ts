@@ -148,6 +148,16 @@ export async function buildGraphForProject(
 
   logger.info('Graph build completed', stats);
 
+  // Auto-export graph visualization if enabled
+  if (config.graphAutoExport) {
+    try {
+      const { exportGraphVisualization } = await import('./export.js');
+      exportGraphVisualization(projectPath).catch((err: Error) =>
+        logger.warn('Auto graph export failed', { error: err.message })
+      );
+    } catch {}
+  }
+
   return stats;
 }
 

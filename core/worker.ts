@@ -8,6 +8,7 @@ import { runLifecycleMaintenance } from './lifecycle.js';
 import { pruneWeakAssociations, getAssociationStats } from './associations.js';
 import { pruneOldSummaries, getSummarizationStats } from './summarization.js';
 import { runFullConsolidationJob, getDeduplicationStats } from './consolidation.js';
+import { registerCloudSyncHooks } from './cloud/cloud-sync.js';
 import { logger } from './logger.js';
 
 interface WorkerConfig {
@@ -63,6 +64,9 @@ class SquishWorker {
 
     this.isRunning = true;
     logger.info('Starting background worker');
+
+    // Register hooks for auto-processes
+    registerCloudSyncHooks();
 
     if (config.lifecycleEnabled) {
       this.scheduleLifecycleMaintenance();
@@ -209,13 +213,27 @@ class SquishWorker {
         ...stats,
       };
 
-      logger.info('Consolidation completed', {
+      const logContext: Record<string, any> = {
         clustered: stats.clustered,
         merged: stats.merged,
         deduped: stats.deduped,
         consolidated: stats.consolidated,
         tokensRecovered: stats.tokensRecovered,
-      });
+      };
+
+      // Add geometry-aware consolidation stats if available
+      if (stats.geometrySafeClusters !== undefined) {
+        logContext.geometrySafe = stats.geometrySafeClusters;
+        logContext.geometrySkipped = stats.geometrySkippedClusters;
+        if (stats.avgDBar !== undefined) {
+          logContext.avgDBar = Number(stats.avgDBar.toFixed(4));
+        }
+        if (stats.avgDEff !== undefined) {
+          logContext.avgDEff = Number(stats.avgDEff.toFixed(2));
+        }
+      }
+
+      logger.info('Consolidation completed', logContext);
     } catch (error) {
       logger.error('Consolidation error:', error);
     }

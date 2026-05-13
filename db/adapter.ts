@@ -71,7 +71,9 @@ async function createBunSqliteDb(dbPath: string) {
   // Enable foreign keys
   sqlite.exec('PRAGMA foreign_keys = ON');
 
-  await ensureSqliteSchema(sqlite);
+  if (!fs.existsSync(dbPath) || sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().length === 0) {
+    await ensureSqliteSchema(sqlite);
+  }
 
   logger.info('SQLite initialized with bun:sqlite');
   return drizzle(sqlite, { schema: schemaModule });
@@ -94,8 +96,6 @@ async function createPostgresDb() {
     connectionString: process.env.DATABASE_URL,
     max: 20,
   });
-
-  await ensurePostgresSchema(pool);
 
   return drizzle(pool, { schema: schemaModule });
 }
@@ -142,6 +142,7 @@ async function createSqliteDb() {
 }
 
 async function createBetterSqliteDb(dbPath: string) {
+  const shouldBootstrapSchema = !fs.existsSync(dbPath);
   const DatabaseModule = await import('better-sqlite3');
   const Database = DatabaseModule.default;
   const { drizzle } = await import('drizzle-orm/better-sqlite3');
@@ -152,7 +153,10 @@ async function createBetterSqliteDb(dbPath: string) {
   // Enable foreign keys
   sqlite.pragma('foreign_keys = ON');
 
-  await ensureSqliteSchema(sqlite);
+  const tableCount = sqlite.prepare("SELECT COUNT(*) as count FROM sqlite_master WHERE type='table'").get() as { count?: number };
+  if (shouldBootstrapSchema || Number(tableCount?.count ?? 0) === 0) {
+    await ensureSqliteSchema(sqlite);
+  }
 
   logger.info('SQLite initialized with better-sqlite3');
   return drizzle(sqlite, { schema: schemaModule });
@@ -170,13 +174,19 @@ async function createSqlJsDb(dbPath: string) {
 
   let data: Uint8Array | undefined;
 
-  if (fs.existsSync(dbPath)) {
+  const hadFile = fs.existsSync(dbPath);
+  if (hadFile) {
     data = fs.readFileSync(dbPath);
   }
 
   const sqlite: any = new SQL.Database(data);
   sqlite.exec('PRAGMA foreign_keys = ON');
-  await ensureSqliteSchema(sqlite);
+  const tableCount = Array.isArray(sqlite.exec("SELECT COUNT(*) as count FROM sqlite_master WHERE type='table'"))
+    ? Number(sqlite.exec("SELECT COUNT(*) as count FROM sqlite_master WHERE type='table'")[0]?.values?.[0]?.[0] ?? 0)
+    : 0;
+  if (!hadFile || tableCount === 0) {
+    await ensureSqliteSchema(sqlite);
+  }
 
   persistSqlJsDatabase(sqlite, dbPath);
 

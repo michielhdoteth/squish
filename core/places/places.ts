@@ -12,10 +12,39 @@
  */
 
 import { randomUUID } from 'crypto';
-import { eq, and, isNull, desc } from 'drizzle-orm';
+import { eq, and, isNull, or, desc } from 'drizzle-orm';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
 import { logger } from '../logger.js';
+
+/**
+ * Well-known project path for global scope
+ * Used for places and rules that are global (not per-project)
+ */
+export const GLOBAL_PROJECT_PATH = '__squish_global__';
+
+/**
+ * Ensure the global project record exists
+ */
+export async function ensureGlobalProject(): Promise<{ id: string }> {
+  const { getOrCreateProject } = await import('../projects.js');
+  const project = await getOrCreateProject(GLOBAL_PROJECT_PATH);
+  if (!project) {
+    // Fallback: create manually if getOrCreateProject returns null
+    const db = await getDb();
+    const schema = await getSchema();
+    const sqliteDb = db as any;
+    const id = randomUUID();
+    await sqliteDb.insert(schema.projects).values({
+      id,
+      name: '__squish_global__',
+      path: GLOBAL_PROJECT_PATH,
+      metadata: '{}',
+    });
+    return { id };
+  }
+  return { id: project.id };
+}
 
 // Place types matching the 7 default places
 export type PlaceType = 
@@ -44,7 +73,7 @@ export interface Place {
 }
 
 export interface PlaceCreateInput {
-  projectId: string;
+  projectId?: string;
   name: string;
   placeType: PlaceType;
   parentId?: string | null;
@@ -74,7 +103,8 @@ export const DEFAULT_PLACES: Omit<PlaceCreateInput, 'projectId'>[] = [
 ];
 
 /**
- * Create a new place
+ * Create a new place.
+ * If no projectId provided, uses the global project scope.
  */
 export async function createPlace(input: PlaceCreateInput): Promise<Place> {
   const db = await getDb();
@@ -86,11 +116,14 @@ export async function createPlace(input: PlaceCreateInput): Promise<Place> {
   const sqliteDb = db as any;
   const id = randomUUID();
 
+  // Default to global project if no projectId
+  const resolvedProjectId = input.projectId || (await ensureGlobalProject()).id;
+
   // Check for duplicate
   const existing = await sqliteDb.select()
     .from(schema.places)
     .where(and(
-      eq(schema.places.projectId, input.projectId),
+      eq(schema.places.projectId, resolvedProjectId),
       eq(schema.places.name, input.name),
       input.parentId
         ? eq(schema.places.parentId, input.parentId)
@@ -104,7 +137,7 @@ export async function createPlace(input: PlaceCreateInput): Promise<Place> {
 
   await sqliteDb.insert(schema.places).values({
     id,
-    projectId: input.projectId,
+    projectId: resolvedProjectId,
     name: input.name,
     placeType: input.placeType,
     parentId: input.parentId || null,
@@ -120,7 +153,7 @@ export async function createPlace(input: PlaceCreateInput): Promise<Place> {
 
   return {
     id,
-    projectId: input.projectId,
+    projectId: resolvedProjectId,
     name: input.name,
     placeType: input.placeType,
     parentId: input.parentId || null,
@@ -155,7 +188,7 @@ export async function getPlace(id: string): Promise<Place | null> {
   const row = result[0];
   return {
     id: row.id,
-    projectId: row.project_id,
+    projectId: row.project_id ?? row.projectId ?? null,
     name: row.name,
     placeType: (row.place_type || row.placeType || 'custom') as PlaceType,
     parentId: row.parent_id || row.parentId || null,
@@ -171,23 +204,34 @@ export async function getPlace(id: string): Promise<Place | null> {
 }
 
 /**
- * Get places for a project, ordered by sort_order
+ * Get places, optionally filtered by project.
+ * If no projectId is provided, returns global places.
  */
-export async function getProjectPlaces(projectId: string): Promise<Place[]> {
+export async function getProjectPlaces(projectId?: string): Promise<Place[]> {
   const db = await getDb();
   if (!db) return [];
 
   const schema = await getSchema();
   const sqliteDb = db as any;
 
-  const results = await sqliteDb.select()
-    .from(schema.places)
-    .where(eq(schema.places.projectId, projectId))
-    .orderBy(schema.places.sortOrder);
+  let results;
+  if (projectId) {
+    results = await sqliteDb.select()
+      .from(schema.places)
+      .where(eq(schema.places.projectId, projectId))
+      .orderBy(schema.places.sortOrder);
+  } else {
+    // Get global places
+    const global = await ensureGlobalProject();
+    results = await sqliteDb.select()
+      .from(schema.places)
+      .where(eq(schema.places.projectId, global.id))
+      .orderBy(schema.places.sortOrder);
+  }
 
   return results.map((row: any) => ({
     id: row.id,
-    projectId: row.project_id,
+    projectId: row.project_id ?? row.projectId ?? null,
     name: row.name,
     placeType: (row.place_type || row.placeType) as PlaceType,
     parentId: row.parent_id || row.parentId,
@@ -203,19 +247,22 @@ export async function getProjectPlaces(projectId: string): Promise<Place[]> {
 }
 
 /**
- * Get place by type for a project
+ * Get place by type for a project or global scope.
  */
-export async function getPlaceByType(projectId: string, placeType: PlaceType): Promise<Place | null> {
+export async function getPlaceByType(projectId: string | undefined, placeType: PlaceType): Promise<Place | null> {
   const db = await getDb();
   if (!db) return null;
 
   const schema = await getSchema();
   const sqliteDb = db as any;
 
+  // Resolve project ID
+  const resolvedProjectId = projectId || (await ensureGlobalProject()).id;
+
   const result = await sqliteDb.select()
     .from(schema.places)
     .where(and(
-      eq(schema.places.projectId, projectId),
+      eq(schema.places.projectId, resolvedProjectId),
       eq(schema.places.placeType, placeType)
     ))
     .limit(1);
@@ -225,7 +272,7 @@ export async function getPlaceByType(projectId: string, placeType: PlaceType): P
   const row = result[0];
   return {
     id: row.id,
-    projectId: row.project_id,
+    projectId: row.project_id ?? row.projectId ?? null,
     name: row.name,
     placeType: (row.place_type || row.placeType || 'custom') as PlaceType,
     parentId: row.parent_id || row.parentId || null,
@@ -286,9 +333,27 @@ export async function deletePlace(id: string): Promise<boolean> {
 }
 
 /**
- * Initialize default 7 places for a project
+ * Initialize 7 default places in the global scope
+ * These places are shared across all projects/profiles
  */
-export async function initializeDefaultPlaces(projectId: string): Promise<Place[]> {
+export async function initializeGlobalPlaces(): Promise<Place[]> {
+  const global = await ensureGlobalProject();
+  return initializeDefaultPlaces(global.id);
+}
+
+/**
+ * Get places in the global scope
+ */
+export async function getGlobalPlaces(): Promise<Place[]> {
+  const global = await ensureGlobalProject();
+  return getProjectPlaces(global.id);
+}
+
+/**
+ * Initialize default 7 places for a project.
+ * If no projectId is provided, initializes global places.
+ */
+export async function initializeDefaultPlaces(projectId?: string): Promise<Place[]> {
   const created: Place[] = [];
 
   for (const placeConfig of DEFAULT_PLACES) {
@@ -324,17 +389,19 @@ export async function initializeDefaultPlaces(projectId: string): Promise<Place[
 /**
  * Get place by loci index
  */
-export async function getPlaceByLociIndex(projectId: string, sortOrder: number): Promise<Place | null> {
+export async function getPlaceByLociIndex(projectId: string | undefined, sortOrder: number): Promise<Place | null> {
   const db = await getDb();
   if (!db) return null;
 
   const schema = await getSchema();
   const sqliteDb = db as any;
 
+  const resolvedProjectId = projectId || (await ensureGlobalProject()).id;
+
   const result = await sqliteDb.select()
     .from(schema.places)
     .where(and(
-      eq(schema.places.projectId, projectId),
+      eq(schema.places.projectId, resolvedProjectId),
       eq(schema.places.sortOrder, sortOrder)
     ))
     .limit(1);
@@ -344,7 +411,7 @@ export async function getPlaceByLociIndex(projectId: string, sortOrder: number):
   const row = result[0];
   return {
     id: row.id,
-    projectId: row.project_id,
+    projectId: row.project_id ?? row.projectId ?? null,
     name: row.name,
     placeType: (row.place_type || row.placeType || 'custom') as PlaceType,
     parentId: row.parent_id || row.parentId || null,
@@ -369,12 +436,28 @@ export async function updatePlaceMemoryCount(placeId: string): Promise<void> {
   const schema = await getSchema();
   const sqliteDb = db as any;
 
-  // Count memories in this place
-  const countResult = await sqliteDb.select({ count: schema.memoryPlaces.id })
-    .from(schema.memoryPlaces)
-    .where(eq(schema.memoryPlaces.placeId, placeId));
-
-  const count = countResult.length;
+  // Count memories in this place using raw SQL via underlying client
+  const rawClient = db.$client || db;
+  let count = 0;
+  try {
+    if (typeof rawClient.prepare === 'function') {
+      const stmt = rawClient.prepare(`SELECT COUNT(*) as count FROM memory_places WHERE place_id = ?`);
+      const row = stmt.get(placeId) as { count: number } | undefined;
+      count = row?.count ?? 0;
+    } else if (typeof rawClient.query === 'function') {
+      const result = await rawClient.query(`SELECT COUNT(*) as count FROM memory_places WHERE place_id = $1`, [placeId]);
+      count = Number(result.rows?.[0]?.count ?? 0);
+    }
+  } catch {
+    // If raw SQL fails, fall back to counting from select results
+    try {
+      const rows = await sqliteDb.select().from(schema.memoryPlaces).where(eq(schema.memoryPlaces.placeId, placeId));
+      count = rows.length;
+    } catch {
+      logger.warn(`[Places] Failed to update memory count for place ${placeId}`);
+      return;
+    }
+  }
 
   await sqliteDb.update(schema.places)
     .set({ memoryCount: count })
@@ -385,17 +468,19 @@ export async function updatePlaceMemoryCount(placeId: string): Promise<void> {
  * Sync all place memory counts - recalculate counts for all places in a project
  * Useful for fixing counts after bulk operations or data recovery
  */
-export async function syncAllPlaceMemoryCounts(projectId: string): Promise<void> {
+export async function syncAllPlaceMemoryCounts(projectId?: string): Promise<void> {
   const db = await getDb();
   if (!db) return;
 
   const schema = await getSchema();
   const sqliteDb = db as any;
 
+  const resolvedProjectId = projectId || (await ensureGlobalProject()).id;
+
   // Get all places for this project
   const allPlaces = await sqliteDb.select()
     .from(schema.places)
-    .where(eq(schema.places.projectId, projectId));
+    .where(eq(schema.places.projectId, resolvedProjectId));
 
   // Update each place's memory count
   for (const place of allPlaces) {
@@ -404,3 +489,4 @@ export async function syncAllPlaceMemoryCounts(projectId: string): Promise<void>
   
   logger.info(`[Places] Synced memory counts for ${allPlaces.length} places`);
 }
+

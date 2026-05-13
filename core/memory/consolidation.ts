@@ -1,10 +1,19 @@
 /**
  * Memory Consolidation System
- * Implements experience replay and memory consolidation
+ * Implements experience replay and memory consolidation with geometry-aware compression.
+ *
+ * Before consolidating a cluster, the system checks whether it's geometrically safe:
+ * - Computes d_bar (mean within-cluster cosine distance)
+ * - Computes d_eff (effective dimension via PCA eigenvalue ratio)
+ * - If d_bar < theta_prime: consolidation is safe (cluster is tight)
+ * - If d_bar >= theta_prime: cluster is too diverse, skip or split
+ *
+ * Falls back to extractive summary if geometry is disabled.
  */
 
 import { randomUUID } from 'crypto';
 import { eq, inArray, and } from 'drizzle-orm';
+import { config } from '../../config.js';
 import { createDatabaseClient } from '../storage/database.js';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
@@ -14,6 +23,15 @@ import { parseEmbedding } from '../lib/parse-embedding.js';
 import { getLowImportanceMemories } from './importance.js';
 import { rememberMemory } from './memories.js';
 import { logger } from '../logger.js';
+import { callLLM } from '../llm/client.js';
+
+// Geometry-aware consolidation imports
+import {
+  computeCentroid,
+  computeMeanCosineDistance,
+  estimateEffectiveDimension,
+  compressionSafetyTest,
+} from '../clustering/geometry.js';
 
 export interface ConsolidationOptions {
   projectId: string;
@@ -29,6 +47,9 @@ export interface ConsolidationResult {
   sourceMemoryIds: string[];
   clusterSize: number;
   summary: string;
+  geometrySafe?: boolean;  // Whether geometry check passed
+  dBar?: number;           // Mean cosine distance (if geometry checked)
+  dEff?: number;           // Effective dimension (if geometry checked)
 }
 
 export interface ClusterResult {
@@ -176,14 +197,146 @@ function textSimilarity(text1: string, text2: string): number {
 }
 
 /**
- * Consolidate a cluster of memories into a single summary memory
+ * Extracts embedding vectors from cluster memories.
+ * Returns null if no embeddings can be extracted.
+ */
+function extractClusterEmbeddings(memories: any[]): number[][] | null {
+  const vectors: number[][] = [];
+  for (const mem of memories) {
+    const emb = parseEmbedding(mem.embedding) ?? parseEmbedding(mem.embedding_json);
+    if (emb && emb.length > 0) {
+      vectors.push(emb);
+    }
+  }
+  return vectors.length >= 2 ? vectors : null;
+}
+
+/**
+ * Finds the memory nearest to the centroid vector.
+ * Used for geometry-safe consolidation (keep the closest real memory).
+ */
+function findNearestToCentroid(memories: any[], centroid: number[]): any {
+  let bestMemory = memories[0];
+  let bestSim = -1;
+
+  for (const mem of memories) {
+    const emb = parseEmbedding(mem.embedding) ?? parseEmbedding(mem.embedding_json);
+    if (emb) {
+      const sim = cosineSimilarity(emb, centroid);
+      if (sim > bestSim) {
+        bestSim = sim;
+        bestMemory = mem;
+      }
+    }
+  }
+
+  return bestMemory;
+}
+
+/**
+ * Consolidate a cluster of memories into a single summary memory.
+ *
+ * When geometry-aware consolidation is enabled:
+ * 1. Extract embeddings from cluster memories
+ * 2. Compute centroid, d_bar, and d_eff
+ * 3. Run compression safety test
+ * 4. If safe: use nearest memory to centroid as representative (conservative approach)
+ * 5. If not safe: skip consolidation with log
+ *
+ * When geometry is disabled: falls back to extractive summary.
  */
 async function consolidateCluster(cluster: ClusterResult): Promise<ConsolidationResult> {
   const { memories } = cluster;
   const sourceMemoryIds = memories.map((m: any) => m.id);
 
-  // Generate extractive summary
-  const summary = generateExtractiveSummary(memories);
+  // Check if geometry-aware consolidation is enabled
+  if (config.consolidationGeometryEnabled) {
+    const vectors = extractClusterEmbeddings(memories);
+
+    if (vectors) {
+      // Compute geometry
+      const centroid = computeCentroid(vectors);
+      const dBar = computeMeanCosineDistance(vectors, centroid);
+      const dEff = estimateEffectiveDimension(vectors);
+      const thetaPrime = config.consolidationGeometryThetaPrime;
+
+      // Run compression safety test
+      const safety = compressionSafetyTest(dBar, dEff, thetaPrime);
+
+      if (safety.safe && config.consolidationGeometryAutoConsolidate) {
+        // Safe to consolidate: use the nearest memory to centroid as representative
+        const nearest = findNearestToCentroid(memories, centroid);
+        const summary = `[Consolidated] ${nearest.content}`;
+
+        // Create consolidated memory
+        const consolidated = await rememberMemory({
+          content: summary,
+          type: 'context',
+          metadata: {
+            consolidatedFrom: sourceMemoryIds,
+            consolidatedAt: new Date().toISOString(),
+            clusterSize: memories.length,
+            avgSimilarity: cluster.similarity,
+            geometrySafe: true,
+            dBar,
+            dEff,
+            thetaPrime,
+            representativeId: nearest.id,
+          },
+          tags: ['consolidated', 'geometry-safe'],
+        });
+
+        // Mark originals as consolidated
+        await markConsolidated(consolidated.id, sourceMemoryIds);
+
+        logger.info('Geometry-safe consolidation', {
+          consolidatedId: consolidated.id,
+          sourceCount: memories.length,
+          dBar: dBar.toFixed(4),
+          dEff: dEff.toFixed(2),
+        });
+
+        return {
+          consolidatedMemoryId: consolidated.id,
+          sourceMemoryIds,
+          clusterSize: memories.length,
+          summary,
+          geometrySafe: true,
+          dBar,
+          dEff,
+        };
+      } else if (!safety.safe) {
+        // Unsafe to consolidate: log and skip
+        logger.info(`Skipping consolidation for cluster of ${memories.length} memories: ${safety.reason}`, {
+          clusterId: cluster.representativeId,
+          dBar: dBar.toFixed(4),
+          dEff: dEff.toFixed(2),
+          thetaPrime,
+        });
+
+        // If auto-split is enabled, log that splitting could help
+        if (config.consolidationGeometryAutoSplit) {
+          logger.debug(`Cluster (rep=${cluster.representativeId}) is candidate for splitting ` +
+            `(d_eff=${dEff.toFixed(2)}, n=${memories.length})`);
+        }
+
+        // Return a "skipped" result
+        return {
+          consolidatedMemoryId: '',
+          sourceMemoryIds,
+          clusterSize: memories.length,
+          summary: `[Skipped] cluster too diverse: d_bar=${dBar.toFixed(4)} >= ${thetaPrime}`,
+          geometrySafe: false,
+          dBar,
+          dEff,
+        };
+      }
+      // If autoConsolidate is disabled, fall through to old behavior
+    }
+  }
+
+  // Fall back to extractive or LLM summary (geometry disabled or no embeddings)
+  const summary = await generateClusterSummary(memories);
 
   // Create consolidated memory
   const consolidated = await rememberMemory({
@@ -199,17 +352,7 @@ async function consolidateCluster(cluster: ClusterResult): Promise<Consolidation
   });
 
   // Mark originals as consolidated
-  const db = createDatabaseClient(await getDb());
-  const schema = await getSchema();
-
-  await db
-    .update(schema.memories)
-    .set({
-      isConsolidated: 1,
-      consolidatedInto: consolidated.id,
-      consolidatedAt: new Date(),
-    })
-    .where(inArray(schema.memories.id, sourceMemoryIds));
+  await markConsolidated(consolidated.id, sourceMemoryIds);
 
   logger.info('Consolidated memory cluster', {
     consolidatedId: consolidated.id,
@@ -226,10 +369,31 @@ async function consolidateCluster(cluster: ClusterResult): Promise<Consolidation
 }
 
 /**
+ * Mark memories as consolidated in the database.
+ */
+async function markConsolidated(
+  consolidatedId: string,
+  sourceMemoryIds: string[]
+): Promise<void> {
+  const db = createDatabaseClient(await getDb());
+  const schema = await getSchema();
+
+  await db
+    .update(schema.memories)
+    .set({
+      isConsolidated: 1,
+      consolidatedInto: consolidatedId,
+      consolidatedAt: new Date(),
+    })
+    .where(inArray(schema.memories.id, sourceMemoryIds));
+}
+
+/**
  * Generate extractive summary from a cluster of memories
  * Uses text processing without requiring an LLM
+ * Exported for testing; used internally by generateClusterSummary().
  */
-function generateExtractiveSummary(memories: any[]): string {
+export function generateExtractiveSummary(memories: any[]): string {
   // Group by memory type
   const byType = new Map<string, any[]>();
   for (const m of memories) {
@@ -265,9 +429,52 @@ function generateExtractiveSummary(memories: any[]): string {
 }
 
 /**
- * Truncate text to maximum length
+ * Generate a cluster summary.
+ * Uses LLM when available and enabled, falls back to extractive summary.
+ * LLM is always optional - never blocks, never throws.
+ * Exported for testing; use consolidateCluster() for production.
  */
-function truncate(text: string, maxLength: number): string {
+export async function generateClusterSummary(memories: any[]): Promise<string> {
+  const LIMIT = 20; // Limit memories to prevent prompt overflow
+
+  // Try LLM if enabled and we have enough content
+  if (config.llmEnabled && memories.length >= 2) {
+    try {
+      // Slice memories to avoid excessive prompt size
+      const slice = memories.slice(0, LIMIT);
+      const memTexts = slice
+        .map((m, i) => `[${i + 1}] ${truncate(m.content, 500)}`)
+        .join('\n\n');
+
+      const prompt = `Summarize these related memories into a single coherent summary that captures the key information:
+
+${memTexts}
+
+Summary:`;
+
+      const llmResult = await callLLM(prompt);
+      if (llmResult && llmResult.length > 0) {
+        logger.debug('Generated LLM cluster summary', {
+          memoryCount: memories.length,
+          summaryLength: llmResult.length,
+        });
+        return llmResult;
+      }
+    } catch {
+      // LLM failed silently - fall through to extractive summary
+      logger.debug('LLM cluster summary failed, falling back to extractive');
+    }
+  }
+
+  // Fallback: extractive summary (always works)
+  return generateExtractiveSummary(memories);
+}
+
+/**
+ * Truncate text to maximum length
+ * Exported for testing.
+ */
+export function truncate(text: string, maxLength: number): string {
   if (text.length <= maxLength) return text;
   return text.substring(0, maxLength - 3) + '...';
 }

@@ -52,9 +52,16 @@ function checkBinary(binaryName) {
 
 function installPackage(packageName, version, packageManager = "npm") {
   console.log(`[DEP] Installing ${packageName}@${version} via ${packageManager}...`);
+  const packageSpec = `${packageName}@${version}`;
+  const args = getGlobalInstallArgs(packageManager, packageSpec);
+  if (!args) {
+    console.log(`[DEP] Unsupported package manager: ${packageManager}`);
+    return false;
+  }
+
   const result = spawnSync(
     packageManager,
-    ["install", "-g", `${packageName}@${version}`],
+    args,
     { 
       encoding: "utf8",
       stdio: "inherit",
@@ -62,6 +69,21 @@ function installPackage(packageName, version, packageManager = "npm") {
     }
   );
   return result.status === 0;
+}
+
+function getGlobalInstallArgs(packageManager, packageSpec) {
+  switch (packageManager) {
+    case "npm":
+      return ["install", "-g", packageSpec];
+    case "yarn":
+      return ["global", "add", packageSpec];
+    case "pnpm":
+      return ["add", "-g", packageSpec];
+    case "bun":
+      return ["add", "-g", packageSpec];
+    default:
+      return null;
+  }
 }
 
 function verifyInstallation(binaryName, expectedVersion) {
@@ -110,7 +132,7 @@ function installDependency(name, depConfig) {
   
   console.log(`[DEP] Auto-installing ${name}@${version}...`);
   
-  const packageManagers = ["npm", "bun"];
+  const packageManagers = ["npm", "yarn", "pnpm", "bun"].filter((pm) => which(pm));
   let success = false;
   
   for (const pm of packageManagers) {
@@ -126,7 +148,7 @@ function installDependency(name, depConfig) {
     };
   }
   
-  const verify = verifyInstallation(name, version);
+  const verify = verifyInstallation(binaryName, version);
   if (!verify.ok) {
     return { status: "error", error: verify.error };
   }

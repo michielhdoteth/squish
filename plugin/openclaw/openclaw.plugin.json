@@ -1,0 +1,26 @@
+{
+  "id": "squish-memory",
+  "name": "Squish Memory",
+  "description": "Persistent memory for AI agents with auto-capture and context injection",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "dataDir": {
+        "type": "string",
+        "description": "Path to Squish data directory",
+        "default": "~/.squish"
+      },
+      "autoCapture": {
+        "type": "boolean", 
+        "description": "Auto-capture tool results",
+        "default": true
+      },
+      "contextLimit": {
+        "type": "number",
+        "description": "Number of memories to inject on session start",
+        "default": 5
+      }
+    }
+  }
+}

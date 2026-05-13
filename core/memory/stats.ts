@@ -3,6 +3,7 @@
  * Provides memory usage statistics for CLI and MCP
  */
 
+import { eq, sql, asc, desc } from 'drizzle-orm';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
 import { config } from '../../config.js';
@@ -177,5 +178,3 @@ export async function getMemoryStats(projectPath: string = process.cwd()): Promi
 
   return stats;
 }
-
-import { eq, sql, asc, desc } from 'drizzle-orm';

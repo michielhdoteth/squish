@@ -1,4 +1,5 @@
 import { getDbClient } from '../lib/db-client.js';
+import { probeSchemaHealth } from '../../db/schema-health.js';
 import { getRecent } from '../memory/memories.js';
 import { getMemoryStats } from '../memory/stats.js';
 import { explainMemory } from '../memory/explain.js';
@@ -231,23 +232,42 @@ export async function buildStatsState(projectPath?: string): Promise<StatsReport
 }
 
 export async function buildHealthState(projectPath?: string): Promise<HealthReportInput> {
-  const scope = await resolveProjectScope(projectPath);
   const checks: HealthReportInput['checks'] = [];
   let severity: HealthReportInput['severity'] = 'ok';
-  let nextStep: string | null = scope.nextStep;
+  let nextStep: string | null = null;
+  let currentProject = projectPath || process.cwd();
 
-  try {
-    await getDbClient();
+  const schemaProbe = await probeSchemaHealth();
+  if (schemaProbe.status === 'ok') {
     checks.push({ name: 'database', status: 'ok', detail: 'Database connection succeeded.' });
-  } catch (error: any) {
+  } else if (schemaProbe.status === 'drifted') {
+    severity = 'degraded';
+    nextStep = schemaProbe.remediation ? `Run \`${schemaProbe.remediation}\` to repair the schema.` : nextStep;
+    checks.push({ name: 'database', status: 'degraded', detail: schemaProbe.detail });
+  } else {
     severity = 'broken';
-    nextStep = 'Fix database initialization before relying on memory reads or writes.';
-    checks.push({
-      name: 'database',
-      status: 'broken',
-      detail: error?.message ?? 'Database initialization failed.',
-    });
+    nextStep = 'Fix database connectivity before relying on memory reads or writes.';
+    checks.push({ name: 'database', status: 'broken', detail: schemaProbe.detail });
   }
+
+  if (schemaProbe.status !== 'ok') {
+    checks.push({
+      name: 'mode',
+      status: 'ok',
+      detail: `${config.isManagedMode ? 'managed' : 'local'} mode; embeddings ${config.embeddingsProvider}`,
+    });
+
+    return {
+      severity,
+      currentProject,
+      checks,
+      nextStep,
+    };
+  }
+
+  const scope = await resolveProjectScope(projectPath);
+  currentProject = `${scope.currentProject.name} (${scope.currentProject.path})`;
+  nextStep = scope.nextStep;
 
   checks.push({
     name: 'project resolution',
@@ -326,7 +346,7 @@ export async function buildHealthState(projectPath?: string): Promise<HealthRepo
 
   return {
     severity,
-    currentProject: `${scope.currentProject.name} (${scope.currentProject.path})`,
+    currentProject,
     checks,
     nextStep,
   };

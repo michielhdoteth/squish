@@ -8,6 +8,7 @@ import { config } from '../../config.js';
 import { getDb } from '../../db/index.js';
 import { maintenanceJobs, maintenanceJobHistory } from '../../db/drizzle/schema-sqlite.js';
 import { eq } from 'drizzle-orm';
+import { runSleepCycle } from '../consolidation/engine.js';
 
 export type JobType = 'nightly' | 'weekly' | 'hourly' | 'daily';
 export type JobStatus = 'success' | 'failed' | 'skipped';
@@ -142,6 +143,42 @@ const autoCleanHandler = async (context: JobExecutionContext) => {
   };
 };
 registerJobHandler('auto_clean', autoCleanHandler);
+
+// Consolidation sleep cycle handler - runs DBSCAN clustering and pattern extraction
+const consolidationHandler = async (context: JobExecutionContext) => {
+  const jobConfig = context.config as {
+    enabled?: boolean;
+    sleepIntervalHours?: number;
+    minClusterSize?: number;
+    maxClusterSize?: number;
+    similarityThreshold?: number;
+    mergeConfidence?: number;
+  };
+
+  if (jobConfig.enabled === false) {
+    return { recordsProcessed: 0, summary: { skipped: true, reason: 'consolidation disabled' } };
+  }
+
+  const result = await runSleepCycle(undefined, {
+    enabled: true,
+    sleepIntervalHours: jobConfig.sleepIntervalHours || 24,
+    minClusterSize: jobConfig.minClusterSize || 3,
+    maxClusterSize: jobConfig.maxClusterSize || 20,
+    similarityThreshold: jobConfig.similarityThreshold || 0.8,
+    mergeConfidence: jobConfig.mergeConfidence || 0.85,
+  });
+
+  return {
+    recordsProcessed: result.clusters + result.merged + result.promoted,
+    summary: {
+      clusters: result.clusters,
+      merged: result.merged,
+      promoted: result.promoted,
+      errors: result.errors,
+    },
+  };
+};
+registerJobHandler('consolidation_sleep', consolidationHandler);
 
 export async function initializeScheduler(): Promise<void> {
   if (!config.cronEnabled) {
@@ -304,6 +341,20 @@ async function ensureDefaultJobs(db: any): Promise<void> {
         confidenceLevel: ['outdated', 'speculative'],
         minImportance: 40,
         dryRun: true, // Start with dry-run for safety
+      },
+    },
+    {
+      jobName: 'consolidation_sleep',
+      jobType: 'daily' as JobType,
+      cronExpression: '0 2 * * *', // Run daily at 2 AM (after decay, before nightly)
+      enabled: true,
+      jobConfig: {
+        enabled: true,
+        sleepIntervalHours: 24,
+        minClusterSize: 3,
+        maxClusterSize: 20,
+        similarityThreshold: 0.8,
+        mergeConfidence: 0.85,
       },
     },
   ];

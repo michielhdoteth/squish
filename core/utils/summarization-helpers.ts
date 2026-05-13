@@ -8,6 +8,8 @@ import { getSchema } from '../../db/schema.js';
 import { config } from '../../config.js';
 import { estimateTokens } from '../context/context-window.js';
 
+export { estimateTokens };
+
 /**
  * Chunk messages for incremental summarization
  */

@@ -38,12 +38,16 @@ chmod +x "$INSTALL_DIR/install.mjs"
 
 # Install squish-memory globally
 echo "Installing squish-memory CLI..."
-if command -v bun &> /dev/null; then
-    bun add -g squish-memory
-elif command -v npm &> /dev/null; then
+if command -v npm &> /dev/null; then
     npm install -g squish-memory
+elif command -v yarn &> /dev/null; then
+    yarn global add squish-memory
+elif command -v pnpm &> /dev/null; then
+    pnpm add -g squish-memory
+elif command -v bun &> /dev/null; then
+    bun add -g squish-memory
 else
-    echo "ERROR: Neither bun nor npm found. Please install Node.js or Bun first."
+    echo "ERROR: No supported package manager found. Install npm, yarn, pnpm, or bun first."
     exit 1
 fi
 

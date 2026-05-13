@@ -3,10 +3,10 @@
  * Migrate memories between .squish directories/databases
  */
 
+import Database from 'better-sqlite3';
 import { randomUUID } from 'crypto';
 import { existsSync } from 'fs';
 import { join } from 'path';
-import { getDbClient } from '../lib/db-client.js';
 
 export interface MigrateOptions {
   dryRun?: boolean;
@@ -20,6 +20,20 @@ export interface MigrateResult {
   projectsMapped: number;
   sourceDeleted?: boolean;
   message: string;
+}
+
+type SqliteRow = Record<string, any>;
+
+function parseJsonField<T>(value: unknown, fallback: T): T {
+  if (typeof value !== 'string' || value.trim() === '') {
+    return fallback;
+  }
+
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return fallback;
+  }
 }
 
 /**
@@ -42,132 +56,140 @@ export async function migrateMemories(
     throw new Error(`Target database not found: ${targetDbPath}`);
   }
 
-  // Use bun:sqlite for direct source DB access
-  // @ts-ignore - bun:sqlite module not found in types but works at runtime
-  const SqliteDatabase = (await import('bun:sqlite')).default;
-  const sourceDb = new SqliteDatabase(sourceDbPath, { readonly: true });
-  
-  // Get target DB through the app's existing mechanism
-  const { db: targetDb, schema } = await getDbClient();
+  const sourceDb = new Database(sourceDbPath, { readonly: true });
+  const targetDb = new Database(targetDbPath);
+  targetDb.pragma('foreign_keys = ON');
 
-  // Get all projects from source
-  const sourceProjects = sourceDb.query('SELECT * FROM projects').all() as any[];
-  
-  // Map old project IDs to new project IDs
-  const projectIdMap = new Map<string, string>();
-  
-  for (const project of sourceProjects) {
-    // Check if project with same path exists in target
-    const existing = await targetDb.select()
-      .from(schema.projects)
-      .where((tbl: any, { eq }: any) => eq(tbl.path, project.path))
-      .limit(1);
-    
-    if (existing.length > 0) {
-      projectIdMap.set(project.id, existing[0].id);
-    } else {
-      // Create new project in target
+  try {
+    const sourceProjects = sourceDb.prepare('SELECT * FROM projects').all() as SqliteRow[];
+    const projectIdMap = new Map<string, string>();
+    const targetProjectByPath = targetDb.prepare(
+      'SELECT id FROM projects WHERE path = ? LIMIT 1'
+    );
+    const insertProject = targetDb.prepare(`
+      INSERT INTO projects (id, name, path, description, metadata, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    for (const project of sourceProjects) {
+      const existing = targetProjectByPath.get(project.path) as { id: string } | undefined;
+
+      if (existing?.id) {
+        projectIdMap.set(project.id, existing.id);
+        continue;
+      }
+
       const newId = randomUUID();
-      await targetDb.insert(schema.projects).values({
-        id: newId,
-        path: project.path,
-        name: project.name || 'migrated',
-        createdAt: new Date(),
-      });
+      if (!dryRun) {
+        insertProject.run(
+          newId,
+          project.name || 'migrated',
+          project.path,
+          project.description ?? null,
+          project.metadata ?? null,
+          project.created_at ?? Math.floor(Date.now() / 1000),
+          project.updated_at ?? Math.floor(Date.now() / 1000)
+        );
+      }
       projectIdMap.set(project.id, newId);
     }
-  }
 
-  // Migrate memories
-  const sourceMemories = sourceDb.query('SELECT * FROM memories').all() as any[];
-  let memoriesCopied = 0;
-  
-  for (const mem of sourceMemories) {
-    const oldProjectId = mem.project_id;
-    const newProjectId = projectIdMap.get(oldProjectId);
-    
-    if (!newProjectId) {
-      console.warn(`Skipping memory ${mem.id}: no project mapping found`);
-      continue;
+    const sourceMemories = sourceDb.prepare('SELECT * FROM memories').all() as SqliteRow[];
+    const insertMemory = targetDb.prepare(`
+      INSERT INTO memories (
+        id, project_id, type, content, summary, source, confidence, confidence_level,
+        tags, metadata, is_active, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    let memoriesCopied = 0;
+
+    for (const mem of sourceMemories) {
+      const newProjectId = projectIdMap.get(mem.project_id);
+
+      if (!newProjectId) {
+        console.warn(`Skipping memory ${mem.id}: no project mapping found`);
+        continue;
+      }
+
+      if (!dryRun) {
+        const existingTags = parseJsonField<string[]>(mem.tags, []);
+        const metadata = parseJsonField<Record<string, unknown>>(mem.metadata, {});
+
+        insertMemory.run(
+          randomUUID(),
+          newProjectId,
+          mem.type,
+          mem.content,
+          mem.summary ?? null,
+          mem.source || 'migrated',
+          mem.confidence ?? 50,
+          mem.confidence_level || 'speculative',
+          JSON.stringify([...existingTags, 'imported']),
+          JSON.stringify({
+            ...metadata,
+            migratedAt: new Date().toISOString(),
+            originalId: mem.id,
+          }),
+          mem.is_active ?? 1,
+          mem.created_at ?? Math.floor(Date.now() / 1000),
+          mem.updated_at ?? Math.floor(Date.now() / 1000)
+        );
+      }
+      memoriesCopied++;
     }
-    
-    if (!dryRun) {
-      // Add 'imported' tag to track migrated memories
-      const existingTags = mem.tags ? JSON.parse(mem.tags) : [];
-      const newTags = [...existingTags, 'imported'];
-      
-      await targetDb.insert(schema.memories).values({
-        id: randomUUID(),
-        projectId: newProjectId,
-        type: mem.type,
-        content: mem.content,
-        summary: mem.summary,
-        source: mem.source || 'migrated',
-        confidence: mem.confidence ?? 50,
-        confidenceLevel: mem.confidence_level || 'speculative',
-        tags: newTags,
-        metadata: { ...mem.metadata, migratedAt: new Date().toISOString(), originalId: mem.id },
-        isActive: mem.is_active ?? 1,
-        createdAt: mem.created_at ? new Date(mem.created_at * 1000) : new Date(),
-        updatedAt: new Date(),
-      });
+
+    const sourceLearnings = sourceDb.prepare('SELECT * FROM learnings').all() as SqliteRow[];
+    const insertLearning = targetDb.prepare(`
+      INSERT INTO learnings (
+        id, project_id, type, action, target, summary, details, is_imported, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    let learningsCopied = 0;
+
+    for (const learn of sourceLearnings) {
+      const newProjectId = projectIdMap.get(learn.project_id);
+      if (!newProjectId) continue;
+
+      if (!dryRun) {
+        insertLearning.run(
+          randomUUID(),
+          newProjectId,
+          learn.type,
+          learn.action,
+          learn.target ?? null,
+          learn.summary,
+          learn.details ?? null,
+          1,
+          learn.created_at ?? Math.floor(Date.now() / 1000)
+        );
+      }
+      learningsCopied++;
     }
-    memoriesCopied++;
-  }
 
-  // Migrate learnings (renamed from observations)
-  const sourceLearnings = sourceDb.query('SELECT * FROM learnings').all() as any[];
-  let learningsCopied = 0;
-  
-  for (const learn of sourceLearnings) {
-    const oldProjectId = learn.project_id;
-    const newProjectId = projectIdMap.get(oldProjectId);
-    
-    if (!newProjectId) continue;
-    
-    if (!dryRun) {
-      // Add is_imported flag to track migrated learnings
-      await targetDb.insert(schema.learnings).values({
-        id: randomUUID(),
-        projectId: newProjectId,
-        type: learn.type,
-        action: learn.action,
-        summary: learn.summary,
-        target: learn.target,
-        details: learn.details,
-        isImported: true,
-        createdAt: new Date(),
-      });
+    const sourceAssoc = sourceDb.prepare('SELECT * FROM memory_associations').all() as SqliteRow[];
+    let associationsCopied = 0;
+
+    if (!dryRun && sourceAssoc.length > 0) {
+      console.warn(`Note: ${sourceAssoc.length} associations not migrated (requires ID mapping)`);
     }
-    learningsCopied++;
+
+    let sourceDeleted = false;
+    if (!dryRun && deleteSource && memoriesCopied > 0) {
+      console.warn('Source deletion not implemented - requires manual removal');
+    }
+
+    return {
+      memoriesCopied,
+      observationsCopied: learningsCopied,
+      associationsCopied,
+      projectsMapped: projectIdMap.size,
+      sourceDeleted,
+      message: dryRun
+        ? 'Dry run complete - no changes made'
+        : `Successfully migrated ${memoriesCopied} memories, ${learningsCopied} learnings`,
+    };
+  } finally {
+    sourceDb.close();
+    targetDb.close();
   }
-
-  // Migrate memory associations (simplified - skip for now)
-  const sourceAssoc = sourceDb.query('SELECT * FROM memory_associations').all() as any[];
-  let associationsCopied = 0;
-  
-  if (!dryRun && sourceAssoc.length > 0) {
-    console.warn(`Note: ${sourceAssoc.length} associations not migrated (requires ID mapping)`);
-  }
-
-  // Close source DB
-  sourceDb.close();
-
-  // Delete source if requested
-  let sourceDeleted = false;
-  if (!dryRun && deleteSource && memoriesCopied > 0) {
-    // Implementation would delete the file
-    console.warn('Source deletion not implemented - requires manual removal');
-  }
-
-  return {
-    memoriesCopied,
-    observationsCopied: learningsCopied,
-    associationsCopied,
-    projectsMapped: projectIdMap.size,
-    sourceDeleted,
-    message: dryRun 
-      ? 'Dry run complete - no changes made'
-      : `Successfully migrated ${memoriesCopied} memories, ${learningsCopied} learnings`
-  };
 }

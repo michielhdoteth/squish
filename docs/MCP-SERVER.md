@@ -4,7 +4,7 @@ Universal memory layer for AI agents via Model Context Protocol (MCP).
 
 ## Features
 
-- **12 MCP Tools**: remember, recall, timeline, context, health, stats, inspect, pin, recent, stale, link, forget
+- **15 MCP Tools**: universal memory operations across recall, health, graph, recency, and maintenance flows
 - **Local Embeddings**: TF-IDF based, 768-dim vectors
 - **QMD Integration**: Local markdown search with BM25 + vector
 - **Hybrid Search**: Semantic + recency + importance scoring
@@ -17,19 +17,16 @@ Universal memory layer for AI agents via Model Context Protocol (MCP).
 ```bash
 # Start Squish MCP server
 squish-mcp
-
-# Or via bun
-bun run mcp
 ```
 
 ### HTTP Mode
 
 ```bash
 # Start with custom port
-bun run mcp --http --port 9000
+squish-mcp --http --port 9000
 
 # Or via environment
-SQUISH_MCP_MODE=http SQUISH_MCP_PORT=9000 bun run mcp
+SQUISH_MCP_MODE=http SQUISH_MCP_PORT=9000 squish-mcp
 ```
 
 Server runs on `http://localhost:8767` by default.
@@ -346,16 +343,18 @@ git clone https://github.com/michielhdoteth/squish.git
 cd squish
 
 # Install
-bun install
+npm install
+# or: yarn install
+# or: bun install
 
 # Run MCP server
-bun run mcp
+squish-mcp
 
 # Or in HTTP mode
-bun run mcp --http
+squish-mcp --http
 
 # Health check
-bun run verify:mcp
+squish-mcp --health
 ```
 
 ## Security Note

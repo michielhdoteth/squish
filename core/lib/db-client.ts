@@ -30,6 +30,7 @@
 
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
+import { assertSchemaReady } from '../../db/schema-health.js';
 import { createDatabaseClient } from '../storage/database.js';
 import type { DatabaseClient } from '../storage/database.js';
 import type { SchemaModule } from '../../db/schema.js';
@@ -102,6 +103,8 @@ let cachedSchema: SchemaModule | null = null;
  */
 export async function getDbClient(): Promise<DbClient> {
   try {
+    await assertSchemaReady();
+
     // Get raw database connection
     const rawDb = await getDb();
 

@@ -155,7 +155,7 @@ export async function getMemoryPlace(memoryId: string): Promise<string | null> {
     .where(eq(schema.memoryPlaces.memoryId, memoryId))
     .limit(1);
 
-  return result.length > 0 ? result[0].place_id : null;
+  return result.length > 0 ? (result[0].place_id ?? result[0].placeId) : null;
 }
 
 /**

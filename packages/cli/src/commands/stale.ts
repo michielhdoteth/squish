@@ -13,7 +13,7 @@ export function registerStaleCommand(program: Command) {
     .description('Show stale memories (old, low-confidence, or rarely accessed)')
     .option('-d, --days <number>', 'Show memories older than N days', '30')
     .option('-l, --limit <number>', 'Max results', '20')
-    .option('-p, --project <project>', 'Project path', process.cwd())
+    .option('-p, --project <project>', 'Project path (global if omitted)')
     .action(async (options: any) => {
       try {
         const days = parseInt(options.days) || 30;
