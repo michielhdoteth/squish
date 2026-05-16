@@ -54,8 +54,7 @@ async function main() {
       spawn(squishBin, ['context'], {
         cwd,
         stdio: 'ignore',
-        detached: true,
-        shell: true
+        detached: true
       }).unref();
       
       if (process.env.DEBUG) {

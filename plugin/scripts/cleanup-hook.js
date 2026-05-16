@@ -35,8 +35,7 @@ async function main() {
       spawn(squishBin, ['context'], {
         cwd,
         stdio: 'ignore',
-        detached: true,
-        shell: true
+        detached: true
       }).unref();
       
       console.log(JSON.stringify({ continue: true, suppressOutput: true }));

@@ -129,8 +129,7 @@ async function main() {
       const child = spawn(squishBin, args, {
         cwd,
         stdio: 'ignore',
-        detached: true,
-        shell: true
+        detached: true
       });
       
       child.unref();

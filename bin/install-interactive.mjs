@@ -58,7 +58,7 @@ function listCommandPaths(command) {
     return result.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   }
 
-  const result = spawnSync('sh', ['-lc', `which -a ${command}`], { encoding: 'utf8', timeout: 5000 });
+  const result = spawnSync('which', ['-a', command], { encoding: 'utf8', timeout: 5000 });
   if (result.status !== 0) return [];
   return result.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
 }

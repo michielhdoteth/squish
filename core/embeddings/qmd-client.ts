@@ -70,8 +70,7 @@ export class QMDClient {
   async checkQMDInstalled(): Promise<boolean> {
     return new Promise((resolve) => {
       const process = spawn('qmd', ['--version'], {
-        stdio: 'ignore',
-        shell: true
+        stdio: 'ignore'
       });
 
       process.on('close', (code) => {
