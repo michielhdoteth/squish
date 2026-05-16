@@ -1,15 +1,12 @@
 # Squish - Memory runtime for production AI agents
 
-[![npm version](https://img.shields.io/npm/v/squish-memory)](https://www.npmjs.com/package/squish-memory)
-[![npm downloads](https://img.shields.io/npm/dm/squish-memory)](https://www.npmjs.com/package/squish-memory)
+[![GitHub release](https://img.shields.io/github/v/release/michielhdoteth/squish)](https://github.com/michielhdoteth/squish/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
 
 **Your agent forgets. Squish fixes that.** It auto-captures useful context, derives durable beliefs like decisions and constraints, and restores that context through CLI, MCP, and a local web UI.
 
 ![Squish Demo](squish-demo.gif)
-
-> Squish does not have a crypto token, has no token launch planned, and nobody is authorized to launch one on behalf of the project.
 
 ```bash
 npm install -g squish-memory
