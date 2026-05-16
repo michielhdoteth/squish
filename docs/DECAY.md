@@ -1,6 +1,6 @@
 # Memory Decay System
 
-The Squish memory decay system automatically manages memory lifecycle by reducing the importance score of memories over time, promoting/demoting them between tiers, and eventually expiring old or low-value memories.
+The Squish memory decay system automatically manages memory lifecycle by reducing the importance score of memories over time and eventually expiring old or low-value memories.
 
 ## How It Works
 
@@ -41,25 +41,23 @@ Memories are grouped by sector, which determines how often they're evaluated for
 | autobiographical | 365 | Self-knowledge |
 | working | 7 | Short-term working memory |
 
-## Tier System
+## Score-Based Classification
 
-Memories are classified into three tiers based on recency, coactivation, and salience:
+Memories are classified based on their importance score:
 
-| Tier | Recency | Coactivation | Salience |
-|------|---------|--------------|----------|
-| hot | <= 7 days | >= 10 | >= 70 |
-| warm | <= 30 days | >= 5 | >= 50 |
-| cold | > 30 days | < 5 | < 50 |
+| Classification | Score Range | Behavior |
+|----------------|-------------|----------|
+| active | >= decay threshold | Included in search results |
+| expired | < decay threshold | Excluded from search, eligible for eviction |
 
-### Tier Transitions
+### Score Transitions
 
-- **Promotion**: When a memory meets higher tier criteria, it moves up (cold -> warm -> hot)
-- **Demotion**: When a memory's score drops below threshold, it moves down
-- **Expiration**: Cold memories with score below threshold get `status = 'expired'`
+- **Decay**: Importance score decreases over time based on the decay formula
+- **Expiration**: When a memory's score drops below the decay threshold, its status is set to `expired`
 
 ## Expiration
 
-When a cold-tier memory's importance score drops below the decay threshold (default: 0.1 * 100 = 10), its status is set to `expired`.
+When a memory's importance score drops below the decay threshold (default: 0.1 * 100 = 10), its status is set to `expired`.
 
 Expired memories:
 - Are excluded from search results by default
@@ -102,7 +100,7 @@ Protected memories have `is_pinned = true` and are skipped during decay and evic
 
 ### Files
 
-- `core/lifecycle.ts` - Main decay and tier management logic
+- `core/lifecycle.ts` - Main decay and score management logic
 - `core/worker.ts` - Background worker that runs lifecycle maintenance
 - `core/scheduler/cron-scheduler.ts` - Cron-based job scheduling
 
@@ -111,8 +109,8 @@ Protected memories have `is_pinned = true` and are skipped during decay and evic
 1. **Cron Scheduler** triggers `decay_maintenance` job hourly
 2. **Worker** calls `runLifecycleMaintenance()`
 3. **applyDecay()** calculates new scores using the decay formula
-4. **updateTiers()** reclassifies memories into hot/warm/cold
-5. **evictOldMemories()** removes very old cold memories with low relevance
+4. **updateStatuses()** reclassifies memories as active or expired based on score
+5. **evictOldMemories()** removes very old expired memories with low relevance
 
 ### Metrics
 
@@ -122,8 +120,7 @@ The lifecycle maintenance returns stats:
 {
   decayed: number,    // Memories that had score reduced
   expired: number,    // Memories that became 'expired'
-  evicted: number,    // Memories hard-deleted
-  tierChanges: { hot: number, warm: number, cold: number }
+  evicted: number     // Memories hard-deleted
 }
 ```
 
@@ -144,7 +141,6 @@ If you're upgrading from an older version:
 | `decay_rate` | INTEGER | Per-memory decay percentage (e.g., 30 = 30%) |
 | `last_decay_at` | TIMESTAMP | Last time decay was applied |
 | `importance_score` | INTEGER | Current importance score (0-100) |
-| `tier` | TEXT | hot/warm/cold classification |
 | `status` | TEXT | active/expired |
 
 ## Troubleshooting

@@ -1,0 +1,23 @@
+{
+  "name": "squish-memory",
+  "version": "1.5.0",
+  "description": "Persistent memory system for Claude Code via Squish CLI - remembers conversations, injects context, auto-captures tool results",
+  "author": {
+    "name": "Michiel Horstman",
+    "url": "https://github.com/michielhdoteth"
+  },
+  "homepage": "https://github.com/michielhdoteth/squish-memory",
+  "license": "MIT",
+  "keywords": ["memory", "persistence", "context", "squish"],
+  "skills": "./skills/",
+  "hooks": "./hooks/hooks.json",
+  "mcpServers": "./.mcp.json",
+  "userConfig": {
+    "squish_project": {
+      "type": "string",
+      "title": "Squish Project Path",
+      "description": "Path to the Squish project directory",
+      "default": "."
+    }
+  }
+}

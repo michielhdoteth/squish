@@ -1,7 +1,9 @@
 /**
- * Migrate Command - Migrate memories between .squish directories
+ * Migrate Command - DEPRECATED
  * 
- * Usage: squish migrate <source-path> [--target <path>] [--delete-source] [--dry-run]
+ * This command is deprecated. Use `squish doctor --migrate-memories` instead.
+ * 
+ * Legacy usage: squish migrate <source-path> [--target <path>] [--delete-source] [--dry-run]
  */
 
 import { Command } from 'commander';
@@ -17,13 +19,15 @@ function getGlobalSquishDir(): string {
 export function registerMigrateCommand(program: Command) {
   program
     .command('migrate <source>')
-    .description('Migrate memories from one .squish directory to another (unify multiple .squish folders)')
+    .description('[DEPRECATED] Use `squish doctor --migrate-memories` instead')
     .option('-t, --target <path>', 'Target .squish directory (default: current directory)')
     .option('-g, --global', 'Migrate to global ~/.squish/ directory', false)
     .option('-d, --delete-source', 'Delete source directory after successful migration (requires --yes)')
     .option('-y, --yes', 'Skip confirmation prompts')
     .option('-n, --dry-run', 'Preview migration without making changes', false)
     .action(async (source: string, options: any) => {
+      console.warn('WARNING: `squish migrate` is deprecated. Use `squish doctor --migrate-memories <source>` instead.');
+      console.warn('This command will be removed in a future version.\n');
       const target = options.global ? getGlobalSquishDir() : (options.target || process.cwd());
       const dryRun = options.dryRun || false;
       const deleteSource = options.deleteSource || false;

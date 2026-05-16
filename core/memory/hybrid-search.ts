@@ -2,7 +2,7 @@
  * Vector Search - Pure semantic search with optional graph boosting + multi-session support
  *
  * Uses cosine similarity on embeddings + optional graph boost
- * BM25 removed - use qmd-client for hot tier (BM25 + vectors + reranking)
+ * BM25 removed - use qmd-client for BM25 + vectors + reranking
  */
 
 import type { SearchResult, SearchInput } from './memories.js';

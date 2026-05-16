@@ -62,7 +62,6 @@ const decayHandler = async (context: JobExecutionContext) => {
       decayed: stats.decayed,
       expired: stats.expired,
       evicted: stats.evicted,
-      tierChanges: stats.tierChanges,
     },
   };
 };

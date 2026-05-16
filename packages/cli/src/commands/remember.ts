@@ -23,8 +23,6 @@ export function registerRememberCommand(program: Command) {
     .option('-e, --examples <examples>', 'When to apply this knowledge')
     .option('-x, --exceptions <exceptions>', 'When NOT to apply this')
     .option('--place <place>', 'Place to assign (inbox, ref, wip, sandbox, board, sparks, archive)')
-    .option('-H, --hot', 'Store in hot tier (active)', false)
-    .option('-C, --cold', 'Store in cold tier (archived)', false)
     .option('--pin', 'Pin memory to prevent pruning', false)
     .option('--unpin', 'Unpin memory', false)
     .option('--route <route>', 'Routing: auto, memory, learning, note', 'auto')
@@ -61,8 +59,6 @@ export function registerRememberCommand(program: Command) {
           }
         }
         
-        const tier: 'hot' | 'cold' = options.cold ? 'cold' : 'hot';
-        
         let result: any;
         
         if (routing === "learning") {
@@ -88,7 +84,6 @@ export function registerRememberCommand(program: Command) {
             project: options.project,
             tags,
             type: options.type || signals.suggestedType,
-            tier,
             source: options.source,
             reasoning: options.reasoning,
             memoryContext: options.context,
@@ -138,7 +133,6 @@ export function registerRememberCommand(program: Command) {
           id: result.id,
           routing,
           type: routing === "learning" ? result.type : result.type,
-          tier: routing === "memory" ? tier : null,
           place: options.place || null,
           priority: signals.priority,
           confidence: signals.confidence,

@@ -24,7 +24,6 @@ import { MemoryRecord, MemoryType } from '../lib/types.js';
 import { parseEmbedding } from '../lib/parse-embedding.js';
 import { findOrCreateCluster, updateClusterStats } from '../clustering/cluster-engine.js';
 import { evaluateCluster, shouldConsolidate, shouldSplit } from '../clustering/consolidation-check.js';
-import { regenerateMemoryReport } from './memory-report.js';
 
 // MemoryType and MemoryRecord imported from ../lib/types.js
 
@@ -41,7 +40,6 @@ export interface RememberInput {
   examples?: string;      // When to apply this knowledge
   exceptions?: string;    // When NOT to apply
   // Hot/Cold tier (replaces isHighRes)
-  tier?: 'hot' | 'cold';  // Memory tier: hot = active, cold = archived (simplified: warm removed)
   // Namespace for grouping
   namespaceId?: string;   // Assign to namespace
   // Session metadata for temporal queries (Task 1)
@@ -136,17 +134,11 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
     tokensEstimate,
     createdAt: new Date(),
     status: 'active',
-    tier: input.tier || 'hot', // Default to hot tier
   };
 
   // Add namespace if specified
   if (input.namespaceId) {
     insertValues.namespaceId = input.namespaceId;
-  }
-
-  // For cold tier, store original content in metadata
-  if (input.tier === 'cold') {
-    enrichedMetadata.originalContent = input.content;
   }
 
   if (config.clientEncryptionEnabled) {
@@ -210,26 +202,6 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
      }
    }
 
-  // Append to Obsidian vault if enabled and hot tier (NEW)
-  if (config.obsidianEnabled && config.obsidianVaultPath && insertValues.tier === 'hot') {
-    try {
-      const { appendToObsidianVault } = await import('../integrations/obsidian-vault.js');
-      await appendToObsidianVault({
-        content: input.content,
-        id,
-        type,
-        tags,
-        reasoning: input.reasoning,
-        memoryContext: input.memoryContext,
-        examples: input.examples,
-        exceptions: input.exceptions,
-        source: input.source,
-      }, config.obsidianVaultPath);
-    } catch (error) {
-      logger.warn(`[Obsidian] Failed to append to vault: ${error}`);
-    }
-  }
-
    // Resolve contradictions and supersede old memories (async, non-blocking)
    // Benchmarks can skip this expensive path by setting SQUISH_SKIP_CONTRADICTION=true
    if (process.env.SQUISH_SKIP_CONTRADICTION !== 'true') {
@@ -270,10 +242,7 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
     );
   }
 
- // Regenerate MEMORY.md (fire-and-forget)
-  regenerateMemoryReport(project?.path || process.cwd()).catch(() => {});
-
- const memoryRecord: MemoryRecord = {
+  const memoryRecord: MemoryRecord = {
   id,
   projectId: project?.id ?? null,
   type,

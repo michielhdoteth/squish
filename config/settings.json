@@ -64,7 +64,6 @@
     "agentIsolation": true,
     "governanceEnabled": true,
     "consolidationEnabled": false,
-    "obsidianEnabled": false,
     "externalMemoryEnabled": false,
     "sessionAutoLoadEnabled": true,
     "queryRewritingEnabled": true,

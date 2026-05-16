@@ -1,0 +1,30 @@
+{
+  "description": "Squish memory session lifecycle hooks",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/session-start.sh",
+            "timeout": 30,
+            "statusMessage": "Loading Squish memory context..."
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/session-stop.sh",
+            "timeout": 30,
+            "async": true,
+            "statusMessage": "Saving session memory..."
+          }
+        ]
+      }
+    ]
+  }
+}

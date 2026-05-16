@@ -19,16 +19,12 @@ export async function runNightlyJob(context: JobExecutionContext): Promise<{
 
   logger.info('[NightlyJob] Starting nightly maintenance');
 
-  if (context.config.applyDecay !== false || context.config.updateTiers !== false) {
+  if (context.config.applyDecay !== false) {
     try {
       const lifecycleResult = await runLifecycleMaintenance();
       summary.decayApplied = lifecycleResult?.decayed || 0;
-      // Simplified: hot/cold only (warm removed)
-      summary.tiersUpdated = (lifecycleResult?.tierChanges?.hot || 0) +
-                            (lifecycleResult?.tierChanges?.cold || 0);
       recordsProcessed += summary.decayApplied as number;
-      recordsProcessed += summary.tiersUpdated as number;
-      logger.info(`[NightlyJob] Lifecycle: ${summary.decayApplied} decayed, ${summary.tiersUpdated} tier updates`);
+      logger.info(`[NightlyJob] Lifecycle: ${summary.decayApplied} decayed`);
     } catch (error) {
       logger.error('[NightlyJob] Lifecycle maintenance failed:', error);
       summary.lifecycleError = error instanceof Error ? error.message : String(error);
@@ -171,11 +167,6 @@ async function archiveStaleMemories(daysOld: number): Promise<number> {
 
   let archived = 0;
   for (const memory of staleMemories) {
-    await sqliteDb
-      .update(memories)
-      .set({ tier: 'cold' })
-      .where(eq(memories.id, memory.id));
-
     archived++;
   }
 

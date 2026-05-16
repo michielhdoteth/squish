@@ -14,7 +14,7 @@ import { getDb } from '../db/index.js';
 import { getSchema } from '../db/schema.js';
 import { config } from '../config.js';
 import { logger } from './logger.js';
-import { triggerTierChange, triggerDecayApplied } from './memory/hooks.js';
+import { triggerDecayApplied } from './memory/hooks.js';
 
 /**
  * Default decay intervals by sector (days until decay check)
@@ -43,16 +43,10 @@ const DEFAULT_DECAY_RATES: Record<string, number> = {
   reflection: 2,
 };
 
-const TIER_THRESHOLDS = {
-  hot: { recency: 7, coactivation: 10, salience: 70 },
-  cold: { recency: Infinity, coactivation: 0, salience: 0 },
-};
-
 export interface LifecycleStats {
   decayed: number;
   evicted: number;
   promoted: number;
-  tierChanges: { hot: number; cold: number };
   expired: number;
 }
 
@@ -61,20 +55,18 @@ export interface LifecycleStats {
  */
 export async function runLifecycleMaintenance(projectId?: string): Promise<LifecycleStats> {
   if (!config.lifecycleEnabled) {
-    return { decayed: 0, evicted: 0, promoted: 0, tierChanges: { hot: 0, cold: 0 }, expired: 0 };
+    return { decayed: 0, evicted: 0, promoted: 0, expired: 0 };
   }
 
   const stats: LifecycleStats = {
     decayed: 0,
     evicted: 0,
     promoted: 0,
-    tierChanges: { hot: 0, cold: 0 },
     expired: 0,
   };
 
   try {
     await applyDecay(projectId, stats);
-    await updateTiers(projectId, stats);
     await evictOldMemories(projectId, stats);
   } catch (error) {
     logger.error('Lifecycle maintenance error', error);
@@ -141,13 +133,13 @@ async function applyDecay(projectId: string | undefined, stats: LifecycleStats):
       const decayMultiplier = Math.pow(1 - decayRate / 100, daysSinceDecay / sectorInterval);
       const newScore = Math.max(0, Math.round(currentScore * decayMultiplier));
 
-      // Check if memory should expire (cold tier + below threshold)
-      const shouldExpire = memory.tier === 'cold' && newScore < (decayThreshold * 100);
+      // Check if memory should expire (below threshold)
+      const shouldExpire = newScore < (decayThreshold * 100);
 
       if (shouldExpire) {
         expiredIds.push(memory.id);
         expired++;
-        logger.debug('Memory expiring', { id: memory.id, score: newScore, tier: memory.tier });
+        logger.debug('Memory expiring', { id: memory.id, score: newScore });
       } else if (newScore !== currentScore) {
         // Only update if score changed
         await (db as any)
@@ -202,119 +194,6 @@ async function applyDecay(projectId: string | undefined, stats: LifecycleStats):
 }
 
 /**
- * Update memory tiers based on recency, coactivation, and salience
- */
-async function updateTiers(projectId: string | undefined, stats: LifecycleStats): Promise<void> {
-  try {
-    const db = await getDb();
-    const schema = await getSchema();
-
-    const now = new Date();
-
-    // Fetch all memories to classify
-    const where = projectId ? eq(schema.memories.projectId, projectId) : undefined;
-    const memories = await (db as any)
-      .select()
-      .from(schema.memories)
-      .where(where)
-      .limit(10000); // Process larger batches now
-
-    // Calculate tiers in memory (simplified: hot or cold only)
-    const tierAssignments = new Map<string, 'hot' | 'cold'>();
-    const tierCounts = { hot: 0, cold: 0 };
-
-    for (const memory of memories) {
-      const recencyDays = (now.getTime() - new Date(memory.createdAt).getTime()) / (24 * 60 * 60 * 1000);
-      const coactivation = memory.coactivationScore || 0;
-      const salience = memory.relevanceScore || 50;
-
-      let newTier: 'hot' | 'cold' = 'cold';
-
-      if (
-        recencyDays <= TIER_THRESHOLDS.hot.recency &&
-        coactivation >= TIER_THRESHOLDS.hot.coactivation &&
-        salience >= TIER_THRESHOLDS.hot.salience
-      ) {
-        newTier = 'hot';
-      }
-
-      if (newTier !== memory.tier) {
-        tierAssignments.set(memory.id, newTier);
-        tierCounts[newTier]++;
-      }
-    }
-
-    if (tierAssignments.size === 0) return;
-
-    // Group by tier for efficient batched updates
-    const hotIds = Array.from(tierAssignments.entries())
-      .filter(([_, tier]) => tier === 'hot')
-      .map(([id]) => id);
-    const coldIds = Array.from(tierAssignments.entries())
-      .filter(([_, tier]) => tier === 'cold')
-      .map(([id]) => id);
-
-    // Execute batched updates instead of individual queries
-    if (hotIds.length > 0) {
-      await (db as any)
-        .update(schema.memories)
-        .set({ tier: 'hot', updatedAt: now })
-        .where(inArray(schema.memories.id, hotIds));
-    }
-
-    if (coldIds.length > 0) {
-      await (db as any)
-        .update(schema.memories)
-        .set({ tier: 'cold', updatedAt: now })
-        .where(inArray(schema.memories.id, coldIds));
-    }
-
-    if (coldIds.length > 0) {
-      await (db as any)
-        .update(schema.memories)
-        .set({ tier: 'cold', updatedAt: now })
-        .where(inArray(schema.memories.id, coldIds));
-    }
-
-    // Trigger tier change hooks for each memory that changed tier
-    if (tierAssignments.size > 0) {
-      for (const memory of memories) {
-        const newTier = tierAssignments.get(memory.id);
-        if (newTier && newTier !== memory.tier) {
-          try {
-            await triggerTierChange({
-              memoryId: memory.id,
-              content: memory.content,
-              type: memory.type,
-              tags: typeof memory.tags === 'string' ? memory.tags.split(',') : [],
-              project: memory.projectId || undefined,
-              source: memory.source || undefined,
-              tier: newTier,
-              importance: memory.importanceScore || memory.relevanceScore || 50,
-              oldTier: memory.tier,
-              newTier: newTier,
-            });
-          } catch (hookError) {
-            logger.error('Error triggering tierChange hook', hookError);
-          }
-        }
-      }
-    }
-
-    // Update stats
-    stats.tierChanges.hot = tierCounts.hot;
-    stats.tierChanges.cold = tierCounts.cold;
-
-    logger.debug('Tier updates complete', {
-      hot: tierCounts.hot,
-      cold: tierCounts.cold,
-    });
-  } catch (error) {
-    logger.error('Error updating tiers', error);
-  }
-}
-
-/**
  * Evict old, cold memories with low relevance
  */
 async function evictOldMemories(projectId: string | undefined, stats: LifecycleStats): Promise<void> {
@@ -330,14 +209,12 @@ async function evictOldMemories(projectId: string | undefined, stats: LifecycleS
           lt(schema.memories.createdAt as any, evictionThreshold),
           eq(schema.memories.isProtected, false),
           eq(schema.memories.isPinned, false),
-          eq(schema.memories.tier as any, 'cold'),
           lt(schema.memories.relevanceScore as any, 20) // Very low relevance
         )
       : and(
           lt(schema.memories.createdAt as any, evictionThreshold),
           eq(schema.memories.isProtected, false),
           eq(schema.memories.isPinned, false),
-          eq(schema.memories.tier as any, 'cold'),
           lt(schema.memories.relevanceScore as any, 20)
         );
 

@@ -28,7 +28,6 @@ import { getDbClient } from '../lib/db-client.js';
 import { eq } from 'drizzle-orm';
 import { serializeMetadata, deserializeMetadata } from '../memory/serialization.js';
 import { addMemoryToGraph } from '../graph/graph-builder.js';
-import { addToHotCache, addSessionContextToHotCache } from '../hot-cache.js';
 import { extractBeliefsFromMemory } from '../beliefs/extractor.js';
 import { upsertBeliefsForMemory, getRecentFailures, getActiveConstraints, getActiveDecisions } from '../beliefs/store.js';
 
@@ -551,21 +550,6 @@ export async function handleSessionEnd(params: {
     });
     
     logger.info(`[Hooks] Saved session snapshot: ${snapshot.id}`);
-    
-    // NEW: Also save to persistent hot cache (survives restart)
-    try {
-      const workingSet = await compactSessionWorkingSet(projectPath);
-      await addSessionContextToHotCache({
-        activeFiles: workingSet?.activeFiles || [],
-        commands: workingSet?.recentCommands?.slice(-3).map(c => c.command) || [],
-        failures: workingSet?.recentFailures?.slice(-2) || [],
-        decisions: [],  // Could extract from recent signals
-        hypotheses: workingSet?.currentHypotheses?.slice(-2) || [],
-      }, projectPath);
-      logger.info('[Hooks] Saved session context to hot cache');
-    } catch (error) {
-      logger.warn('[Hooks] Failed to save hot cache', error);
-    }
     
     currentSessionId = null; // Clear session
     

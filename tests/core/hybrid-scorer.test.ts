@@ -15,7 +15,6 @@ describe('Hybrid Scorer', () => {
       content: 'Test memory 1',
       type: 'fact',
       createdAt: new Date().toISOString(),
-      tier: 'hot',
       coactivationScore: 10,
       relevanceScore: 80,
       isPinned: false,
@@ -27,7 +26,6 @@ describe('Hybrid Scorer', () => {
       content: 'Test memory 2',
       type: 'decision',
       createdAt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days ago
-      tier: 'warm',
       coactivationScore: 5,
       relevanceScore: 60,
       isPinned: true,
@@ -39,7 +37,6 @@ describe('Hybrid Scorer', () => {
       content: 'Test memory 3',
       type: 'preference',
       createdAt: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString(), // 60 days ago
-      tier: 'cold',
       coactivationScore: 2,
       relevanceScore: 30,
       isPinned: false,
@@ -216,18 +213,6 @@ describe('Hybrid Scorer', () => {
   });
 
   describe('Importance Score Calculation', () => {
-    test('should boost importance for hot tier', async () => {
-      const hotMemory = { ...sampleMemories[0], tier: 'hot' };
-      const coldMemory = { ...sampleMemories[0], id: 'cold', tier: 'cold' };
-
-      const scored = await hybridScore(sampleQueryEmbedding, [hotMemory, coldMemory]);
-
-      const hotScored = scored.find(s => s.memoryId === hotMemory.id);
-      const coldScored = scored.find(s => s.memoryId === coldMemory.id);
-
-      expect(hotScored?.components.importance).toBeGreaterThan(coldScored?.components.importance || 0);
-    });
-
     test('should boost importance for pinned memories', async () => {
       const pinnedMemory = { ...sampleMemories[0], isPinned: true };
       const unpinnedMemory = { ...sampleMemories[0], id: 'unpinned', isPinned: false };

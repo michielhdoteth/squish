@@ -146,8 +146,8 @@ export async function checkContradictions(
     if (isPg) {
       // PostgreSQL query
       const query = newMemory.projectId
-        ? `SELECT id, content FROM memories WHERE project_id = $1 AND deleted = FALSE LIMIT 20`
-        : `SELECT id, content FROM memories WHERE deleted = FALSE LIMIT 20`;
+        ? `SELECT id, content FROM memories WHERE project_id = $1 AND status = 'active' LIMIT 20`
+        : `SELECT id, content FROM memories WHERE status = 'active' LIMIT 20`;
 
       const params = newMemory.projectId ? [newMemory.projectId] : [];
       const result = await (db as any).query(query, params);
@@ -155,8 +155,8 @@ export async function checkContradictions(
     } else {
       // SQLite query
       const query = newMemory.projectId
-        ? `SELECT id, content FROM memories WHERE project_id = ? AND deleted = 0 LIMIT 20`
-        : `SELECT id, content FROM memories WHERE deleted = 0 LIMIT 20`;
+        ? `SELECT id, content FROM memories WHERE project_id = ? AND status = 'active' LIMIT 20`
+        : `SELECT id, content FROM memories WHERE status = 'active' LIMIT 20`;
 
       const params = newMemory.projectId ? [newMemory.projectId] : [];
       existing = (db as any).prepare(query).all(params);

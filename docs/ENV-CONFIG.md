@@ -187,15 +187,6 @@ SQUISH_ENCRYPTION_PASSPHRASE=my-secret
 }
 ```
 
-### Obsidian Integration
-
-```json
-{
-  "features": { "obsidianEnabled": true },
-  "obsidian": { "vaultPath": "/path/to/vault" }
-}
-```
-
 ## Security Note
 
 The following are NOT available via MCP (must be configured manually):

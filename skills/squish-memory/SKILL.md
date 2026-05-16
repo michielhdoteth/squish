@@ -1,15 +1,22 @@
 ---
 name: squish-memory
-description: Squish - Persistent memory system for AI assistants. Store facts, decisions, context, and notes with CLI and MCP workflows.
-version: 1.2.0
+description: Squish - Persistent memory system for AI assistants. Store facts, decisions, context, and notes with CLI and MCP workflows. Score-based decay, no tiers.
+version: 1.5.0
 author: michielhdoteth
 tags: [memory, persistence, recall, semantic-retrieval, ai-assistant, mcp, cli]
 emoji: brain
 ---
 
-# Squish Memory v1.2.0
+# Squish Memory v1.5.0
 
 Persistent memory for AI coding assistants with local SQLite/Postgres storage, hybrid retrieval, and MCP integration.
+
+## Auto-Install
+
+If `squish` is not available on PATH, run:
+```bash
+npm install -g squish-memory && squish install --all
+```
 
 ## Quick Setup
 
@@ -35,12 +42,12 @@ squish run web
 
 **THE memory write tool for agents: `squish_remember`**
 - Auto-detects memory vs learning routing
-- Supports hot/cold tiers
+- Supports score-based decay
 - Handles all memory types
 
 | Tool | Purpose | Typical Input |
 |------|---------|---------------|
-| `squish_remember` | **RECOMMENDED** - Unified memory write with auto-detection | `content`, `project`, `tags`, `tier`, `type`, `route` |
+| `squish_remember` | **RECOMMENDED** - Unified memory write with auto-detection | `content`, `project`, `tags`, `type`, `route` |
 | `squish_recall` | Recall memories by query or fetch by ID | `query`, optional `limit`, `project`, `type`, `place` |
 | `squish_forget` | Delete memory | `memoryId` or bulk filters |
 | `squish_update` | Update memory | `memoryId`, changed fields |
@@ -83,7 +90,7 @@ squish run web
 # Unified remember - auto-detects routing
 squish remember "Failed because the API returned 404" --project /myproject
 squish remember "User prefers TypeScript over JavaScript" --type preference
-squish remember "Important decision made" --tier hot --type decision
+squish remember "Important decision made" --type decision
 
 # Recall and retrieve
 squish recall "coding preferences"

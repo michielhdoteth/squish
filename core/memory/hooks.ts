@@ -5,7 +5,6 @@
   * - memoryCreated: When a memory is stored (DB or markdown files)
  * - memoryUpdated: When a memory is updated
  * - memoryDeleted: When a memory is deleted
- * - tierChange: When memory tier changes (hot/warm/cold)
  * - decayApplied: When decay score is updated
  * 
  * Each hook can have sync and async handlers.
@@ -18,7 +17,6 @@ export type HookEvent =
   | 'memoryCreated' 
   | 'memoryUpdated' 
   | 'memoryDeleted' 
-  | 'tierChange' 
   | 'decayApplied';
 
 export interface MemoryHookContext {
@@ -31,11 +29,6 @@ export interface MemoryHookContext {
   tier?: string;
   importance?: number;
   oldContent?: string;  // For memoryUpdated events
-}
-
-export interface TierChangeContext extends MemoryHookContext {
-  oldTier: string;
-  newTier: string;
 }
 
 export interface DecayContext extends MemoryHookContext {
@@ -172,25 +165,6 @@ export async function triggerMemoryDeleted(context: MemoryHookContext): Promise<
 }
 
 /**
- * Trigger tierChange hooks
- * Called when memory tier changes
- */
-export async function triggerTierChange(context: TierChangeContext): Promise<void> {
-  const handlers = getHooks('tierChange');
-  
-  for (const handler of handlers) {
-    try {
-      const result = handler(context);
-      if (result instanceof Promise) {
-        await result;
-      }
-    } catch (error) {
-      logger.error('[Hooks] Error in tierChange handler: ' + error);
-    }
-  }
-}
-
-/**
  * Trigger decayApplied hooks
  * Called when memory decay score changes
  */
@@ -207,24 +181,4 @@ export async function triggerDecayApplied(context: DecayContext): Promise<void> 
       logger.error('[Hooks] Error in decayApplied handler: ' + error);
     }
   }
-}
-
-/**
- * Built-in hook: Auto-save to memory files when storing to DB
- * Use this to have dual storage (DB + markdown files)
- */
-export function createMarkdownAutoSyncHook() {
-  return async function markdownAutoSync(context: MemoryHookContext) {
-    if (context.tier === 'hot') {
-      const { saveToMarkdown } = await import('./markdown/markdown-storage.js');
-      await saveToMarkdown({
-        content: context.content,
-        type: context.type as any,
-        tags: context.tags,
-        project: context.project,
-        source: context.source,
-      });
-      logger.info('[Hooks] Auto-synced memory to markdown: ' + context.memoryId);
-    }
-  };
 }

@@ -20,7 +20,6 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildOpenCodeInlineMcpConfig, CLIENT_MCP_TARGETS } from "./install-config.mjs";
-import { copyPluginFiles } from "./install-plugins.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
@@ -355,73 +354,53 @@ async function main() {
   for (const client of pluginClients) {
     try {
       if (client === 'claude-code') {
-        // Install Claude Code hooks
-        const hooksDir = path.join(root, 'plugin', 'scripts');
-        const targetDir = path.join(os.homedir(), '.claude');
-        
-        try {
-          fs.mkdirSync(targetDir, { recursive: true });
-          
-          // Copy hook scripts
-          const saveHookSrc = path.join(hooksDir, 'save-hook.sh');
-          const saveHookDst = path.join(targetDir, 'save-hook.sh');
-          if (fs.existsSync(saveHookSrc)) {
-            fs.copyFileSync(saveHookSrc, saveHookDst);
-          }
-          
-          const precompactHookSrc = path.join(hooksDir, 'precompact-hook.sh');
-          const precompactHookDst = path.join(targetDir, 'precompact-hook.sh');
-          if (fs.existsSync(precompactHookSrc)) {
-            fs.copyFileSync(precompactHookSrc, precompactHookDst);
-          }
-          
-          // Make them executable (if on unix-like)
+        // Install Claude Code plugin (full directory: .claude-plugin/, skills/, hooks/, .mcp.json, scripts/)
+        const claudePluginDir = path.join(root, 'plugin', 'claude-code');
+        const targetDir = path.join(os.homedir(), '.claude', 'plugins', 'squish-memory');
+
+        if (fs.existsSync(claudePluginDir)) {
           try {
-            const { execSync } = await import('child_process');
-            execSync(`chmod +x "${saveHookDst}" "${precompactHookDst}"`);
-          } catch {}
-          
-          // Read hook template and substitute paths
-          const templateSrc = path.join(root, 'plugin', 'templates', 'hooks', 'claude-code.json');
-          const hooksConfig = JSON.parse(fs.readFileSync(templateSrc, 'utf-8'));
-          const jsonStr = JSON.stringify(hooksConfig);
-          const substituted = jsonStr.replace(/\{\{HOOK_DIR\}\}/g, targetDir.replace(/\\/g, '/'));
-          
-          // Merge into existing settings
-          const settingsPath = path.join(targetDir, 'settings.json');
-          let settings = {};
-          if (fs.existsSync(settingsPath)) {
-            settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+            fs.cpSync(claudePluginDir, targetDir, { recursive: true });
+            console.log(c.green(`  ✓ Installed Claude Code plugin to ${targetDir}`));
+
+            // Update Claude Code config to enable the plugin
+            const configPath = path.join(os.homedir(), '.claude', 'settings.json');
+            let config = {};
+            if (fs.existsSync(configPath)) {
+              config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+            }
+            if (!config.plugins) config.plugins = [];
+            if (!config.plugins.includes('squish-memory')) {
+              config.plugins.push('squish-memory');
+              fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+              console.log(c.green(`  ✓ Enabled squish-memory in Claude Code config`));
+            }
+          } catch (e) {
+            console.log(c.yellow(`  ⚠ Claude Code plugin install failed: ${e.message}`));
           }
-          settings = { ...settings, ...JSON.parse(substituted) };
-          fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
-          
-          console.log(c.green(`  ✓ Installed Claude Code hooks to ${settingsPath}`));
-        } catch (e) {
-          console.log(c.yellow(`  ⚠ Claude Code hooks failed: ${e.message}`));
         }
       }
       
       if (client === 'opencode') {
         // Install OpenCode plugin
         const opencodePluginDir = path.join(root, 'plugin', 'opencode');
-        const targetDir = path.join(os.homedir(), '.config', 'opencode', 'plugins', 'squish');
-        
-        // Copy plugin files
+        const targetDir = path.join(os.homedir(), '.config', 'opencode', 'plugins', 'squish-memory');
+
+        // Copy entire plugin directory
         if (fs.existsSync(opencodePluginDir)) {
           try {
-            copyPluginFiles(opencodePluginDir, targetDir, ['index.ts', 'package.json']);
+            fs.cpSync(opencodePluginDir, targetDir, { recursive: true });
             console.log(c.green(`  ✓ Installed OpenCode plugin to ${targetDir}`));
           } catch (e) {
             console.log(c.yellow(`  ⚠ OpenCode plugin copy failed: ${e.message}`));
           }
         }
-        
+
         // Update the active OpenCode config in place so stale Bun/npx MCP entries are replaced.
         const configSrc = path.join(opencodePluginDir, 'opencode.json');
         const homeDir = os.homedir();
         const globalConfig = path.join(homeDir, '.config', 'opencode', 'opencode.json');
-        
+
         if (fs.existsSync(configSrc)) {
           try {
             let existing = {};
@@ -445,28 +424,29 @@ async function main() {
       }
       
       if (client === 'openclaw') {
-        // Install OpenClaw plugin
+        // Install OpenClaw plugin (full directory)
         const openclawPluginDir = path.join(root, 'plugin', 'openclaw');
-        const targetDir = path.join(os.homedir(), '.openclaw', 'plugins', 'squish');
-        
+        const targetDir = path.join(os.homedir(), '.openclaw', 'plugins', 'squish-memory');
+
         try {
-          copyPluginFiles(openclawPluginDir, targetDir, ['index.ts', 'openclaw.plugin.json']);
-          
+          fs.cpSync(openclawPluginDir, targetDir, { recursive: true });
+
           console.log(c.green(`  ✓ Installed OpenClaw plugin to ${targetDir}`));
-          
+
           // Update OpenClaw config to enable plugin
           const configPath = path.join(os.homedir(), '.openclaw', 'config.json');
           let config = {};
           if (fs.existsSync(configPath)) {
             config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
           }
-          
+
           if (!config.plugins) config.plugins = {};
           if (!config.plugins.entries) config.plugins.entries = {};
-          config.plugins.entries.squish = { enabled: true };
-          
+          config.plugins.entries['squish-memory'] = { enabled: true };
+
           fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
-          console.log(c.green(`  ✓ Enabled squish in OpenClaw config`));
+          console.log(c.green(`  ✓ Enabled squish-memory in OpenClaw config`));
+          console.log(c.dim(`  Note: Run 'openclaw gateway restart' to activate`));
         } catch (e) {
           console.log(c.yellow(`  ⚠ OpenClaw plugin install failed: ${e.message}`));
         }

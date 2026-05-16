@@ -8,7 +8,6 @@ import { runLifecycleMaintenance } from './lifecycle.js';
 import { pruneWeakAssociations, getAssociationStats } from './associations.js';
 import { pruneOldSummaries, getSummarizationStats } from './summarization.js';
 import { runFullConsolidationJob, getDeduplicationStats } from './consolidation.js';
-import { registerCloudSyncHooks } from './cloud/cloud-sync.js';
 import { logger } from './logger.js';
 
 interface WorkerConfig {
@@ -64,9 +63,6 @@ class SquishWorker {
 
     this.isRunning = true;
     logger.info('Starting background worker');
-
-    // Register hooks for auto-processes
-    registerCloudSyncHooks();
 
     if (config.lifecycleEnabled) {
       this.scheduleLifecycleMaintenance();

@@ -91,10 +91,10 @@ export async function updateAllDecayScores(projectId?: string): Promise<DecayEng
       
       // Get all active memories
       const query = projectId
-        ? `SELECT id, score, memory_type, last_decay_at, created_at, decay_tau, decay_beta 
-           FROM memories WHERE project_id = $1 AND deleted = FALSE`
-        : `SELECT id, score, memory_type, last_decay_at, created_at, decay_tau, decay_beta 
-           FROM memories WHERE deleted = FALSE`;
+        ? `SELECT id, relevance_score, type, last_decay_at, created_at, decay_rate
+           FROM memories WHERE project_id = $1 AND status = 'active'`
+        : `SELECT id, relevance_score, type, last_decay_at, created_at, decay_rate
+           FROM memories WHERE status = 'active'`;
       
       const result = await pg.query(query, projectId ? [projectId] : []);
       
@@ -104,12 +104,12 @@ export async function updateAllDecayScores(projectId?: string): Promise<DecayEng
           
           const memory: MemoryForDecay = {
             id: mem.id,
-            score: mem.score || 100,
-            memoryType: mem.memory_type,
+            score: mem.relevance_score || 100,
+            memoryType: mem.type,
             lastDecayAt: mem.last_decay_at || mem.created_at,
             createdAt: mem.created_at,
-            tau: mem.decay_tau,
-            beta: mem.decay_beta
+            tau: mem.decay_rate,
+            beta: undefined
           };
           
           const newScore = applyEbbinghausDecay(memory);
@@ -117,7 +117,7 @@ export async function updateAllDecayScores(projectId?: string): Promise<DecayEng
           // Update if score changed significantly (more than 0.5)
           if (Math.abs(newScore - memory.score) > 0.5) {
             await pg.query(
-              `UPDATE memories SET score = $1, last_decay_at = NOW(), updated_at = NOW() WHERE id = $2`,
+              `UPDATE memories SET relevance_score = $1, last_decay_at = NOW(), updated_at = NOW() WHERE id = $2`,
               [Math.round(newScore), mem.id]
             );
             stats.updated++;
@@ -130,10 +130,10 @@ export async function updateAllDecayScores(projectId?: string): Promise<DecayEng
     } else if (sqlite) {
       // SQLite version
       const query = projectId
-        ? `SELECT id, score, memory_type, last_decay_at, created_at, decay_tau, decay_beta 
-           FROM memories WHERE project_id = ? AND deleted = 0`
-        : `SELECT id, score, memory_type, last_decay_at, created_at, decay_tau, decay_beta 
-           FROM memories WHERE deleted = 0`;
+        ? `SELECT id, relevance_score, type, last_decay_at, created_at, decay_rate
+           FROM memories WHERE project_id = ? AND status = 'active'`
+        : `SELECT id, relevance_score, type, last_decay_at, created_at, decay_rate
+           FROM memories WHERE status = 'active'`;
       
       const memories = sqlite.prepare(query).all(projectId || null) as any[];
       
@@ -143,12 +143,12 @@ export async function updateAllDecayScores(projectId?: string): Promise<DecayEng
           
           const memory: MemoryForDecay = {
             id: mem.id,
-            score: mem.score || 100,
-            memoryType: mem.memory_type,
+            score: mem.relevance_score || 100,
+            memoryType: mem.type,
             lastDecayAt: mem.last_decay_at ? mem.last_decay_at * 1000 : mem.created_at * 1000,
             createdAt: mem.created_at * 1000,
-            tau: mem.decay_tau,
-            beta: mem.decay_beta
+            tau: mem.decay_rate,
+            beta: undefined
           };
           
           const newScore = applyEbbinghausDecay(memory);
@@ -156,7 +156,7 @@ export async function updateAllDecayScores(projectId?: string): Promise<DecayEng
           // Update if score changed significantly
           if (Math.abs(newScore - memory.score) > 0.5) {
             sqlite.prepare(`
-              UPDATE memories SET score = ?, last_decay_at = ?, updated_at = ? 
+              UPDATE memories SET relevance_score = ?, last_decay_at = ?, updated_at = ?
               WHERE id = ?
             `).run(Math.round(newScore), Math.floor(now / 1000), Math.floor(now / 1000), mem.id);
             stats.updated++;

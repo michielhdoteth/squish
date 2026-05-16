@@ -285,8 +285,6 @@ export const config = {
   consolidationGeometryAutoSplit: getBoolean('consolidation.geometry.autoSplit', 'SQUISH_GEOMETRY_AUTO_SPLIT', true),
   consolidationGeometryPreservePinned: getBoolean('consolidation.geometry.preservePinned', 'SQUISH_GEOMETRY_PRESERVE_PINNED', true),
   enableV2ContradictionCheck: getBoolean('features.enableV2ContradictionCheck', 'SQUISH_V2_CONTRADICTION_CHECK', false),
-  obsidianEnabled: getBoolean('features.obsidianEnabled', 'SQUISH_OBSIDIAN_ENABLED', false),
-  obsidianVaultPath: getString('obsidian.vaultPath', 'SQUISH_OBSIDIAN_VAULT_PATH', ''),
   externalMemoryEnabled: getBoolean('features.externalMemoryEnabled', 'SQUISH_EXTERNAL_MEMORY_ENABLED', false),
   externalMemoryPath: getString('external.memoryPath', 'SQUISH_EXTERNAL_MEMORY_PATH', ''),
 

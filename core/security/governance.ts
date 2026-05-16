@@ -9,8 +9,7 @@ import { getSchema } from '../../db/schema.js';
 import { config } from '../../config.js';
 import { performMemoryOperation } from '../utils/memory-operations.js';
 import { logger } from '../logger.js';
-import { createDatabaseClient } from '../storage/database.js';
-import { regenerateMemoryReport } from '../memory/memory-report.js';
+import { logger } from '../logger.js';
 
 /**
  * Mark a memory as protected (cannot be evicted)
@@ -40,9 +39,6 @@ export async function pinMemory(memoryId: string): Promise<void> {
       lastImportanceRecalc: new Date(),
     })
     .where(eq(schema.memories.id, memoryId));
-
-  // Regenerate MEMORY.md
-  regenerateMemoryReport().catch(() => {});
 }
 
 /**
@@ -59,9 +55,6 @@ export async function unpinMemory(memoryId: string): Promise<void> {
       lastImportanceRecalc: new Date(),
     })
     .where(eq(schema.memories.id, memoryId));
-
-  // Regenerate MEMORY.md
-  regenerateMemoryReport().catch(() => {});
 }
 
 

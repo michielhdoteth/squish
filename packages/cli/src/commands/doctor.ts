@@ -27,6 +27,7 @@ import {
 } from '../../../../db/schema-health.js';
 import { buildHealthState } from '../../../../core/runtime/trust-state.js';
 import { formatHealthReport } from '../../../../core/runtime/trust-report.js';
+import { migrateMemories, type MigrateResult } from '../../../../core/memory/migrate.js';
 
 interface DiagnosticResult {
   name: string;
@@ -73,6 +74,11 @@ export function registerDoctorCommand(program: Command) {
     .description('Diagnose and fix Squish issues')
     .option('-f, --fix', 'Auto-fix issues when possible')
     .option('-m, --migrate', 'Force run database migrations')
+    .option('--migrate-memories <source>', 'Migrate memories from another .squish directory')
+    .option('--migrate-target <path>', 'Target for memory migration (default: current)')
+    .option('--migrate-global', 'Migrate memories to global ~/.squish/')
+    .option('--migrate-delete-source', 'Delete source after memory migration')
+    .option('-y, --yes', 'Skip confirmation prompts')
     .option('-v, --verbose', 'Show detailed output')
     .option('-p, --project <project>', 'Project path')
     .option('--json', 'Emit machine-readable output', false)
@@ -82,6 +88,11 @@ export function registerDoctorCommand(program: Command) {
         process.env.SQUISH_QUIET = '1';
       }
       try {
+        // Handle memory migration if requested
+        if (options.migrateMemories) {
+          await runMemoryMigration(options);
+          return;
+        }
         await runDoctorDiagnostics(options);
       } finally {
         if (options.json) {
@@ -487,4 +498,87 @@ function checkRuntimeInstallShadowing(): DiagnosticResult {
     message: diagnostic.detail,
     fix: diagnostic.remediation.join(' | '),
   };
+}
+
+/**
+ * Memory Migration - migrated from standalone `squish migrate` command.
+ * Usage: squish doctor --migrate-memories <source> [--migrate-target <path>] [--migrate-global] [--migrate-delete-source] [-y]
+ */
+async function runMemoryMigration(options: {
+  migrateMemories: string;
+  migrateTarget?: string;
+  migrateGlobal?: boolean;
+  migrateDeleteSource?: boolean;
+  yes?: boolean;
+  json?: boolean;
+}) {
+  const source = options.migrateMemories;
+  const target = options.migrateGlobal
+    ? path.join(require('os').homedir(), '.squish')
+    : (options.migrateTarget || process.cwd());
+  const dryRun = false;
+  const deleteSource = options.migrateDeleteSource || false;
+  const confirmed = options.yes || false;
+
+  if (!fs.existsSync(source)) {
+    console.error(`Error: Source directory does not exist: ${source}`);
+    process.exit(1);
+  }
+
+  const sourceDbPath = path.join(source, 'squish.db');
+  const targetDbPath = path.join(target, 'squish.db');
+
+  if (!fs.existsSync(sourceDbPath)) {
+    console.error(`Error: Source is not a .squish directory (no squish.db found): ${source}`);
+    process.exit(1);
+  }
+
+  if (!fs.existsSync(targetDbPath)) {
+    if (options.migrateGlobal) {
+      fs.mkdirSync(target, { recursive: true });
+      const { bootstrapDatabase } = await import('../../../../db/bootstrap.js');
+      await bootstrapDatabase(target);
+      console.log(`Created global ~/.squish/ directory`);
+    } else {
+      console.error(`Error: Target is not a .squish directory (no squish.db found): ${target}`);
+      process.exit(1);
+    }
+  }
+
+  console.log('\n=== Memory Migration ===');
+  console.log(`Source:      ${source}`);
+  console.log(`Target:      ${target}`);
+  console.log(`Delete source: ${deleteSource ? 'YES (after success)' : 'NO'}`);
+
+  if (!confirmed) {
+    console.log('\nThis will copy ALL memories from source to target.');
+    console.log('Use --yes to confirm.\n');
+    process.exit(1);
+  }
+
+  try {
+    console.log('\nMigrating...\n');
+
+    const result: MigrateResult = await migrateMemories(source, target, {
+      dryRun,
+      deleteSource,
+    });
+
+    console.log('=== Migration Result ===');
+    console.log(`Memories copied:    ${result.memoriesCopied}`);
+    console.log(`Learnings copied:   ${result.observationsCopied}`);
+    console.log(`Associations copied: ${result.associationsCopied}`);
+    console.log(`Projects mapped:    ${result.projectsMapped}`);
+
+    if (deleteSource && result.sourceDeleted) {
+      console.log(`Source deleted:     YES`);
+    } else if (deleteSource && !result.sourceDeleted) {
+      console.log(`Source deleted:     NO (manual deletion required)`);
+    }
+
+    console.log(`\n${result.message}`);
+  } catch (error) {
+    console.error(`Migration failed:`, error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
 }

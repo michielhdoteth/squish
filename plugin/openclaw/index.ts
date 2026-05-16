@@ -4,8 +4,9 @@
  * Provides persistent memory and auto-capture hooks.
  * 
  * Installation:
- * - Copy to ~/.openclaw/plugins/squish/
- * - Add to config: { "plugins": { "entries": { "squish": { "enabled": true } } } }
+ * - Run: openclaw plugins install ./path/to/squish-memory
+ * - Then: openclaw gateway restart
+ * - Config: plugins.entries.squish-memory.enabled = true
  */
 
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
@@ -38,27 +39,30 @@ const squishPlugin = definePluginEntry({
   id: "squish-memory",
   name: "Squish Memory",
   description: "Persistent memory for AI agents - remembers conversations, injects context, auto-captures tool results",
-  
+  kind: "memory",
+
   // Config schema
   configSchema: Type.Object({
     dataDir: Type.Optional(Type.String()),
     autoCapture: Type.Optional(Type.Boolean()),
     contextLimit: Type.Optional(Type.Number())
   }),
-  
+
   // Register plugin capabilities
   register(api) {
+    if (api.registrationMode !== "full") return;
+
     const config = api.pluginConfig || {};
     const autoCapture = config.autoCapture ?? true;
     const contextLimit = config.contextLimit ?? 5;
-    
+
     // Register custom tools using TypeBox
     api.registerTool({
       name: "squish_remember",
       description: "Remember a memory for future context",
       parameters: Type.Object({
         content: Type.String({ description: "What to remember" }),
-        type: Type.Optional(Type.String({ description: "Type: insight, fact, decision, preference" })),
+        type: Type.Optional(Type.String({ description: "Type: observation, fact, decision, preference, note, context" })),
         place: Type.Optional(Type.String({ description: "Place: inbox, wip, ref, sandbox, board, sparks, archive" }))
       }),
       async execute(_id, params) {
@@ -74,7 +78,7 @@ const squishPlugin = definePluginEntry({
           params.place || "wip"
         ], projectId);
         const id = result.id;
-        
+
         return {
           content: [{ type: "text", text: `Memory saved (${id.slice(0, 8)})` }]
         };
@@ -100,15 +104,15 @@ const squishPlugin = definePluginEntry({
           projectId
         ], projectId);
         const memories = result.results || [];
-        
+
         if (memories.length === 0) {
           return { content: [{ type: "text", text: "No memories found for that query" }] };
         }
-        
-        const text = "Memories:\n" + memories.map(m => 
+
+        const text = "Memories:\n" + memories.map(m =>
           `[${m.type}] ${m.summary || m.content.slice(0, 60)}`
         ).join("\n");
-        
+
         return { content: [{ type: "text", text }] };
       }
     });
@@ -131,13 +135,13 @@ const squishPlugin = definePluginEntry({
           projectId
         ], projectId);
         const memories = result?.durableMemories || [];
-        
+
         if (memories.length === 0) {
           return { content: [{ type: "text", text: "No context available" }] };
         }
-        
+
         const text = memories.map(m => m.content).join("\n---\n");
-        
+
         return { content: [{ type: "text", text }] };
       }
     });
@@ -155,15 +159,14 @@ const squishPlugin = definePluginEntry({
     });
 
     // Auto-capture hook - runs on session idle
-    // Using api.on() for plugin hooks
     if (autoCapture) {
-      api.on("session.idle", async (context) => {
+      api.on("session_end", async (context) => {
         // Capture important messages before session ends
         const messages = context.messages || [];
         const important = messages
           .filter(m => m.role === "user" && (m.content?.length || 0) > 20)
           .slice(-10);
-        
+
         if (important.length > 0) {
           const content = important
             .map(m => (m.content || "").slice(0, 100))
@@ -180,11 +183,11 @@ const squishPlugin = definePluginEntry({
             "inbox"
           ], context.workingDirectory).catch(() => null);
         }
-      });
+      }, { priority: 50 });
     }
 
     // Session start hook - inject context
-    api.on("session.start", async (context) => {
+    api.on("session_start", async (context) => {
       const result = await runSquishJson([
         "context",
         "--json",
@@ -194,7 +197,7 @@ const squishPlugin = definePluginEntry({
         context.workingDirectory
       ], context.workingDirectory).catch(() => ({ durableMemories: [] }));
       const memories = result?.durableMemories || [];
-      
+
       if (memories.length > 0) {
         return {
           messages: memories.map(m => ({
@@ -203,7 +206,7 @@ const squishPlugin = definePluginEntry({
           }))
         };
       }
-    });
+    }, { priority: 50 });
 
     api.logger.info("Squish Memory plugin registered");
   }

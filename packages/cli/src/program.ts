@@ -30,7 +30,7 @@ export function createProgram(): Command {
 
   program.hook('preAction', async (_thisCommand, actionCommand) => {
     const commandName = actionCommand.name();
-    const exempt = new Set(['doctor', 'health', 'install', 'install-plugin']);
+    const exempt = new Set(['doctor', 'health', 'install', 'install-plugin', 'migrate']);
     if (exempt.has(commandName)) return;
 
     const probe = await probeSchemaHealth();

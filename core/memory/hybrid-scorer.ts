@@ -196,10 +196,6 @@ function calculateCoactivationScore(memory: any): number {
 function calculateImportanceScore(memory: any): number {
   let score = 50;
 
-  // Simplified: hot or cold only (warm removed)
-  if (memory.tier === 'hot') score += 30;
-  // No bonus for cold - it's the fallback
-
   if (memory.relevanceScore) score += memory.relevanceScore * 0.2;
   if (memory.isPinned) score += 10;
   if (memory.isProtected) score += 10;
@@ -266,10 +262,6 @@ function generateScoreExplanation(
   if (components.recency > 70) parts.push('recent');
   else if (components.recency > 30) parts.push('moderately recent');
   else parts.push('older');
-
-  // Simplified: hot or cold only (warm removed)
-  if (memory.tier === 'hot') parts.push('active memory');
-  else parts.push('archived memory');
 
   if (components.coactivation > 60) parts.push('frequently associated');
 

@@ -323,16 +323,16 @@ async function fetchEpisodicMemories(projectId?: string): Promise<any[]> {
 
     if (isPg) {
       const query = projectId
-        ? `SELECT * FROM memories WHERE project_id = $1 AND memory_type = 'episodic' AND deleted = FALSE ORDER BY created_at DESC LIMIT 100`
-        : `SELECT * FROM memories WHERE memory_type = 'episodic' AND deleted = FALSE ORDER BY created_at DESC LIMIT 100`;
+        ? `SELECT * FROM memories WHERE project_id = $1 AND sector = 'episodic' AND status = 'active' ORDER BY created_at DESC LIMIT 100`
+        : `SELECT * FROM memories WHERE sector = 'episodic' AND status = 'active' ORDER BY created_at DESC LIMIT 100`;
       const result = await (db as any).query(query, projectId ? [projectId] : []);
       return result.rows || [];
     } else {
       // SQLite - use drizzle ORM or direct prepare
       const sqlite = (db as any);
       const query = projectId
-        ? `SELECT * FROM memories WHERE project_id = ? AND memory_type = 'episodic' AND deleted = 0 ORDER BY created_at DESC LIMIT 100`
-        : `SELECT * FROM memories WHERE memory_type = 'episodic' AND deleted = 0 ORDER BY created_at DESC LIMIT 100`;
+        ? `SELECT * FROM memories WHERE project_id = ? AND sector = 'episodic' AND status = 'active' ORDER BY created_at DESC LIMIT 100`
+        : `SELECT * FROM memories WHERE sector = 'episodic' AND status = 'active' ORDER BY created_at DESC LIMIT 100`;
       return sqlite.prepare(query).all(projectId ? [projectId] : []) || [];
     }
   } catch (error) {

@@ -22,7 +22,7 @@ Squish takes a different architectural approach, targeting production-grade memo
 
 - **No memory LLM required**: Squish uses local-first embeddings for memory retrieval. Signal extraction, belief derivation, and context restoration work without a secondary language model, eliminating per-token costs and reducing latency.
 - **Production agent focus**: Built for autonomous agents, multi-agent systems, scheduled tasks, embedded devices, and team workflows -- not just interactive coding sessions.
-- **Geometry-aware consolidation**: Hot/warm/cold tier system with spatial segmentation (Places), graph enrichment, and contradiction handling keeps memory size manageable without LLM-driven summarization.
+- **Geometry-aware consolidation**: Score-based decay system with spatial segmentation (Places), graph enrichment, and contradiction handling keeps memory size manageable without LLM-driven summarization.
 - **LOCOMO-verified recall**: Benchmarked at 65% on the academic LoCoMo memory benchmark (1540 questions) using deterministic retrieval methods. Results are reproducible and verifiable.
 - **Multiple integration surfaces**: CLI for scripts and automation, MCP server for agent integration, Web UI for inspection, and SDK for custom integrations.
 - **Local-first by default**: Runs entirely on-device with SQLite. Optional PostgreSQL backend for team mode. No data leaves your machine unless you configure cloud sync.
@@ -35,7 +35,7 @@ Squish takes a different architectural approach, targeting production-grade memo
 | Storage | Managed by the plugin | SQLite local / PostgreSQL team mode |
 | Retrieval | LLM-context injection | Hybrid search (semantic + keyword BM25 + RRF) |
 | Consolidation | LLM-driven summarization | Geometry-aware tiers, Places, graph enrichment |
-| Lifecycle | Recent/archived | Hot/warm/cold tiers with decay and expiration |
+| Lifecycle | Recent/archived | Score-based decay with expiration |
 | Encryption | Not specified | AES-256-GCM client-side encryption |
 | Session continuity | Context injection | Compacted working set + durable memory restore |
 

@@ -70,7 +70,6 @@ Store a new memory or learning. Auto-detects type and routes appropriately.
     "content": "Implemented OAuth2 flow with PKCE for better security",
     "type": "decision",
     "tags": ["auth", "security"],
-    "tier": "hot",
     "pin": false,
     "project": "/path/to/project"
   }

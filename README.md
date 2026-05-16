@@ -77,7 +77,15 @@ The CLI, MCP, and SDK interfaces let you integrate Squish into any agent framewo
 
 ## Quick Start
 
-### Install the runtime (Recommended)
+### Agent Auto-Install
+
+Agents: if `squish` is not available on PATH, run:
+```bash
+npm install -g squish-memory && squish install --all
+```
+This installs the CLI, MCP server, and plugins for all detected agents (Claude Code, OpenCode, OpenClaw).
+
+### Install the runtime
 Install Squish once, then write MCP configs for Claude Code, OpenCode, Codex, and OpenClaw:
 
 ```bash
@@ -122,7 +130,7 @@ squish run web
 - Handles contradictions when facts change
 - Temporal facts with expiration ("until January")
 - Confidence scoring for each memory
-- **Memory Lifecycle**: Hot/cold tier system with automatic decay and expiration
+- **Memory Lifecycle**: Score-based decay and expiration system
 - **Graph-boosted retrieval**: associations between memories boost relevance
 - **Derived beliefs**: decisions, preferences, and constraints extracted from memories
 - **Persistent runtime state**: survives restarts instead of resetting every session
@@ -263,14 +271,13 @@ DATABASE_URL=postgresql://user:pass@host/db
 
 ### Memory Lifecycle
 - **Sectors**: episodic, semantic, procedural, autobiographical
-- **Tiers**: hot (recent), warm (accessible), cold (archived)
 - **Status**: active, merged, superseded, expired
 
 ### Memory consolidation
 
 Squish uses a geometry-aware approach to keep memory size manageable while preserving signal quality:
 
-- **Hot/warm/cold tier system**: Memories automatically decay through temperature tiers. Hot memories are immediately accessible, warm memories retain relevance scoring, cold memories are compressed and archived.
+- **Score-based decay**: Memories automatically decay through importance scores. High-score memories remain accessible longer, while low-score memories are compressed and archived.
 - **Spatial segmentation via Places**: Durable memories are routed into spatial buckets (WIP, Sandbox, Board, Ref) that constrain retrieval to relevant subspaces, reducing noise.
 - **Graph enrichment**: Co-occurrence and explicit associations between memories build a graph structure that boosts relevant results during recall without requiring explicit linking.
 - **Contradiction handling**: When new facts conflict with stored beliefs, Squish marks prior memories as superseded and preserves revision history rather than overwriting.

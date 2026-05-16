@@ -2,6 +2,7 @@
   "id": "squish-memory",
   "name": "Squish Memory",
   "description": "Persistent memory for AI agents with auto-capture and context injection",
+  "kind": "memory",
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
@@ -12,7 +13,7 @@
         "default": "~/.squish"
       },
       "autoCapture": {
-        "type": "boolean", 
+        "type": "boolean",
         "description": "Auto-capture tool results",
         "default": true
       },
@@ -22,5 +23,8 @@
         "default": 5
       }
     }
+  },
+  "contracts": {
+    "tools": true
   }
 }

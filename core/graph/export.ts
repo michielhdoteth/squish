@@ -48,13 +48,12 @@ export async function exportGraphVisualization(
 
     for (const m of memories) {
       if (!nodeIds.has(m.id)) {
-        const t = m.tier || 'cold';
         const label = (m.content || '').split('\n')[0]?.substring(0, 60) || 'Untitled';
         nodeIds.add(m.id);
         nodes.push({
           id: m.id, label, type: 'memory', group: m.type || 'note',
-          size: t === 'hot' ? 12 : t === 'warm' ? 8 : 5,
-          color: m.tier === 'hot' ? '#ff5252' : '#4fc3f7',
+          size: Math.min(m.importance_score / 5, 12),
+          color: '#4fc3f7',
           importance: m.importance_score || 50,
         });
       }
@@ -62,11 +61,11 @@ export async function exportGraphVisualization(
 
     // Fetch entities
     try {
-      const entities = db.prepare(`SELECT id, name, type, frequency FROM entities WHERE project_id = ? ORDER BY frequency DESC LIMIT 100`).all(project.id) as any[];
+      const entities = db.prepare(`SELECT id, name, type FROM entities WHERE project_id = ? LIMIT 100`).all(project.id) as any[];
       for (const e of entities) {
         if (!nodeIds.has(`e:${e.id}`)) {
           nodeIds.add(`e:${e.id}`);
-          nodes.push({ id: `e:${e.id}`, label: e.name, type: 'entity', group: e.type || 'concept', size: Math.min(e.frequency || 1, 20), color: '#81c784', importance: e.frequency || 1 });
+          nodes.push({ id: `e:${e.id}`, label: e.name, type: 'entity', group: e.type || 'concept', size: 1, color: '#81c784', importance: 1 });
         }
       }
     } catch { /* no entities table */ }

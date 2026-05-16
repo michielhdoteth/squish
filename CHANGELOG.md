@@ -2,6 +2,12 @@
 
 All notable changes to Squish will be documented in this file.
 
+## [1.5.0] - 2026-05-16
+
+- **Removed hot/cold tier system**: Memories no longer classified into tiers. Decay and eviction still run on importance scores. Tier column preserved in schema for backward compatibility.
+- **Removed Obsidian integration**: No longer syncs memories to Obsidian vault.
+- **Removed markdown storage**: No longer generates .md files for memories.
+
 ## [1.2.0] - 2026-04-19
 
 ### Added - QMD Integration

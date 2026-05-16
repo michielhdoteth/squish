@@ -49,15 +49,14 @@ describe('Graph Boost v2 Integration', () => {
 
     // Create associations: mem1 <-> mem2 with high weight
     const insertAssoc = db.prepare(`
-      INSERT INTO memory_associations (id, from_memory_id, to_memory_id, project_id, weight, association_type, coactivation_count, last_coactivated_at, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO memory_associations (id, from_memory_id, to_memory_id, weight, association_type, coactivation_count, last_coactivated_at, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     insertAssoc.run(
       'assoc-1',
       mem1Id,
       mem2Id,
-      testProjectId,
       2.0, // High weight
       'relates_to',
       5, // High coactivation
@@ -71,7 +70,6 @@ describe('Graph Boost v2 Integration', () => {
       'assoc-2',
       mem2Id,
       mem3Id,
-      testProjectId,
       1.0, // Lower weight
       'supports',
       2,
@@ -86,7 +84,7 @@ describe('Graph Boost v2 Integration', () => {
     try {
       const client = await getDbClient();
       const db = client.db;
-      db.prepare(`DELETE FROM memory_associations WHERE project_id = ?`).run(testProjectId);
+      db.prepare(`DELETE FROM memory_associations WHERE id IN ('assoc-1', 'assoc-2', 'assoc-3')`).run();
       db.prepare(`DELETE FROM memories WHERE project_id = ?`).run(testProjectId);
       db.prepare(`DELETE FROM projects WHERE id = ?`).run(testProjectId);
     } catch (e) {
@@ -141,13 +139,12 @@ describe('Graph Boost v2 Integration', () => {
 
     // Add another high-value association
     db.prepare(`
-      INSERT INTO memory_associations (id, from_memory_id, to_memory_id, project_id, weight, association_type, coactivation_count, last_coactivated_at, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO memory_associations (id, from_memory_id, to_memory_id, weight, association_type, coactivation_count, last_coactivated_at, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       'assoc-3',
       mem1Id,
       mem3Id,
-      testProjectId,
       5.0, // Very high weight
       'relates_to',
       10, // Very high coactivation

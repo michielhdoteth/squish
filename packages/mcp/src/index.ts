@@ -167,12 +167,11 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
     server,
     "squish_remember",
     {
-      description: "Store any memory or learning. System auto-detects type and routes appropriately. This is THE memory write tool for agents - handles hot/cold tiers, confidence, and all memory types.",
+      description: "Store any memory or learning. System auto-detects type and routes appropriately. This is THE memory write tool for agents - handles confidence and all memory types.",
       inputSchema: {
         content: z.string().describe("What to remember - can be a fact, decision, lesson, observation, or note"),
         project: z.string().optional().describe("Project path (auto-detected if not provided)"),
         tags: z.array(z.string()).optional().describe("Optional tags for organization"),
-        tier: z.enum(["hot", "cold"]).default("hot").describe("Memory tier: hot=active/frequently accessed, cold=archived (simplified, warm removed)"),
         type: z.enum(["observation", "fact", "decision", "context", "preference", "note"]).optional().describe("Memory type - auto-detected if not provided"),
         learningType: z.enum(["success", "failure", "fix", "insight"]).optional().describe("Learning type when routing to learning storage"),
         confidence: z.number().min(0).max(100).optional().describe("Confidence level 0-100 (default: auto-calculated)"),
@@ -182,11 +181,10 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
         unpin: z.boolean().default(false).describe("Unpin memory")
       }
     },
-    async ({ content, project, tags = [], tier = "hot", type, learningType, confidence, source, route = "auto", pin = false, unpin = false }: {
+    async ({ content, project, tags = [], type, learningType, confidence, source, route = "auto", pin = false, unpin = false }: {
       content: string;
       project?: string;
       tags?: string[];
-      tier?: "hot" | "cold";
       type?: "observation" | "fact" | "decision" | "context" | "preference" | "note";
       learningType?: "success" | "failure" | "fix" | "insight";
       confidence?: number;
@@ -265,7 +263,6 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
           type: inferredType as any,
           tags,
           project,
-          tier,
           source: source || 'mcp'
         });
 
@@ -278,7 +275,7 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
           await unpinMemory(memory.id);
         }
 
-        result = { id: memory.id, type: "memory", memoryType: inferredType, tier, content, pined: pin };
+        result = { id: memory.id, type: "memory", memoryType: inferredType, content, pined: pin };
 
         // Auto-update knowledge graph (fire-and-forget)
         const { addMemoryToGraph } = await import('../../../core/graph/graph-builder.js');
@@ -289,25 +286,12 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
         if (graphResult) {
           (result as any).graph = { entities: graphResult.entitiesCreated, relations: graphResult.relationsCreated };
         }
-
-        // Push to cloud if managed mode is active (paid users)
-        if (config.isManagedMode) {
-          const { pushMemory } = await import('../../../core/cloud/cloud-sync.js');
-          pushMemory({
-            id: memory.id,
-            content: memory.content,
-            type: memory.type,
-            tags: memory.tags,
-            importance_score: memory.importanceScore,
-            source: memory.source,
-          }).catch((e: Error) => console.warn('[Cloud] Push failed:', e.message));
-        }
       }
 
       return {
         content: [{
           type: "text",
-          text: `Remembered: ${result.id}\nRouting: ${routing}\nType: ${routing === "learning" ? result.learningType : result.memoryType}\nTier: ${routing === "memory" ? tier : 'N/A'}\nPriority: ${signals.priority}\nConfidence: ${signals.confidence}\nPined: ${(result as any).pinned}\nReason: ${routingReason}\n\n${content.substring(0, 100)}${content.length > 100 ? '...' : ''}`
+          text: `Remembered: ${result.id}\nRouting: ${routing}\nType: ${routing === "learning" ? result.learningType : result.memoryType}\nPriority: ${signals.priority}\nConfidence: ${signals.confidence}\nPined: ${(result as any).pinned}\nReason: ${routingReason}\n\n${content.substring(0, 100)}${content.length > 100 ? '...' : ''}`
         }]
       };
     }
