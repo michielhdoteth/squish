@@ -276,6 +276,16 @@ export const config = {
     coldTierDays: getNumber('decay.coldTierDays', 'SQUISH_DECAY_COLD_TIER_DAYS', 30),
   },
 
+  // Phase 7: Memory Tier configuration
+  tiers: {
+    sturdyAccessCount: getNumber('tiers.sturdyAccessCount', 'SQUISH_STURDY_ACCESS_COUNT', 5),
+    sturdyAccessWindow: getNumber('tiers.sturdyAccessWindow', 'SQUISH_STURDY_ACCESS_WINDOW', 30),
+    longTermAge: getNumber('tiers.longTermAge', 'SQUISH_LONG_TERM_AGE', 90),
+    longTermImportance: getNumber('tiers.longTermImportance', 'SQUISH_LONG_TERM_IMPORTANCE', 50),
+    fleetingImportance: getNumber('tiers.fleetingImportance', 'SQUISH_FLETING_IMPORTANCE', 25),
+    fleetingAge: getNumber('tiers.fleetingAge', 'SQUISH_FLETING_AGE', 60),
+  },
+
   summarizationEnabled: getBoolean('features.summarizationEnabled', 'SQUISH_SUMMARIZATION_ENABLED', true),
   incrementalThreshold: getNumber('summarization.incrementalThreshold', 'SQUISH_INCREMENTAL_THRESHOLD', 10),
   rollingWindowSize: getNumber('summarization.rollingWindowSize', 'SQUISH_ROLLING_WINDOW_SIZE', 50),
@@ -299,6 +309,11 @@ export const config = {
   sessionAutoLoadEnabled: getBoolean('features.sessionAutoLoadEnabled', 'SQUISH_SESSION_AUTO_LOAD', true),
   sessionAutoLoadRecentCount: getNumber('session.autoLoadRecentCount', 'SQUISH_SESSION_AUTO_LOAD_RECENT_COUNT', 5),
   sessionAutoLoadImportanceThreshold: getNumber('session.autoLoadImportanceThreshold', 'SQUISH_SESSION_AUTO_LOAD_IMPORTANCE_THRESHOLD', 70),
+  // Phase 6: Unified Clean command - maintenance scheduling
+  maintenanceNightlyClean: getBoolean('maintenance.nightlyClean', 'SQUISH_NIGHTLY_CLEAN', true),
+  maintenanceWeeklyConsolidation: getBoolean('maintenance.weeklyConsolidation', 'SQUISH_WEEKLY_CONSOLIDATION', true),
+  maintenanceMonthlyDeep: getBoolean('maintenance.monthlyDeep', 'SQUISH_MONTHLY_DEEP', false),
+
   queryRewritingEnabled: getBoolean('features.queryRewritingEnabled', 'SQUISH_QUERY_REWRITING', true),
   queryRewritingContextMessages: getNumber('query.rewritingContextMessages', 'SQUISH_QUERY_REWRITING_CONTEXT_MESSAGES', 5),
   queryRewritingFallbackEnabled: getBoolean('features.queryRewritingFallbackEnabled', 'SQUISH_QUERY_REWRITING_FALLBACK', true),

@@ -9,6 +9,7 @@ import { getAllProjects } from '../../../../core/projects.js';
 import { buildContextState, resolveProjectScope } from '../../../../core/runtime/trust-state.js';
 import { formatContextReport } from '../../../../core/runtime/trust-report.js';
 import { getPinnedMemories } from '../../../../core/security/governance.js';
+import { getTierStats } from '../../../../core/memory/tiers.js';
 
 export function registerContextCommand(program: Command) {
   program
@@ -19,12 +20,29 @@ export function registerContextCommand(program: Command) {
     .option('--limit <number>', 'Max memories to return', '10')
     .option('--json', 'Emit machine-readable output', false)
     .option('--pinned', 'Show pinned memories instead of full context', false)
+    .option('--tiers', 'Show memory count per tier', false)
     .action(async (options: any) => {
       const previousQuiet = process.env.SQUISH_QUIET;
       if (options.json) {
         process.env.SQUISH_QUIET = '1';
       }
       try {
+        // Handle --tiers flag: show memory count per tier
+        if (options.tiers) {
+          const tiers = await getTierStats(options.project);
+          if (options.json) {
+            console.log(JSON.stringify({ ok: true, tiers }, null, 2));
+            return;
+          }
+          console.log('Memory tiers:');
+          for (const [tier, count] of Object.entries(tiers)) {
+            console.log(`  ${tier}: ${count}`);
+          }
+          const total = Object.values(tiers).reduce((a, b) => a + b, 0);
+          console.log(`  total: ${total}`);
+          return;
+        }
+
         // Handle --pinned flag: show pinned memories
         if (options.pinned) {
           const pinned = await getPinnedMemories(options.project);

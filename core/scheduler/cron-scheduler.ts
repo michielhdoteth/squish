@@ -159,6 +159,127 @@ const inboxTriageHandler = async (context: JobExecutionContext) => {
 };
 registerJobHandler('inbox_triage', inboxTriageHandler);
 
+// Phase 6: Auto-maintenance handler - runs runFullMaintenance for nightly dry-run
+const autoMaintenanceHandler = async (context: JobExecutionContext) => {
+  const { runFullMaintenance } = await import('../consolidation.js');
+  const jobConfig = context.config as {
+    enabled?: boolean;
+    dryRun?: boolean;
+    steps?: string[];
+    age?: number;
+    llmEnabled?: boolean;
+  };
+
+  if (jobConfig.enabled === false) {
+    return { recordsProcessed: 0, summary: { skipped: true, reason: 'auto-maintenance disabled' } };
+  }
+
+  const result = await runFullMaintenance({
+    dryRun: jobConfig.dryRun !== undefined ? jobConfig.dryRun : true,
+    steps: (jobConfig.steps as any) || ['dedup', 'stale'],
+    age: jobConfig.age || 30,
+    llmEnabled: jobConfig.llmEnabled,
+  });
+
+  const totalCount = Object.values(result.steps).reduce((sum, s) => sum + (s.count || 0), 0);
+
+  return {
+    recordsProcessed: totalCount,
+    summary: {
+      mode: result.dryRun ? 'dry-run' : 'completed',
+      steps: Object.keys(result.steps),
+      details: result.steps,
+    },
+  };
+};
+registerJobHandler('auto_maintenance', autoMaintenanceHandler);
+
+// Phase 6: Weekly consolidation handler - runs consolidate + inbox
+const weeklyConsolidationHandler = async (context: JobExecutionContext) => {
+  const { runFullMaintenance } = await import('../consolidation.js');
+  const jobConfig = context.config as {
+    enabled?: boolean;
+    dryRun?: boolean;
+    age?: number;
+  };
+
+  if (jobConfig.enabled === false) {
+    return { recordsProcessed: 0, summary: { skipped: true, reason: 'weekly consolidation disabled' } };
+  }
+
+  const result = await runFullMaintenance({
+    dryRun: jobConfig.dryRun !== undefined ? jobConfig.dryRun : false,
+    steps: ['consolidate', 'inbox'],
+    age: jobConfig.age || 60,
+  });
+
+  const totalCount = Object.values(result.steps).reduce((sum, s) => sum + (s.count || 0), 0);
+
+  return {
+    recordsProcessed: totalCount,
+    summary: {
+      mode: result.dryRun ? 'dry-run' : 'completed',
+      steps: Object.keys(result.steps),
+      details: result.steps,
+    },
+  };
+};
+registerJobHandler('weekly_consolidation', weeklyConsolidationHandler);
+
+// Phase 6: Deep maintenance handler - runs full maintenance with LLM
+const deepMaintenanceHandler = async (context: JobExecutionContext) => {
+  const { config: squishConfig } = await import('../../config.js');
+  const jobConfig = context.config as {
+    enabled?: boolean;
+    dryRun?: boolean;
+    age?: number;
+  };
+
+  // Monthly deep maintenance only runs if LLM is enabled
+  if (!squishConfig.llmEnabled) {
+    return { recordsProcessed: 0, summary: { skipped: true, reason: 'LLM not enabled, skipping deep maintenance' } };
+  }
+
+  if (jobConfig.enabled === false) {
+    return { recordsProcessed: 0, summary: { skipped: true, reason: 'deep maintenance disabled' } };
+  }
+
+  const { runFullMaintenance } = await import('../consolidation.js');
+  const result = await runFullMaintenance({
+    dryRun: jobConfig.dryRun !== undefined ? jobConfig.dryRun : false,
+    steps: ['dedup', 'stale', 'consolidate', 'inbox'],
+    age: jobConfig.age || 90,
+    llmEnabled: true,
+  });
+
+  const totalCount = Object.values(result.steps).reduce((sum, s) => sum + (s.count || 0), 0);
+
+  return {
+    recordsProcessed: totalCount,
+    summary: {
+      mode: 'deep-maintenance',
+      llmEnabled: true,
+      steps: Object.keys(result.steps),
+      details: result.steps,
+    },
+  };
+};
+registerJobHandler('deep_maintenance', deepMaintenanceHandler);
+
+// Tier maintenance handler - recalculates memory tiers based on access patterns
+const tierMaintenanceHandler = async (context: JobExecutionContext) => {
+  const { recalculateTiers } = await import('../memory/tiers.js');
+  const result = await recalculateTiers();
+  return {
+    recordsProcessed: result.updated,
+    summary: {
+      updated: result.updated,
+      tiers: result.tiers,
+    },
+  };
+};
+registerJobHandler('tier_maintenance', tierMaintenanceHandler);
+
 // Consolidation sleep cycle handler - runs DBSCAN clustering and pattern extraction
 const consolidationHandler = async (context: JobExecutionContext) => {
   const jobConfig = context.config as {
@@ -346,6 +467,13 @@ async function ensureDefaultJobs(db: any): Promise<void> {
       jobConfig: { minMessageCount: 5, maxMessagesToProcess: 50 },
     },
     {
+      jobName: 'tier_maintenance',
+      jobType: 'daily' as JobType,
+      cronExpression: '0 2 * * *', // Run daily at 2 AM
+      enabled: true,
+      jobConfig: { recalculateTiers: true },
+    },
+    {
       jobName: 'auto_clean',
       jobType: 'daily' as JobType,
       cronExpression: '0 3 * * *', // Run daily at 3 AM
@@ -379,6 +507,44 @@ async function ensureDefaultJobs(db: any): Promise<void> {
       enabled: true,
       jobConfig: {
         enabled: true,
+      },
+    },
+    // Phase 6: Nightly auto-maintenance (dry-run for safety)
+    {
+      jobName: 'auto_maintenance',
+      jobType: 'nightly' as JobType,
+      cronExpression: '0 3 * * *', // Nightly at 3 AM
+      enabled: true,
+      jobConfig: {
+        enabled: true,
+        dryRun: true,
+        steps: ['dedup', 'stale'],
+        age: 30,
+      },
+    },
+    // Phase 6: Weekly consolidation
+    {
+      jobName: 'weekly_consolidation',
+      jobType: 'weekly' as JobType,
+      cronExpression: '0 4 * * 0', // Weekly at 4 AM Sunday
+      enabled: true,
+      jobConfig: {
+        enabled: true,
+        dryRun: false,
+        steps: ['consolidate', 'inbox'],
+        age: 60,
+      },
+    },
+    // Phase 6: Monthly deep maintenance (LLM only)
+    {
+      jobName: 'deep_maintenance',
+      jobType: 'weekly' as JobType,
+      cronExpression: '0 5 1 * *', // Monthly on 1st at 5 AM
+      enabled: true,
+      jobConfig: {
+        enabled: true,
+        dryRun: false,
+        age: 90,
       },
     },
   ];

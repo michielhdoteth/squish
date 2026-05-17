@@ -30,7 +30,7 @@ export interface MemoryForDecay {
   createdAt: Date | string | number;
   tau?: number;
   beta?: number;
-  /** Memory tier: 'hot' = skip decay, 'warm' = normal decay, 'cold' = faster decay */
+  /** Memory tier: 'sturdy' = skip decay, 'working' = normal decay, 'long-term' = slow decay, 'fleeting' = faster decay */
   tier?: string;
   /** Whether the memory is pinned (exempt from decay) */
   isPinned?: boolean;
@@ -88,7 +88,20 @@ export async function updateAllDecayScores(projectId?: string): Promise<DecayEng
     }
 
     const now = Date.now();
-    const coldMultiplier = 1.5; // Cold tier decays 1.5x faster
+    // Tier decay multipliers:
+    // sturdy: 0 (no decay, skipped earlier)
+    // long-term: 0.5 (half normal decay)
+    // working: 1.0 (normal decay)
+    // fleeting: 2.0 (twice as fast)
+    const tierMultipliers: Record<string, number> = {
+      'sturdy': 0.0,
+      'long-term': 0.5,
+      'working': 1.0,
+      'fleeting': 2.0,
+      // Legacy compatibility
+      'hot': 0.0,
+      'cold': 1.5,
+    };
 
     if (isPg) {
       // PostgreSQL version
@@ -112,8 +125,8 @@ export async function updateAllDecayScores(projectId?: string): Promise<DecayEng
             continue;
           }
 
-          // Tier-aware decay: skip hot tier entirely
-          if (mem.tier === 'hot') {
+          // Sturdy tier: skip decay entirely
+          if (mem.tier === 'sturdy' || mem.tier === 'hot') {
             continue;
           }
 
@@ -129,9 +142,25 @@ export async function updateAllDecayScores(projectId?: string): Promise<DecayEng
 
           let newScore = applyEbbinghausDecay(memory);
 
-          // Cold tier: accelerate decay by lowering score further
-          if (mem.tier === 'cold') {
-            newScore = newScore / coldMultiplier;
+          // Apply tier-specific decay multiplier
+          const multiplier = tierMultipliers[mem.tier] ?? 1.0;
+          if (multiplier !== 1.0) {
+            // fleeeting: accelerate decay by dividing score
+            if (multiplier > 1.0) {
+              newScore = newScore / multiplier;
+            } else if (multiplier < 1.0 && multiplier > 0) {
+              // long-term: slow decay by reducing the effective elapsed time
+              const params: DecayParams = {
+                tau: memory.tau ?? getDefaultDecayParams(memory.memoryType || 'default').tau,
+                beta: memory.beta ?? getDefaultDecayParams(memory.memoryType || 'default').beta,
+                lastDecayAt: new Date(memory.lastDecayAt),
+                createdAt: new Date(memory.createdAt)
+              };
+              newScore = ebbinghausScore(memory.score, {
+                ...params,
+                lastDecayAt: new Date(Date.now() - (Date.now() - new Date(memory.lastDecayAt).getTime()) * multiplier)
+              });
+            }
           }
 
           // Clamp to [0, 100]
@@ -169,8 +198,8 @@ export async function updateAllDecayScores(projectId?: string): Promise<DecayEng
             continue;
           }
 
-          // Tier-aware decay: skip hot tier entirely
-          if (mem.tier === 'hot') {
+          // Sturdy tier: skip decay entirely
+          if (mem.tier === 'sturdy' || mem.tier === 'hot') {
             continue;
           }
 
@@ -186,9 +215,25 @@ export async function updateAllDecayScores(projectId?: string): Promise<DecayEng
 
           let newScore = applyEbbinghausDecay(memory);
 
-          // Cold tier: accelerate decay by lowering score further
-          if (mem.tier === 'cold') {
-            newScore = newScore / coldMultiplier;
+          // Apply tier-specific decay multiplier
+          const multiplier = tierMultipliers[mem.tier] ?? 1.0;
+          if (multiplier !== 1.0) {
+            if (multiplier > 1.0) {
+              // fleeeting: accelerate decay by dividing score
+              newScore = newScore / multiplier;
+            } else if (multiplier < 1.0 && multiplier > 0) {
+              // long-term: slow decay by reducing the effective elapsed time
+              const params: DecayParams = {
+                tau: memory.tau ?? getDefaultDecayParams(memory.memoryType || 'default').tau,
+                beta: memory.beta ?? getDefaultDecayParams(memory.memoryType || 'default').beta,
+                lastDecayAt: new Date(memory.lastDecayAt),
+                createdAt: new Date(memory.createdAt)
+              };
+              newScore = ebbinghausScore(memory.score, {
+                ...params,
+                lastDecayAt: new Date(Date.now() - (Date.now() - new Date(memory.lastDecayAt).getTime()) * multiplier)
+              });
+            }
           }
 
           // Clamp to [0, 100]

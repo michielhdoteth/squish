@@ -3,10 +3,12 @@
  *
  * Usage: squish pin <memoryId> [--reason "text"]
  *        squish unpin <memoryId>
+ *        squish promote <memoryId>
  */
 
 import { Command } from 'commander';
 import { pinMemory, unpinMemory, getPinnedMemories } from '../../../../core/security/governance.js';
+import { promoteToSturdy, getTierStats } from '../../../../core/memory/tiers.js';
 
 export function registerPinCommand(program: Command) {
   // squish pin <memoryId>
@@ -68,6 +70,30 @@ export function registerPinCommand(program: Command) {
           for (const m of pinned) {
             const content = (m.content || '(no content)').substring(0, 120);
             console.log(`  ${m.id} - ${content}`);
+          }
+        }
+      } catch (error: any) {
+        console.error(JSON.stringify({ ok: false, error: error.message }));
+        process.exit(1);
+      }
+    });
+
+  // squish promote <memoryId>
+  program
+    .command('promote <memoryId>')
+    .description('Promote a memory to sturdy tier (pins it and prevents decay)')
+    .option('--json', 'Emit machine-readable output', false)
+    .action(async (memoryId: string, options: any) => {
+      try {
+        const success = await promoteToSturdy(memoryId);
+        if (options.json) {
+          console.log(JSON.stringify({ ok: success, promoted: true, memoryId }));
+        } else {
+          if (success) {
+            console.log(`Promoted memory to sturdy tier: ${memoryId}`);
+          } else {
+            console.error('Failed to promote memory');
+            process.exit(1);
           }
         }
       } catch (error: any) {

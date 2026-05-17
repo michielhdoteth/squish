@@ -104,7 +104,7 @@ export const memories = pgTable(
 
 // v0.3.0: Lifecycle Management
   sector: text('sector').default('episodic').$type<'episodic' | 'semantic' | 'procedural' | 'autobiographical' | 'working'>(),
-  tier: text('tier').default('hot'),
+  tier: text('tier').default('working'),
   status: text('status').notNull().default('active'),
   encrypted_content: text('encrypted_content'),
   encryption_nonce: text('encryption_nonce'),

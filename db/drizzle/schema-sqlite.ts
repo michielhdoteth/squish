@@ -112,7 +112,7 @@ export const memories = sqliteTable(
 
 // v0.3.0: Memory Lifecycle Management
   sector: text('sector').$type<'episodic' | 'semantic' | 'procedural' | 'autobiographical' | 'working'>().default('episodic'),
-  tier: text('tier').default('hot'),
+  tier: text('tier').default('working'),
   status: text('status').notNull().default('active'),
   encrypted_content: text('encrypted_content'),
   encryption_nonce: text('encryption_nonce'),
