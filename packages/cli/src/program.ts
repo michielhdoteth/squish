@@ -18,7 +18,8 @@ import { registerDoctorCommand } from './commands/doctor.js';
 import { registerInspectCommand } from './commands/inspect.js';
 import { registerHealthCommand } from './commands/health.js';
 import { registerExportCommand } from './commands/export.js';
-import { registerInstallCommand } from './commands/install.js';
+import { registerInstallCommand, registerUninstallCommand } from './commands/install.js';
+import { registerPinCommand } from './commands/pin.js';
 
 export function createProgram(): Command {
   const program = new Command();
@@ -30,7 +31,7 @@ export function createProgram(): Command {
 
   program.hook('preAction', async (_thisCommand, actionCommand) => {
     const commandName = actionCommand.name();
-    const exempt = new Set(['doctor', 'health', 'install', 'install-plugin', 'migrate']);
+    const exempt = new Set(['doctor', 'health', 'install', 'install-plugin', 'uninstall', 'migrate', 'pin', 'unpin', 'list-pinned']);
     if (exempt.has(commandName)) return;
 
     const probe = await probeSchemaHealth();
@@ -92,6 +93,8 @@ export function createProgram(): Command {
   registerHealthCommand(program);
   registerExportCommand(program);
   registerInstallCommand(program);
+  registerUninstallCommand(program);
+  registerPinCommand(program);
 
   return program;
 }

@@ -1,13 +1,14 @@
 /**
  * Context Command - Get project context or list projects
  * 
- * Usage: squish context [--list-projects] [--project /path]
+ * Usage: squish context [--list-projects] [--project /path] [--pinned]
  */
 
 import { Command } from 'commander';
 import { getAllProjects } from '../../../../core/projects.js';
 import { buildContextState, resolveProjectScope } from '../../../../core/runtime/trust-state.js';
 import { formatContextReport } from '../../../../core/runtime/trust-report.js';
+import { getPinnedMemories } from '../../../../core/security/governance.js';
 
 export function registerContextCommand(program: Command) {
   program
@@ -17,12 +18,35 @@ export function registerContextCommand(program: Command) {
     .option('-p, --project <project>', 'Project path')
     .option('--limit <number>', 'Max memories to return', '10')
     .option('--json', 'Emit machine-readable output', false)
+    .option('--pinned', 'Show pinned memories instead of full context', false)
     .action(async (options: any) => {
       const previousQuiet = process.env.SQUISH_QUIET;
       if (options.json) {
         process.env.SQUISH_QUIET = '1';
       }
       try {
+        // Handle --pinned flag: show pinned memories
+        if (options.pinned) {
+          const pinned = await getPinnedMemories(options.project);
+          if (options.json) {
+            console.log(JSON.stringify({ ok: true, count: pinned.length, pinned }, null, 2));
+            return;
+          }
+          if (pinned.length === 0) {
+            console.log('No pinned memories found.');
+            return;
+          }
+          console.log(`Pinned memories (${pinned.length}):\n`);
+          for (const m of pinned) {
+            const content = (m.content || '(no content)').substring(0, 200);
+            const tags = m.tags ? ` [${m.tags.join(', ')}]` : '';
+            console.log(`  ${m.id}${tags}`);
+            console.log(`  -> ${content}`);
+            console.log();
+          }
+          return;
+        }
+
         if (options.listProjects) {
           const projects = await getAllProjects();
           const scope = await resolveProjectScope(options.project);

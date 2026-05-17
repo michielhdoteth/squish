@@ -10,7 +10,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import express from "express";
 import { z } from "zod";
-import { config } from "../../../config.js";
+import { config, detectProjectScope } from "../../../config.js";
 import { getDb } from "../../../db/index.js";
 import { getSchema } from "../../../db/schema.js";
 import { isSchemaDriftError, probeSchemaHealth, type SchemaProbeResult } from "../../../db/schema-health.js";
@@ -120,6 +120,15 @@ function schemaProbeErrorResult(probe: SchemaProbeResult) {
   };
 }
 
+/**
+ * Resolve the effective project path for an MCP tool.
+ * Priority: explicit project argument > auto-detected from env/cwd > null (global)
+ */
+function resolveProjectPath(projectArg?: string): string | null | undefined {
+  if (projectArg) return projectArg;
+  return detectProjectScope();
+}
+
 function createSquishServer(): { server: McpServer; toolCount: number } {
   const server = new McpServer(
     { name: SERVER_NAME, version: SERVER_VERSION },
@@ -145,7 +154,8 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
     },
     async ({ query, depth = "index", limit = 10, project }: { query: string; depth?: "index" | "timeline" | "detail"; limit?: number; project?: string }) => {
       const { getTimeline } = await import('../../../core/adapters/timeline.js');
-      const result = await getTimeline(query, depth, limit, project);
+      const resolvedProject = resolveProjectPath(project);
+      const result = await getTimeline(query, depth, limit, resolvedProject);
 
       const formatted = result.results.map((r: any, i: number) => {
         if (depth === "index") {
@@ -196,6 +206,7 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
       // Import detection function
       const { detectMemorySignals } = await import('../../../core/memory/trigger-detector.js');
       const signals = detectMemorySignals(content);
+      const resolvedProject = resolveProjectPath(project);
 
       let routing: "memory" | "learning" | "note" = "memory";
       let inferredType = type || signals.suggestedType;
@@ -252,7 +263,7 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
         const learning = await createLearning({
           type: finalLearningType,
           content,
-          project,
+          project: resolvedProject,
           autoLink: true
         });
         result = { id: learning.id, type: "learning", learningType: finalLearningType, content };
@@ -262,7 +273,7 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
           content,
           type: inferredType as any,
           tags,
-          project,
+          project: resolvedProject,
           source: source || 'mcp'
         });
 
@@ -313,6 +324,7 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
     },
     async ({ query, limit = 5, project, type, place }: { query: string; limit?: number; project?: string; type?: MemoryType; place?: string }) => {
       const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(query);
+      const resolvedProject = resolveProjectPath(project);
 
       if (isUuid) {
         const memory = await getMemory(query);
@@ -325,7 +337,7 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
       const results = await searchMemories({
         query,
         limit,
-        project,
+        project: resolvedProject,
         type,
         placeType: place
       });
@@ -354,9 +366,9 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
       const db = await getDb();
       const schema = await getSchema();
       const sqliteDb = db as any;
-      // Global-only: no project falls back to global search (not process.cwd())
-      // If project is provided, use it as a filter; if not, search all memories
-      const proj = project || undefined;
+      // Auto-detect project if not provided, but allow truly global (null) scope
+      const resolvedProject = resolveProjectPath(project);
+      const proj = resolvedProject || undefined;
 
       // Single memory deletion
       if (memoryId) {
@@ -464,9 +476,10 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
       }
     },
     async ({ project, limit = 10, listProjects = false }: { project?: string; limit?: number; listProjects?: boolean }) => {
+      const resolvedProject = resolveProjectPath(project);
       if (listProjects) {
         const projects = await getAllProjects();
-        const scope = await resolveProjectScope(project);
+        const scope = await resolveProjectScope(resolvedProject);
         return {
           content: [{
             type: "text",
@@ -487,7 +500,7 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
         };
       }
 
-      const context = await buildContextState(project, limit);
+      const context = await buildContextState(resolvedProject, limit);
       return { content: [{ type: "text", text: JSON.stringify({ ok: true, ...context }, null, 2) }] };
     }
   )) toolCount++;
@@ -505,7 +518,8 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
     async ({ project }: { project?: string }): Promise<{ content: Array<{ type: string; text: string }> }> => {
       const qmdClient = await getQMDClient();
       const qmdAvailable = await qmdClient.isAvailable();
-      const health = await buildHealthState(project);
+      const resolvedProject = resolveProjectPath(project);
+      const health = await buildHealthState(resolvedProject);
 
       return { content: [{ type: "text", text: JSON.stringify({
         ok: health.severity !== "broken",
@@ -528,7 +542,8 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
       }
     },
     async ({ project }: { project?: string }) => {
-      const stats = await buildStatsState(project);
+      const resolvedProject = resolveProjectPath(project);
+      const stats = await buildStatsState(resolvedProject);
       return { content: [{ type: "text", text: JSON.stringify({ ok: true, ...stats }, null, 2) }] };
     }
   )) toolCount++;
@@ -591,7 +606,7 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
       }
     },
     async ({ period = 'today', since, until, limit = 10, project }: { period?: string; since?: string; until?: string; limit?: number; project?: string }) => {
-      const proj = project; // global if undefined
+      const proj = resolveProjectPath(project); // auto-detect if undefined
       let sinceDate: string, untilDate: string;
 
       if (since && until) {
@@ -639,7 +654,7 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
       }
     },
     async ({ days = 30, limit = 20, project }: { days?: number; limit?: number; project?: string }) => {
-      const proj = project; // global if undefined
+      const proj = resolveProjectPath(project); // auto-detect if undefined
       const cutoffDate = new Date(Date.now() - days * 86400000);
       const results = await getRecent(proj, 500);
       const stale = results.filter((m: any) => {
@@ -660,6 +675,24 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
     }
   )) toolCount++;
 
+  // squish_list_pinned - List all pinned memories
+  if (safeRegisterTool(
+    server,
+    "squish_list_pinned",
+    {
+      description: "List all pinned memories (pinned memories are always preserved)",
+      inputSchema: {
+        project: z.string().optional().describe("Project path (optional, uses current project if omitted)")
+      }
+    },
+    async ({ project }: { project?: string }) => {
+      const { getPinnedMemories } = await import('../../../core/security/governance.js');
+      const resolvedProject = resolveProjectPath(project);
+      const pinned = await getPinnedMemories(resolvedProject);
+      return { content: [{ type: "text", text: JSON.stringify({ ok: true, count: pinned.length, pinned }, null, 2) }] };
+    }
+  )) toolCount++;
+
   // squish_on_session_start - Trigger session start
   if (safeRegisterTool(
     server,
@@ -673,8 +706,9 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
     },
     async ({ projectPath, mode = "startup" }: { projectPath?: string; mode?: "startup" | "resume" | "compact" }) => {
       const { handleSessionStart } = await import('../../../core/hooks/agent-hooks.js');
+      const resolvedProjectPath = resolveProjectPath(projectPath);
       const result = await handleSessionStart({
-        projectPath: projectPath, // undefined = global scope
+        projectPath: resolvedProjectPath,
         mode,
         agentType: 'opencode'
       });
@@ -702,11 +736,12 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
     },
     async ({ toolName, toolInput, toolResult, projectPath }: { toolName: string; toolInput: Record<string, any>; toolResult?: any; projectPath?: string }) => {
       const { handleToolUse } = await import('../../../core/hooks/agent-hooks.js');
+      const resolvedProjectPath = resolveProjectPath(projectPath);
       const result = await handleToolUse({
         toolName,
         toolInput,
         toolResult,
-        projectPath: projectPath, // undefined = global scope
+        projectPath: resolvedProjectPath,
         agentType: 'opencode'
       });
       return {
@@ -730,8 +765,9 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
     },
     async ({ projectPath }: { projectPath?: string }) => {
       const { handleSessionEnd } = await import('../../../core/hooks/agent-hooks.js');
+      const resolvedProjectPath = resolveProjectPath(projectPath);
       const result = await handleSessionEnd({
-        projectPath: projectPath, // undefined = global scope
+        projectPath: resolvedProjectPath,
         agentType: 'opencode'
       });
       return {

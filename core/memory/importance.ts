@@ -299,21 +299,4 @@ export async function setImportanceScore(
     .where(eq(schema.memories.id, memoryId));
 }
 
-/**
- * Pin a memory to prevent decay and consolidation
- */
-export async function pinMemory(memoryId: string, pinned: boolean = true): Promise<void> {
-  const { db, schema } = await getDbClient();
-
-  await db
-    .update(schema.memories)
-    .set({
-      isPinned: pinned ? 1 : 0,
-      // When pinning, set max importance; when unpinning, recalculate
-      importanceScore: pinned ? 100 : undefined,
-      lastImportanceRecalc: new Date(),
-    })
-    .where(eq(schema.memories.id, memoryId));
-}
-
 // cosineSimilarity has been removed - import from core/utils/vector-operations.ts directly

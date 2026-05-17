@@ -7,8 +7,8 @@ import { eq } from 'drizzle-orm';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
 import { config } from '../../config.js';
+import { createDatabaseClient } from '../storage/database.js';
 import { performMemoryOperation } from '../utils/memory-operations.js';
-import { logger } from '../logger.js';
 import { logger } from '../logger.js';
 
 /**
