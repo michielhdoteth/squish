@@ -247,7 +247,7 @@ const deepMaintenanceHandler = async (context: JobExecutionContext) => {
   const { runFullMaintenance } = await import('../consolidation.js');
   const result = await runFullMaintenance({
     dryRun: jobConfig.dryRun !== undefined ? jobConfig.dryRun : false,
-    steps: ['dedup', 'stale', 'consolidate', 'inbox'],
+    steps: ['consolidate', 'inbox'],
     age: jobConfig.age || 90,
     llmEnabled: true,
   });
