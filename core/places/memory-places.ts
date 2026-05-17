@@ -250,7 +250,129 @@ export async function initializeProjectPlaces(projectId: string): Promise<{
 }
 
 /**
- * Auto-archive old memories - move memories > 30 days from active places to Archive
+ * Process inbox memories - move memories from Inbox to more appropriate places
+ * by running inferPlaceHintWithLLM on each inbox memory
+ */
+export async function processInbox(projectId: string): Promise<{
+  processed: number;
+  moved: number;
+  errors: number;
+}> {
+  const db = await getDb();
+  if (!db) return { processed: 0, moved: 0, errors: 0 };
+
+  const schema = await getSchema();
+  const sqliteDb = db as any;
+  
+  // Get the Inbox place for this project
+  const inboxPlace = await getPlaceByType(projectId, 'inbox');
+  if (!inboxPlace) {
+    logger.warn(`[MemoryPlaces] Inbox place not found for project ${projectId}`);
+    return { processed: 0, moved: 0, errors: 0 };
+  }
+
+  // Get all memory-place assignments for Inbox
+  const inboxAssignments = await sqliteDb.select({
+    memoryId: schema.memoryPlaces.memoryId,
+    placeId: schema.memoryPlaces.placeId,
+    isManual: schema.memoryPlaces.isManual,
+  })
+  .from(schema.memoryPlaces)
+  .where(eq(schema.memoryPlaces.placeId, inboxPlace.id));
+
+  if (inboxAssignments.length === 0) {
+    return { processed: 0, moved: 0, errors: 0 };
+  }
+
+  // Filter out manually assigned memories
+  const autoAssignedMemories = inboxAssignments
+    .filter((m: any) => !m.isManual)
+    .map((m: any) => m.memoryId);
+
+  if (autoAssignedMemories.length === 0) {
+    return { processed: 0, moved: 0, errors: 0 };
+  }
+
+  // Get the actual memories content
+  const memories = await sqliteDb.select({
+    id: schema.memories.id,
+    content: schema.memories.content,
+  })
+  .from(schema.memories)
+  .where(and(
+    eq(schema.memories.projectId, projectId),
+  ));
+
+  // Filter only inbox memories that have content
+  const inboxMemories = memories.filter((m: any) => autoAssignedMemories.includes(m.id));
+
+  let moved = 0;
+  let errors = 0;
+
+  for (const mem of inboxMemories) {
+    try {
+      // Import and use the async place hint inference
+      const { inferPlaceHintWithLLM } = await import('../ingestion/signal-engine.js');
+      const placeHint = await inferPlaceHintWithLLM('', mem.content?.toLowerCase() || '', mem.content || '');
+      
+      if (placeHint.placeType && placeHint.placeType !== 'inbox') {
+        // Find the target place
+        const targetPlace = await getPlaceByType(projectId, placeHint.placeType);
+        if (targetPlace) {
+          await assignMemoryToPlace({
+            memoryId: mem.id,
+            placeId: targetPlace.id,
+            isManual: false,
+          });
+          moved++;
+          logger.info(`[MemoryPlaces] processInbox: moved memory ${mem.id} from inbox to ${placeHint.placeType}`);
+        }
+      }
+    } catch (e) {
+      logger.warn(`[MemoryPlaces] processInbox: error processing memory ${mem.id}: ${e}`);
+      errors++;
+    }
+  }
+
+  logger.info(`[MemoryPlaces] processInbox: processed ${inboxMemories.length}, moved ${moved}, errors ${errors}`);
+  return { processed: inboxMemories.length, moved, errors };
+}
+
+/**
+ * Process inbox for all projects
+ */
+export async function processInboxForAllProjects(): Promise<{
+  totalProcessed: number;
+  totalMoved: number;
+  totalErrors: number;
+}> {
+  const { getAllProjects } = await import('../projects.js');
+  const projects = await getAllProjects();
+  
+  let totalProcessed = 0;
+  let totalMoved = 0;
+  let totalErrors = 0;
+
+  for (const project of projects) {
+    try {
+      const result = await processInbox(project.id);
+      totalProcessed += result.processed;
+      totalMoved += result.moved;
+      totalErrors += result.errors;
+    } catch (e) {
+      logger.warn(`[MemoryPlaces] processInboxForAllProjects: error for project ${project.id}: ${e}`);
+      totalErrors++;
+    }
+  }
+
+  logger.info(`[MemoryPlaces] processInboxForAllProjects: processed ${totalProcessed}, moved ${totalMoved}, errors ${totalErrors}`);
+  return { totalProcessed, totalMoved, totalErrors };
+}
+
+/**
+ * Auto-archive old memories - move memories > 30 days from active places to Archive.
+ * Also archives non-inbox/non-archive memories that haven't been accessed in 45+ days
+ * with importance < 30.
  * Keeps active places lean and organized
  */
 export async function autoArchiveOldMemories(projectId: string, daysOld: number = 30): Promise<{
@@ -270,12 +392,17 @@ export async function autoArchiveOldMemories(projectId: string, daysOld: number 
     return { archived: 0, failed: 0 };
   }
 
-  // Calculate cutoff date (Unix timestamp for SQLite)
+  // Calculate cutoff dates (Unix timestamp for SQLite)
   const cutoffDate = new Date();
   cutoffDate.setDate(cutoffDate.getDate() - daysOld);
   const cutoffTimestamp = Math.floor(cutoffDate.getTime() / 1000);
-  
-  // Get all active place IDs (not archive)
+
+  // Additional: 45-day cutoff for low-importance memories
+  const lowImpCutoffDate = new Date();
+  lowImpCutoffDate.setDate(lowImpCutoffDate.getDate() - 45);
+  const lowImpCutoffTimestamp = Math.floor(lowImpCutoffDate.getTime() / 1000);
+
+  // Get all place IDs (excluding archive and inbox)
   const allPlaces = await sqliteDb.select()
     .from(schema.places)
     .where(eq(schema.places.projectId, projectId));
@@ -283,36 +410,58 @@ export async function autoArchiveOldMemories(projectId: string, daysOld: number 
   const activePlaceIds = allPlaces
     .filter((p: any) => p.place_type !== 'archive')
     .map((p: any) => p.id);
+
+  const nonInboxNonArchivePlaceIds = allPlaces
+    .filter((p: any) => p.place_type !== 'archive' && p.place_type !== 'inbox')
+    .map((p: any) => p.id);
   
   if (activePlaceIds.length === 0) {
     return { archived: 0, failed: 0 };
   }
 
   // Find memories in active places that are older than cutoff
-  // Use raw SQL for complex date comparison
   const oldMemories = await sqliteDb.select({
     memoryId: schema.memories.id,
     placeId: schema.memoryPlaces.placeId,
     createdAt: schema.memories.createdAt,
+    importance: schema.memories.importanceScore,
+    lastAccessedAt: schema.memories.lastAccessedAt,
   })
   .from(schema.memories)
   .innerJoin(schema.memoryPlaces, eq(schema.memories.id, schema.memoryPlaces.memoryId))
   .where(
     and(
       eq(schema.memories.projectId, projectId),
-      // Memories in active places (not archive)
     )
   );
 
-  // Actually filter in JS for simplicity
+  // Filter 1: Old memories from active places (original behavior)
   const memoriesToArchive = oldMemories.filter((m: any) => 
     activePlaceIds.includes(m.placeId) && m.createdAt < cutoffTimestamp
   );
 
+  // Filter 2: Low-importance, long-unaccessed memories from non-inbox/non-archive places
+  const lowImpMemories = oldMemories.filter((m: any) =>
+    nonInboxNonArchivePlaceIds.includes(m.placeId) &&
+    (m.createdAt < lowImpCutoffTimestamp || (m.lastAccessedAt && m.lastAccessedAt < lowImpCutoffTimestamp)) &&
+    (m.importance ?? 50) < 30
+  );
+
+  // Merge, deduplicate by memoryId
+  const memoryMap = new Map<string, any>();
+  for (const mem of memoriesToArchive) memoryMap.set(mem.memoryId, mem);
+  for (const mem of lowImpMemories) {
+    if (!memoryMap.has(mem.memoryId)) {
+      memoryMap.set(mem.memoryId, mem);
+    }
+  }
+
+  const allMemoriesToArchive = Array.from(memoryMap.values());
+
   let archived = 0;
   let failed = 0;
   
-  for (const mem of memoriesToArchive) {
+  for (const mem of allMemoriesToArchive) {
     try {
       // Move to archive place
       await sqliteDb.update(schema.memoryPlaces)

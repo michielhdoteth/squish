@@ -1,4 +1,5 @@
 import { createHash } from 'crypto';
+import { config } from '../../config.js';
 
 export type SignalClassification =
   | 'discard'
@@ -78,6 +79,44 @@ function inferPlaceHint(toolName: string, normalized: string): SignalDecision['p
   if (/\b(idea|explore|future|concept)\b/.test(normalized)) {
     return { placeType: 'sparks', confidence: 0.68 };
   }
+  return { placeType: null, confidence: 0 };
+}
+
+/**
+ * Async version of inferPlaceHint with LLM fallback.
+ * First applies regex-based classification, then falls back to LLM if:
+ * - No regex match was found (placeType is null)
+ * - LLM classification is enabled via config
+ */
+export async function inferPlaceHintWithLLM(toolName: string, normalized: string, originalContent?: string): Promise<SignalDecision['placeHint']> {
+  // Step 1: Try regex-based classification first
+  const regexResult = inferPlaceHint(toolName, normalized);
+  if (regexResult.placeType !== null) {
+    return regexResult;
+  }
+
+  // Step 2: If regex didn't match and LLM classification is enabled, try LLM
+  if (originalContent && config.placeClassificationEnabled) {
+    try {
+      const { callLLM } = await import('../llm/client.js');
+      const prompt = `Given this memory content, which place should it go to? Options: inbox, ref, wip, sandbox, board, sparks, archive. Respond with ONLY the place name.
+
+Content: ${originalContent.slice(0, 1500)}`;
+      const response = await callLLM(prompt);
+      if (response) {
+        const cleaned = response.trim().toLowerCase();
+        const validPlaces = ['inbox', 'ref', 'wip', 'sandbox', 'board', 'sparks', 'archive'] as const;
+        for (const place of validPlaces) {
+          if (cleaned === place || cleaned.startsWith(place + ' ') || cleaned.endsWith(' ' + place) || cleaned.includes(place)) {
+            return { placeType: place, confidence: 0.75 };
+          }
+        }
+      }
+    } catch {
+      // LLM failed silently - fall through to default
+    }
+  }
+
   return { placeType: null, confidence: 0 };
 }
 
