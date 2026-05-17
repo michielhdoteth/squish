@@ -14,6 +14,7 @@ const LLM_PROVIDERS = ['openai', 'anthropic', 'ollama', 'lmstudio', 'local'] as 
 const GRAPH_EXTRACTION_METHODS = ['llm', 'regex', 'auto'] as const;
 const SCHEDULER_MODES = ['cron', 'interval', 'heartbeat'] as const;
 const VISIBILITY_SCOPES = ['private', 'project', 'team', 'global'] as const;
+const DECAY_ENGINES = ['sector', 'ebbinghaus'] as const;
 
 function loadSettings(): Settings {
   const settingsPath = join(__dirname, 'config', 'settings.json');
@@ -211,6 +212,7 @@ const graphAutoBuild = getBoolean('graph.autoBuild', 'SQUISH_GRAPH_AUTO_BUILD', 
 const graphAutoExport = getBoolean('graph.autoExport', 'SQUISH_GRAPH_AUTO_EXPORT', false);
 const graphExtractionMethod = getEnum('graph.extractionMethod', 'SQUISH_GRAPH_EXTRACTION_METHOD', GRAPH_EXTRACTION_METHODS, 'auto');
 const graphMaxContentLength = getNumber('graph.maxContentLength', 'SQUISH_GRAPH_MAX_CONTENT_LENGTH', 10000);
+const placeClassificationEnabled = getBoolean('places.placeClassificationEnabled', 'SQUISH_PLACE_LLM_CLASSIFICATION', false);
 
 const scoringWeights = {
   recency: getNumber('scoring.weights.recency', 'SQUISH_WEIGHT_RECENCY', 0.5),
@@ -266,6 +268,12 @@ export const config = {
     procedural: getNumber('lifecycle.decay.procedural', 'SQUISH_DECAY_PROCEDURAL', 180),
     autobiographical: getNumber('lifecycle.decay.autobiographical', 'SQUISH_DECAY_AUTOBIOGRAPHICAL', 365),
     working: getNumber('lifecycle.decay.working', 'SQUISH_DECAY_WORKING', 7),
+  },
+  // Phase 5: Ebbinghaus decay engine config
+  decay: {
+    engine: getEnum('decay.engine', 'SQUISH_DECAY_ENGINE', DECAY_ENGINES, 'ebbinghaus'),
+    hotTierDays: getNumber('decay.hotTierDays', 'SQUISH_DECAY_HOT_TIER_DAYS', 7),
+    coldTierDays: getNumber('decay.coldTierDays', 'SQUISH_DECAY_COLD_TIER_DAYS', 30),
   },
 
   summarizationEnabled: getBoolean('features.summarizationEnabled', 'SQUISH_SUMMARIZATION_ENABLED', true),
@@ -328,6 +336,7 @@ export const config = {
   graphBackend: getEnum('graph.backend', 'SQUISH_GRAPH_BACKEND', ['memory', 'kuzu'] as const, 'memory'),
   kuzuPath: getString('graph.kuzuPath', 'SQUISH_KUZU_PATH', './squish.graph'),
   graph: { autoBuild: graphAutoBuild, autoExport: graphAutoExport, extractionMethod: graphExtractionMethod, maxContentLength: graphMaxContentLength },
+  placeClassificationEnabled,
 };
 
 export default config;

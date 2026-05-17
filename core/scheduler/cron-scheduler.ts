@@ -2,7 +2,7 @@
 
 import cron from 'node-cron';
 import { selfIterationHandler } from '../session/self-iteration-job.js';
-import { runLifecycleMaintenance } from '../lifecycle.js';
+import { updateAllDecayScores } from '../decay/decay-engine.js';
 import { logger } from '../logger.js';
 import { config } from '../../config.js';
 import { getDb } from '../../db/index.js';
@@ -53,15 +53,16 @@ export function registerJobHandler(jobName: string, handler: JobHandler): void {
 // Register self-iteration job handler
 registerJobHandler('self_iteration', selfIterationHandler);
 
-// Decay job handler - runs lifecycle maintenance (decay, tier updates, eviction)
+// Decay job handler - uses Ebbinghaus power-law decay engine
+// Replaces sector-based decay with Ebbinghaus forgetting curve
 const decayHandler = async (context: JobExecutionContext) => {
-  const stats = await runLifecycleMaintenance();
+  const stats = await updateAllDecayScores();
   return {
-    recordsProcessed: stats.decayed + stats.expired + stats.evicted,
+    recordsProcessed: stats.updated,
     summary: {
-      decayed: stats.decayed,
-      expired: stats.expired,
-      evicted: stats.evicted,
+      processed: stats.processed,
+      updated: stats.updated,
+      errors: stats.errors,
     },
   };
 };
@@ -142,6 +143,21 @@ const autoCleanHandler = async (context: JobExecutionContext) => {
   };
 };
 registerJobHandler('auto_clean', autoCleanHandler);
+
+// Inbox triage handler - processes inbox memories and moves them to appropriate places
+const inboxTriageHandler = async (context: JobExecutionContext) => {
+  const { processInboxForAllProjects } = await import('../places/memory-places.js');
+  const result = await processInboxForAllProjects();
+  return {
+    recordsProcessed: result.totalMoved,
+    summary: {
+      processed: result.totalProcessed,
+      moved: result.totalMoved,
+      errors: result.totalErrors,
+    },
+  };
+};
+registerJobHandler('inbox_triage', inboxTriageHandler);
 
 // Consolidation sleep cycle handler - runs DBSCAN clustering and pattern extraction
 const consolidationHandler = async (context: JobExecutionContext) => {
@@ -313,7 +329,7 @@ async function ensureDefaultJobs(db: any): Promise<void> {
       jobType: 'nightly' as JobType,
       cronExpression: '0 2 * * *',
       enabled: true,
-      jobConfig: { mergeDuplicates: true, boostAccessed: true, decayScores: true },
+      jobConfig: { mergeDuplicates: true, boostAccessed: true },
     },
     {
       jobName: 'weekly_maintenance',
@@ -354,6 +370,15 @@ async function ensureDefaultJobs(db: any): Promise<void> {
         maxClusterSize: 20,
         similarityThreshold: 0.8,
         mergeConfidence: 0.85,
+      },
+    },
+    {
+      jobName: 'inbox_triage',
+      jobType: 'daily' as JobType,
+      cronExpression: '0 */6 * * *', // Run every 6 hours
+      enabled: true,
+      jobConfig: {
+        enabled: true,
       },
     },
   ];

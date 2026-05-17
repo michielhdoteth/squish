@@ -30,6 +30,10 @@ export interface MemoryForDecay {
   createdAt: Date | string | number;
   tau?: number;
   beta?: number;
+  /** Memory tier: 'hot' = skip decay, 'warm' = normal decay, 'cold' = faster decay */
+  tier?: string;
+  /** Whether the memory is pinned (exempt from decay) */
+  isPinned?: boolean;
 }
 
 export interface DecayEngineStats {
@@ -72,36 +76,47 @@ export async function updateAllDecayScores(projectId?: string): Promise<DecayEng
     updated: 0,
     errors: []
   };
-  
+
   try {
     const { raw } = await getDbClient();
     const sqlite = (raw as any)?.$client;
     const isPg = typeof (raw as any)?.query === 'function';
-    
+
     if (!sqlite && !isPg) {
       logger.warn('No database client available for decay engine');
       return stats;
     }
-    
+
     const now = Date.now();
-    
+    const coldMultiplier = 1.5; // Cold tier decays 1.5x faster
+
     if (isPg) {
       // PostgreSQL version
       const pg = raw as any;
-      
-      // Get all active memories
+
+      // Get all active, non-pinned memories
       const query = projectId
-        ? `SELECT id, relevance_score, type, last_decay_at, created_at, decay_rate
-           FROM memories WHERE project_id = $1 AND status = 'active'`
-        : `SELECT id, relevance_score, type, last_decay_at, created_at, decay_rate
-           FROM memories WHERE status = 'active'`;
-      
+        ? `SELECT id, relevance_score, type, last_decay_at, created_at, decay_rate, is_pinned, tier
+           FROM memories WHERE project_id = $1 AND status = 'active' AND (is_pinned IS NULL OR is_pinned = false)`
+        : `SELECT id, relevance_score, type, last_decay_at, created_at, decay_rate, is_pinned, tier
+           FROM memories WHERE status = 'active' AND (is_pinned IS NULL OR is_pinned = false)`;
+
       const result = await pg.query(query, projectId ? [projectId] : []);
-      
+
       for (const mem of result.rows) {
         try {
           stats.processed++;
-          
+
+          // Belt-and-suspenders: skip pinned memories
+          if (mem.is_pinned) {
+            continue;
+          }
+
+          // Tier-aware decay: skip hot tier entirely
+          if (mem.tier === 'hot') {
+            continue;
+          }
+
           const memory: MemoryForDecay = {
             id: mem.id,
             score: mem.relevance_score || 100,
@@ -111,9 +126,17 @@ export async function updateAllDecayScores(projectId?: string): Promise<DecayEng
             tau: mem.decay_rate,
             beta: undefined
           };
-          
-          const newScore = applyEbbinghausDecay(memory);
-          
+
+          let newScore = applyEbbinghausDecay(memory);
+
+          // Cold tier: accelerate decay by lowering score further
+          if (mem.tier === 'cold') {
+            newScore = newScore / coldMultiplier;
+          }
+
+          // Clamp to [0, 100]
+          newScore = Math.max(0, Math.min(100, newScore));
+
           // Update if score changed significantly (more than 0.5)
           if (Math.abs(newScore - memory.score) > 0.5) {
             await pg.query(
@@ -130,17 +153,27 @@ export async function updateAllDecayScores(projectId?: string): Promise<DecayEng
     } else if (sqlite) {
       // SQLite version
       const query = projectId
-        ? `SELECT id, relevance_score, type, last_decay_at, created_at, decay_rate
-           FROM memories WHERE project_id = ? AND status = 'active'`
-        : `SELECT id, relevance_score, type, last_decay_at, created_at, decay_rate
-           FROM memories WHERE status = 'active'`;
-      
+        ? `SELECT id, relevance_score, type, last_decay_at, created_at, decay_rate, is_pinned, tier
+           FROM memories WHERE project_id = ? AND status = 'active' AND (is_pinned IS NULL OR is_pinned = 0)`
+        : `SELECT id, relevance_score, type, last_decay_at, created_at, decay_rate, is_pinned, tier
+           FROM memories WHERE status = 'active' AND (is_pinned IS NULL OR is_pinned = 0)`;
+
       const memories = sqlite.prepare(query).all(projectId || null) as any[];
-      
+
       for (const mem of memories) {
         try {
           stats.processed++;
-          
+
+          // Belt-and-suspenders: skip pinned memories
+          if (mem.is_pinned) {
+            continue;
+          }
+
+          // Tier-aware decay: skip hot tier entirely
+          if (mem.tier === 'hot') {
+            continue;
+          }
+
           const memory: MemoryForDecay = {
             id: mem.id,
             score: mem.relevance_score || 100,
@@ -150,9 +183,17 @@ export async function updateAllDecayScores(projectId?: string): Promise<DecayEng
             tau: mem.decay_rate,
             beta: undefined
           };
-          
-          const newScore = applyEbbinghausDecay(memory);
-          
+
+          let newScore = applyEbbinghausDecay(memory);
+
+          // Cold tier: accelerate decay by lowering score further
+          if (mem.tier === 'cold') {
+            newScore = newScore / coldMultiplier;
+          }
+
+          // Clamp to [0, 100]
+          newScore = Math.max(0, Math.min(100, newScore));
+
           // Update if score changed significantly
           if (Math.abs(newScore - memory.score) > 0.5) {
             sqlite.prepare(`
@@ -167,14 +208,14 @@ export async function updateAllDecayScores(projectId?: string): Promise<DecayEng
         }
       }
     }
-    
+
     logger.info('Ebbinghaus decay applied', stats);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     logger.error('Decay engine failed', { error: msg });
     stats.errors.push(msg);
   }
-  
+
   return stats;
 }
 
