@@ -25,7 +25,7 @@ Session 2: "Add rate limiting"
 ```
 
 <p align="center">
-  <img src="squish-demo.gif" width="780" alt="Squish Demo" />
+  <img src="assets/demo/squish-demo.gif" width="780" alt="Squish Demo" />
 </p>
 
 ```bash
