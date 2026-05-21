@@ -24,7 +24,9 @@ Session 2: "Add rate limiting"
   Zero re-explaining. Starts working immediately.
 ```
 
-![Squish Demo](squish-demo.gif)
+<p align="center">
+  <img src="squish-demo.gif" width="780" alt="Squish Demo" />
+</p>
 
 ```bash
 npm install -g squish-memory && squish install --all
@@ -34,6 +36,7 @@ npm install -g squish-memory && squish install --all
 
 Squish speaks MCP and HTTP. One server, memories shared across all of them.
 
+<div align="center">
 <table>
   <tr>
     <td align="center" width="120">
@@ -88,12 +91,14 @@ Squish speaks MCP and HTTP. One server, memories shared across all of them.
       <strong>Aider</strong><br/>
       MCP
     </td>
-    <td align="center" colspan="2">
-      <strong>Any MCP client</strong><br/>
-      <span style="color:#9CA3AF;">Works with any agent that speaks MCP or HTTP</span>
+    <td align="center" width="120">
+      <strong>Any MCP</strong><br/>
+      <span style="color:#9CA3AF;">Client</span>
     </td>
   </tr>
 </table>
+</div>
+<p align="center"><em>Works with any agent that speaks MCP or HTTP. One server, memories shared across all of them.</em></p>
 
 ## Why Squish
 
