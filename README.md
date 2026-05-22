@@ -11,7 +11,7 @@
 
 **With Squish:** Restart the agent. Continue working.
 
-283KB. 1-5ms retrieval. No second LLM. No API keys. $0 runtime. Runs local.
+283KB. 1-5ms retrieval. Works with or without LLM. $0 runtime. Runs local.
 
 ---
 
@@ -61,20 +61,20 @@ Most memory tools need a second LLM for embeddings and retrieval. That means:
 - More latency (500ms+ per LLM call)
 - More complexity (API keys, rate limits, downtime)
 
-**Squish uses local embeddings. No second LLM needed.**
+**Squish uses local embeddings by default. No forced LLM dependency.**
 - 1-5ms embedding latency (not 500ms+)
-- $0 runtime cost (not $10-100+/mo)
-- Zero API keys (not a dozen env vars)
-- 283KB package (not a 2GB model)
+- $0 runtime cost in local mode
+- Optional LLM for enhanced extraction and Cloud features
+- 283KB package (30-100x smaller than alternatives)
 
 | Feature | Most Memory Tools | Squish |
 |---------|------------------|--------|
-| Needs a second LLM | Yes | **No** |
 | Embedding latency | 200-1000ms | **1-5ms** |
-| API keys required | Yes | **No** |
-| Runtime cost | $10-100+/mo | **$0** |
+| Local mode cost | $10-100+/mo | **$0** |
+| LLM required | Yes | **Optional** |
 | Package size | 50MB-2GB | **283KB** |
 | MCP server | Sometimes | **Built-in (15 tools)** |
+| Cloud sync | Enterprise-only | **$9/mo** |
 
 ---
 
