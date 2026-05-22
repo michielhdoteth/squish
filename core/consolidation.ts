@@ -1,12 +1,8 @@
 // Memory Consolidation & Deduplication
 import { eq, inArray, and, lt } from 'drizzle-orm';
-import { getDb } from '../db/index.js';
-import { getSchema } from '../db/schema.js';
 import { config } from '../config.js';
 import { createAssociation } from './associations.js';
 import { logger } from './logger.js';
-import { consolidateMemories, getConsolidationStats } from './memory/consolidation.js';
-import { callLLM } from './llm/client.js';
 
 /**
  * Options for unified full maintenance run (Phase 6)
@@ -68,6 +64,8 @@ export async function runDeduplicationJob(projectId?: string): Promise<Deduplica
   };
 
   try {
+    const { getDb } = await import('../db/index.js');
+    const { getSchema } = await import('../db/schema.js');
     const db = await getDb();
     const schema = await getSchema();
     
@@ -296,6 +294,7 @@ async function findSemanticDuplicates(
       if (content1.length < 10 || content2.length < 10) continue;
 
       try {
+        const { callLLM } = await import('./llm/client.js');
         const prompt = `Compare these two texts. Are they semantically similar (same meaning, different wording)?
 
 TEXT 1: ${content1.slice(0, 300)}
@@ -331,6 +330,8 @@ async function autoMergeDuplicates(
   duplicateIds: string[]
 ): Promise<number> {
   try {
+    const { getDb } = await import('../db/index.js');
+    const { getSchema } = await import('../db/schema.js');
     const db = await getDb();
     const schema = await getSchema();
     const now = new Date();
@@ -390,6 +391,7 @@ export async function runFullConsolidationJob(projectId?: string): Promise<Conso
   
   // Run memory consolidation for each project
   if (projectId) {
+    const { consolidateMemories } = await import('./memory/consolidation.js');
     const consolidationResults = await consolidateMemories({
       projectId,
       minAge: 60,
@@ -435,6 +437,8 @@ export async function getDeduplicationStats(projectId?: string): Promise<{
   pendingDuplicates: number;
 }> {
   try {
+    const { getDb } = await import('../db/index.js');
+    const { getSchema } = await import('../db/schema.js');
     const db = await getDb();
     const schema = await getSchema();
     
@@ -559,6 +563,7 @@ export async function runFullMaintenance(
     if (steps.includes('consolidate')) {
       try {
         if (projectId) {
+          const { consolidateMemories } = await import('./memory/consolidation.js');
           const consolidationResults = await consolidateMemories({
             projectId,
             minAge: age,

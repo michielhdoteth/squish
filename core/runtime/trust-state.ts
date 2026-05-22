@@ -5,7 +5,7 @@ import { getMemoryStats } from '../memory/stats.js';
 import { explainMemory } from '../memory/explain.js';
 import { getLatestProjectWorkingSetSummary, getProjectSignalStats } from '../session/working-set.js';
 import { getGraphStats } from '../graph/index.js';
-import { getAllProjects, getProjectByPath, ensureProject, type ProjectRecord } from '../projects.js';
+import { getAllProjects, getProjectByPath, requireProject, type ProjectRecord } from '../projects.js';
 import { getProjectPlaces } from '../places/places.js';
 import { getMemoryPlace } from '../places/memory-places.js';
 import { getPlace } from '../places/places.js';
@@ -65,18 +65,9 @@ export async function resolveProjectScope(projectPath?: string): Promise<TrustPr
   const explicitPath = projectPath?.trim();
 
   if (explicitPath) {
-    let project = await getProjectByPath(explicitPath);
-    let resolution: 'explicit' | 'auto-created' = 'explicit';
-    if (!project) {
-      project = await ensureProject(explicitPath);
-      resolution = 'auto-created';
-    }
-    if (!project) {
-      throw new Error(`Unable to resolve project: ${explicitPath}`);
-    }
-
+    const project = await requireProject(explicitPath);
     return {
-      currentProject: toProjectSummary(project, resolution),
+      currentProject: toProjectSummary(project, 'explicit'),
       otherProjects: filterNormalOtherProjects(projects, project.id, explicitPath)
         .map((candidate) => toProjectSummary(candidate, 'inferred')),
       nextStep: null,
@@ -102,22 +93,37 @@ export async function resolveProjectScope(projectPath?: string): Promise<TrustPr
     };
   }
 
-  const autoProject = await ensureProject(cwd);
-  if (!autoProject) {
-    throw new Error(`Unable to create project for current workspace: ${cwd}`);
+  if (projects.length === 0) {
+    // Fresh install with no projects yet. Use the global __squish_global__ project.
+    const { ensureGlobalProject } = await import('../places/places.js');
+    const globalProject = await ensureGlobalProject();
+    const allProjects = await getAllProjects();
+    return {
+      currentProject: {
+        id: globalProject.id,
+        name: '__squish_global__',
+        path: '__squish_global__',
+        resolution: 'auto-created',
+      },
+      otherProjects: allProjects
+        .filter((candidate) => candidate.id !== globalProject.id)
+        .map((candidate) => toProjectSummary(candidate, 'inferred')),
+      nextStep: 'Initialized global memory project.',
+    };
   }
 
-  const otherProjects = projects
-    .filter((candidate) => candidate.id !== autoProject.id)
-    .filter((candidate) => !isLegacyPlaceholderProject(candidate, cwd))
-    .map((candidate) => toProjectSummary(candidate, 'inferred'));
-
+  // Multiple projects exist but none match cwd. Show all available projects.
   return {
-    currentProject: toProjectSummary(autoProject, 'auto-created'),
-    otherProjects,
+    currentProject: {
+      id: '',
+      name: 'No matching project',
+      path: cwd,
+      resolution: 'inferred' as const,
+    },
+    otherProjects: projects.map((candidate) => toProjectSummary(candidate, 'inferred')),
     nextStep:
-      otherProjects.length > 0
-        ? 'Pass --project with the intended workspace path if this is not the project you meant.'
+      projects.length > 0
+        ? `No project found for ${cwd}. Available projects: ${projects.map((p) => p.name).join(', ')}`
         : null,
   };
 }

@@ -4,7 +4,7 @@ import path from 'node:path';
 
 const homeDir = os.homedir();
 
-function getInstalledMcpCommand() {
+export function getInstalledMcpCommand() {
   return process.platform === 'win32' ? 'squish-mcp.cmd' : 'squish-mcp';
 }
 
@@ -30,9 +30,9 @@ export function buildClaudeCodeMcpConfig() {
 export function buildOpenCodeMcpConfig() {
   return {
     'squish-memory': {
-      type: 'stdio',
+      type: 'local',
       command: [getInstalledMcpCommand(), '--stdio'],
-      env: {
+      environment: {
         SQUISH_MODE: 'local',
         SQUISH_DATA_DIR: '~/.squish/opencode',
       },
@@ -109,6 +109,25 @@ function upsertCodexMcpBlock(existingToml) {
   return existingToml.trimEnd() ? `${existingToml.trimEnd()}\n\n${block}\n` : `${block}\n`;
 }
 
+function removeJsonKey(obj, keyPath) {
+  if (!obj) return false;
+  const keys = keyPath.split('.');
+  let current = obj;
+  for (let i = 0; i < keys.length - 1; i++) {
+    if (!current[keys[i]]) return false;
+    current = current[keys[i]];
+  }
+  const lastKey = keys[keys.length - 1];
+  if (!(lastKey in current)) return false;
+  delete current[lastKey];
+  return true;
+}
+
+function removeCodexMcpBlock(existingToml) {
+  const pattern = /\n?\[mcp_servers\.squish-memory\][\s\S]*?(?=\n\[|$)/m;
+  return existingToml.replace(pattern, '');
+}
+
 export const CLIENT_MCP_TARGETS = {
   'claude-code': {
     path: path.join(homeDir, '.claude', 'mcp.json'),
@@ -118,23 +137,42 @@ export const CLIENT_MCP_TARGETS = {
       if (!dryRun) writeJson(targetPath, next);
       return { path: targetPath, content: next };
     },
+    uninstall(dryRun = false) {
+      const targetPath = this.path;
+      const existing = readJson(targetPath);
+      if (!existing) return { path: targetPath, existed: false };
+      const changed = removeJsonKey(existing, 'mcpServers.squish');
+      if (changed && !dryRun) {
+        // Clean up empty mcpServers
+        if (existing.mcpServers && Object.keys(existing.mcpServers).length === 0) {
+          delete existing.mcpServers;
+        }
+        writeJson(targetPath, existing);
+      }
+      return { path: targetPath, changed };
+    },
   },
   opencode: {
-    path: path.join(homeDir, '.config', 'opencode', 'mcp-servers.json'),
+    path: path.join(homeDir, '.config', 'opencode', 'opencode.json'),
     install(dryRun = false) {
       const targetPath = this.path;
-      const next = {
-        ...readJson(targetPath),
-        ...buildOpenCodeMcpConfig(),
-      };
-      if (next.mcpServers?.['squish-memory']) {
-        delete next.mcpServers['squish-memory'];
-        if (Object.keys(next.mcpServers).length === 0) {
-          delete next.mcpServers;
-        }
+      const existing = readJson(targetPath) || {};
+      const entry = buildOpenCodeMcpConfig();
+      existing.mcp = { ...(existing.mcp || {}), ...entry };
+      if (!dryRun) writeJson(targetPath, existing);
+      return { path: targetPath, content: existing };
+    },
+    uninstall(dryRun = false) {
+      const targetPath = this.path;
+      const existing = readJson(targetPath);
+      if (!existing) return { path: targetPath, existed: false };
+      const changed = existing.mcp && 'squish-memory' in existing.mcp;
+      if (changed && !dryRun) {
+        delete existing.mcp['squish-memory'];
+        if (Object.keys(existing.mcp).length === 0) delete existing.mcp;
+        writeJson(targetPath, existing);
       }
-      if (!dryRun) writeJson(targetPath, next);
-      return { path: targetPath, content: next };
+      return { path: targetPath, changed };
     },
   },
   openclaw: {
@@ -144,6 +182,19 @@ export const CLIENT_MCP_TARGETS = {
       const next = mergeMcpServers(readJson(targetPath), buildOpenClawMcpConfig());
       if (!dryRun) writeJson(targetPath, next);
       return { path: targetPath, content: next };
+    },
+    uninstall(dryRun = false) {
+      const targetPath = this.path;
+      const existing = readJson(targetPath);
+      if (!existing) return { path: targetPath, existed: false };
+      const changed = removeJsonKey(existing, 'mcpServers.squish');
+      if (changed && !dryRun) {
+        if (existing.mcpServers && Object.keys(existing.mcpServers).length === 0) {
+          delete existing.mcpServers;
+        }
+        writeJson(targetPath, existing);
+      }
+      return { path: targetPath, changed };
     },
   },
   codex: {
@@ -157,6 +208,17 @@ export const CLIENT_MCP_TARGETS = {
         fs.writeFileSync(targetPath, next);
       }
       return { path: targetPath, content: next };
+    },
+    uninstall(dryRun = false) {
+      const targetPath = this.path;
+      if (!fs.existsSync(targetPath)) return { path: targetPath, existed: false };
+      const existing = fs.readFileSync(targetPath, 'utf-8');
+      const next = removeCodexMcpBlock(existing);
+      const changed = next !== existing;
+      if (changed && !dryRun) {
+        fs.writeFileSync(targetPath, next);
+      }
+      return { path: targetPath, changed };
     },
   },
 };

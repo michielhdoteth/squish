@@ -32,6 +32,7 @@ export interface RememberInput {
   type?: MemoryType;
   tags?: string[];
   project?: string;
+  user?: string;            // Optional user identifier (name or email)
   metadata?: Record<string, unknown>;
   source?: string;
   // Rich context fields (Agent 4 feedback)
@@ -50,12 +51,51 @@ export interface RememberInput {
   placeType?: string;    // Place type to route memory (inbox, ref, wip, etc.)
 }
 
+export async function getOrCreateUser(identifier: string, existingDb?: any, existingSchema?: any): Promise<{ id: string } | null> {
+  try {
+    const { db, schema } = existingDb ? { db: existingDb, schema: existingSchema } : await getDbClient();
+    const sqliteDb = db as any;
+    const usersTable = schema.users;
+
+    // Try to find existing user by externalId (name/email)
+    let user = await sqliteDb.select().from(usersTable).where(
+      eq(usersTable.externalId, identifier)
+    ).limit(1).then((rows: any[]) => rows[0] || null);
+
+    if (user) return { id: user.id };
+
+    // Try by email pattern detection
+    if (identifier.includes('@')) {
+      user = await sqliteDb.select().from(usersTable).where(
+        eq(usersTable.email, identifier)
+      ).limit(1).then((rows: any[]) => rows[0] || null);
+      if (user) return { id: user.id };
+    }
+
+    // Create new user
+    const id = randomUUID();
+    const isEmail = identifier.includes('@');
+    await sqliteDb.insert(usersTable).values({
+      id,
+      externalId: identifier,
+      name: isEmail ? null : identifier,
+      email: isEmail ? identifier : null,
+    });
+
+    return { id };
+  } catch (error) {
+    logger.warn(`[User] Failed to resolve user "${identifier}":`, error);
+    return null;
+  }
+}
+
 export interface SearchInput {
   query: string;
   type?: MemoryType;
   tags?: string[];
   limit?: number;
   project?: string;
+  user?: string;           // Optional user filter (name or email)
   // Place and session filters for unified search (Task 2, Task 3)
   placeId?: string;        // Filter by place
   placeType?: string;     // Filter by place type (inbox, wip, archive, etc.)
@@ -139,6 +179,18 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
   // Add namespace if specified
   if (input.namespaceId) {
     insertValues.namespaceId = input.namespaceId;
+  }
+
+  // Add user if specified
+  if (input.user && schema.users) {
+    try {
+      const userRecord = await getOrCreateUser(input.user, db, schema);
+      if (userRecord) {
+        insertValues.userId = userRecord.id;
+      }
+    } catch (e) {
+      logger.warn('[User] Failed to attach user:', e);
+    }
   }
 
   if (config.clientEncryptionEnabled) {
@@ -330,9 +382,29 @@ export async function search(input: SearchInput): Promise<SearchResult[]> {
   const limit = clampLimit(input.limit, 10, 1, 500);
   const tags = normalizeTags(input.tags);
 
+  // Resolve user filter if provided
+  let userId: string | null = null;
+  if (input.user) {
+    try {
+      const userRecord = await getOrCreateUser(input.user);
+      if (userRecord) {
+        userId = userRecord.id;
+      }
+    } catch {
+      // Ignore user resolution errors
+    }
+  }
+
   // Always use hybrid search for both SQLite and PostgreSQL
   // Omitted project means truly global search.
   const dbResults = await hybridSearchImpl(input, { limit });
+
+  // Post-filter by userId if user filter was provided
+  if (userId) {
+    return dbResults
+      .filter((r: any) => r.userId === userId || (r as any).user_id === userId)
+      .slice(0, limit);
+  }
 
   return dbResults.slice(0, limit);
 }

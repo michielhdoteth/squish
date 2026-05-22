@@ -376,7 +376,7 @@ export async function applySupersession(
       await createAssociation(newMemoryId, oldId, 'supersedes', confidence);
     }
     
-    logger.info('Applied supersession', {
+    logger.debug('Applied supersession', {
       newMemoryId,
       supersededCount: supersededIds.length,
       confidence,

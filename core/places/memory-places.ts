@@ -65,7 +65,7 @@ export async function assignMemoryToPlace(params: {
   // Update place memory count
   await updatePlaceMemoryCount(params.placeId);
 
-  logger.info(`[MemoryPlaces] Assigned memory ${params.memoryId} to place ${params.placeId}`);
+  logger.debug(`[MemoryPlaces] Assigned memory ${params.memoryId} to place ${params.placeId}`);
   return true;
 }
 

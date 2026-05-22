@@ -3,10 +3,15 @@
   "hooks": {
     "SessionStart": [
       {
+        "matcher": "*",
         "hooks": [
           {
+            "type": "prompt",
+            "prompt": "You have long-term memory from Squish loaded via MCP tools. Use squish context to load relevant memories from past sessions."
+          },
+          {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/session-start.sh",
+            "command": "${CODEX_PLUGIN_ROOT}/scripts/session-start.sh",
             "timeout": 30,
             "statusMessage": "Loading Squish memory context..."
           }
@@ -15,10 +20,11 @@
     ],
     "Stop": [
       {
+        "matcher": "*",
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/session-stop.sh",
+            "command": "${CODEX_PLUGIN_ROOT}/scripts/save-hook.sh",
             "timeout": 15,
             "async": true,
             "statusMessage": "Saving checkpoint..."
@@ -26,15 +32,15 @@
         ]
       }
     ],
-    "SessionEnd": [
+    "PreCompact": [
       {
+        "matcher": "*",
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/session-end.sh",
+            "command": "${CODEX_PLUGIN_ROOT}/scripts/precompact-hook.sh",
             "timeout": 30,
-            "async": true,
-            "statusMessage": "Squish: preserving session memory..."
+            "statusMessage": "Preserving memories before compaction..."
           }
         ]
       }

@@ -7,7 +7,7 @@ import { eq, sql, asc, desc } from 'drizzle-orm';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
 import { config } from '../../config.js';
-import { ensureProject } from '../../core/projects.js';
+import { getProjectByPath } from '../../core/projects.js';
 import { createDatabaseClient } from '../storage/database.js';
 import { getProjectSignalStats } from '../session/working-set.js';
 
@@ -38,7 +38,7 @@ export interface MemoryStats {
 /**
  * Get memory statistics for a project
  */
-export async function getMemoryStats(projectPath: string = process.cwd()): Promise<MemoryStats> {
+export async function getMemoryStats(projectPath?: string): Promise<MemoryStats> {
   let db: any;
   try {
     db = createDatabaseClient(await getDb());
@@ -47,9 +47,10 @@ export async function getMemoryStats(projectPath: string = process.cwd()): Promi
   }
 
   const schema = await getSchema();
-  const project = await ensureProject(projectPath);
+  const resolvedPath = projectPath || process.cwd();
+  const project = await getProjectByPath(resolvedPath);
   if (!project) {
-    throw new Error(`Project not found: ${projectPath}`);
+    throw new Error(`Project not found: ${resolvedPath}`);
   }
 
   const stats: MemoryStats = {
@@ -60,7 +61,7 @@ export async function getMemoryStats(projectPath: string = process.cwd()): Promi
     totalLearnings: 0,
     learningsByType: {},
     totalLinks: 0,
-    projectPath,
+    projectPath: resolvedPath,
     mode: config.isTeamMode ? 'team' : 'local',
   };
 

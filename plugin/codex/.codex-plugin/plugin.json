@@ -1,0 +1,30 @@
+{
+  "name": "squish-memory",
+  "version": "1.5.0",
+  "description": "Persistent memory system for AI agents with auto-capture, context injection, and cross-session recall",
+  "author": {
+    "name": "Michiel Horstman",
+    "url": "https://github.com/michielhdoteth"
+  },
+  "homepage": "https://github.com/michielhdoteth/squish-memory",
+  "license": "MIT",
+  "keywords": ["memory", "persistence", "context", "squish", "recall"],
+  "skills": "./skills/",
+  "hooks": "./hooks.json",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Squish Memory",
+    "shortDescription": "Persistent memory persistence and context injection",
+    "longDescription": "Squish provides universal long-term memory for AI agents. It auto-captures session context, enables cross-session recall, and injects relevant memories into your conversations. Memory persists across projects, sessions, and even different AI assistants.",
+    "developerName": "Michiel Horstman",
+    "category": "Productivity",
+    "capabilities": ["Read", "Write"],
+    "websiteURL": "https://github.com/michielhdoteth/squish-memory",
+    "brandColor": "#3B82F6",
+    "defaultPrompt": [
+      "What did we decide in previous sessions?",
+      "Save this important context for later.",
+      "Remind me about my project goals."
+    ]
+  }
+}

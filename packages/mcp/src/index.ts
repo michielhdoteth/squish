@@ -5,6 +5,9 @@
 console.log = console.error;
 console.info = console.error;
 
+// Load .env file for config
+import 'dotenv/config';
+
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -181,6 +184,7 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
       inputSchema: {
         content: z.string().describe("What to remember - can be a fact, decision, lesson, observation, or note"),
         project: z.string().optional().describe("Project path (auto-detected if not provided)"),
+        user: z.string().optional().describe("User identifier (name or email) to associate with this memory"),
         tags: z.array(z.string()).optional().describe("Optional tags for organization"),
         type: z.enum(["observation", "fact", "decision", "context", "preference", "note"]).optional().describe("Memory type - auto-detected if not provided"),
         learningType: z.enum(["success", "failure", "fix", "insight"]).optional().describe("Learning type when routing to learning storage"),
@@ -191,9 +195,10 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
         unpin: z.boolean().default(false).describe("Unpin memory")
       }
     },
-    async ({ content, project, tags = [], type, learningType, confidence, source, route = "auto", pin = false, unpin = false }: {
+    async ({ content, project, user, tags = [], type, learningType, confidence, source, route = "auto", pin = false, unpin = false }: {
       content: string;
       project?: string;
+      user?: string;
       tags?: string[];
       type?: "observation" | "fact" | "decision" | "context" | "preference" | "note";
       learningType?: "success" | "failure" | "fix" | "insight";
@@ -274,6 +279,7 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
           type: inferredType as any,
           tags,
           project: resolvedProject,
+          user,
           source: source || 'mcp'
         });
 
@@ -318,11 +324,12 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
         query: z.string().describe("Query text or memory ID to recall"),
         limit: z.number().min(1).max(100).default(5).describe("Maximum results for query recall"),
         project: z.string().optional().describe("Project path filter"),
+        user: z.string().optional().describe("Filter by user (name or email)"),
         type: z.enum(["observation", "fact", "decision", "context", "preference", "note", "task"]).optional().describe("Filter by memory type"),
         place: z.string().optional().describe("Filter by place (inbox, ref, wip, sandbox, board, sparks, archive)")
       }
     },
-    async ({ query, limit = 5, project, type, place }: { query: string; limit?: number; project?: string; type?: MemoryType; place?: string }) => {
+    async ({ query, limit = 5, project, user, type, place }: { query: string; limit?: number; project?: string; user?: string; type?: MemoryType; place?: string }) => {
       const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(query);
       const resolvedProject = resolveProjectPath(project);
 
@@ -338,6 +345,7 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
         query,
         limit,
         project: resolvedProject,
+        user,
         type,
         placeType: place
       });
@@ -866,8 +874,11 @@ async function runHttp(server: McpServer, port: number): Promise<void> {
 
   // API key auth for HTTP mode
   const MCP_API_KEY = process.env.SQUISH_MCP_API_KEY || '';
+  if (!MCP_API_KEY) {
+    console.warn(`[MCP] WARNING: HTTP mode without SQUISH_MCP_API_KEY - API is accessible to all localhost clients`);
+  }
   function checkMcpAuth(req: express.Request, res: express.Response): boolean {
-    if (!MCP_API_KEY) return true; // No key configured = no auth required (local default)
+    if (!MCP_API_KEY) return true; // No key configured = localhost-only assumed
     const provided = req.headers['x-api-key'] as string || req.headers['authorization']?.replace('Bearer ', '') || '';
     if (provided !== MCP_API_KEY) {
       res.status(401).json({ error: 'Unauthorized. Set SQUISH_MCP_API_KEY or provide x-api-key header.' });

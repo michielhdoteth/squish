@@ -4,17 +4,10 @@
  * Tests exported pure functions (computeSimHash) without config mocking.
  */
 
-import { describe, test, expect, mock } from 'bun:test';
+import { describe, test, expect } from 'bun:test';
 
-// Only mock logger to suppress noise
-mock.module('../../../core/logger.js', () => ({
-  logger: {
-    warn: mock(() => {}),
-    error: mock(() => {}),
-    info: mock(() => {}),
-    debug: mock(() => {}),
-  },
-}));
+// Note: No mock.module() calls - avoid global mocking that pollutes other tests.
+// Logger output is expected in test output.
 
 describe('computeSimHash (exported for testing)', () => {
   test('identical text produces same hash', async () => {

@@ -30,11 +30,33 @@ export interface TableSchema {
 }
 
 /**
+ * Whitelist of allowed table names in the Squish schema
+ */
+const ALLOWED_TABLE_NAMES = new Set([
+  'users', 'projects', 'memories', 'memory_places', 'places', 'place_rules',
+  'memory_associations', 'memory_tags', 'embeddings', 'sessions',
+  'session_signals', 'session_working_set', 'context_sessions',
+  'context_paging', 'temporal_anchors', 'graph_nodes', 'graph_edges',
+  'entities', 'entity_relations', 'beliefs', 'belief_edges',
+  'belief_memory_sources', 'maintenance_jobs', 'maintenance_job_history',
+  'telemetry_events', 'learnings', 'core_memory', 'conversations',
+  'edit_proposals', 'merge_proposals', 'snapshots', 'summaries',
+]);
+
+function sanitizeTableName(name: string): string {
+  if (!ALLOWED_TABLE_NAMES.has(name)) {
+    throw new Error(`Invalid table name: "${name}" (not in whitelist)`);
+  }
+  return name;
+}
+
+/**
  * Get existing columns for a table
  */
 function getExistingColumns(sqlite: Database, tableName: string): Set<string> {
   try {
-    const tableInfo = sqlite.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>;
+    const safeName = sanitizeTableName(tableName);
+    const tableInfo = sqlite.prepare(`PRAGMA table_info(${safeName})`).all() as Array<{ name: string }>;
     return new Set(tableInfo.map(col => col.name));
   } catch {
     return new Set();

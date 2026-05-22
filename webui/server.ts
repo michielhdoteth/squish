@@ -45,6 +45,15 @@ app.use(appCors);
 app.use(limiter);
 app.use(express.json());
 
+// Security headers
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  next();
+});
+
 // Health check endpoint
 app.get('/api/health', async (req, res) => {
   let dbStatus = 'error';
@@ -193,6 +202,79 @@ app.get('/api/projects', async (req, res) => {
    }
 });
 
+// Get sessions grouped from memory metadata
+app.get('/api/sessions', async (req, res) => {
+  try {
+    const projectPath = req.query.projectPath as string || process.cwd();
+    const limit = validateLimit(req.query.limit as string, 10, 1, 50);
+    
+    const project = await requireProject(projectPath);
+    const db = await getDb();
+    
+    // Query memories with session metadata, group by sessionId
+    const rows = db.prepare(`
+      SELECT id, content, type, metadata, tags, importance_score, created_at, updated_at
+      FROM memories 
+      WHERE project_id = ? AND metadata LIKE '%sessionId%'
+      ORDER BY created_at DESC
+      LIMIT ?
+    `).all(project.id, 200) as any[];
+    
+    // Group by session ID
+    const sessionMap = new Map<string, any>();
+    
+    for (const row of rows) {
+      let meta: any = {};
+      try { meta = JSON.parse(row.metadata || '{}'); } catch {}
+      
+      const sessionId = meta?.sessionMetadata?.sessionId;
+      if (!sessionId) continue;
+      
+      if (!sessionMap.has(sessionId)) {
+        sessionMap.set(sessionId, {
+          sessionId,
+          memoryCount: 0,
+          observationCount: 0,
+          firstSeen: row.created_at,
+          lastSeen: row.created_at,
+          types: new Set<string>(),
+          memories: []
+        });
+      }
+      
+      const session = sessionMap.get(sessionId)!;
+      session.memoryCount++;
+      if (row.type) session.types.add(row.type);
+      
+      const created = new Date(row.created_at).getTime();
+      const seen = new Date(row.lastSeen).getTime();
+      if (created < new Date(session.firstSeen).getTime()) session.firstSeen = row.created_at;
+      if (seen > new Date(session.lastSeen).getTime()) session.lastSeen = row.created_at;
+      session.memories.push({ id: row.id, content: row.content?.substring(0, 100), type: row.type, createdAt: row.created_at });
+    }
+    
+    const sessions = Array.from(sessionMap.values())
+      .sort((a, b) => new Date(b.lastSeen).getTime() - new Date(a.lastSeen).getTime())
+      .slice(0, limit)
+      .map(s => ({
+        sessionId: s.sessionId,
+        memoryCount: s.memoryCount,
+        types: Array.from(s.types),
+        firstSeen: s.firstSeen,
+        lastSeen: s.lastSeen,
+        isActive: Date.now() - new Date(s.lastSeen).getTime() < 5 * 60 * 1000,
+        memories: s.memories.slice(0, 5)
+      }));
+    
+    res.json({ status: 'ok', data: sessions, count: sessions.length });
+  } catch (error: any) {
+    if (!isDatabaseUnavailableError(error)) {
+      logger.error('Failed to get sessions:', error.message);
+    }
+    res.status(isDatabaseUnavailableError(error) ? 503 : 500).json({ status: 'error', message: error.message });
+  }
+});
+
 // Web UI
 app.get('/', (req, res) => {
   const html = `<!DOCTYPE html>
@@ -258,22 +340,23 @@ app.get('/', (req, res) => {
     </style>
 </head>
 <body class="min-h-screen selection:bg-primary/30 pb-20">
-<header class="w-full px-6 py-8">
-<div class="max-w-6xl mx-auto flex items-center justify-between">
+<header class="w-full px-6 py-6">
+<div class="max-w-6xl mx-auto">
+<div class="flex items-center justify-between mb-4">
 <div class="flex items-center gap-4">
-<div class="relative size-12 flex items-center justify-center">
+<div class="relative size-10 flex items-center justify-center">
 <div class="absolute inset-0 bg-secondary/20 blur-xl rounded-full"></div>
-<span class="material-symbols-outlined text-secondary text-5xl relative z-10">psychology</span>
+<span class="material-symbols-outlined text-secondary text-4xl relative z-10">psychology</span>
 </div>
-<h1 class="text-3xl font-black tracking-tight flex items-center gap-2">
-                    Squish <span class="text-primary italic">Memory Viewer</span>
+<h1 class="text-2xl font-black tracking-tight flex items-center gap-2">
+                    Squish <span class="text-primary italic">Dashboard</span>
 </h1>
 </div>
-<div class="flex items-center gap-4">
-<select id="project-select" onchange="changeProject(this.value)" class="bg-card-bg px-4 py-2 rounded-full border-2 border-slate-700/50 text-text-main text-sm font-medium focus:outline-none focus:border-primary">
+<div class="flex items-center gap-3">
+<select id="project-select" onchange="changeProject(this.value)" class="bg-card-bg px-3 py-2 rounded-full border-2 border-slate-700/50 text-text-main text-sm font-medium focus:outline-none focus:border-primary">
 <option value="">Loading projects...</option>
 </select>
-<div class="bg-card-bg px-4 py-2 rounded-full border-2 border-slate-700/50 flex items-center gap-2">
+<div class="bg-card-bg px-3 py-2 rounded-full border-2 border-slate-700/50 flex items-center gap-2">
 <div class="size-2 rounded-full bg-primary animate-pulse" id="status-dot"></div>
 <span class="text-xs font-bold uppercase tracking-widest text-text-muted" id="server-status">Server: Online</span>
 </div>
@@ -282,8 +365,20 @@ v1.2.0
 </div>
 </div>
 </div>
+<!-- Tab navigation -->
+<div class="flex gap-1 bg-card-bg/50 rounded-full p-1 w-fit">
+<button class="tab-btn active px-5 py-2 rounded-full text-xs font-bold uppercase tracking-wider transition-all" onclick="switchTab('dashboard')" id="tab-dashboard">
+<span class="material-symbols-outlined text-sm align-middle mr-1">dashboard</span> Dashboard
+</button>
+<button class="tab-btn px-5 py-2 rounded-full text-xs font-bold uppercase tracking-wider transition-all" onclick="switchTab('sessions')" id="tab-sessions">
+<span class="material-symbols-outlined text-sm align-middle mr-1">history</span> Sessions
+</button>
+</div>
+</div>
 </header>
-<main class="max-w-6xl mx-auto px-6 space-y-12">
+<main class="max-w-6xl mx-auto px-6">
+<!-- Dashboard tab content -->
+<div id="tab-content-dashboard" class="tab-content space-y-8">
 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
 <div class="bg-card-bg p-8 squish-pill border-2 border-slate-700/30 text-center squishy-hover shadow-xl">
 <p class="text-4xl font-black mb-1" id="memories-count">-</p>
@@ -343,7 +438,7 @@ v1.2.0
 </div>
 </section>
 </div>
-<div class="pt-12 flex justify-center">
+<div class="pt-8 flex justify-center">
 <div class="bg-card-bg border-4 border-slate-700/50 p-2 rounded-full flex gap-2">
 <button class="bg-primary text-black px-6 py-3 rounded-full font-black text-sm uppercase hover:scale-105 transition-transform flex items-center gap-2" onclick="manualRefresh()" title="Refresh now">
 <span class="material-symbols-outlined text-sm">refresh</span>
@@ -361,12 +456,28 @@ v1.2.0
                 </button>
 </div>
 </div>
-<div class="flex justify-center mt-4">
+<div class="flex justify-center mt-3">
 <span class="text-xs font-medium text-text-muted" id="uptime-display">Uptime: calculating...</span>
 </div>
+</div>
+
+<!-- Sessions tab content -->
+<div id="tab-content-sessions" class="tab-content hidden space-y-6">
+<div class="flex items-center gap-3 mt-4">
+<span class="material-symbols-outlined text-primary text-2xl">history</span>
+<h2 class="text-2xl font-black italic text-primary uppercase">Sessions</h2>
+</div>
+<p class="text-text-muted text-sm">Memory sessions grouped by conversation. Active sessions have been updated in the last 5 minutes.</p>
+<div class="space-y-4" id="sessions-list">
+<div class="bg-card-bg/50 p-6 rounded-3xl border-2 border-slate-700/20 flex flex-col items-center justify-center py-16 opacity-60">
+<div class="size-12 border-4 border-primary border-t-transparent rounded-full animate-spin mb-4"></div>
+<p class="font-black italic text-text-muted">Loading sessions...</p>
+</div>
+</div>
+</div>
 </main>
-<footer class="mt-20 px-6 opacity-30">
-<div class="max-w-6xl mx-auto flex justify-between items-center py-8 border-t border-slate-700">
+<footer class="mt-12 px-6 opacity-30">
+<div class="max-w-6xl mx-auto flex justify-between items-center py-6 border-t border-slate-700">
 <p class="text-xs font-black uppercase">© 2026 Squish-Memory Dashboard</p>
 <div class="flex gap-4">
 <span class="material-symbols-outlined text-sm">database</span>
@@ -555,6 +666,7 @@ v1.2.0
                             '<li><code class="bg-slate-700/50 px-2 py-1 rounded">GET /api/memories</code> - Recent memories</li>' +
                             '<li><code class="bg-slate-700/50 px-2 py-1 rounded">GET /api/observations</code> - Tool usage observations</li>' +
                             '<li><code class="bg-slate-700/50 px-2 py-1 rounded">GET /api/context</code> - Combined data</li>' +
+                            '<li><code class="bg-slate-700/50 px-2 py-1 rounded">GET /api/sessions</code> - Sessions grouped by conversation</li>' +
                         '</ul>' +
                     '</div>' +
                     '<div class="bg-card-bg/50 p-4 rounded-xl border border-slate-700/30">' +
@@ -736,6 +848,95 @@ v1.2.0
         function changeProject(path) {
             currentProjectPath = path;
             loadData();
+            loadSessions();
+        }
+
+        // Tab switching
+        function switchTab(tabName) {
+            // Update tab buttons
+            document.querySelectorAll('.tab-btn').forEach(function(btn) {
+                btn.classList.remove('active', 'bg-primary', 'text-black');
+                btn.classList.add('text-text-muted');
+            });
+            var activeTab = document.getElementById('tab-' + tabName);
+            if (activeTab) {
+                activeTab.classList.add('active', 'bg-primary', 'text-black');
+                activeTab.classList.remove('text-text-muted');
+            }
+            // Show/hide content
+            document.querySelectorAll('.tab-content').forEach(function(content) {
+                content.classList.add('hidden');
+            });
+            var tabContent = document.getElementById('tab-content-' + tabName);
+            if (tabContent) {
+                tabContent.classList.remove('hidden');
+            }
+            // Load sessions data when switching to sessions tab
+            if (tabName === 'sessions') {
+                loadSessions();
+            }
+        }
+
+        // Load sessions
+        async function loadSessions() {
+            var container = document.getElementById('sessions-list');
+            if (!container) return;
+            container.innerHTML = '<div class="bg-card-bg/50 p-6 rounded-3xl border-2 border-slate-700/20 flex flex-col items-center justify-center py-16 opacity-60"><div class="size-12 border-4 border-primary border-t-transparent rounded-full animate-spin mb-4"></div><p class="font-black italic text-text-muted">Loading sessions...</p></div>';
+            
+            try {
+                var url = currentProjectPath ? '/api/sessions?projectPath=' + encodeURIComponent(currentProjectPath) + '&limit=20' : '/api/sessions?limit=20';
+                var response = await fetch(url);
+                var data = await response.json();
+                
+                if (data.status === 'ok' && data.data && data.data.length > 0) {
+                    container.innerHTML = data.data.map(function(session) {
+                        var isActive = session.isActive;
+                        var badgeColor = isActive ? 'bg-primary text-black' : 'bg-slate-600 text-text-muted';
+                        var badgeText = isActive ? 'Active' : 'Completed';
+                        var memCount = session.memoryCount || 0;
+                        var timeAgo = formatRelativeTime(session.lastSeen);
+                        
+                        return '<div class="bg-card-bg p-6 rounded-3xl border-2 border-slate-700/20 squishy-hover">' +
+                            '<div class="flex items-start justify-between mb-4">' +
+                                '<div class="flex items-center gap-3">' +
+                                    '<span class="material-symbols-outlined text-primary">history</span>' +
+                                    '<span class="font-mono text-sm text-text-muted">' + escapeHtml(session.sessionId?.substring(0, 24) || '') + '...</span>' +
+                                '</div>' +
+                                '<div class="flex items-center gap-3">' +
+                                    '<span class="' + badgeColor + ' px-3 py-1 rounded-full text-xs font-bold uppercase">' + badgeText + '</span>' +
+                                    '<span class="text-text-muted text-xs">' + timeAgo + '</span>' +
+                                '</div>' +
+                            '</div>' +
+                            '<div class="flex gap-4 mb-3">' +
+                                '<span class="text-text-muted text-sm"><strong class="text-text-main">' + memCount + '</strong> memories</span>' +
+                                '<span class="text-text-muted text-sm"><strong class="text-text-main">' + (session.types || []).length + '</strong> types</span>' +
+                            '</div>' +
+                            (session.memories && session.memories.length > 0 ? '<div class="border-t border-slate-700/30 pt-3 mt-2"><p class="text-xs text-text-muted font-bold uppercase tracking-wider mb-2">Recent memories</p>' +
+                                session.memories.map(function(m) {
+                                    return '<div class="flex items-center gap-2 py-1"><span class="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">' + escapeHtml(m.type || 'memory') + '</span><span class="text-sm text-text-main truncate">' + escapeHtml(m.content || '') + '</span></div>';
+                                }).join('') +
+                            '</div>' : '') +
+                        '</div>';
+                    }).join('');
+                } else {
+                    container.innerHTML = '<div class="bg-card-bg/50 p-6 rounded-3xl border-2 border-slate-700/20 flex flex-col items-center justify-center py-16 opacity-60"><span class="material-symbols-outlined text-4xl text-text-muted mb-3">history</span><p class="font-black italic text-text-muted">No sessions found</p><p class="text-xs text-text-muted mt-2">Sessions appear when memories with session metadata are stored</p></div>';
+                }
+            } catch (error) {
+                container.innerHTML = '<div class="bg-card-bg/50 p-6 rounded-3xl border-2 border-slate-700/20 flex flex-col items-center justify-center py-16 opacity-60"><span class="material-symbols-outlined text-4xl text-red-400 mb-3">error</span><p class="font-black italic text-red-400">Failed to load sessions</p><p class="text-xs text-text-muted mt-2">' + escapeHtml(error.message) + '</p></div>';
+            }
+        }
+
+        function formatRelativeTime(timestamp) {
+            if (!timestamp) return 'Unknown';
+            var diff = Date.now() - new Date(timestamp).getTime();
+            var seconds = Math.floor(diff / 1000);
+            if (seconds < 60) return seconds + 's ago';
+            var minutes = Math.floor(seconds / 60);
+            if (minutes < 60) return minutes + 'm ago';
+            var hours = Math.floor(minutes / 60);
+            if (hours < 24) return hours + 'h ago';
+            var days = Math.floor(hours / 24);
+            return days + 'd ago';
         }
 
         // Initialize: load projects first, then data

@@ -24,7 +24,10 @@
       }
     }
   },
+  "activation": {
+    "onStartup": true
+  },
   "contracts": {
-    "tools": true
+    "tools": ["squish_remember", "squish_recall", "squish_context", "squish_stats", "squish_forget", "squish_inspect"]
   }
 }

@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "You have long-term memory from Squish. These are recent memories from your sessions:\n\n{{SQUISH_CONTEXT}}\n\nUse these to maintain continuity with past work."
+            "prompt": "You have long-term memory from Squish loaded via MCP tools. Use `squish context` or `squish recall` to load relevant memories from past sessions."
           }
         ]
       }

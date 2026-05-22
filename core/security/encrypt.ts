@@ -30,7 +30,11 @@ function deriveKey(passphrase: string): Buffer {
 }
 
 export function encrypt(plain: string, passphrase?: string): { ciphertext: string; nonce: string } {
-  const key = deriveKey(passphrase || config.encryptionPassphrase);
+  const effectivePassphrase = passphrase || config.encryptionPassphrase;
+  if (!effectivePassphrase) {
+    throw new Error('Encryption requires a passphrase. Set SQUISH_ENCRYPTION_PASSPHRASE or pass a passphrase argument.');
+  }
+  const key = deriveKey(effectivePassphrase);
   const nonce = randomBytes(NONCE_LEN);
   const cipher = createCipheriv(ALGO, key, nonce);
   const encrypted = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()]);
@@ -40,7 +44,11 @@ export function encrypt(plain: string, passphrase?: string): { ciphertext: strin
 }
 
 export function decrypt(ciphertext: string, nonceB64: string, passphrase?: string): string {
-  const key = deriveKey(passphrase || config.encryptionPassphrase);
+  const effectivePassphrase = passphrase || config.encryptionPassphrase;
+  if (!effectivePassphrase) {
+    throw new Error('Decryption requires a passphrase. Set SQUISH_ENCRYPTION_PASSPHRASE or pass a passphrase argument.');
+  }
+  const key = deriveKey(effectivePassphrase);
   const nonce = Buffer.from(nonceB64, 'base64');
   const data = Buffer.from(ciphertext, 'base64');
   const tag = data.slice(data.length - 16);

@@ -1,8 +1,0 @@
-{
-  "name": "@squish-memory/hooks",
-  "version": "2.0.0",
-  "description": "Squish Memory hooks for OpenClaw - session context injection and auto-capture",
-  "openclaw": {
-    "hooks": ["hooks/squish-memory"]
-  }
-}

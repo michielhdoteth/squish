@@ -1,8 +1,8 @@
 #!/bin/bash
 # SessionStart hook - injects recent project memories as context
-# Receives JSON on stdin from Claude Code hooks system
+# Receives JSON on stdin from Codex hooks system
 
-PROJECT_DIR="${CLAUDE_PROJECT_DIR:-${PWD}}"
+PROJECT_DIR="${CODEX_PROJECT_DIR:-${PWD}}"
 
 # Load recent memories and print as context
 squish context --json --limit 5 --project "$PROJECT_DIR" 2>/dev/null | \

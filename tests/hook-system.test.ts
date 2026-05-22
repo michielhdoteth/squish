@@ -49,9 +49,23 @@ describe('Hook System', () => {
   });
 
   describe('Hook Installer', () => {
-    it('hook-installer.mjs exists', () => {
-      const installer = path.join(root, 'bin', 'hook-installer.mjs');
-      expect(fs.existsSync(installer)).toBe(true);
+    it('installer-core.mjs exports hook install/uninstall', () => {
+      const core = path.join(root, 'bin', 'installer-core.mjs');
+      expect(fs.existsSync(core)).toBe(true);
+      const content = fs.readFileSync(core, 'utf-8');
+      expect(content).toContain('export function installHooks');
+      expect(content).toContain('export function uninstallHooks');
+    });
+
+    it('CLI install command integrates with core engine for hooks', () => {
+      const cli = path.join(root, 'packages', 'cli', 'src', 'commands', 'install.ts');
+      expect(fs.existsSync(cli)).toBe(true);
+      const content = fs.readFileSync(cli, 'utf-8');
+      // CLI delegates hooks to core via batch functions
+      expect(content).toContain('installAll');
+      expect(content).toContain('uninstallAll');
+      expect(content).toContain('(no hook support)');
+      expect(content).toContain('Hooks');
     });
   });
 });

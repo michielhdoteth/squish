@@ -9,11 +9,17 @@ function readText(relativePath: string) {
 }
 
 describe('installer path shadowing guard', () => {
-  test('installer blocks when stale Bun shims shadow the direct binary', () => {
-    const source = readText('bin/install-interactive.mjs');
+  test('core engine exports shadow detection', () => {
+    const source = readText('bin/installer-core.mjs');
 
-    expect(source).toContain('Stale Bun global install is shadowing the current Squish binary.');
-    expect(source).toContain('bun uninstall -g squish-memory');
+    expect(source).toContain('checkShadowIssues');
     expect(source).toContain("['squish', 'squish-mcp']");
+  });
+
+  test('CLI install command handles shadow detection with remediation', () => {
+    const source = readText('packages/cli/src/commands/install.ts');
+    expect(source).toContain('checkShadowIssues');
+    expect(source).toContain('Stale Bun global install is shadowing');
+    expect(source).toContain('bun uninstall -g squish-memory');
   });
 });

@@ -1,9 +1,8 @@
-import { basename } from 'path';
-import { randomUUID } from 'crypto';
 import { eq } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
 import { getDb } from '../db/index.js';
 import { getSchema } from '../db/schema.js';
-import { serializeMetadata, deserializeMetadata } from './memory/serialization.js';
+import { deserializeMetadata } from './memory/serialization.js';
 import { config } from '../config.js';
 import { createDatabaseClient } from './storage/database.js';
 
@@ -32,21 +31,8 @@ export async function ensureProject(path?: string): Promise<ProjectRecord | null
   if (!path) return null;
   const existing = await getProjectByPath(path);
   if (existing) return existing;
-
-  const db = createDatabaseClient(await getDb());
-  const schema = await getSchema();
-  const id = randomUUID();
-  const name = basename(path) || path;
-  const metadata = { source: 'mcp' };
-
-  await db.insert(schema.projects).values({
-    id,
-    name,
-    path,
-    metadata: serializeMetadata(metadata),
-  });
-
-  return { id, name, path, metadata };
+  // Create new project when explicit path is provided
+  return createProject(path);
 }
 
 export class ProjectNotFoundError extends Error {
@@ -68,20 +54,17 @@ export async function getOrCreateProject(path?: string): Promise<ProjectRecord |
   if (!path) return null;
   const existing = await getProjectByPath(path);
   if (existing) return existing;
+  // Create new project when explicit path is provided
+  return createProject(path);
+}
 
+async function createProject(path: string): Promise<ProjectRecord> {
   const db = createDatabaseClient(await getDb());
   const schema = await getSchema();
   const id = randomUUID();
-  const name = basename(path) || path;
+  const name = path.split('/').filter(Boolean).pop() || 'default';
   const metadata = { source: 'mcp' };
-
-  await db.insert(schema.projects).values({
-    id,
-    name,
-    path,
-    metadata: serializeMetadata(metadata),
-  });
-
+  await db.insert(schema.projects).values({ id, name, path, metadata: JSON.stringify(metadata) });
   return { id, name, path, metadata };
 }
 
@@ -101,16 +84,6 @@ export async function getAllProjects(): Promise<ProjectRecord[]> {
     const db = createDatabaseClient(await getDb());
     const schema = await getSchema();
     const rows = await db.select().from(schema.projects);
-    
-    // Auto-create default project if none exist
-    if (rows.length === 0) {
-      const cwd = process.cwd();
-      const defaultProject = await getOrCreateProject(cwd);
-      if (defaultProject) {
-        return [defaultProject];
-      }
-    }
-    
     return rows.map(normalizeProject);
   } catch (error: any) {
     throw error;
