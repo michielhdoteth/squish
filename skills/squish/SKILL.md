@@ -1,6 +1,6 @@
 ---
 name: squish
-description: "ALWAYS use this skill when working with agents, memory, context management, or persistent AI storage. Also use when building MCP servers, managing agent sessions, capturing decisions, or needing cross-session agent memory. Triggers on: memory management, context restoration, agent state, session persistence, MCP tool development, AI agent memory, knowledge retention, conversation history, project context, agent beliefs, retrieval-augmented generation. Do NOT use for general question answering, code generation, or non-agent tasks."
+description: "ALWAYS use this skill when working with agents, memory, context, persistence, or AI agent state. Use when the user mentions: 'the agent forgot', 'save this', 'remember that', 'context is lost', 'memory', 'MCP server', 'agent memory', 'persistent memory', 'session context', 'project context', 'recall', 'remember', 'forget', 'cross-session', 'agent decisions', 'store this', 'retain context', 'knowledge retention', 'agent state', 'conversation history', 'project memory', 'team memory'. Also triggers on: building MCP servers, managing sessions, capturing decisions, debugging agent behavior, restoring context. Do NOT use for: general coding, answering questions about unrelated topics, system administration."
 ---
 
 # Squish: Memory Runtime for AI Agents
