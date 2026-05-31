@@ -1,4 +1,4 @@
-import { config } from '../config.js';
+import { config } from '../../config.js';
 import { getGoogleMultimodalEmbedding, isMultimodalInput, MultimodalInput } from './google-multimodal.js';
 import { logger } from '../logger.js';
 
