@@ -5,7 +5,7 @@ import { getMemoryStats } from '../memory/stats.js';
 import { explainMemory } from '../memory/explain.js';
 import { getLatestProjectWorkingSetSummary, getProjectSignalStats } from '../session/working-set.js';
 import { getGraphStats } from '../graph/index.js';
-import { getAllProjects, getProjectByPath, requireProject, type ProjectRecord } from '../projects.js';
+import { ensureProject, getAllProjects, getProjectByPath, requireProject, type ProjectRecord } from '../projects.js';
 import { getProjectPlaces } from '../places/places.js';
 import { getMemoryPlace } from '../places/memory-places.js';
 import { getPlace } from '../places/places.js';
@@ -112,19 +112,14 @@ export async function resolveProjectScope(projectPath?: string): Promise<TrustPr
     };
   }
 
-  // Multiple projects exist but none match cwd. Show all available projects.
+  // Multiple projects exist but none match cwd. Auto-register this directory as a new project.
+  const newProject = await ensureProject(cwd);
+  const refreshedProjects = await getAllProjects();
   return {
-    currentProject: {
-      id: '',
-      name: 'No matching project',
-      path: cwd,
-      resolution: 'inferred' as const,
-    },
-    otherProjects: projects.map((candidate) => toProjectSummary(candidate, 'inferred')),
-    nextStep:
-      projects.length > 0
-        ? `No project found for ${cwd}. Available projects: ${projects.map((p) => p.name).join(', ')}`
-        : null,
+    currentProject: toProjectSummary(newProject!, 'auto-created'),
+    otherProjects: filterNormalOtherProjects(refreshedProjects, newProject!.id, cwd)
+      .map((candidate) => toProjectSummary(candidate, 'inferred')),
+    nextStep: `Auto-registered new project at ${cwd}.`,
   };
 }
 
