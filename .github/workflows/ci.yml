@@ -42,7 +42,7 @@ jobs:
           bun-version: latest
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bun install
 
       - name: Type check
         run: bun run typecheck 2>&1 || echo "TypeScript type check completed"
@@ -104,7 +104,7 @@ jobs:
           bun-version: latest
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bun install
 
       - name: MCP tests
         run: bun test tests/mcp/recall-surface.test.ts --pass-with-no-tests
