@@ -24,6 +24,8 @@ import { MemoryRecord, MemoryType } from '../lib/types.js';
 import { parseEmbedding } from '../lib/parse-embedding.js';
 import { findOrCreateCluster, updateClusterStats } from '../clustering/cluster-engine.js';
 import { evaluateCluster, shouldConsolidate, shouldSplit } from '../clustering/consolidation-check.js';
+import { getDb } from '../../db/index.js';
+import { getSchema } from '../../db/schema.js';
 
 // MemoryType and MemoryRecord imported from ../lib/types.js
 
@@ -101,11 +103,15 @@ export interface SearchInput {
   placeType?: string;     // Filter by place type (inbox, wip, archive, etc.)
   sessionId?: string;     // Filter by session
   sessionStartTime?: string; // Session start for temporal queries
+  /** Enable retrieval trace for debugging (Phase 8) */
+  trace?: boolean;
 }
 
 // SearchResult extends the shared MemoryRecord from normalization.ts
 export interface SearchResult extends MemoryRecord {
   similarity: number;
+  /** Retrieval trace for debugging (Phase 8) - populated when trace: true */
+  _trace?: import('../retrieval/config.js').RetrievalTrace;
 }
 
 export async function rememberMemory(input: RememberInput): Promise<MemoryRecord> {
@@ -283,7 +289,22 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
   // Sync to QMD if enabled (async, don't block)
 
   // Auto-assign to Inbox place by default (or specified placeType)
-  await assignMemoryToDefaultPlace(id, project?.id, input.placeType || null);
+  await assignMemoryToDefaultPlace(id, project?.id, input.placeType || null, {
+    tags: input.tags,
+    content: input.content,
+    toolName: input.toolName,
+    memoryType: type,
+  });
+
+  // Store tags in memory_tags indexed table (v1.5.0)
+  if (tags.length > 0) {
+    try {
+      const { storeMemoryTags } = await import('../places/memory-places.js');
+      await storeMemoryTags(id, tags, 'heuristic');
+    } catch (tagErr) {
+      logger.debug(`Failed to store memory tags: ${tagErr}`);
+    }
+  }
 
   // Post-capture geometry check (non-blocking, fire-and-forget)
   // Evaluates whether the new memory's cluster is safe to consolidate
@@ -704,31 +725,96 @@ async function ensurePlacesInitialized(projectId?: string | null): Promise<{ inb
   }
 }
 
-async function assignMemoryToDefaultPlace(memoryId: string, projectId?: string | null, placeType?: string | null): Promise<void> {
+async function assignMemoryToDefaultPlace(
+  memoryId: string, 
+  projectId?: string | null, 
+  placeType?: string | null,
+  options?: {
+    tags?: string[];
+    content?: string;
+    toolName?: string;
+    memoryType?: string;
+  }
+): Promise<void> {
   try {
     const init = await ensurePlacesInitialized(projectId);
     if (!init) return;
 
-    const { getPlaceByType } = await import('../places/places.js');
-    const { assignMemoryToPlace } = await import('../places/memory-places.js');
     const { ensureGlobalProject } = await import('../places/places.js');
-
-    let targetPlaceId = init.inboxId;
     const resolvedPlaceProjectId = projectId ?? (await ensureGlobalProject()).id;
 
-    // If placeType specified, find that place instead of defaulting to Inbox
-    if (placeType) {
-      const place = await getPlaceByType(resolvedPlaceProjectId, placeType as any);
-      if (place) {
-        targetPlaceId = place.id;
-      }
+    // Use findMatchingPlaces() to get ranked candidates
+    const { findMatchingPlaces } = await import('../places/rules.js');
+    const candidates = await findMatchingPlaces(projectId ?? undefined, {
+      toolName: options?.toolName,
+      content: options?.content,
+      tags: options?.tags,
+      memoryType: options?.memoryType,
+    });
+
+    // If placeType was explicitly specified and is not the top candidate,
+    // make sure it appears as a candidate
+    if (placeType && candidates.length > 0 && candidates[0].type !== placeType) {
+      // Add explicit placeType as first candidate
+      candidates.unshift({
+        type: placeType as any,
+        weight: 1.0,
+        reason: 'explicitly specified',
+        source: 'manual',
+      });
+    } else if (placeType && candidates.length === 0) {
+      candidates.push({
+        type: placeType as any,
+        weight: 1.0,
+        reason: 'explicitly specified',
+        source: 'manual',
+      });
     }
 
-    await assignMemoryToPlace({
-      memoryId,
-      placeId: targetPlaceId,
-      isManual: false,
-    });
+    // Fallback to inbox if no candidates matched
+    if (candidates.length === 0) {
+      candidates.push({
+        type: 'inbox' as any,
+        weight: 1.0,
+        reason: 'default fallback',
+        source: 'heuristic',
+      });
+    }
+
+    // Store all candidates in memory_places (1:N)
+    const { assignMemoryToPlaces } = await import('../places/memory-places.js');
+    await assignMemoryToPlaces(memoryId, candidates, resolvedPlaceProjectId);
+
+    // Set primaryPlace and place_id (legacy alias) on the memory record
+    const primaryPlace = candidates[0]?.type ?? placeType ?? 'inbox';
+    const client = ((await getDb()) as any).$client || (await getDb());
+    try {
+      // Resolve placeType to placeId for legacy place_id column
+      const { getPlaceByType } = await import('../places/places.js');
+      const place = await getPlaceByType(resolvedPlaceProjectId, primaryPlace);
+      const placeId = place?.id ?? null;
+
+      if (placeId) {
+        client.exec(
+          `UPDATE memories SET primary_place = '${primaryPlace}', place_id = '${placeId}' WHERE id = '${memoryId}'`
+        );
+      } else {
+        client.exec(
+          `UPDATE memories SET primary_place = '${primaryPlace}' WHERE id = '${memoryId}'`
+        );
+      }
+    } catch {
+      // Fallback to drizzle
+      try {
+        const sqliteDb = (await getDb()) as any;
+        const schemaModule = await getSchema();
+        await sqliteDb.update(schemaModule.memories)
+          .set({ primaryPlace })
+          .where(eq(schemaModule.memories.id, memoryId));
+      } catch {
+        // Ignore
+      }
+    }
   } catch (err) {
     // Non-blocking: never fail the memory write
     logger.debug(`assignMemoryToDefaultPlace error: ${err}`);

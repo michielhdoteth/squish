@@ -14,9 +14,11 @@ import { logger } from '../logger.js';
 import { getPlaceByType, updatePlaceMemoryCount } from './places.js';
 import { findMatchingPlace } from './rules.js';
 import type { PlaceType } from './places.js';
+import type { PlaceCandidate } from './rules.js';
 
 /**
  * Assign a memory to a place (auto or manual)
+ * Backward-compatible function that accepts placeId and maps to new schema columns
  */
 export async function assignMemoryToPlace(params: {
   memoryId: string;
@@ -29,43 +31,87 @@ export async function assignMemoryToPlace(params: {
 
   const schema = await getSchema();
   const sqliteDb = db as any;
-  const id = randomUUID();
 
-  // Check if already assigned
-  const existing = await sqliteDb.select()
-    .from(schema.memoryPlaces)
-    .where(eq(schema.memoryPlaces.memoryId, params.memoryId))
-    .limit(1);
-
-  if (existing.length > 0) {
-    // Update existing
-    await sqliteDb.update(schema.memoryPlaces)
-      .set({
-        placeId: params.placeId,
-        isManual: params.isManual ? 1 : 0,
-        ruleId: params.ruleId || null,
-      })
-      .where(eq(schema.memoryPlaces.memoryId, params.memoryId));
-  } else {
-    // Insert new
-    await sqliteDb.insert(schema.memoryPlaces).values({
-      id,
-      memoryId: params.memoryId,
-      placeId: params.placeId,
-      isManual: params.isManual ? 1 : 0,
-      ruleId: params.ruleId || null,
-    });
+  // Resolve placeId to placeType by looking up the place record
+  let placeType = 'inbox';
+  try {
+    const placeRows = await sqliteDb.select()
+      .from(schema.places)
+      .where(eq(schema.places.id, params.placeId))
+      .limit(1);
+    if (placeRows.length > 0) {
+      placeType = placeRows[0].placeType || placeRows[0].place_type || 'inbox';
+    }
+  } catch {
+    // Fallback: try raw SQL
+    try {
+      const row = sqliteDb.$client.prepare('SELECT place_type FROM places WHERE id = ?').get(params.placeId);
+      if (row) placeType = row.place_type || 'inbox';
+    } catch {
+      // Use default inbox
+    }
   }
 
-  // Update memory's place reference
-  await sqliteDb.update(schema.memories)
-    .set({ placeId: params.placeId })
-    .where(eq(schema.memories.id, params.memoryId));
+  const source = params.isManual ? 'manual' : 'heuristic';
+
+  // Remove existing assignments for this memory (both manual and heuristic)
+  try {
+    await sqliteDb.delete(schema.memoryPlaces)
+      .where(eq(schema.memoryPlaces.memoryId, params.memoryId));
+  } catch {
+    try {
+      sqliteDb.$client.exec(`DELETE FROM memory_places WHERE memory_id = '${params.memoryId}'`);
+    } catch {
+      // Ignore
+    }
+  }
+
+  // Insert new assignment with new schema columns
+  try {
+    await sqliteDb.insert(schema.memoryPlaces).values({
+      id: randomUUID(),
+      memoryId: params.memoryId,
+      placeType,
+      weight: 1.0,
+      reason: null,
+      source,
+      isPrimary: true,
+    }).onConflictDoNothing();
+  } catch {
+    // Fallback to raw SQL
+    try {
+      sqliteDb.$client.exec(
+        `INSERT OR IGNORE INTO memory_places (id, memory_id, place_type, weight, reason, source, is_primary)
+         VALUES ('${randomUUID()}', '${params.memoryId}', '${placeType}', 1.0, NULL, '${source}', 1)`
+      );
+    } catch (e) {
+      logger.debug(`[MemoryPlaces] Failed to insert place: ${e}`);
+      return false;
+    }
+  }
+
+  // Update memory's placeId reference (for backward compat) and primaryPlace
+  try {
+    await sqliteDb.update(schema.memories)
+      .set({ placeId: params.placeId })
+      .where(eq(schema.memories.id, params.memoryId));
+  } catch {
+    // Ignore - column might not exist in drizzle schema
+  }
+
+  // Update primaryPlace on the memories table
+  try {
+    sqliteDb.$client.exec(
+      `UPDATE memories SET primary_place = '${placeType}', place_type = '${placeType}' WHERE id = '${params.memoryId}'`
+    );
+  } catch {
+    // Ignore
+  }
 
   // Update place memory count
   await updatePlaceMemoryCount(params.placeId);
 
-  logger.debug(`[MemoryPlaces] Assigned memory ${params.memoryId} to place ${params.placeId}`);
+  logger.debug(`[MemoryPlaces] Assigned memory ${params.memoryId} to place ${params.placeId} (${placeType})`);
   return true;
 }
 
@@ -142,38 +188,71 @@ export async function manualAssignMemory(params: {
 
 /**
  * Get place for a memory
+ * Returns the placeId of the primary place assignment
  */
 export async function getMemoryPlace(memoryId: string): Promise<string | null> {
   const db = await getDb();
   if (!db) return null;
 
-  const schema = await getSchema();
   const sqliteDb = db as any;
+  const client = sqliteDb.$client || sqliteDb;
 
-  const result = await sqliteDb.select()
-    .from(schema.memoryPlaces)
-    .where(eq(schema.memoryPlaces.memoryId, memoryId))
-    .limit(1);
+  try {
+    // Get the place_type from memory_places for this memory
+    const rows = client.prepare(
+      'SELECT place_type FROM memory_places WHERE memory_id = ? LIMIT 1'
+    ).all(memoryId);
+    
+    if (!rows || rows.length === 0) return null;
+    
+    const placeType = rows[0].place_type;
+    if (!placeType) return null;
+    
+    // Resolve placeType to placeId by looking up the places table
+    const placeRows = client.prepare(
+      'SELECT id FROM places WHERE place_type = ? LIMIT 1'
+    ).all(placeType);
+    
+    if (placeRows && placeRows.length > 0) {
+      return placeRows[0].id;
+    }
+  } catch (e) {
+    logger.debug(`[MemoryPlaces] getMemoryPlace failed: ${e}`);
+  }
 
-  return result.length > 0 ? (result[0].place_id ?? result[0].placeId) : null;
+  return null;
 }
 
 /**
  * Get memories for a place
  */
-export async function getPlaceMemories(placeId: string, limit: number = 50): Promise<string[]> {
+export async function getPlaceMemories(placeIdOrType: string, limit: number = 50): Promise<string[]> {
   const db = await getDb();
   if (!db) return [];
 
-  const schema = await getSchema();
   const sqliteDb = db as any;
 
-  const results = await sqliteDb.select({ memoryId: schema.memoryPlaces.memoryId })
-    .from(schema.memoryPlaces)
-    .where(eq(schema.memoryPlaces.placeId, placeId))
-    .limit(limit);
+  // Resolve placeId to placeType if needed (v1.5.0: memory_places uses place_type, not place_id)
+  let placeType = placeIdOrType;
+  try {
+    const placeRow = sqliteDb.$client.prepare(
+      'SELECT place_type FROM places WHERE id = ? OR place_type = ? LIMIT 1'
+    ).get(placeIdOrType, placeIdOrType);
+    if (placeRow) {
+      placeType = placeRow.place_type || placeIdOrType;
+    }
+  } catch {
+    // If places table lookup fails, assume it's already a placeType
+  }
 
-  return results.map((r: any) => r.memoryId);
+  try {
+    const rows = sqliteDb.$client.prepare(
+      'SELECT memory_id FROM memory_places WHERE place_type = ? AND weight >= 0.35 LIMIT ?'
+    ).all(placeType, limit);
+    return rows.map((r: any) => r.memory_id);
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -485,4 +564,94 @@ export async function autoArchiveOldMemories(projectId: string, daysOld: number 
   }
   
   return { archived, failed };
+}
+
+/**
+ * Assign a memory to multiple places (1:N multi-place routing)
+ * 
+ * Stores ranked candidates from findMatchingPlaces() into memory_places.
+ * Removes previous assignments before inserting new ones.
+ * Uses INSERT OR IGNORE to handle unique constraint on (memory_id, place_type, source).
+ */
+export async function assignMemoryToPlaces(
+  memoryId: string,
+  candidates: PlaceCandidate[],
+  projectId: string
+): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  const sqliteDb = db as any;
+  const client = sqliteDb.$client || sqliteDb;
+
+  // Remove existing assignments for this memory
+  try {
+    client.exec(`DELETE FROM memory_places WHERE memory_id = '${memoryId}'`);
+  } catch (e) {
+    logger.debug(`[MemoryPlaces] Failed to delete existing assignments: ${e}`);
+    return;
+  }
+
+  // Insert all candidates using raw SQL for reliability
+  for (let i = 0; i < candidates.length; i++) {
+    const c = candidates[i];
+    const id = randomUUID();
+    const reason = c.reason ? c.reason.replace(/'/g, "''") : '';
+    try {
+      client.exec(
+        `INSERT OR IGNORE INTO memory_places (id, memory_id, place_type, weight, reason, source, is_primary)
+         VALUES ('${id}', '${memoryId}', '${c.type}', ${c.weight}, ${c.reason ? `'${reason}'` : 'NULL'}, '${c.source}', ${i === 0 ? 1 : 0})`
+      );
+    } catch (e) {
+      logger.debug(`[MemoryPlaces] Failed to insert place candidate ${c.type}: ${e}`);
+    }
+  }
+
+  // Update place memory counts
+  for (const c of candidates) {
+    const place = await getPlaceByType(projectId, c.type);
+    if (place) await updatePlaceMemoryCount(place.id);
+  }
+}
+
+/**
+ * Store normalized tags in memory_tags table
+ * 
+ * Normalizes tags using tagNormalizer, removes existing tags for the memory,
+ * and inserts the new normalized tags.
+ */
+export async function storeMemoryTags(
+  memoryId: string,
+  tags: string[],
+  source: 'heuristic' | 'llm' | 'manual' | 'dream' = 'heuristic'
+): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  const sqliteDb = db as any;
+  const client = sqliteDb.$client || sqliteDb;
+
+  if (!tags || tags.length === 0) return;
+
+  // Normalize tags using the tag normalizer
+  const { tagNormalizer } = await import('./tag-normalizer.js');
+  const normalized = tagNormalizer.normalizeTags(tags);
+
+  // Remove existing tags for this memory
+  try {
+    client.exec(`DELETE FROM memory_tags WHERE memory_id = '${memoryId}'`);
+  } catch {
+    // Ignore if table doesn't exist
+  }
+
+  // Insert normalized tags using raw SQL
+  for (const tag of normalized) {
+    const id = randomUUID();
+    try {
+      client.exec(
+        `INSERT OR IGNORE INTO memory_tags (id, memory_id, tag, source)
+         VALUES ('${id}', '${memoryId}', '${tag}', '${source}')`
+      );
+    } catch (e) {
+      logger.debug(`[MemoryTags] Failed to insert tag '${tag}': ${e}`);
+    }
+  }
 }

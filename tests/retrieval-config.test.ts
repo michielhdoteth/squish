@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'bun:test';
-import { getRetrievalConfig, calculateCompositeScore } from '../core/retrieval/config.js';
-import type { SquishRetrievalConfig } from '../core/retrieval/config.js';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { getRetrievalConfig, calculateCompositeScore, getEnvRetrievalConfig } from '../core/retrieval/config.js';
+import type { SquishRetrievalConfig, RetrievalTrace } from '../core/retrieval/config.js';
 
 describe('getRetrievalConfig', () => {
   it('returns default config', () => {
@@ -21,6 +21,56 @@ describe('getRetrievalConfig', () => {
     expect(cfg.scoring.placeBoost).toBe(0.25);
     // Non-overridden values stay default
     expect(cfg.minResults).toBe(3);
+  });
+
+  it('includeSuperseded defaults to false', () => {
+    const cfg = getRetrievalConfig();
+    expect(cfg.includeSuperseded).toBe(false);
+  });
+
+  it('includeSuperseded can be overridden to true', () => {
+    const cfg = getRetrievalConfig({ includeSuperseded: true });
+    expect(cfg.includeSuperseded).toBe(true);
+  });
+
+  it('supersededPenalty has a sensible default', () => {
+    const cfg = getRetrievalConfig();
+    expect(cfg.scoring.supersededPenalty).toBe(0.50);
+    expect(cfg.scoring.supersededPenalty).toBeGreaterThan(0);
+  });
+});
+
+describe('getEnvRetrievalConfig', () => {
+  const origEnv = { ...process.env };
+
+  afterEach(() => {
+    process.env = { ...origEnv };
+  });
+
+  it('reads SQUISH_INCLUDE_SUPERSEDED env var as true', () => {
+    process.env.SQUISH_INCLUDE_SUPERSEDED = 'true';
+    const envCfg = getEnvRetrievalConfig();
+    expect(envCfg.includeSuperseded).toBe(true);
+  });
+
+  it('reads SQUISH_INCLUDE_SUPERSEDED env var as false', () => {
+    process.env.SQUISH_INCLUDE_SUPERSEDED = 'false';
+    const envCfg = getEnvRetrievalConfig();
+    expect(envCfg.includeSuperseded).toBe(false);
+  });
+
+  it('SQUISH_INCLUDE_SUPERSEDED defaults to undefined when not set', () => {
+    delete process.env.SQUISH_INCLUDE_SUPERSEDED;
+    const envCfg = getEnvRetrievalConfig();
+    expect(envCfg.includeSuperseded).toBeUndefined();
+  });
+
+  it('merges env config with defaults', () => {
+    process.env.SQUISH_INCLUDE_SUPERSEDED = 'true';
+    process.env.SQUISH_SUPERSEDED_PENALTY = '0.75';
+    const envCfg = getEnvRetrievalConfig();
+    expect(envCfg.includeSuperseded).toBe(true);
+    expect(envCfg.scoring?.supersededPenalty).toBe(0.75);
   });
 });
 
@@ -110,5 +160,70 @@ describe('calculateCompositeScore', () => {
       createdAt: Date.now() - 30 * 24 * 60 * 60 * 1000, // 30 days ago
     });
     expect(recent.recencyBoost).toBeGreaterThan(old.recencyBoost);
+  });
+});
+
+describe('RetrievalTrace interface (Phase 8)', () => {
+  it('has all required fields', () => {
+    // Type-checking test: ensure RetrievalTrace has all required fields
+    const trace: RetrievalTrace = {
+      selectedPlace: 'wip',
+      fallbackUsed: false,
+      fallbackPlaces: [],
+      matchedPlaces: ['wip', 'inbox'],
+      matchedTags: ['test', 'debug'],
+      scoreBreakdown: { 'mem-1': 0.8, 'mem-2': 0.6 },
+      scoreBreakdowns: [],
+      supersededFiltered: 2,
+      totalCandidates: 15,
+      finalOrder: ['mem-1', 'mem-2', 'mem-3'],
+      finalResultCount: 3,
+    };
+
+    expect(trace.selectedPlace).toBe('wip');
+    expect(trace.fallbackUsed).toBe(false);
+    expect(trace.fallbackPlaces).toEqual([]);
+    expect(trace.matchedPlaces).toEqual(['wip', 'inbox']);
+    expect(trace.matchedTags).toEqual(['test', 'debug']);
+    expect(trace.scoreBreakdown).toEqual({ 'mem-1': 0.8, 'mem-2': 0.6 });
+    expect(trace.supersededFiltered).toBe(2);
+    expect(trace.totalCandidates).toBe(15);
+    expect(trace.finalOrder).toEqual(['mem-1', 'mem-2', 'mem-3']);
+    expect(trace.finalResultCount).toBe(3);
+  });
+
+  it('allows null selectedPlace', () => {
+    const trace: RetrievalTrace = {
+      selectedPlace: null,
+      fallbackUsed: false,
+      fallbackPlaces: [],
+      matchedPlaces: [],
+      matchedTags: [],
+      scoreBreakdown: {},
+      scoreBreakdowns: [],
+      supersededFiltered: 0,
+      totalCandidates: 0,
+      finalOrder: [],
+      finalResultCount: 0,
+    };
+    expect(trace.selectedPlace).toBeNull();
+  });
+});
+
+describe('SearchInput trace field (Phase 8)', () => {
+  it('has optional trace field', () => {
+    // Type-checking test: SearchInput accepts trace boolean
+    const input: import('../core/memory/memories.js').SearchInput = {
+      query: 'test query',
+      trace: true,
+    };
+    expect(input.trace).toBe(true);
+  });
+
+  it('trace defaults to undefined when not specified', () => {
+    const input: import('../core/memory/memories.js').SearchInput = {
+      query: 'test query',
+    };
+    expect(input.trace).toBeUndefined();
   });
 });

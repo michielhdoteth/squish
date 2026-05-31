@@ -22,6 +22,10 @@ import { getPlaceByType, type PlaceType } from '../places/places.js';
 import { multiHopSearch } from '../graph/multi-hop-retrieval.js';
 import { callLLM } from '../llm/client.js';
 import { logger } from '../logger.js';
+import { getRetrievalConfig, type SquishRetrievalConfig, type RetrievalScoringConfig, type RetrievalTrace, type ScoreBreakdown } from '../retrieval/config.js';
+import { questionPlaceType, getAdjacentPlaces as getQuestionAdjacentPlaces } from '../places/question-router.js';
+import { getSchema } from '../../db/schema.js';
+import { eq, and, gte, inArray, isNotNull } from 'drizzle-orm';
 
 /**
  * Detect if query asks about time (temporal queries)
@@ -160,6 +164,240 @@ function scoreWithHeuristics(
 }
 
 /**
+ * Query memory_places indexed table by placeType with weight threshold
+ */
+async function getMemoryPlacesByType(
+  placeType: string,
+  minWeight: number,
+  limit: number
+): Promise<Array<{ memoryId: string; weight: number; isPrimary: boolean }>> {
+  const db = await getDb();
+  if (!db) return [];
+  const schema = await getSchema();
+  const sqliteDb = db as any;
+
+  try {
+    const results = await sqliteDb.select({
+      memoryId: schema.memoryPlaces.memoryId,
+      weight: schema.memoryPlaces.weight,
+      isPrimary: schema.memoryPlaces.isPrimary,
+    })
+      .from(schema.memoryPlaces)
+      .where(and(
+        eq(schema.memoryPlaces.placeType, placeType),
+        gte(schema.memoryPlaces.weight, minWeight)
+      ))
+      .orderBy(schema.memoryPlaces.weight)
+      .limit(limit);
+
+    return results;
+  } catch (e) {
+    logger.debug(`[HybridSearch] getMemoryPlacesByType failed: ${e}`);
+    return [];
+  }
+}
+
+/**
+ * Query memory_tags indexed table for tag overlap
+ */
+async function getMemoriesByIndexedTags(
+  tags: string[],
+  limit: number
+): Promise<Array<{ memoryId: string; tag: string }>> {
+  if (tags.length === 0) return [];
+  const db = await getDb();
+  if (!db) return [];
+  const schema = await getSchema();
+  const sqliteDb = db as any;
+
+  try {
+    const results = await sqliteDb.select({
+      memoryId: schema.memoryTags.memoryId,
+      tag: schema.memoryTags.tag,
+    })
+      .from(schema.memoryTags)
+      .where(inArray(schema.memoryTags.tag, tags))
+      .limit(limit * tags.length);
+
+    return results;
+  } catch (e) {
+    logger.debug(`[HybridSearch] getMemoriesByIndexedTags failed: ${e}`);
+    return [];
+  }
+}
+
+/**
+ * Get IDs of superseded memories to filter from results
+ */
+async function getSupersededMemoryIds(projectId?: string): Promise<Set<string>> {
+  const db = await getDb();
+  if (!db) return new Set();
+  const schema = await getSchema();
+  const sqliteDb = db as any;
+
+  try {
+    const conditions: any[] = [isNotNull(schema.memories.supersededBy)];
+    if (projectId) {
+      conditions.push(eq(schema.memories.projectId, projectId));
+    }
+
+    const results = await sqliteDb.select({ id: schema.memories.id })
+      .from(schema.memories)
+      .where(and(...conditions))
+      .limit(1000);
+
+    return new Set(results.map((r: any) => r.id));
+  } catch (e) {
+    logger.debug(`[HybridSearch] getSupersededMemoryIds failed: ${e}`);
+    return new Set();
+  }
+}
+
+/**
+ * Apply place-aware scoring using indexed memory_places queries.
+ * Replaces the old applyPlaceFilterAndBoost for v1.5.0.
+ */
+async function applyMultiPlaceScoring(
+  results: SearchResult[],
+  input: SearchInput,
+  limit: number,
+  retrievalConfig: SquishRetrievalConfig
+): Promise<SearchResult[]> {
+  if (!input.project) return results;
+
+  try {
+    const project = await requireProject(input.project);
+
+    // Determine query place from question routing or explicit placeType
+    const queryPlace = input.placeType || questionPlaceType(input.query || '');
+
+    // Get memory IDs for the primary place via indexed query
+    const primaryMatches = await getMemoryPlacesByType(
+      queryPlace,
+      retrievalConfig.placeMinWeight,
+      limit * 3
+    );
+    const primaryIds = new Set(primaryMatches.map(m => m.memoryId));
+    const primaryWeightMap = new Map(primaryMatches.map(m => [m.memoryId, m.weight]));
+
+    // Get adjacent places for fallback
+    const adjacentPlaces = getQuestionAdjacentPlaces(queryPlace as any);
+    const adjacentMatchesArrays = await Promise.all(
+      adjacentPlaces.map(p => getMemoryPlacesByType(p, retrievalConfig.placeMinWeight, limit * 2))
+    );
+    const adjacentIds = new Set(adjacentMatchesArrays.flat().map(m => m.memoryId));
+
+    // Apply place boost to results
+    const boosted = results.map(r => {
+      const isPrimary = primaryIds.has(r.id);
+      const isAdjacent = adjacentIds.has(r.id);
+      const primaryWeight = primaryWeightMap.get(r.id) ?? 0;
+
+      let placeBoost = 0;
+      if (isPrimary) {
+        placeBoost = retrievalConfig.scoring.placeBoost * Math.min(primaryWeight, 1.0);
+      } else if (isAdjacent) {
+        placeBoost = retrievalConfig.scoring.placeBoost * 0.5;
+      }
+
+      return {
+        ...r,
+        similarity: (r.similarity ?? 0) + placeBoost,
+      };
+    });
+
+    boosted.sort((a, b) => (b.similarity ?? 0) - (a.similarity ?? 0));
+    return boosted.slice(0, limit * 2);
+  } catch (e) {
+    logger.debug(`[HybridSearch] applyMultiPlaceScoring failed: ${e}`);
+    return results;
+  }
+}
+
+/**
+ * Apply tag overlap boost using indexed memory_tags queries
+ */
+async function applyTagOverlapBoost(
+  results: SearchResult[],
+  queryTags: string[],
+  scoring: RetrievalScoringConfig
+): Promise<SearchResult[]> {
+  if (!queryTags || queryTags.length === 0) return results;
+
+  // Normalize query tags for matching
+  const normalizedQueryTags = queryTags.map(t => t.toLowerCase().trim().replace(/\s+/g, '-'));
+
+  const tagMatches = await getMemoriesByIndexedTags(normalizedQueryTags, results.length * 5);
+
+  // Count overlapping tags per memory
+  const overlapCounts = new Map<string, number>();
+  for (const m of tagMatches) {
+    overlapCounts.set(m.memoryId, (overlapCounts.get(m.memoryId) ?? 0) + 1);
+  }
+
+  return results.map(r => ({
+    ...r,
+    similarity: (r.similarity ?? 0) +
+      Math.min((overlapCounts.get(r.id) ?? 0) * scoring.tagOverlapBoost, 0.30),
+  }));
+}
+
+/**
+ * Filter or penalize superseded memories from results
+ * When includeSuperseded=false: filter them out entirely
+ * When includeSuperseded=true: include them but apply supersededPenalty
+ */
+async function applySupersessionFilter(
+  results: SearchResult[],
+  projectId: string | undefined,
+  includeSuperseded: boolean,
+  retrievalConfig: SquishRetrievalConfig
+): Promise<{ filtered: SearchResult[]; supersededCount: number }> {
+  const supersededIds = await getSupersededMemoryIds(projectId);
+  if (supersededIds.size === 0) return { filtered: results, supersededCount: 0 };
+
+  let supersededCount = 0;
+
+  if (includeSuperseded) {
+    // When including superseded: apply supersededPenalty from scoring config
+    const filtered = results.map(r => {
+      if (supersededIds.has(r.id)) {
+        supersededCount++;
+        return {
+          ...r,
+          similarity: Math.max(0, (r.similarity ?? 0) - retrievalConfig.scoring.supersededPenalty),
+        };
+      }
+      return r;
+    });
+
+    // Re-sort after penalty
+    filtered.sort((a, b) => (b.similarity ?? 0) - (a.similarity ?? 0));
+
+    if (supersededCount > 0) {
+      logger.debug(`[HybridSearch] Applied supersededPenalty to ${supersededCount} memories (includeSuperseded=true)`);
+    }
+
+    return { filtered, supersededCount };
+  }
+
+  // Default: filter out superseded memories entirely
+  const filtered = results.filter(r => {
+    if (supersededIds.has(r.id)) {
+      supersededCount++;
+      return false;
+    }
+    return true;
+  });
+
+  if (supersededCount > 0) {
+    logger.debug(`[HybridSearch] Filtered ${supersededCount} superseded memories`);
+  }
+
+  return { filtered, supersededCount };
+}
+
+/**
  * Main search function - vectors + graph boost + heuristics + places + sessions
  * Unified search integrating Places, Graph, and Memory
  */
@@ -172,6 +410,22 @@ export async function hybridSearch(
   const enableHeuristics = options.enableHeuristics !== false;
   const isMultiHop = enableMultiSession && isMultiSessionQuery(input.query);
   const isTemporal = isTemporalQuery(input.query);
+  const traceEnabled = input.trace === true;
+
+  // Initialize trace object for debugging (Phase 8)
+  const trace: RetrievalTrace = {
+    selectedPlace: input.placeType ?? questionPlaceType(input.query) ?? null,
+    fallbackUsed: false,
+    fallbackPlaces: [],
+    matchedPlaces: [],
+    matchedTags: [],
+    scoreBreakdown: {},
+    scoreBreakdowns: [],
+    supersededFiltered: 0,
+    totalCandidates: 0,
+    finalOrder: [],
+    finalResultCount: 0,
+  };
 
   let vectorResults: SearchResult[];
 
@@ -204,6 +458,9 @@ export async function hybridSearch(
     vectorResults = await vectorSearch(input, { ...options, limit: limit * 2 });
   }
 
+  // Record total candidates for trace
+  trace.totalCandidates = vectorResults.length;
+
   // FTS5 keyword search + RRF fusion: add keyword signal and fuse with vector results
   // This is the industry standard (TrueMemory episodic layer, MemPalace FTS5, etc.)
   const keywordResults = await keywordSearch(input, limit * 2);
@@ -211,10 +468,27 @@ export async function hybridSearch(
     vectorResults = rrfFusion(vectorResults, keywordResults, limit * 3);
   }
 
-  // Task 2: Integrate Places into retrieval
-  // If placeId or placeType specified, filter/boost results from that place
-  if (input.placeId || input.placeType) {
-    vectorResults = await applyPlaceFilterAndBoost(vectorResults, input, limit);
+  // v1.5.0: Place-aware scoring using indexed memory_places queries
+  const retrievalConfig = getRetrievalConfig();
+  if (input.project || input.placeType) {
+    vectorResults = await applyMultiPlaceScoring(vectorResults, input, limit, retrievalConfig);
+    // Track matched places for trace
+    if (trace.selectedPlace) {
+      trace.matchedPlaces.push(trace.selectedPlace);
+    }
+    const adjacentPlaces = getQuestionAdjacentPlaces(trace.selectedPlace as any);
+    trace.fallbackPlaces = adjacentPlaces;
+    if (adjacentPlaces.length > 0) {
+      trace.fallbackUsed = true;
+      trace.matchedPlaces.push(...adjacentPlaces);
+    }
+  }
+
+  // v1.5.0: Tag overlap boost using indexed memory_tags
+  const queryTags = input.tags ?? [];
+  if (queryTags.length > 0) {
+    vectorResults = await applyTagOverlapBoost(vectorResults, queryTags, retrievalConfig.scoring);
+    trace.matchedTags = [...queryTags];
   }
 
   // Task 3: Add session temporal scope
@@ -243,6 +517,13 @@ export async function hybridSearch(
   const graphBoostMap = await computeGraphBoost(candidateIds);
 
   let results = applyGraphBoostWithWeight(vectorResults, graphBoostMap, limit, graphWeight);
+
+  // v1.5.0: Filter or penalize superseded memories
+  const { filtered: supersededResults, supersededCount } = await applySupersessionFilter(
+    results, input.project, retrievalConfig.includeSuperseded, retrievalConfig
+  );
+  trace.supersededFiltered = supersededCount;
+  results = supersededResults;
 
   // Expand with associated memories for better coverage
   if (options.includeAssociations !== false) {
@@ -288,6 +569,20 @@ export async function hybridSearch(
     } catch {
       // LLM reranking failed silently - continue with existing results
       logger.debug('[HybridSearch] LLM reranking failed, using original order');
+    }
+  }
+
+  // Build trace metadata (Phase 8)
+  trace.finalOrder = results.map(r => r.id);
+  trace.finalResultCount = results.length;
+  for (const r of results) {
+    trace.scoreBreakdown[r.id] = r.similarity ?? 0;
+  }
+
+  // Attach trace to results when trace mode is enabled
+  if (traceEnabled) {
+    for (const r of results) {
+      r._trace = trace;
     }
   }
 

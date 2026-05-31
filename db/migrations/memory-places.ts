@@ -15,8 +15,73 @@ export async function runMemoryPlacesMigrations(sqlite: Database): Promise<void>
   const memoryPlacesInfo = sqlite.prepare("PRAGMA table_info(memory_places)").all() as Array<{ name: string }>;
   const existingMemoryPlacesColumns = new Set(memoryPlacesInfo.map(col => col.name));
 
+  // v1.5.0: Check if place_id is NOT NULL - if so, we need to recreate the table
+  // because the new schema uses place_type instead of place_id as the primary routing column
+  const placeIdNotNull = memoryPlacesInfo.find(
+    col => col.name === 'place_id' && col.notnull === 1
+  );
+
+  if (placeIdNotNull) {
+    // Recreate memory_places with the v1.5.0 schema
+    logger.info('[Migration] Recreating memory_places table for v1.5.0 multi-place routing...');
+    
+    // 1. Create new table with correct schema
+    sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS memory_places_new (
+        id TEXT PRIMARY KEY,
+        memory_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+        place_type TEXT NOT NULL,
+        weight REAL NOT NULL DEFAULT 1.0,
+        reason TEXT,
+        source TEXT NOT NULL DEFAULT 'heuristic',
+        is_primary INTEGER DEFAULT 0,
+        created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL
+      )
+    `);
+
+    // 2. Copy existing data, resolving placeId -> placeType
+    try {
+      sqlite.exec(`
+        INSERT INTO memory_places_new (id, memory_id, place_type, weight, source, is_primary, created_at)
+        SELECT
+          mp.id,
+          mp.memory_id,
+          COALESCE(p.place_type, 'inbox'),
+          1.0,
+          'legacy',
+          1,
+          mp.created_at
+        FROM memory_places mp
+        LEFT JOIN places p ON mp.place_id = p.id
+      `);
+    } catch (e) {
+      logger.debug(`[Migration] Memory places data copy: ${e}`);
+    }
+
+    // 3. Drop old table and rename new
+    sqlite.exec('DROP TABLE IF EXISTS memory_places');
+    sqlite.exec('ALTER TABLE memory_places_new RENAME TO memory_places');
+
+    // 4. Recreate indexes
+    sqlite.exec('CREATE INDEX IF NOT EXISTS memory_places_memory_idx ON memory_places(memory_id)');
+    sqlite.exec('CREATE INDEX IF NOT EXISTS memory_places_place_type_idx ON memory_places(place_type)');
+    sqlite.exec('CREATE INDEX IF NOT EXISTS memory_places_place_weight_idx ON memory_places(place_type, weight)');
+    sqlite.exec('CREATE INDEX IF NOT EXISTS memory_places_memory_primary_idx ON memory_places(memory_id, is_primary)');
+    sqlite.exec('CREATE UNIQUE INDEX IF NOT EXISTS memory_places_unique ON memory_places(memory_id, place_type, source)');
+
+    logger.info('[Migration] memory_places table recreated for v1.5.0');
+    return; // Skip individual column migrations below
+  }
+
+  // Standard column migrations for tables that already have the new schema
   const memoryPlacesMigrations = [
     { col: 'place_sort_order', sql: 'ALTER TABLE memory_places ADD COLUMN place_sort_order INTEGER DEFAULT 0' },
+    // v1.5.0: Multi-place routing columns
+    { col: 'place_type', sql: "ALTER TABLE memory_places ADD COLUMN place_type TEXT" },
+    { col: 'weight', sql: 'ALTER TABLE memory_places ADD COLUMN weight REAL DEFAULT 1.0' },
+    { col: 'reason', sql: 'ALTER TABLE memory_places ADD COLUMN reason TEXT' },
+    { col: 'source', sql: "ALTER TABLE memory_places ADD COLUMN source TEXT DEFAULT 'heuristic'" },
+    { col: 'is_primary', sql: 'ALTER TABLE memory_places ADD COLUMN is_primary INTEGER DEFAULT 0' },
   ];
 
   for (const migration of memoryPlacesMigrations) {
@@ -29,6 +94,36 @@ export async function runMemoryPlacesMigrations(sqlite: Database): Promise<void>
         if (!msg.includes('duplicate column name')) {
           logger.warn(`Migration note for memory_places.${migration.col}: ${msg}`);
         }
+      }
+    }
+  }
+
+  // Create memory_tags table if it doesn't exist
+  const memoryTagsTableCheck = sqlite.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='memory_tags'"
+  ).get() as { name: string } | undefined;
+
+  if (!memoryTagsTableCheck) {
+    try {
+      sqlite.exec(`
+        CREATE TABLE memory_tags (
+          id TEXT PRIMARY KEY,
+          memory_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+          tag TEXT NOT NULL,
+          source TEXT DEFAULT 'heuristic',
+          confidence REAL,
+          created_at INTEGER DEFAULT (strftime('%s', 'now'))
+        )
+      `);
+      sqlite.exec('CREATE INDEX IF NOT EXISTS memory_tags_tag_idx ON memory_tags(tag)');
+      sqlite.exec('CREATE INDEX IF NOT EXISTS memory_tags_memory_idx ON memory_tags(memory_id)');
+      sqlite.exec('CREATE INDEX IF NOT EXISTS memory_tags_tag_memory_idx ON memory_tags(tag, memory_id)');
+      sqlite.exec('CREATE UNIQUE INDEX IF NOT EXISTS memory_tags_unique ON memory_tags(memory_id, tag)');
+      logger.info('Migration: Created memory_tags table');
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (!msg.includes('already exists')) {
+        logger.warn(`Migration note for memory_tags: ${msg}`);
       }
     }
   }

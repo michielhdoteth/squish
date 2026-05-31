@@ -452,18 +452,36 @@ CREATE INDEX IF NOT EXISTS places_type_idx ON places(place_type);
 CREATE INDEX IF NOT EXISTS places_parent_idx ON places(parent_id);
 CREATE INDEX IF NOT EXISTS places_sort_order_idx ON places(project_id, sort_order);
 
--- Memory-Place assignments
+-- Memory-Place assignments (v1.5.0: 1:N multi-place routing)
 CREATE TABLE IF NOT EXISTS memory_places (
   id TEXT PRIMARY KEY,
   memory_id TEXT REFERENCES memories(id) ON DELETE CASCADE NOT NULL,
-  place_id TEXT REFERENCES places(id) ON DELETE CASCADE NOT NULL,
-  place_sort_order INTEGER DEFAULT 0,
-  is_manual INTEGER DEFAULT 0,
-  rule_id TEXT,
+  place_type TEXT NOT NULL,
+  weight REAL NOT NULL DEFAULT 1.0,
+  reason TEXT,
+  source TEXT NOT NULL DEFAULT 'heuristic',
+  is_primary INTEGER DEFAULT 0,
   created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL
 );
 CREATE INDEX IF NOT EXISTS memory_places_memory_idx ON memory_places(memory_id);
-CREATE INDEX IF NOT EXISTS memory_places_place_idx ON memory_places(place_id);
+CREATE INDEX IF NOT EXISTS memory_places_place_type_idx ON memory_places(place_type);
+CREATE INDEX IF NOT EXISTS memory_places_place_weight_idx ON memory_places(place_type, weight);
+CREATE INDEX IF NOT EXISTS memory_places_memory_primary_idx ON memory_places(memory_id, is_primary);
+CREATE UNIQUE INDEX IF NOT EXISTS memory_places_unique ON memory_places(memory_id, place_type, source);
+
+-- Memory Tags (v1.5.0: Tag-aware retrieval)
+CREATE TABLE IF NOT EXISTS memory_tags (
+  id TEXT PRIMARY KEY,
+  memory_id TEXT REFERENCES memories(id) ON DELETE CASCADE NOT NULL,
+  tag TEXT NOT NULL,
+  source TEXT NOT NULL DEFAULT 'heuristic',
+  confidence REAL,
+  created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL
+);
+CREATE INDEX IF NOT EXISTS memory_tags_tag_idx ON memory_tags(tag);
+CREATE INDEX IF NOT EXISTS memory_tags_memory_idx ON memory_tags(memory_id);
+CREATE INDEX IF NOT EXISTS memory_tags_tag_memory_idx ON memory_tags(tag, memory_id);
+CREATE UNIQUE INDEX IF NOT EXISTS memory_tags_unique ON memory_tags(memory_id, tag);
 
 -- Place auto-assignment rules
 CREATE TABLE IF NOT EXISTS place_rules (

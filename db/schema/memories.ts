@@ -77,6 +77,9 @@ export const memoriesSchema: TableSchema = {
     version: { type: 'INTEGER', default: '1' },
     place_id: { type: 'TEXT' },
     place_sort_order: { type: 'INTEGER', default: '0' },
+    // v1.5.0: Multi-place routing
+    primary_place: { type: 'TEXT' },
+    memory_type: { type: 'TEXT' },
     created_at: { type: 'INTEGER' },
     updated_at: { type: 'INTEGER' },
   },

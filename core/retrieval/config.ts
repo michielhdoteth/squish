@@ -193,8 +193,13 @@ export interface RetrievalTrace {
   fallbackPlaces: string[];
   matchedPlaces: string[];
   matchedTags: string[];
+  /** Per-memory score breakdown as key-value pairs (memoryId -> finalScore) */
+  scoreBreakdown: Record<string, number>;
+  /** Legacy: detailed score breakdowns per memory */
   scoreBreakdowns: ScoreBreakdown[];
   supersededFiltered: number;
   totalCandidates: number;
+  /** Memory IDs in final rank order */
+  finalOrder: string[];
   finalResultCount: number;
 }

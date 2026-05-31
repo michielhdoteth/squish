@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, blob, index, primaryKey } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, real, blob, index, primaryKey, unique } from 'drizzle-orm/sqlite-core';
 import { relations } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
 
@@ -88,6 +88,10 @@ export const memories = sqliteTable(
     // v1.1.5: Places support (spatial memory organization)
     placeId: text('place_id').references(() => places.id, { onDelete: 'set null' }),
     placeSortOrder: integer('place_sort_order'),
+
+    // v1.5.0: Multi-place routing
+    primaryPlace: text('primary_place'),  // primary cognitive place (board/wip/sparks/ref/inbox)
+    memoryType: text('memory_type'),      // e.g. user_preference, technical_decision, project_state, etc.
 
     // v0.4.3: Layer support
     hasL0Abstract: integer('has_l0_abstract', { mode: 'boolean' }).default(false),
@@ -417,19 +421,40 @@ export const places: any = sqliteTable('places', {
 ]);
 
 /**
- * Memory-Place assignments
+ * Memory-Place assignments (v1.5.0: 1:N multi-place routing)
  */
 export const memoryPlaces: any = sqliteTable('memory_places', {
   id: text('id').primaryKey().$default(() => crypto.randomUUID()),
   memoryId: text('memory_id').references(() => memories.id, { onDelete: 'cascade' }).notNull(),
-  placeId: text('place_id').references(() => places.id, { onDelete: 'cascade' }).notNull(),
-  isManual: integer('is_manual').default(0),
-  ruleId: text('rule_id'),
-  
+  placeType: text('place_type').notNull(),  // 'board' | 'wip' | 'sparks' | 'ref' | 'inbox' | 'sandbox' | 'archive'
+  weight: real('weight').default(1.0).notNull(),  // 0.0-1.0, higher = more relevant to this place
+  reason: text('reason'),  // why this memory belongs here
+  source: text('source').default('heuristic').notNull(),  // 'heuristic' | 'llm' | 'manual' | 'dream' | 'legacy'
+  isPrimary: integer('is_primary', { mode: 'boolean' }).default(false),
   createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
   index('memory_places_memory_idx').on(table.memoryId),
-  index('memory_places_place_idx').on(table.placeId),
+  index('memory_places_place_type_idx').on(table.placeType),
+  index('memory_places_place_weight_idx').on(table.placeType, table.weight),
+  index('memory_places_memory_primary_idx').on(table.memoryId, table.isPrimary),
+  unique('memory_places_unique').on(table.memoryId, table.placeType, table.source),
+]);
+
+/**
+ * Memory Tags (v1.5.0: Tag-aware retrieval)
+ */
+export const memoryTags = sqliteTable('memory_tags', {
+  id: text('id').primaryKey().$default(() => crypto.randomUUID()),
+  memoryId: text('memory_id').references(() => memories.id, { onDelete: 'cascade' }).notNull(),
+  tag: text('tag').notNull(),
+  source: text('source').default('heuristic').notNull(),  // 'heuristic' | 'llm' | 'manual' | 'dream'
+  confidence: real('confidence'),  // nullable, 0.0-1.0
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('memory_tags_tag_idx').on(table.tag),
+  index('memory_tags_memory_idx').on(table.memoryId),
+  index('memory_tags_tag_memory_idx').on(table.tag, table.memoryId),
+  unique('memory_tags_unique').on(table.memoryId, table.tag),
 ]);
 
 /**
@@ -1023,6 +1048,12 @@ export const beliefEdges = sqliteTable('belief_edges', {
 export type BeliefType = 'decision' | 'preference' | 'failure_cause' | 'constraint' | 'state_change' | 'dispute';
 export type BeliefStatus = 'active' | 'superseded' | 'disputed';
 export type BeliefEdgeType = 'causes' | 'supports' | 'rejects' | 'supersedes' | 'depends_on';
+
+export type MemoryPlace = typeof memoryPlaces.$inferSelect;
+export type NewMemoryPlace = typeof memoryPlaces.$inferInsert;
+
+export type MemoryTag = typeof memoryTags.$inferSelect;
+export type NewMemoryTag = typeof memoryTags.$inferInsert;
 
 export type Belief = typeof beliefs.$inferSelect;
 export type NewBelief = typeof beliefs.$inferInsert;
