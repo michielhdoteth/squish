@@ -16,6 +16,13 @@ import { logger } from '../logger.js';
 import type { PlaceType } from './places.js';
 import { ensureGlobalProject } from './places.js';
 
+export interface PlaceCandidate {
+  type: PlaceType;
+  weight: number;
+  reason?: string;
+  source: 'heuristic' | 'llm' | 'manual' | 'dream';
+}
+
 export interface PlaceRule {
   id: string;
   projectId: string;
@@ -164,25 +171,39 @@ export async function getProjectRules(projectId?: string): Promise<PlaceRule[]> 
 
 /**
  * Check if a rule matches the input
+ * A rule matches only if ALL of its specified conditions are met.
  */
 export function matchesRule(rule: PlaceRule, input: RuleMatchInput): boolean {
-  // Check tool match
-  if (rule.matchTool && input.toolName) {
-    if (input.toolName.toLowerCase() !== rule.matchTool.toLowerCase()) {
+  const hasToolCondition = !!rule.matchTool;
+  const hasKeywordCondition = !!rule.matchKeyword;
+  const hasTagCondition = !!rule.matchTag;
+  const hasMemoryTypeCondition = !!rule.matchMemoryType;
+
+  // A rule must have at least one match condition
+  if (!hasToolCondition && !hasKeywordCondition && !hasTagCondition && !hasMemoryTypeCondition) {
+    return false;
+  }
+
+  // Check tool match - if rule requires tool, input must have a matching tool
+  if (hasToolCondition) {
+    if (!input.toolName) return false;
+    if (input.toolName.toLowerCase() !== rule.matchTool!.toLowerCase()) {
       return false;
     }
   }
 
-  // Check keyword match
-  if (rule.matchKeyword && input.content) {
+  // Check keyword match - if rule requires keyword, input must have matching content
+  if (hasKeywordCondition) {
+    if (!input.content) return false;
     const contentLower = input.content.toLowerCase();
-    if (!contentLower.includes(rule.matchKeyword.toLowerCase())) {
+    if (!contentLower.includes(rule.matchKeyword!.toLowerCase())) {
       return false;
     }
   }
 
-  // Check tag match
-  if (rule.matchTag && input.tags) {
+  // Check tag match - if rule requires tag, input must have matching tag
+  if (hasTagCondition) {
+    if (!input.tags) return false;
     const hasTag = input.tags.some(t => 
       t.toLowerCase() === rule.matchTag!.toLowerCase()
     );
@@ -191,9 +212,10 @@ export function matchesRule(rule: PlaceRule, input: RuleMatchInput): boolean {
     }
   }
 
-  // Check memory type match
-  if (rule.matchMemoryType && input.memoryType) {
-    if (input.memoryType.toLowerCase() !== rule.matchMemoryType.toLowerCase()) {
+  // Check memory type match - if rule requires type, input must have matching type
+  if (hasMemoryTypeCondition) {
+    if (!input.memoryType) return false;
+    if (input.memoryType.toLowerCase() !== rule.matchMemoryType!.toLowerCase()) {
       return false;
     }
   }
@@ -202,27 +224,108 @@ export function matchesRule(rule: PlaceRule, input: RuleMatchInput): boolean {
 }
 
 /**
- * Find matching place for a memory based on rules
+ * Find ALL matching places for a memory, ranked by priority/weight
+ * Returns ranked candidates instead of a single place
+ */
+export async function findMatchingPlaces(
+  projectId: string | undefined,
+  input: RuleMatchInput
+): Promise<PlaceCandidate[]> {
+  let rules = await getProjectRules(projectId);
+  
+  // Fallback to DEFAULT_RULES if no rules exist in DB
+  if (rules.length === 0) {
+    rules = DEFAULT_RULES.map(r => ({
+      id: 'default',
+      projectId: projectId || '__squish_global__',
+      name: r.name,
+      placeType: r.placeType,
+      matchTool: r.matchTool || null,
+      matchKeyword: r.matchKeyword || null,
+      matchTag: r.matchTag || null,
+      matchMemoryType: r.matchMemoryType || null,
+      priority: r.priority ?? 0,
+      enabled: r.enabled !== false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }));
+  }
+  
+  const enabledRules = rules
+    .filter(r => r.enabled)
+    .sort((a, b) => b.priority - a.priority);
+
+  const candidates: PlaceCandidate[] = [];
+  const seenTypes = new Set<PlaceType>();
+
+  for (const rule of enabledRules) {
+    if (matchesRule(rule, input)) {
+      if (!seenTypes.has(rule.placeType)) {
+        seenTypes.add(rule.placeType);
+        
+        // Weight is normalized from priority (0-100 -> 0.0-1.0)
+        const weight = Math.min(1.0, rule.priority / 100);
+        
+        // Build reason string
+        const reasons: string[] = [];
+        if (rule.matchTool) reasons.push(`tool=${rule.matchTool}`);
+        if (rule.matchKeyword) reasons.push(`keyword="${rule.matchKeyword}"`);
+        if (rule.matchTag) reasons.push(`tag=${rule.matchTag}`);
+        if (rule.matchMemoryType) reasons.push(`type=${rule.matchMemoryType}`);
+        
+        candidates.push({
+          type: rule.placeType,
+          weight,
+          reason: reasons.join(', ') || rule.name,
+          source: 'heuristic',
+        });
+      }
+    }
+  }
+
+  // If no rules matched, return inbox as fallback
+  if (candidates.length === 0) {
+    candidates.push({
+      type: 'inbox',
+      weight: 0.5,
+      reason: 'no matching rules - default fallback',
+      source: 'heuristic',
+    });
+  }
+
+  return candidates;
+}
+
+/**
+ * Find matching place for a memory based on rules (backward compatible)
+ * Returns the single best match
  */
 export async function findMatchingPlace(
   projectId: string | undefined,
   input: RuleMatchInput
 ): Promise<PlaceType | null> {
-  const rules = await getProjectRules(projectId);
-  
-  // Sort by priority (highest first)
-  const sortedRules = rules
-    .filter(r => r.enabled)
-    .sort((a, b) => b.priority - a.priority);
+  const candidates = await findMatchingPlaces(projectId, input);
+  return candidates.length > 0 ? candidates[0].type : null;
+}
 
-  for (const rule of sortedRules) {
-    if (matchesRule(rule, input)) {
-      logger.info(`[PlaceRules] Matched rule "${rule.name}" -> ${rule.placeType}`);
-      return rule.placeType;
-    }
-  }
+/**
+ * Adjacent places for retrieval fallback
+ */
+export const ADJACENT_PLACES: Record<PlaceType, PlaceType[]> = {
+  board: ['wip', 'ref'],
+  wip: ['board', 'ref'],
+  sparks: ['board', 'wip'],
+  ref: ['board', 'wip'],
+  inbox: ['board', 'wip', 'sparks', 'ref'],
+  sandbox: ['wip', 'inbox'],
+  archive: ['inbox'],
+};
 
-  return null;
+/**
+ * Get adjacent places for fallback retrieval
+ */
+export function getAdjacentPlaces(place: PlaceType): PlaceType[] {
+  return ADJACENT_PLACES[place] || ['inbox'];
 }
 
 /**
