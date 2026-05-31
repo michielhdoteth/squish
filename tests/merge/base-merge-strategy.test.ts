@@ -3,7 +3,7 @@
  * Tests the common helper methods extracted from merge strategies
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'bun:test';
 import { BaseMergeStrategy } from '../../core/algorithms/strategies/merge-strategies.js';
 import type { Memory } from '../../drizzle/schema.js';
 

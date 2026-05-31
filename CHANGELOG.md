@@ -33,7 +33,7 @@ All notable changes to Squish will be documented in this file.
 - **Updated scorer**: Removed warm scoring bonuses
 - **Updated CLI**: Descriptions reflect simplified tier system
 
-## [1.2.0] - 2026-04-19
+## [1.3.0] - 2026-04-19
 
 ### Added - Belief System (Derived Semantic Layer)
 

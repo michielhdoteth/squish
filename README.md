@@ -1,38 +1,21 @@
-# Squish -- Connect once. Remember everywhere.
+# Squish -- One command. Memory everywhere.
 
 [![npm version](https://img.shields.io/npm/v/squish-memory)](https://www.npmjs.com/package/squish-memory)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![npm downloads](https://img.shields.io/npm/dt/squish-memory?color=green)](https://www.npmjs.com/package/squish-memory)
+
 [![GitHub stars](https://img.shields.io/github/stars/michielhdoteth/squish)](https://github.com/michielhdoteth/squish)
 
-Squish gives ChatGPT, Claude Code, and every AI agent one shared memory.
-
-**Without Squish:**
-- Agent restarts. Context disappears.
-- You explain everything again.
-
-**With Squish:**
-- Restart the agent.
-- Continue working.
-
----
-
-## Install (30 seconds)
+> **3,100+ npm installs.** One command. Zero config. Works with Claude Code, ChatGPT, Codex, Cursor, and every MCP-compatible agent.
 
 ```bash
 npm install -g squish-memory && squish install --all
 ```
 
-Zero config. Zero API keys.
+That's it. Memory that persists across sessions and across agents. No API keys. No LLM needed.
 
 ```bash
-# Show current project context
-squish context --json
-
-# Save something explicitly
 squish remember "We chose PostgreSQL for team mode" --type decision
-
-# See what the agent knows about a topic
 squish recall "project decisions"
 ```
 
@@ -44,40 +27,27 @@ squish recall "project decisions"
 
 ## The problem: agents forget everything
 
-Every time you start a new session, your AI agent starts from zero. It does not remember the architecture decisions you made last week, the config you spent an hour debugging, or the preference you mentioned yesterday.
+Every time you start a new session, your AI agent starts from zero. That architecture decision from last week, the config you spent an hour debugging, the preference you mentioned yesterday -- gone.
 
-You re-explain. Every. Single. Time.
-
-Squish is the memory that persists between sessions. Across agents. Across machines.
+Squish is memory that persists between sessions. Across agents. Across machines. One command to install, zero config to run.
 
 ---
 
 ## How it works
 
-1. **Connect** -- OAuth login once in any agent (ChatGPT, Claude Code, OpenCode, Cursor, etc.)
-2. **Remember** -- Squish auto-captures decisions, constraints, and context as you work
-3. **Recall** -- When you restart any connected agent, it picks up right where you left off
+1. **Install** -- `npm install -g squish-memory && squish install --all` (30 seconds)
+2. **Work** -- Squish auto-captures decisions, constraints, and context
+3. **Restart** -- Any connected agent picks up where you left off
 
-One memory runtime. Works everywhere.
+Use locally free. Sync with Squish Cloud when you need cross-machine memory.
 
 ---
 
 ## Why Squish
 
-Most memory tools need a second LLM for embeddings and retrieval. That means extra API costs ($10-100+/mo per agent), latency (500ms+ per call), and more infrastructure to manage.
+Most memory tools need a second LLM for embeddings and retrieval. That means extra API costs, latency, and infrastructure.
 
-**Squish uses local embeddings by default. No forced LLM dependency.**
-- 1-5ms embedding latency (not 500ms+)
-- $0 runtime cost in local mode
-- Optional LLM for enhanced extraction and Cloud features
-
-| Feature | Most Memory Tools | Squish |
-|---------|------------------|--------|
-| Embedding latency | 200-1000ms | **1-5ms** |
-| Local mode cost | $10-100+/mo | **$0** |
-| LLM required | Yes | **Optional** |
-| MCP server | Sometimes | **Built-in (15 tools)** |
-| Cloud sync | Enterprise-only | **$9/mo** |
+**Squish uses local embeddings by default. Zero LLM dependency.** 1-5ms latency, $0 runtime in local mode.
 
 ---
 
@@ -131,8 +101,11 @@ Persistent memory across ChatGPT, Claude Desktop, Claude Code, and local agents.
 | Cloud Solo | $9/mo | 50 MB synced | 1 |
 | Cloud Pro | $29/mo | 250 MB synced | 1 |
 | Team | $99/mo | 1 GB shared | Up to 10 |
+| Founder Pass | $99/yr | Pro features | 1 |
 
 [Sign up at squishplugin.dev](https://squishplugin.dev) -- 30 seconds, no credit card needed.
+
+> **Founder Pass** is a launch-only offer. $99/year instead of $348/year (Pro monthly).
 
 ---
 
@@ -183,7 +156,6 @@ Two-tier memory pipeline:
 
 - [Website & Cloud Dashboard](https://squishplugin.dev)
 - [Documentation](docs/)
-- [MCP PR #6740 (awesome-mcp-servers)](https://github.com/punkpeye/awesome-mcp-servers/pull/6740)
 - [OAuth Metadata](https://api.squishplugin.dev/.well-known/oauth-authorization-server)
 
 ## License

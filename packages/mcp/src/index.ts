@@ -36,7 +36,7 @@ import { getAllProjects } from "../../../core/projects.js";
 import { logger } from "../../../core/logger.js";
 
 const SERVER_NAME = "squish-memory";
-const SERVER_VERSION = "1.3.0";
+const SERVER_VERSION = "1.5.0";
 
 // Create server instance ONCE (not per-session)
 const { server: SQUISH_SERVER, toolCount: SQUISH_TOOL_COUNT } = createSquishServer();
@@ -292,7 +292,7 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
           await unpinMemory(memory.id);
         }
 
-        result = { id: memory.id, type: "memory", memoryType: inferredType, content, pined: pin };
+        result = { id: memory.id, type: "memory", memoryType: inferredType, content, pinned: pin };
 
         // Auto-update knowledge graph (fire-and-forget)
         const { addMemoryToGraph } = await import('../../../core/graph/graph-builder.js');
@@ -308,7 +308,7 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
       return {
         content: [{
           type: "text",
-          text: `Remembered: ${result.id}\nRouting: ${routing}\nType: ${routing === "learning" ? result.learningType : result.memoryType}\nPriority: ${signals.priority}\nConfidence: ${signals.confidence}\nPined: ${(result as any).pinned}\nReason: ${routingReason}\n\n${content.substring(0, 100)}${content.length > 100 ? '...' : ''}`
+          text: `Remembered: ${result.id}\nRouting: ${routing}\nType: ${routing === "learning" ? result.learningType : result.memoryType}\nPriority: ${signals.priority}\nConfidence: ${signals.confidence}\nPinned: ${(result as any).pinned}\nReason: ${routingReason}\n\n${content.substring(0, 100)}${content.length > 100 ? '...' : ''}`
         }]
       };
     }

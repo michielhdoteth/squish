@@ -4,7 +4,7 @@
  * Run with: npm test -- tests/merge/integration.test.ts
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'bun:test';
 import type { Memory } from '../../drizzle/schema';
 import { detectDuplicates } from '../../core/algorithms/detection/two-stage-detector.js';
 import { runSafetyChecks } from '../../core/algorithms/safety/safety-checks.js';

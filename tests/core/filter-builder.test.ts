@@ -3,7 +3,7 @@
  * Tests memory criteria filter construction
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'bun:test';
 import { buildMemoryFilters, buildMemoryFiltersPartial } from '../../core/utils/filter-builder.js';
 
 describe('Filter Builder', () => {

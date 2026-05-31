@@ -3,7 +3,7 @@
  * Tests message content analysis functions
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'bun:test';
 import {
   extractMessageContent,
   generateExtractiveSummary

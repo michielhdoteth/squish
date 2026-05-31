@@ -27,7 +27,7 @@ export function createProgram(): Command {
   program
     .name('squish')
     .description('Universal Memory for AI Agents - CLI')
-    .version('1.3.0');
+    .version('1.5.0');
 
   program.hook('preAction', async (_thisCommand, actionCommand) => {
     const commandName = actionCommand.name();

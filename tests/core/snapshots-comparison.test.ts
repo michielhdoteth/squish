@@ -3,7 +3,7 @@
  * Tests diff calculation and comparison logic
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'bun:test';
 import { calculateDiff, MemoryDiff } from '../../core/snapshots/comparison.js';
 
 describe('Snapshot Comparison', () => {

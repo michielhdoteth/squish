@@ -5,7 +5,7 @@
  * with the graph boost calculation.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { InMemoryGraphBackend } from '../../../core/graph/backend.js';
 import { calculateGraphBoost } from '../../../core/search/graph-boost.js';
 

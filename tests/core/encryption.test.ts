@@ -1,5 +1,4 @@
-import { describe, it } from 'node:test';
-import assert from 'node:assert';
+import { describe, it, expect } from 'bun:test';
 import { encrypt, decrypt } from '../../core/security/encrypt.js';
 
 describe('Encryption', () => {
@@ -9,12 +8,12 @@ describe('Encryption', () => {
     
     const { ciphertext, nonce } = encrypt(plaintext, passphrase);
     
-    assert.ok(ciphertext, 'should generate ciphertext');
-    assert.ok(nonce, 'should generate nonce');
-    assert.notEqual(ciphertext, plaintext, 'ciphertext should differ from plaintext');
+    expect(ciphertext).toBeTruthy();
+    expect(nonce).toBeTruthy();
+    expect(ciphertext).not.toBe(plaintext);
     
     const decrypted = decrypt(ciphertext, nonce, passphrase);
-    assert.strictEqual(decrypted, plaintext, 'should decrypt to original text');
+    expect(decrypted).toBe(plaintext);
   });
 
   it('should produce different ciphertext for same plaintext (due to random nonce)', () => {
@@ -24,7 +23,7 @@ describe('Encryption', () => {
     const { ciphertext: ct1 } = encrypt(plaintext, passphrase);
     const { ciphertext: ct2 } = encrypt(plaintext, passphrase);
     
-    assert.notStrictEqual(ct1, ct2, 'should produce different ciphertext each time');
+    expect(ct1).not.toBe(ct2);
   });
 
   it('should fail to decrypt with wrong passphrase', () => {
@@ -34,11 +33,7 @@ describe('Encryption', () => {
     
     const { ciphertext, nonce } = encrypt(plaintext, passphrase);
     
-    assert.throws(
-      () => decrypt(ciphertext, nonce, wrongPassphrase),
-      /Unsupported state or unable to authenticate data/,
-      'should throw on wrong passphrase'
-    );
+    expect(() => decrypt(ciphertext, nonce, wrongPassphrase)).toThrow(/Unsupported state or unable to authenticate data/);
   });
 
   it('should handle empty string', () => {
@@ -48,7 +43,7 @@ describe('Encryption', () => {
     const { ciphertext, nonce } = encrypt(plaintext, passphrase);
     const decrypted = decrypt(ciphertext, nonce, passphrase);
     
-    assert.strictEqual(decrypted, plaintext);
+    expect(decrypted).toBe(plaintext);
   });
 
   it('should handle unicode characters', () => {
@@ -58,6 +53,6 @@ describe('Encryption', () => {
     const { ciphertext, nonce } = encrypt(plaintext, passphrase);
     const decrypted = decrypt(ciphertext, nonce, passphrase);
     
-    assert.strictEqual(decrypted, plaintext);
+    expect(decrypted).toBe(plaintext);
   });
 });

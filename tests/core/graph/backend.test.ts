@@ -5,7 +5,7 @@
  * using both in-memory (default) and Kuzu backends.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { GraphBackend, KuzuBackend, InMemoryGraphBackend } from '../../../core/graph/backend.js';
 import { GraphNode } from '../../../core/graph/backend.js';
 
