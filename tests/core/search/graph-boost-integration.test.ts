@@ -1,32 +1,53 @@
+import { join } from 'path';
+import { tmpdir } from 'os';
+import { mkdirSync, existsSync } from 'fs';
+
+const testDataDir = join(tmpdir(), `squish-graph-boost-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+process.env.SQUISH_DATA_DIR = testDataDir;
+process.env.DATABASE_URL = '';
+
+if (!existsSync(testDataDir)) {
+  mkdirSync(testDataDir, { recursive: true });
+}
+
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { calculateGraphBoost, calculateRecencyBonus } from '../../../core/search/graph-boost.js';
-import { getDbClient } from '../../../core/lib/db-client.js';
-import { createDatabaseClient } from '../../../core/storage/database.js';
+import { calculateGraphBoost, calculateRecencyBonus, getGraphBackend } from '../../../core/search/graph-boost.js';
+import { getDb, resetDb } from '../../../db/index.js';
 
 /**
  * Integration test for graph boost v2
  * Verifies that graph boost affects search results
  */
 
+async function getRawSqlite(): Promise<any> {
+  const db = await getDb();
+  return (db as any).$client ?? db;
+}
+
 describe('Graph Boost v2 Integration', () => {
-  let db: any;
+  let rawDb: any;
   let testProjectId: string;
   let mem1Id: string;
   let mem2Id: string;
   let mem3Id: string;
 
   beforeEach(async () => {
+    // Ensure env vars are set for this test (other tests may have changed them)
+    process.env.SQUISH_DATA_DIR = testDataDir;
+    process.env.DATABASE_URL = '';
+    resetDb();
+
     // Setup: Create test database and memories with associations
-    const client = await getDbClient();
-    db = client.db;
+    rawDb = await getRawSqlite();
 
     // Create test project
-    const project = db.prepare(`
-      INSERT INTO projects (id, name, created_at, updated_at)
-      VALUES (?, ?, ?, ?)
+    const project = rawDb.prepare(`
+      INSERT INTO projects (id, name, path, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?)
     `).run(
       'test-project-1',
       'Test Project',
+      '/test-project-1',
       Date.now(),
       Date.now()
     );
@@ -38,7 +59,7 @@ describe('Graph Boost v2 Integration', () => {
     mem3Id = 'mem-integration-3';
 
     const now = Date.now();
-    const insertMem = db.prepare(`
+    const insertMem = rawDb.prepare(`
       INSERT INTO memories (id, project_id, type, content, tags, metadata, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
@@ -48,9 +69,9 @@ describe('Graph Boost v2 Integration', () => {
     insertMem.run(mem3Id, testProjectId, 'fact', 'Memory 3 unrelated', '[]', '{}', now, now);
 
     // Create associations: mem1 <-> mem2 with high weight
-    const insertAssoc = db.prepare(`
-      INSERT INTO memory_associations (id, from_memory_id, to_memory_id, weight, association_type, coactivation_count, last_coactivated_at, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    const insertAssoc = rawDb.prepare(`
+      INSERT INTO memory_associations (id, from_memory_id, to_memory_id, weight, association_type, coactivation_count, last_coactivated_at, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     insertAssoc.run(
@@ -61,7 +82,6 @@ describe('Graph Boost v2 Integration', () => {
       'relates_to',
       5, // High coactivation
       new Date().toISOString(), // Today = 1.5x bonus
-      now,
       now
     );
 
@@ -74,19 +94,35 @@ describe('Graph Boost v2 Integration', () => {
       'supports',
       2,
       new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(), // 2 days ago = 1.0x bonus
-      now,
       now
     );
+
+    // Also populate the in-memory graph backend used by calculateGraphBoost
+    const graphBackend = await getGraphBackend();
+    await graphBackend.createNode(mem1Id, { type: 'fact' });
+    await graphBackend.createNode(mem2Id, { type: 'fact' });
+    await graphBackend.createNode(mem3Id, { type: 'fact' });
+    await graphBackend.createEdge(mem1Id, mem2Id, {
+      weight: 2.0,
+      coactivationCount: 5,
+      lastAccessedAt: new Date().toISOString(),
+      associationType: 'relates_to',
+    });
+    await graphBackend.createEdge(mem2Id, mem3Id, {
+      weight: 1.0,
+      coactivationCount: 2,
+      lastAccessedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+      associationType: 'supports',
+    });
   });
 
   afterEach(async () => {
     // Cleanup
     try {
-      const client = await getDbClient();
-      const db = client.db;
-      db.prepare(`DELETE FROM memory_associations WHERE id IN ('assoc-1', 'assoc-2', 'assoc-3')`).run();
-      db.prepare(`DELETE FROM memories WHERE project_id = ?`).run(testProjectId);
-      db.prepare(`DELETE FROM projects WHERE id = ?`).run(testProjectId);
+      const rawDb = await getRawSqlite();
+      rawDb.prepare(`DELETE FROM memory_associations WHERE id IN ('assoc-1', 'assoc-2', 'assoc-3')`).run();
+      rawDb.prepare(`DELETE FROM memories WHERE project_id = ?`).run(testProjectId);
+      rawDb.prepare(`DELETE FROM projects WHERE id = ?`).run(testProjectId);
     } catch (e) {
       // Ignore cleanup errors
     }
@@ -134,13 +170,12 @@ describe('Graph Boost v2 Integration', () => {
 
   test('should cap boost at 3.0x', async () => {
     // Create an association with very high values to test capping
-    const client = await getDbClient();
-    const db = client.db;
+    const rawDb = await getRawSqlite();
 
     // Add another high-value association
-    db.prepare(`
-      INSERT INTO memory_associations (id, from_memory_id, to_memory_id, weight, association_type, coactivation_count, last_coactivated_at, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    rawDb.prepare(`
+      INSERT INTO memory_associations (id, from_memory_id, to_memory_id, weight, association_type, coactivation_count, last_coactivated_at, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       'assoc-3',
       mem1Id,
@@ -149,7 +184,6 @@ describe('Graph Boost v2 Integration', () => {
       'relates_to',
       10, // Very high coactivation
       new Date().toISOString(), // Today
-      Date.now(),
       Date.now()
     );
 

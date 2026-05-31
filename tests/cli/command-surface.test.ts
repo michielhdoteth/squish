@@ -7,6 +7,6 @@ describe('cli command surface', () => {
     const commandNames = program.commands.map((command) => command.name());
 
     expect(commandNames).toContain('install');
-    expect(commandNames).toContain('install-plugin');
+    expect(commandNames).toContain('uninstall');
   });
 });

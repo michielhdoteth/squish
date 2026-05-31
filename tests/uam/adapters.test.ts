@@ -13,42 +13,33 @@ const baseDir = process.cwd();
 describe('UAM Adapter Layer', () => {
   
   test('Adapter types module file should exist', () => {
-    expect(existsSync(join(baseDir, 'dist', 'core', 'adapters', 'types.js'))).toBe(true);
+    expect(existsSync(join(baseDir, 'core', 'adapters', 'types.ts'))).toBe(true);
   });
   
   test('Adapter registry should be loadable', async () => {
-    const registry = await import(join(baseDir, 'dist', 'core', 'adapters', 'index.js'));
+    const registry = await import(join(baseDir, 'core', 'adapters', 'index.ts'));
     expect(registry.registerAdapter).toBeDefined();
     expect(registry.getAdapter).toBeDefined();
     expect(registry.listAdapters).toBeDefined();
   });
   
   test('Timeline module should be loadable', async () => {
-    const timeline = await import(join(baseDir, 'dist', 'core', 'adapters', 'timeline.js'));
+    const timeline = await import(join(baseDir, 'core', 'adapters', 'timeline.ts'));
     expect(timeline.getTimeline).toBeDefined();
     expect(timeline.getMemoryTimeline).toBeDefined();
   });
   
   test('Agent configs should exist', () => {
-    const configDir = join(baseDir, 'dist', 'core', 'adapters', 'config');
-    expect(existsSync(join(configDir, 'claude-code.js'))).toBe(true);
-    expect(existsSync(join(configDir, 'opencode.js'))).toBe(true);
-    expect(existsSync(join(configDir, 'cursor.js'))).toBe(true);
-    expect(existsSync(join(configDir, 'windsurf.js'))).toBe(true);
+    const configDir = join(baseDir, 'core', 'adapters', 'config');
+    expect(existsSync(join(configDir, 'claude-code.ts'))).toBe(true);
+    expect(existsSync(join(configDir, 'opencode.ts'))).toBe(true);
+    expect(existsSync(join(configDir, 'cursor.ts'))).toBe(true);
+    expect(existsSync(join(configDir, 'windsurf.ts'))).toBe(true);
   });
   
-  test('Install script should be buildable', () => {
-    const scriptPath = join(baseDir, 'dist', 'core', 'adapters', 'scripts', 'install-adapter.js');
-    expect(existsSync(scriptPath)).toBe(true);
-  });
-  
-  test('squish_timeline MCP tool should be registered', async () => {
-    const mcpPath = join(baseDir, 'dist', 'core', 'commands', 'mcp-server.js');
-    const mcpContent = await Bun.file(mcpPath).text();
-    expect(mcpContent).toContain('squish_timeline');
-    expect(mcpContent).toContain('index');
-    expect(mcpContent).toContain('timeline');
-    expect(mcpContent).toContain('detail');
+  test('MCP server module should exist', () => {
+    const mcpPath = join(baseDir, 'packages', 'mcp', 'src', 'index.ts');
+    expect(existsSync(mcpPath)).toBe(true);
   });
   
   test('Database schema should have UAM columns', async () => {

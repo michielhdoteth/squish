@@ -1,16 +1,14 @@
-import { beforeEach, describe, expect, test } from 'bun:test';
 import { join } from 'path';
+import { tmpdir } from 'os';
 import { mkdirSync, existsSync } from 'fs';
 
-const testDataDir = join(process.cwd(), '.test-data-places');
+const testDataDir = join(tmpdir(), `squish-place-routing-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 process.env.SQUISH_DATA_DIR = testDataDir;
 process.env.DATABASE_URL = '';
+if (!existsSync(testDataDir)) mkdirSync(testDataDir, { recursive: true });
 
-if (!existsSync(testDataDir)) {
-  mkdirSync(testDataDir, { recursive: true });
-}
-
-import { getDb } from '../../../db/index.js';
+import { beforeEach, describe, expect, test } from 'bun:test';
+import { getDb, resetDb } from '../../../db/index.js';
 import { rememberMemory } from '../../../core/memory/memories.js';
 import { initializeDefaultPlaces, getPlaceByType } from '../../../core/places/places.js';
 import { getMemoryPlace } from '../../../core/places/memory-places.js';
@@ -30,6 +28,9 @@ async function clearData() {
 
 describe('Place routing through rememberMemory', () => {
   beforeEach(async () => {
+    process.env.SQUISH_DATA_DIR = testDataDir;
+    process.env.DATABASE_URL = '';
+    resetDb();
     await clearData();
   });
 

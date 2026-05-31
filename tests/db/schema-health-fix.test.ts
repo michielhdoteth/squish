@@ -4,15 +4,19 @@
  * Each test starts with a fully bootstrapped schema (via ensureSqliteSchema)
  * then corrupts specific parts to test the fixing.
  */
-import { describe, test, expect } from 'bun:test';
-import { Database } from 'bun:sqlite';
 import { join } from 'path';
-import { mkdirSync, existsSync } from 'fs';
 import { tmpdir } from 'os';
+import { mkdirSync, existsSync } from 'fs';
 
 let testCounter = 0;
-const testDataDirRoot = join(tmpdir(), `squish-health-fix-${Date.now()}`);
+const testDataDirRoot = join(tmpdir(), `squish-health-fix-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+process.env.SQUISH_DATA_DIR = testDataDirRoot;
 process.env.DATABASE_URL = '';
+
+if (!existsSync(testDataDirRoot)) mkdirSync(testDataDirRoot, { recursive: true });
+
+import { describe, test, expect } from 'bun:test';
+import { Database } from 'bun:sqlite';
 
 import {
   probeSchemaHealth,
@@ -32,6 +36,7 @@ async function bootstrapFullDb(): Promise<{ dataDir: string; dbPath: string }> {
   const dataDir = join(testDataDirRoot, `test-${testCounter++}`);
   mkdirSync(dataDir, { recursive: true });
   process.env.SQUISH_DATA_DIR = dataDir;
+  process.env.DATABASE_URL = '';
   resetDb();
 
   const dbPath = join(dataDir, 'squish.db');
@@ -44,9 +49,19 @@ async function bootstrapFullDb(): Promise<{ dataDir: string; dbPath: string }> {
   return { dataDir, dbPath };
 }
 
+/**
+ * Ensure SQUISH_DATA_DIR is set and db is fresh for schema-health functions.
+ * This is needed because other test files may have changed env vars.
+ */
+async function ensureFreshDb(dataDir: string) {
+  process.env.SQUISH_DATA_DIR = dataDir;
+  process.env.DATABASE_URL = '';
+  resetDb();
+}
+
 describe('schema-health fix functionality', () => {
   test('fixSchemaIssues creates missing tables', async () => {
-    const { dataDir, dbPath } = await await bootstrapFullDb();
+    const { dataDir, dbPath } = await bootstrapFullDb();
 
     // Simulate drift: drop tables via direct SQLite
     const sqlite = new Database(dbPath);
@@ -54,31 +69,33 @@ describe('schema-health fix functionality', () => {
     sqlite.exec('DROP TABLE IF EXISTS session_summaries');
     sqlite.exec('DROP TABLE IF EXISTS beliefs');
     sqlite.close();
-    resetDb();
+    await ensureFreshDb(dataDir);
 
     const probe = await probeSchemaHealth();
     expect(probe.status).toBe('drifted');
     expect(probe.missingTables.length).toBeGreaterThan(0);
 
     // Fix issues
+    await ensureFreshDb(dataDir);
     const actions = await fixSchemaIssues({ fixMissingTables: true, verbose: false });
     expect(actions.length).toBeGreaterThan(0);
     expect(actions.some(a => a.type === 'run_migration')).toBe(true);
 
     // Recheck - should be ok now
+    await ensureFreshDb(dataDir);
     const recheck = await probeSchemaHealth();
     expect(recheck.status).toBe('ok');
   });
 
   test('fixSchemaIssues creates missing indexes', async () => {
-    const { dataDir, dbPath } = await await bootstrapFullDb();
+    const { dataDir, dbPath } = await bootstrapFullDb();
 
     // Drop specific indexes
     const sqlite = new Database(dbPath);
     sqlite.exec('DROP INDEX IF EXISTS memories_project_idx');
     sqlite.exec('DROP INDEX IF EXISTS memories_type_idx');
     sqlite.close();
-    resetDb();
+    await ensureFreshDb(dataDir);
 
     // Fix indexes
     const actions = await fixSchemaIssues({ fixMissingIndexes: true, verbose: false });
@@ -94,7 +111,7 @@ describe('schema-health fix functionality', () => {
   });
 
   test('fixSchemaIssues repairs FTS schema', async () => {
-    const { dataDir, dbPath } = await await bootstrapFullDb();
+    const { dataDir, dbPath } = await bootstrapFullDb();
 
     // Drop FTS-related objects to simulate corruption
     const sqlite = new Database(dbPath);
@@ -103,7 +120,7 @@ describe('schema-health fix functionality', () => {
     sqlite.exec('DROP TRIGGER IF EXISTS memories_au');
     sqlite.exec('DROP TABLE IF EXISTS memories_fts');
     sqlite.close();
-    resetDb();
+    await ensureFreshDb(dataDir);
 
     const actions = await fixSchemaIssues({ fixFts: true, verbose: false });
     expect(actions.some(a => a.type === 'repair_fts')).toBe(true);
@@ -131,7 +148,7 @@ describe('schema-health fix functionality', () => {
     sqlite.exec('DELETE FROM memory_places');
     sqlite.exec('DELETE FROM places');
     sqlite.close();
-    resetDb();
+    await ensureFreshDb(dataDir);
 
     const actions = await fixSchemaIssues({ fixPlaces: true, verbose: false });
     expect(actions.some(a => a.type === 'init_places')).toBe(true);
@@ -150,7 +167,7 @@ describe('schema-health fix functionality', () => {
     const sqlite = new Database(dbPath);
     sqlite.exec('DROP TABLE IF EXISTS entity_relations');
     sqlite.close();
-    resetDb();
+    await ensureFreshDb(dataDir);
 
     const actions = await fixSchemaIssues({ fixGraphEntities: true, verbose: false });
     expect(actions.some(a => a.type === 'create_entities_table')).toBe(true);
@@ -168,7 +185,7 @@ describe('schema-health fix functionality', () => {
     const sqlite = new Database(dbPath);
     sqlite.exec('DROP TABLE IF EXISTS entity_relations');
     sqlite.close();
-    resetDb();
+    await ensureFreshDb(dataDir);
 
     const result = await checkGraphEntitiesTable();
     expect(result.status).toBe('degraded');
@@ -181,7 +198,7 @@ describe('schema-health fix functionality', () => {
     const sqlite = new Database(dbPath);
     sqlite.exec('DELETE FROM places');
     sqlite.close();
-    resetDb();
+    await ensureFreshDb(dataDir);
 
     const result = await checkPlacesInitialization();
     expect(result.status).toBe('degraded');
@@ -190,6 +207,7 @@ describe('schema-health fix functionality', () => {
 
   test('checkConsolidationState reports correct status', async () => {
     const { dataDir, dbPath } = await bootstrapFullDb();
+    await ensureFreshDb(dataDir);
 
     const result = await checkConsolidationState();
     expect(result.status).toBe('ok');
@@ -197,6 +215,7 @@ describe('schema-health fix functionality', () => {
 
   test('fixSchemaIssues is idempotent', async () => {
     const { dataDir, dbPath } = await bootstrapFullDb();
+    await ensureFreshDb(dataDir);
 
     // Run fix multiple times on healthy db
     const actions1 = await fixSchemaIssues({ fixAll: true, verbose: false });

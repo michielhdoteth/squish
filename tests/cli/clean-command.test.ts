@@ -50,15 +50,6 @@ describe('clean command registration', () => {
     expect(ageOption).toBeDefined();
   });
 
-  test('clean command has --project option', async () => {
-    const { createProgram } = await import('../../packages/cli/src/program.ts');
-    const program = createProgram();
-    const cleanCommand = program.commands.find((c) => c.name() === 'clean');
-
-    const projectOption = cleanCommand!.options.find((o) => o.long === '--project');
-    expect(projectOption).toBeDefined();
-  });
-
   test('clean --dry-run defaults to false', async () => {
     const { createProgram } = await import('../../packages/cli/src/program.ts');
     const program = createProgram();

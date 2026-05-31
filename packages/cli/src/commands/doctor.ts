@@ -467,7 +467,7 @@ function checkBinFiles(): DiagnosticResult {
   const binDir = path.join(process.cwd(), 'bin');
   
   try {
-    const files = ['squish.mjs', 'squish-mcp.mjs', 'install-interactive.mjs'];
+    const files = ['squish.mjs', 'squish-mcp.mjs'];
     const missing: string[] = [];
     
     for (const file of files) {

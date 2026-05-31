@@ -1,24 +1,19 @@
 /**
  * Tests for global memory operations (project optional, auto-assign to Inbox)
  */
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { join } from 'path';
-import { mkdirSync, existsSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { mkdirSync, existsSync } from 'fs';
 
-// Setup test environment BEFORE any imports
-// Use same data dir as places tests to avoid DB connection conflicts
-const testDataDir = join(process.cwd(), '.test-data-places');
+const testDataDir = join(tmpdir(), `squish-global-mem-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 process.env.SQUISH_DATA_DIR = testDataDir;
 process.env.DATABASE_URL = '';
+if (!existsSync(testDataDir)) mkdirSync(testDataDir, { recursive: true });
 
-if (!existsSync(testDataDir)) {
-  mkdirSync(testDataDir, { recursive: true });
-}
+import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 
-import { resetDb } from '../../../db/index.js';
-
+import { resetDb, getDb } from '../../../db/index.js';
 import { rememberMemory, search, getMemory } from '../../../core/memory/memories.js';
-import { getDb } from '../../../db/index.js';
 import { initializeGlobalPlaces, getPlaceByType } from '../../../core/places/places.js';
 import { getMemoryPlace } from '../../../core/places/memory-places.js';
 
@@ -36,6 +31,9 @@ async function clearAllData() {
 
 describe('Global Memory Operations', () => {
   beforeEach(async () => {
+    process.env.SQUISH_DATA_DIR = testDataDir;
+    process.env.DATABASE_URL = '';
+    resetDb();
     await clearAllData();
   });
 

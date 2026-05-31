@@ -68,6 +68,14 @@ export interface DbClient {
 let cachedSchema: SchemaModule | null = null;
 
 /**
+ * Clear cached schema. Call this when resetting the database connection
+ * to ensure schema is re-resolved for the new connection.
+ */
+export function clearDbClientSchemaCache(): void {
+  cachedSchema = null;
+}
+
+/**
  * Get a unified database client with both db and schema.
  *
  * This function:
@@ -108,7 +116,7 @@ export async function getDbClient(): Promise<DbClient> {
     // Get raw database connection
     const rawDb = await getDb();
 
-    // Get schema (with caching)
+    // Get schema (with caching - invalidate if db was reset)
     if (!cachedSchema) {
       cachedSchema = await getSchema();
     }

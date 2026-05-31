@@ -4,6 +4,10 @@ export type SchemaModule = typeof import('./drizzle/schema.js') | typeof import(
 
 let cachedSchema: SchemaModule | null = null;
 
+export function clearSchemaCache(): void {
+  cachedSchema = null;
+}
+
 export async function getSchema(): Promise<SchemaModule> {
   if (cachedSchema) return cachedSchema;
   cachedSchema = config.isTeamMode

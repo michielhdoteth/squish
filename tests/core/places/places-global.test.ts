@@ -1,20 +1,16 @@
 /**
  * Tests for global places functionality
  */
-import { describe, test, expect, beforeAll, beforeEach, afterEach } from 'bun:test';
 import { join } from 'path';
+import { tmpdir } from 'os';
 import { mkdirSync, existsSync } from 'fs';
-import { randomUUID } from 'crypto';
 
-// Setup test environment BEFORE any imports
-const testDataDir = join(process.cwd(), '.test-data-places');
+const testDataDir = join(tmpdir(), `squish-places-global-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 process.env.SQUISH_DATA_DIR = testDataDir;
-process.env.DATABASE_URL = ''; // Ensure SQLite mode
+process.env.DATABASE_URL = '';
+if (!existsSync(testDataDir)) mkdirSync(testDataDir, { recursive: true });
 
-if (!existsSync(testDataDir)) {
-  mkdirSync(testDataDir, { recursive: true });
-}
-
+import { describe, test, expect, beforeAll, beforeEach, afterEach } from 'bun:test';
 import {
   initializeGlobalPlaces,
   initializeDefaultPlaces,
@@ -40,12 +36,10 @@ async function clearAllPlaces() {
 }
 
 describe('Global Places', () => {
-  // Reset DB before all tests to ensure clean state
-  beforeAll(async () => {
-    resetDb();
-  });
-
   beforeEach(async () => {
+    process.env.SQUISH_DATA_DIR = testDataDir;
+    process.env.DATABASE_URL = '';
+    resetDb();
     await clearAllPlaces();
   });
 
@@ -126,9 +120,4 @@ describe('Global Places', () => {
     expect(inbox!.name).toBe('Inbox');
     expect(inbox!.projectId).toBe(project.id);
   });
-});
-
-// Cleanup test data directory
-afterEach(async () => {
-  // Clean up between tests if needed
 });

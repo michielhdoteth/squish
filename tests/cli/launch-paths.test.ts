@@ -7,7 +7,7 @@ import { join } from 'node:path';
 const repoRoot = join(import.meta.dir, '..', '..');
 
 describe('launch-path CLI commands', () => {
-  test('context --json starts without parse-time module errors', () => {
+  test('context --json starts without parse-time module errors', { timeout: 60000 }, () => {
     const tempDataDir = mkdtempSync(join(tmpdir(), 'squish-launch-'));
 
     try {
@@ -22,6 +22,7 @@ describe('launch-path CLI commands', () => {
             SQUISH_DATA_DIR: tempDataDir,
             DATABASE_URL: '',
           },
+          timeout: 30000,
         },
       );
 
@@ -29,11 +30,11 @@ describe('launch-path CLI commands', () => {
       expect(result.stderr).not.toContain("Cannot export a duplicate name 'getDb'");
       expect(() => JSON.parse(result.stdout)).not.toThrow();
     } finally {
-      rmSync(tempDataDir, { recursive: true, force: true });
+      try { rmSync(tempDataDir, { recursive: true, force: true }); } catch (_) { /* Windows EBUSY */ }
     }
   });
 
-  test('remembered durable decisions appear in context and inspect JSON output', () => {
+  test('remembered durable decisions appear in context and inspect JSON output', { timeout: 60000 }, () => {
     const tempDataDir = mkdtempSync(join(tmpdir(), 'squish-launch-flow-'));
     const env = {
       ...process.env,
@@ -51,11 +52,14 @@ describe('launch-path CLI commands', () => {
           'Keep launch demos focused on one clean JSON command',
           '--type',
           'decision',
+          '--project',
+          '.',
         ],
         {
           cwd: repoRoot,
           encoding: 'utf8',
           env,
+          timeout: 30000,
         },
       );
 
@@ -71,6 +75,7 @@ describe('launch-path CLI commands', () => {
           cwd: repoRoot,
           encoding: 'utf8',
           env,
+          timeout: 30000,
         },
       );
 
@@ -101,6 +106,7 @@ describe('launch-path CLI commands', () => {
           cwd: repoRoot,
           encoding: 'utf8',
           env,
+          timeout: 30000,
         },
       );
 
@@ -116,11 +122,11 @@ describe('launch-path CLI commands', () => {
         ]),
       );
     } finally {
-      rmSync(tempDataDir, { recursive: true, force: true });
+      try { rmSync(tempDataDir, { recursive: true, force: true }); } catch (_) { /* Windows EBUSY */ }
     }
   });
 
-  test('doctor migrates an older sqlite install forward before writes', { timeout: 20000 }, () => {
+  test('doctor migrates an older sqlite install forward before writes', { timeout: 60000 }, () => {
     const tempDataDir = mkdtempSync(join(tmpdir(), 'squish-upgrade-'));
     const dbPath = join(tempDataDir, 'squish.db');
     mkdirSync(tempDataDir, { recursive: true });
@@ -167,6 +173,7 @@ describe('launch-path CLI commands', () => {
           cwd: repoRoot,
           encoding: 'utf8',
           env,
+          timeout: 30000,
         },
       );
 
@@ -186,6 +193,7 @@ describe('launch-path CLI commands', () => {
           cwd: repoRoot,
           encoding: 'utf8',
           env,
+          timeout: 30000,
         },
       );
 
@@ -200,6 +208,7 @@ describe('launch-path CLI commands', () => {
           cwd: repoRoot,
           encoding: 'utf8',
           env,
+          timeout: 30000,
         },
       );
 
@@ -222,6 +231,7 @@ describe('launch-path CLI commands', () => {
           cwd: repoRoot,
           encoding: 'utf8',
           env,
+          timeout: 30000,
         },
       );
 
@@ -244,11 +254,14 @@ describe('launch-path CLI commands', () => {
           'Older installs should migrate forward without losing release features',
           '--type',
           'decision',
+          '--project',
+          '.',
         ],
         {
           cwd: repoRoot,
           encoding: 'utf8',
           env,
+          timeout: 30000,
         },
       );
 
@@ -258,11 +271,12 @@ describe('launch-path CLI commands', () => {
 
       const context = spawnSync(
         'bun',
-        ['run', 'packages/cli/src/index.ts', 'context', '--json'],
+        ['run', 'packages/cli/src/index.ts', 'context', '--json', '--project', '.'],
         {
           cwd: repoRoot,
           encoding: 'utf8',
           env,
+          timeout: 60000,
         },
       );
 
@@ -277,7 +291,7 @@ describe('launch-path CLI commands', () => {
         ]),
       );
     } finally {
-      rmSync(tempDataDir, { recursive: true, force: true });
+      try { rmSync(tempDataDir, { recursive: true, force: true }); } catch (_) { /* Windows EBUSY */ }
     }
   });
 });

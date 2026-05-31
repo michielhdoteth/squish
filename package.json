@@ -120,7 +120,7 @@
     "mcp": "tsx packages/mcp/src/index.ts",
     "dev": "tsx --watch core/index.ts",
     "dev:mcp": "tsx --watch packages/mcp/src/index.ts",
-    "test": "bun test",
+    "test": "bun test --isolate",
     "verify:mcp": "tsx packages/mcp/src/index.ts --health",
     "bench": "tsx benchmark/memory.ts",
     "bench:db": "tsx benchmark/run.ts",

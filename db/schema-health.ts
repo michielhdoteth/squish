@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { sql } from 'drizzle-orm';
 import { config } from '../config.js';
+import { getDataDir } from '../config.js';
 import { getDb } from './index.js';
 import { ensureSqliteSchema, ensurePostgresSchema } from './bootstrap.js';
 
@@ -107,13 +108,16 @@ export function getSchemaRemediationCommand(): string {
 }
 
 function describeBackend(): string {
-  if (config.isRemoteMode) return `remote:${config.remoteBackend}`;
-  if (config.isTeamMode) return `team:${config.teamBackend}`;
+  const databaseUrl = process.env.DATABASE_URL || '';
+  const supabaseUrl = process.env.SUPABASE_URL || '';
+  const neonProjectId = process.env.NEON_PROJECT_ID || '';
+  if (supabaseUrl || neonProjectId) return `remote:${config.remoteBackend}`;
+  if (databaseUrl.startsWith('postgres')) return `team:${config.teamBackend}`;
   return 'local:sqlite';
 }
 
 function getLocalDbPath(): string {
-  return path.join(config.dataDir, 'squish.db');
+  return path.join(getDataDir(), 'squish.db');
 }
 
 function getRawClient(db: any): any {
@@ -171,17 +175,26 @@ export function isSchemaDriftError(error: unknown): error is SchemaDriftError {
   return error instanceof SchemaDriftError;
 }
 
+function isLocalMode(): boolean {
+  const databaseUrl = process.env.DATABASE_URL || '';
+  const supabaseUrl = process.env.SUPABASE_URL || '';
+  const neonProjectId = process.env.NEON_PROJECT_ID || '';
+  if (supabaseUrl || neonProjectId) return false;
+  if (databaseUrl.startsWith('postgres')) return false;
+  return true;
+}
+
 export async function probeSchemaHealth(): Promise<SchemaProbeResult> {
   const backend = describeBackend();
   const remediation = getSchemaRemediationCommand();
 
-  if (!config.isTeamMode && !config.isRemoteMode) {
+  if (isLocalMode()) {
     const dbPath = getLocalDbPath();
     if (!fs.existsSync(dbPath)) {
       return {
         status: 'ok',
         backend,
-        dataDir: config.dataDir,
+        dataDir: getDataDir(),
         dbPath,
         detail: 'Local database has not been created yet',
         remediation: null,
@@ -197,8 +210,8 @@ export async function probeSchemaHealth(): Promise<SchemaProbeResult> {
     return {
       status: 'unavailable',
       backend,
-      dataDir: config.dataDir,
-      dbPath: !config.isTeamMode && !config.isRemoteMode ? getLocalDbPath() : undefined,
+      dataDir: getDataDir(),
+      dbPath: isLocalMode() ? getLocalDbPath() : undefined,
       detail: error instanceof Error ? error.message : 'Database initialization failed',
       remediation,
       missingTables: [],
@@ -213,8 +226,8 @@ export async function probeSchemaHealth(): Promise<SchemaProbeResult> {
       return {
         status: 'drifted',
         backend,
-        dataDir: config.dataDir,
-        dbPath: !config.isTeamMode && !config.isRemoteMode ? getLocalDbPath() : undefined,
+        dataDir: getDataDir(),
+        dbPath: isLocalMode() ? getLocalDbPath() : undefined,
         detail: `Missing required tables: ${missingTables.join(', ')}`,
         remediation,
         missingTables: [...missingTables],
@@ -224,8 +237,8 @@ export async function probeSchemaHealth(): Promise<SchemaProbeResult> {
     return {
       status: 'ok',
       backend,
-      dataDir: config.dataDir,
-      dbPath: !config.isTeamMode && !config.isRemoteMode ? getLocalDbPath() : undefined,
+      dataDir: getDataDir(),
+      dbPath: isLocalMode() ? getLocalDbPath() : undefined,
       detail: `Schema ready with ${existingTables.length} tables`,
       remediation: null,
       missingTables: [],
@@ -234,8 +247,8 @@ export async function probeSchemaHealth(): Promise<SchemaProbeResult> {
     return {
       status: 'unavailable',
       backend,
-      dataDir: config.dataDir,
-      dbPath: !config.isTeamMode && !config.isRemoteMode ? getLocalDbPath() : undefined,
+      dataDir: getDataDir(),
+      dbPath: isLocalMode() ? getLocalDbPath() : undefined,
       detail: error instanceof Error ? error.message : 'Schema inspection failed',
       remediation,
       missingTables: [],

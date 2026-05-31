@@ -67,7 +67,7 @@ describe('callLLM', () => {
 describe('callLLM endpoint construction', () => {
   test('handles endpoints without /v1 suffix', async () => {
     mockConfig.llmEnabled = true;
-    mockConfig.llmEndpoint = 'http://localhost:1234';
+    mockConfig.llmEndpoint = 'http://localhost:59123';
     mockConfig.llmExtractionModel = 'test-model';
     mockConfig.llmApiKey = '';
 
@@ -79,7 +79,7 @@ describe('callLLM endpoint construction', () => {
 
   test('handles endpoints with /v1 suffix', async () => {
     mockConfig.llmEnabled = true;
-    mockConfig.llmEndpoint = 'http://localhost:1234/v1';
+    mockConfig.llmEndpoint = 'http://localhost:59124/v1';
     mockConfig.llmExtractionModel = 'test-model';
     mockConfig.llmApiKey = '';
 

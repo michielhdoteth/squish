@@ -39,9 +39,9 @@ export interface GraphNode {
 let graphBackendInstance: GraphBackend | null = null;
 
 /**
- * Get or create the graph backend instance
+ * Get or create the graph backend instance (exported for testing)
  */
-async function getGraphBackend(): Promise<GraphBackend> {
+export async function getGraphBackend(): Promise<GraphBackend> {
   if (!graphBackendInstance) {
     const backendType = config.graphBackend || 'memory';
     graphBackendInstance = createGraphBackend(backendType, config.kuzuPath);

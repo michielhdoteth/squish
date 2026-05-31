@@ -4,9 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![npm downloads](https://img.shields.io/npm/dt/squish-memory?color=green)](https://www.npmjs.com/package/squish-memory)
 
-[![GitHub stars](https://img.shields.io/github/stars/michielhdoteth/squish)](https://github.com/michielhdoteth/squish)
-
-> **3,100+ npm installs.** One command. Zero config. Works with Claude Code, ChatGPT, Codex, Cursor, and every MCP-compatible agent.
+> One command. Zero config. Works with Claude Code, ChatGPT, Codex, Cursor, and every MCP-compatible agent.
 
 ```bash
 npm install -g squish-memory && squish install --all
