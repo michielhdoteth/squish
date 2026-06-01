@@ -39,7 +39,6 @@ const REQUIRED_INDEXES = [
   { table: 'entities', name: 'entities_project_idx', sql: 'CREATE INDEX IF NOT EXISTS entities_project_idx ON entities(project_id)' },
   { table: 'places', name: 'places_project_idx', sql: 'CREATE INDEX IF NOT EXISTS places_project_idx ON places(project_id)' },
   { table: 'places', name: 'places_type_idx', sql: 'CREATE INDEX IF NOT EXISTS places_type_idx ON places(place_type)' },
-  { table: 'memory_places', name: 'memory_places_place_idx', sql: 'CREATE INDEX IF NOT EXISTS memory_places_place_idx ON memory_places(place_id)' },
   { table: 'entity_relations', name: 'relations_from_idx', sql: 'CREATE INDEX IF NOT EXISTS relations_from_idx ON entity_relations(from_entity_id)' },
   { table: 'entity_relations', name: 'relations_to_idx', sql: 'CREATE INDEX IF NOT EXISTS relations_to_idx ON entity_relations(to_entity_id)' },
   { table: 'entity_relations', name: 'relations_type_idx', sql: 'CREATE INDEX IF NOT EXISTS relations_type_idx ON entity_relations(type)' },

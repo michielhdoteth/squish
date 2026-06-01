@@ -39,7 +39,11 @@ interface DiagnosticResult {
 // FTS schema check function
 async function checkFTSchema(): Promise<DiagnosticResult> {
   try {
-    const db = await getDb();
+    // getDb() returns a Drizzle-wrapped db (from drizzle(sqlite, { schema })),
+    // which does NOT expose .prepare() directly. The raw bun:sqlite handle is
+    // accessible at .$client, which is the convention used across the codebase
+    // (see core/memory/memories.ts, core/memory/hybrid-search.ts, etc.).
+    const db = (await getDb() as any).$client;
     // For SQLite, we can query table_info
     const cols = db.prepare("PRAGMA table_info(memories_fts)").all();
     const colNames = cols.map((c: any) => c.name);

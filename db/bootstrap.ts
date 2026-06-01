@@ -902,7 +902,7 @@ const postgresStatements = [
     created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
   );`,
   `CREATE INDEX IF NOT EXISTS memory_places_memory_idx ON memory_places(memory_id);`,
-  `CREATE INDEX IF NOT EXISTS memory_places_place_idx ON memory_places(place_id);`,
+  `CREATE INDEX IF NOT EXISTS memory_places_place_type_idx ON memory_places(place_type);`,
   // place_rules table
   `CREATE TABLE IF NOT EXISTS place_rules (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
