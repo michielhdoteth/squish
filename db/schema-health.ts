@@ -59,6 +59,16 @@ const REQUIRED_INDEXES = [
   { table: 'projects', name: 'projects_path_idx', sql: 'CREATE INDEX IF NOT EXISTS projects_path_idx ON projects(path)' },
 ] as const;
 
+/**
+ * Critical columns that must exist on existing tables.
+ * Used by probeSchemaHealth() to detect column-level drift.
+ * When these are missing, squish doctor --fix will trigger migration.
+ */
+const REQUIRED_COLUMNS: Array<{ table: string; column: string }> = [
+  { table: 'memories', column: 'primary_place' },
+  { table: 'memories', column: 'memory_type' },
+];
+
 export type SchemaProbeStatus = 'ok' | 'drifted' | 'unavailable';
 
 export interface SchemaProbeResult {
@@ -69,6 +79,7 @@ export interface SchemaProbeResult {
   detail: string;
   remediation: string | null;
   missingTables: string[];
+  missingColumns: Array<{ table: string; column: string }>;
 }
 
 export interface CheckResult {
@@ -161,6 +172,29 @@ async function listExistingTables(db: any): Promise<string[]> {
   throw new Error('Unable to inspect database schema with the active driver');
 }
 
+/**
+ * List column names for a given table.
+ * For SQLite, uses PRAGMA table_info(). For PostgreSQL, queries information_schema.
+ */
+async function listTableColumns(db: any, tableName: string): Promise<string[]> {
+  const raw = getRawClient(db);
+
+  if (raw && typeof raw.prepare === 'function') {
+    const rows = raw.prepare(`PRAGMA table_info("${tableName}")`).all() as Array<{ name: string }>;
+    return rows.map((row) => row.name);
+  }
+
+  if (raw && typeof raw.query === 'function') {
+    const result = await raw.query(
+      `SELECT column_name FROM information_schema.columns WHERE table_name = $1 AND table_schema = 'public'`,
+      [tableName]
+    );
+    return Array.isArray(result?.rows) ? result.rows.map((row: any) => row.column_name).filter(Boolean) : [];
+  }
+
+  return [];
+}
+
 export function formatSchemaProbeMessage(probe: SchemaProbeResult): string {
   const location = probe.dbPath
     ? ` (${probe.dbPath})`
@@ -199,6 +233,7 @@ export async function probeSchemaHealth(): Promise<SchemaProbeResult> {
         detail: 'Local database has not been created yet',
         remediation: null,
         missingTables: [],
+        missingColumns: [],
       };
     }
   }
@@ -215,6 +250,7 @@ export async function probeSchemaHealth(): Promise<SchemaProbeResult> {
       detail: error instanceof Error ? error.message : 'Database initialization failed',
       remediation,
       missingTables: [],
+      missingColumns: [],
     };
   }
 
@@ -231,6 +267,32 @@ export async function probeSchemaHealth(): Promise<SchemaProbeResult> {
         detail: `Missing required tables: ${missingTables.join(', ')}`,
         remediation,
         missingTables: [...missingTables],
+        missingColumns: [],
+      };
+    }
+
+    // Check for missing columns on existing tables (column-level drift)
+    const missingColumns: Array<{ table: string; column: string }> = [];
+    for (const req of REQUIRED_COLUMNS) {
+      if (existingTables.includes(req.table)) {
+        const columns = await listTableColumns(db, req.table);
+        if (!columns.includes(req.column)) {
+          missingColumns.push({ table: req.table, column: req.column });
+        }
+      }
+    }
+
+    if (missingColumns.length > 0) {
+      const desc = missingColumns.map((c) => `${c.table}.${c.column}`).join(', ');
+      return {
+        status: 'drifted',
+        backend,
+        dataDir: getDataDir(),
+        dbPath: isLocalMode() ? getLocalDbPath() : undefined,
+        detail: `Missing required columns: ${desc}`,
+        remediation,
+        missingTables: [],
+        missingColumns,
       };
     }
 
@@ -242,6 +304,7 @@ export async function probeSchemaHealth(): Promise<SchemaProbeResult> {
       detail: `Schema ready with ${existingTables.length} tables`,
       remediation: null,
       missingTables: [],
+      missingColumns: [],
     };
   } catch (error) {
     return {
@@ -252,6 +315,7 @@ export async function probeSchemaHealth(): Promise<SchemaProbeResult> {
       detail: error instanceof Error ? error.message : 'Schema inspection failed',
       remediation,
       missingTables: [],
+      missingColumns: [],
     };
   }
 }
@@ -466,6 +530,47 @@ export async function fixSchemaIssues(options: FixOptions = {}): Promise<RepairA
       } else if (recheck.missingTables.length === 0) {
         const allMissing = probe.missingTables.join(', ');
         actions.push({ type: 'run_migration', detail: `Created missing tables: ${allMissing}` });
+      }
+    }
+
+    // 1b. Fix missing columns by running schema migrations (column-level drift)
+    if (fixMissingTables && probe.missingColumns.length > 0) {
+      const colDesc = probe.missingColumns.map((c) => `${c.table}.${c.column}`).join(', ');
+      if (verbose) console.log(`Running schema migration to add missing columns (${colDesc})...`);
+      try {
+        if (isSqlite) {
+          await ensureSqliteSchema(raw).catch(() => {
+            if (verbose) console.log('  Column migration completed with deferred warnings');
+          });
+        } else if (typeof raw.query === 'function') {
+          await ensurePostgresSchema(raw);
+        }
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        if (verbose) console.warn(`  Column migration warning: ${msg}`);
+      }
+
+      // Verify columns were added
+      const recheck = await probeSchemaHealth();
+      if (recheck.missingColumns.length === 0) {
+        actions.push({ type: 'add_column', detail: `Added missing columns: ${colDesc}` });
+      } else {
+        const stillMissing = recheck.missingColumns.map((c) => `${c.table}.${c.column}`).join(', ');
+        actions.push({ type: 'add_column', detail: `Some columns still missing after migration: ${stillMissing}` });
+        if (verbose) console.warn(`  Still missing columns: ${stillMissing}`);
+      }
+    }
+
+    // 1c. Run v1.5.0 backfill if columns were just added (backfill memory_places and memory_tags)
+    if (actions.some(a => a.type === 'add_column' && a.detail.includes('primary_place'))) {
+      try {
+        const { backfillV1_5_0 } = await import('../backfill-v1.5.0.js');
+        const result = await backfillV1_5_0();
+        actions.push({ type: 'run_migration', detail: `Backfilled ${result.memoriesUpdated} memories, ${result.placesCreated} places, ${result.tagsCreated} tags` });
+        if (verbose) console.log(`  Backfilled ${result.memoriesUpdated} memories for v1.5.0`);
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        if (verbose) console.warn(`  Backfill warning: ${msg}`);
       }
     }
 

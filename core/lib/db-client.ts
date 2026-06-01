@@ -30,7 +30,8 @@
 
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
-import { assertSchemaReady } from '../../db/schema-health.js';
+import { assertSchemaReady, fixSchemaIssues, SchemaDriftError } from '../../db/schema-health.js';
+import type { FixOptions } from '../../db/schema-health.js';
 import { createDatabaseClient } from '../storage/database.js';
 import type { DatabaseClient } from '../storage/database.js';
 import type { SchemaModule } from '../../db/schema.js';
@@ -112,7 +113,15 @@ export function clearDbClientSchemaCache(): void {
 export async function getDbClient(): Promise<DbClient> {
   try {
     await assertSchemaReady();
+  } catch (error) {
+    // Schema drift detected - try auto-fix via doctor --fix equivalent
+    if (error instanceof SchemaDriftError) {
+      await fixSchemaIssues({ fixAll: true, verbose: false });
+      await assertSchemaReady();
+    }
+  }
 
+  try {
     // Get raw database connection
     const rawDb = await getDb();
 
