@@ -1,9 +1,16 @@
 /**
- * Tests for core/sessions/store.ts searchChunks.
+ * Tests for core/sessions/store.ts v1.5.5 chunker + capture path.
+ *
+ * v1.5.5: searchChunks / listSessions / getSessionChunks /
+ * findRelatedSessions now iterate the agent-stores registry, not
+ * the captured-memories path. The capture path (captureChunk) and
+ * the chunker extractors still write to the squish memories DB -
+ * those tests remain. The searchChunks / getSessionChunks tests
+ * for "returns matching data" have moved to
+ * tests/core/sessions/agent-stores/ (they need a real opencode.db).
  *
  * Real DB - uses SQUISH_DATA_DIR for isolation, real rememberMemory
- * calls via captureChunk. Asserts the new chunk-based behavior:
- * search returns 3-10 matching CHUNKS, not whole sessions.
+ * calls via captureChunk.
  */
 
 import { join } from 'path';
@@ -27,8 +34,6 @@ import {
   captureChunk,
   searchChunks,
   getSessionChunks,
-  listSessionGroups,
-  buildInjectText,
   makeSummaryChunk,
   extractDecisionChunks,
   extractCommandChunks,
@@ -166,123 +171,31 @@ afterAll(() => {
 });
 
 describe('captureChunk + searchChunks', () => {
-  it('returns matching chunks (3-10), not whole sessions', async () => {
-    const results = await searchChunks({ query: 'router' });
-    expect(results.length).toBeGreaterThan(0);
-    expect(results.length).toBeLessThanOrEqual(10);
-    // Each result is a CHUNK, not a session
-    for (const r of results) {
-      expect(r.chunk).toBeTruthy();
-      expect(r.chunk.type).toBeTruthy();
-      expect(r.chunk.content).toBeTruthy();
-      expect(r.chunk.session_id).toBeTruthy();
-      expect(typeof r.score).toBe('number');
-      expect(r.memory_id).toBeTruthy();
-      expect(r.why).toBeTruthy();
-    }
-  });
-
-  it('respects limit (never more than 10)', async () => {
-    const results = await searchChunks({ query: 'squish', limit: 3 });
-    expect(results.length).toBeLessThanOrEqual(3);
-    expect(results.length).toBeGreaterThan(0);
-  });
-
-  it('caps limit at 10 even when caller asks for more', async () => {
-    const results = await searchChunks({ query: 'squish', limit: 100 });
-    expect(results.length).toBeLessThanOrEqual(10);
-  });
-
-  it('uses default limit of 8 when not provided', async () => {
-    const results = await searchChunks({ query: 'session' });
-    expect(results.length).toBeLessThanOrEqual(8);
-  });
-
-  it('filters by chunk_type', async () => {
-    const results = await searchChunks({ query: 'squish', chunk_type: 'decision' });
-    expect(results.length).toBeGreaterThan(0);
-    for (const r of results) {
-      expect(r.chunk.type).toBe('decision');
-    }
-  });
-
-  it('returns score, why, and memory_id on each result', async () => {
-    const results = await searchChunks({ query: 'router' });
-    expect(results.length).toBeGreaterThan(0);
-    const r = results[0];
-    expect(typeof r.score).toBe('number');
-    expect(r.why.length).toBeGreaterThan(0);
-    expect(r.memory_id.length).toBeGreaterThan(0);
-  });
-
   it('returns empty array for nonsense query (no match)', async () => {
     const results = await searchChunks({ query: 'zxqvbnmqwertynonsense-token-12345' });
     expect(Array.isArray(results)).toBe(true);
   });
+
+  it('captureChunk persists a chunk and returns a memory id', async () => {
+    const id = await captureChunk(
+      makeChunk({
+        type: 'summary',
+        session_id: 'session-capture-direct',
+        session_title: 'Direct capture test',
+        content: 'Captured via direct captureChunk call in test',
+        timestamp: ts(30),
+      }),
+      { project: '/test/squish' }
+    );
+    expect(typeof id).toBe('string');
+    expect(id.length).toBeGreaterThan(0);
+  });
 });
 
 describe('getSessionChunks', () => {
-  it('returns a SessionGroup with all chunks for a session_id', async () => {
-    const group = await getSessionChunks('session-A');
-    expect(group).toBeTruthy();
-    expect(group!.session_id).toBe('session-A');
-    expect(group!.chunks).toBeTruthy();
-    expect(group!.chunks!.length).toBe(3);
-    expect(group!.chunk_count).toBe(3);
-    expect(group!.title).toBe('Router bug fix');
-  });
-
   it('returns null for unknown session_id', async () => {
     const group = await getSessionChunks('does-not-exist-xyz');
     expect(group).toBeNull();
-  });
-
-  it('returns chunks in chronological order', async () => {
-    const group = await getSessionChunks('session-B');
-    expect(group).toBeTruthy();
-    const ts = group!.chunks!.map((c) => c.timestamp);
-    const sorted = ts.slice().sort();
-    expect(ts).toEqual(sorted);
-  });
-});
-
-describe('listSessionGroups', () => {
-  it('returns one SessionGroup per session_id with chunk_count', async () => {
-    const groups = await listSessionGroups({});
-    expect(groups.length).toBe(2);
-    const ids = groups.map((g) => g.session_id).sort();
-    expect(ids).toEqual(['session-A', 'session-B']);
-    const a = groups.find((g) => g.session_id === 'session-A');
-    const b = groups.find((g) => g.session_id === 'session-B');
-    expect(a!.chunk_count).toBe(3);
-    expect(b!.chunk_count).toBe(4);
-  });
-
-  it('respects limit', async () => {
-    const groups = await listSessionGroups({ limit: 1 });
-    expect(groups.length).toBe(1);
-  });
-
-  it('does not include full chunk content in list output', async () => {
-    const groups = await listSessionGroups({});
-    for (const g of groups) {
-      expect(g.chunks).toBeUndefined();
-    }
-  });
-});
-
-describe('buildInjectText', () => {
-  it('returns a markdown block with all chunks for a session', async () => {
-    const text = await buildInjectText('session-A');
-    expect(text).toBeTruthy();
-    expect(text).toContain('### Related past session:');
-    expect(text).toContain('Decisions');
-    expect(text).toContain('explicit route ordering');
-  });
-
-  it('returns null for unknown session_id', async () => {
-    const text = await buildInjectText('does-not-exist-xyz');
-    expect(text).toBeNull();
   });
 });
 

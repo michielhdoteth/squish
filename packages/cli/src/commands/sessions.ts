@@ -4,18 +4,21 @@
  * The CLI is for HUMANS. The plugin uses its own LLM-invokable tools.
  * Search returns CHUNKS (3-10 matching pieces) not whole sessions.
  *
- * Two backends, transparent to the user:
- *   1. Squish memory (manually-captured chunks via `sessions capture` or
- *      the OpenCode plugin's auto-capture hooks).
- *   2. The user's local opencode.db (~/.local/share/opencode/opencode.db),
- *      which contains the full history of every OpenCode session ever run.
- *      This is the "pull from opencode into context" direction.
+ * Three-tool mental model (v1.5.5):
+ *   1. `squish sessions` (this CLI / `search` plugin tool) - past agent
+ *      sessions via the agent-stores adapter layer (opencode.db today;
+ *      claude-code / codex tomorrow).
+ *   2. `squish_recall` / `squish search` - long-term memory DB.
+ *   3. `squish_remember` / `squish remember` - store to long-term memory.
  *
- * Default source is `all` (both backends merged, deduped by session_id).
+ * Long-term memory is NOT part of the sessions surface. The sessions
+ * surface exclusively returns past agent sessions from one of the
+ * registered agent stores. Use `squish remember` / `squish recall` for
+ * long-term memory operations.
  *
  * Subcommands:
  *   squish sessions list [--limit N] [--project PATH] [--directory PATH]
- *                        [--source squish|opencode|all] [--db-path PATH]
+ *                        [--source opencode|claude-code|codex|all] [--db-path PATH]
  *                        [--json|--pretty]
  *   squish sessions show <id> [--source ...] [--db-path PATH] [--json|--pretty]
  *   squish sessions search <query> [--chunk-type type] [--project PATH]
@@ -26,7 +29,6 @@
  *                                  [--agent A] [--agent-session-id SID] [--json]
  *   squish sessions related [--file path1,path2] [--repo-path PATH] [--limit N]
  *                           [--source ...] [--db-path PATH] [--json|--pretty]
- *   squish sessions inject <id> [--source ...] [--db-path PATH] [--json]
  *   squish sessions status [--json|--pretty]
  *
  * All commands default to --json output. Pass --pretty for human-readable.
@@ -36,7 +38,6 @@ import { randomUUID } from 'node:crypto';
 import { Command } from 'commander';
 
 import {
-  buildInjectText,
   captureChunk,
   findRelatedSessions,
   formatChunkResults,
@@ -45,7 +46,6 @@ import {
   getSessionChunks,
   getOpenCodeStatus,
   listSessions,
-  listSessionGroups,
   makeSummaryChunk,
   searchChunks,
   type AgentId,
@@ -62,9 +62,12 @@ function parseCsv(input: string | undefined): string[] {
     .filter((s) => s.length > 0);
 }
 
+const VALID_SOURCES: readonly SessionSource[] = ['opencode', 'claude-code', 'codex', 'all'];
+
 function parseSource(input: string | undefined): SessionSource {
-  if (input === 'squish' || input === 'opencode' || input === 'all') return input;
-  return 'all';
+  if (!input) return 'all';
+  if ((VALID_SOURCES as readonly string[]).includes(input)) return input as SessionSource;
+  fail(`unknown source '${input}'. Available: ${VALID_SOURCES.join(', ')}`);
 }
 
 function outputJson(payload: unknown): void {
@@ -122,15 +125,13 @@ async function runList(opts: {
       const oc = result.opencode;
       if (oc.ok) {
         process.stdout.write(
-          `\n(${result.sources.squish} squish, ${result.sources.opencode} opencode (from ${oc.session_count} total in ${oc.path}))\n`
+          `\n(${result.sources.opencode} opencode (from ${oc.session_count} total in ${oc.path}))\n`
         );
       } else {
-        process.stdout.write(
-          `\n(${result.sources.squish} squish; opencode: ${oc.error ?? 'not found'})\n`
-        );
+        process.stdout.write(`\n(opencode: ${oc.error ?? 'not found'})\n`);
       }
     } else {
-      process.stdout.write(`\n(${result.sources.squish} squish)\n`);
+      process.stdout.write(`\n(no sessions found)\n`);
     }
     return;
   }
@@ -325,16 +326,6 @@ async function runRelated(
   });
 }
 
-async function runInject(
-  id: string,
-  opts: { source?: string; dbPath?: string; json?: boolean }
-): Promise<void> {
-  const source = parseSource(opts.source);
-  const inject_text = await buildInjectText(id, { source, opencode_db_path: opts.dbPath });
-  if (!inject_text) fail(`Session not found: ${id}`);
-  outputJson({ ok: true, id, inject_text });
-}
-
 async function runStatus(opts: { dbPath?: string; json?: boolean; pretty?: boolean }): Promise<void> {
   const status = getOpenCodeStatus({ db_path: opts.dbPath });
   if (opts.pretty) {
@@ -364,15 +355,15 @@ async function runStatus(opts: { dbPath?: string; json?: boolean; pretty?: boole
 export function registerSessionsCommand(program: Command): void {
   const sessions = program
     .command('sessions')
-    .description('Search, list, load, and capture past AI coding sessions (squish + opencode.db)');
+    .description('Search, list, show, and capture past AI coding sessions (opencode, claude-code, codex)');
 
   sessions
     .command('list')
-    .description('List captured sessions (default: merged squish + opencode.db)')
+    .description('List past sessions across all registered agent stores')
     .option('-l, --limit <n>', 'Max results', '20')
-    .option('-p, --project <path>', 'Filter squish results by project')
+    .option('-p, --project <path>', 'Filter results by project')
     .option('-d, --directory <path>', 'Filter opencode results by directory substring')
-    .option('-s, --source <src>', 'squish | opencode | all (default: all)', 'all')
+    .option('-s, --source <src>', 'opencode | claude-code | codex | all (default: all)', 'all')
     .option('--db-path <path>', 'Override opencode.db path')
     .option('--json', 'Emit JSON (default)', false)
     .option('--pretty', 'Human-readable output', false)
@@ -386,8 +377,8 @@ export function registerSessionsCommand(program: Command): void {
 
   sessions
     .command('show <id>')
-    .description('Show all chunks for a session (squish or opencode)')
-    .option('-s, --source <src>', 'squish | opencode | all (default: all)', 'all')
+    .description('Show all chunks for a session')
+    .option('-s, --source <src>', 'opencode | claude-code | codex | all (default: all)', 'all')
     .option('--db-path <path>', 'Override opencode.db path')
     .option('--json', 'Emit JSON (default)', false)
     .option('--pretty', 'Human-readable output', false)
@@ -405,7 +396,7 @@ export function registerSessionsCommand(program: Command): void {
     .option('--chunk-type <type>', 'summary|decision|command|file|error|todo')
     .option('-p, --project <path>', 'Restrict squish results to one project')
     .option('-d, --directory <path>', 'Restrict opencode results to one directory')
-    .option('-s, --source <src>', 'squish | opencode | all (default: all)', 'all')
+    .option('-s, --source <src>', 'opencode | claude-code | codex | all (default: all)', 'all')
     .option('--db-path <path>', 'Override opencode.db path')
     .option('--depth <depth>', 'text (fast) | deep (all parts, slower)', 'text')
     .option('-l, --limit <n>', 'Max results (default 8, max 10)', '8')
@@ -446,7 +437,7 @@ export function registerSessionsCommand(program: Command): void {
     )
     .option('--file <paths>', 'Comma-separated files of interest')
     .option('--repo-path <path>', 'Absolute repo path (default: cwd)')
-    .option('-s, --source <src>', 'squish | opencode | all (default: all)', 'all')
+    .option('-s, --source <src>', 'opencode | claude-code | codex | all (default: all)', 'all')
     .option('--db-path <path>', 'Override opencode.db path')
     .option('-l, --limit <n>', 'Max results (default 5)', '5')
     .option('--json', 'Emit JSON (default)', false)
@@ -454,20 +445,6 @@ export function registerSessionsCommand(program: Command): void {
     .action(async (id: string | undefined, opts: any) => {
       try {
         await runRelated(id, opts);
-      } catch (err: any) {
-        fail(err?.message ?? String(err));
-      }
-    });
-
-  sessions
-    .command('inject <id>')
-    .description('Build a markdown block to inject as context')
-    .option('-s, --source <src>', 'squish | opencode | all (default: all)', 'all')
-    .option('--db-path <path>', 'Override opencode.db path')
-    .option('--json', 'Emit JSON (default)', false)
-    .action(async (id: string, opts: any) => {
-      try {
-        await runInject(id, opts);
       } catch (err: any) {
         fail(err?.message ?? String(err));
       }

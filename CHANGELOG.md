@@ -4,23 +4,32 @@ All notable changes to Squish will be documented in this file.
 
 ## [1.5.5] - 2026-06-01
 
-### Added - Sessions: Search Your Past AI Coding Sessions
+### BREAKING
 
-The killer feature for v1.5.5: persistent, searchable, agent-agnostic session history. Never restart from zero again.
+- **Removed `squish sessions inject <id>` CLI subcommand and the `squish_session_inject` plugin tool.** Agents have `bash` / native code-exec; the inject step was a workaround for chat-only clients. Use `squish_session_search` (or `/squish search`) and the agent's own context to pull what it needs. The auto-inject-on-session-start behavior (`injectContextOnStart`) is unchanged — only the manual tool is gone.
+- **`--source` semantics changed.** The previous values were `squish | opencode | all`. The new values are `opencode | claude-code | codex | all`. The `squish` source (the captured-memories path) is no longer in scope of `searchChunks` / `listSessions` / `getSessionChunks` / `findRelatedSessions` — that's the job of `squish_recall` / `squish_remember` (and the `squish` CLI's `recall` / `search` / `remember` subcommands). Passing `--source squish` now exits with a clear error: `unknown source 'squish'. Available: opencode, claude-code, codex, all`.
+- **Sessions surface is now exclusively for past agent sessions** (read via the `agent-stores` adapter layer). The CLI / plugin no longer search the squish memories DB for session queries. Long-term memory stays accessible via `squish_recall` / `squish_remember` (and the CLI's `squish recall` / `squish search` / `squish remember`).
 
+### Added
+
+- **Three-tool model**: the sessions surface is now just `search` (past agent sessions) / `recall` (long-term memory) / `remember` (write to long-term memory). Each tool has a single, well-defined job.
+- **`core/sessions/agent-stores/` adapter layer** (`AgentSessionStore` interface + registry). Each agent (opencode, claude-code, codex) implements the interface. The public `core/sessions/store.ts` iterates the registry instead of branching on source.
+- **OpenCode-backed store** (full implementation): reads `~/.local/share/opencode/opencode.db` (or the user-overridden path) and returns `SessionGroup[]` / `Chunk[]` / related-session lists.
+- **Persistent FTS5 sidecar** at `~/.squish/opencode-fts.db` for sub-100ms deep searches over 1.35M parts. Mtime-gated refresh; never rebuilt unless opencode.db changes.
+- **Claude Code and Codex stores** as stubs that return `available: false` with a clear reason. To enable, implement the same `AgentSessionStore` interface in their respective files and add a registry entry.
 - **Auto-capture**: OpenCode plugin auto-records every session — title, summary, files touched, decisions, commands, errors, todos. Zero config.
 - **Search**: `squish sessions search "query"` returns the 3-10 most relevant CHUNKS (not whole sessions). Each chunk is a decision, command, file change, error, or summary tied to a session.
 - **Killer feature `/squish related`**: One slash command auto-finds past sessions relevant to the current repo and recently-touched files.
-- **CLI subcommands**: `squish sessions {list, show, search, capture, related, inject}` — thin JSON wrappers over the storage module.
-- **Plugin sessions tools**: 6 LLM-invokable tools (`squish_session_*`) — list/show use OpenCode SDK, search/capture/related/inject use Squish memory chunks.
+- **CLI subcommands**: `squish sessions {list, show, search, capture, related, status}` — thin JSON wrappers over the storage module. (The previous `inject` subcommand is removed; see BREAKING above.)
+- **Plugin sessions tools**: 5 LLM-invokable tools (`squish_session_list` / `_show` / `_search` / `_capture` / `_related`) — list/show use the OpenCode store, search/capture/related use the agent-stores registry.
 - **Slash command**: ONE `squish.md` command that parses `$ARGUMENTS` as a subcommand. User: "no, dont make a ton of commands just 1 with args" — done.
-- **Storage**: Chunks are stored as Squish memories (rich tags + metadata). NO parallel session index file. The plugin uses OpenCode's SDK for session discovery.
 - **Search scoring**: keyword + tag + file + decision matching, ranked. NO embeddings in MVP.
-- **Cross-agent prep**: Chunk schema has `agent` and `agent_session_id` fields, ready for Claude Code / OpenClaw / Codex support later.
+- **Cross-agent prep**: Chunk schema has `agent` and `agent_session_id` fields; the registry makes adding Claude Code / Codex a single-file change.
 
 ### Changed
 
 - `squish sessions` command added to schema probe exempt list (it does not require a database).
+- `core/sessions/opencode-store.ts` is now a thin re-export shim over `core/sessions/agent-stores/opencode.js`. The real implementation moved to the adapter layer.
 
 ### Fixed
 

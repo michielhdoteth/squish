@@ -1,12 +1,20 @@
 /**
- * Session chunk store.
+ * Session chunk store (v1.5.5 - agent-stores adapter model).
  *
- * Chunks are stored as Squish memories (rich tags + metadata) via
- * the existing rememberMemory / search / getMemory APIs. There is
- * NO parallel file-IO index for sessions - the Squish memory table
- * is the source of truth.
+ * In v1.5.5 the sessions surface is exclusively for past agent
+ * sessions - read via the `agent-stores` adapter layer. Long-term
+ * memory (the captured-memories path) is no longer in scope of
+ * `searchChunks` / `listSessions` / `getSessionChunks` /
+ * `findRelatedSessions`; use `squish_recall` / `squish_remember`
+ * (or the `squish` CLI's `remember` / `search` / `recall`) for
+ * that.
  *
- * Tag scheme (used to filter and group):
+ * The capture path (`captureChunk` / `captureChunks`) remains
+ * because the user can still run `squish sessions capture` to
+ * persist a session summary. Those writes go to the same Squish
+ * memory table that `squish_recall` searches.
+ *
+ * Tag scheme used by the capture path (memory-side):
  *   squish_chunk:<type>     -> marks this memory as a chunk
  *   squish_session:<id>     -> groups chunks into sessions
  *   agent:<agent>           -> agent identifier
@@ -20,26 +28,26 @@
  *   error    -> observation
  *   todo     -> task
  *
- * The plugin discovers past sessions via OpenCode's SDK. The CLI
- * uses the public surface here to list, show, search, capture,
- * find related, and build inject blocks.
+ * The plugin uses OpenCode's SDK for session discovery and shells
+ * out to `squish remember` / `squish recall` for chunk persistence
+ * and search. The CLI uses the public surface here to list, show,
+ * search, capture, and find related.
  */
 
 import {
   rememberMemory,
   search as squishSearch,
-  getMemory,
 } from '../memory/memories.js';
-import { getDbClient } from '../lib/db-client.js';
-import { logger } from '../logger.js';
 
 import {
-  searchOpenCodeSessionsFts,
-  listOpenCodeSessions,
+  availableAgentStores,
+  getAgentStore,
+  type AgentName,
+} from './agent-stores/index.js';
+import {
   getOpenCodeSession,
-  findOpenCodeRelatedSessions,
   opencodeDbStatus,
-  type OpenCodeStoreOptions,
+  searchOpenCodeSessionsFts,
 } from './opencode-store.js';
 
 import type {
@@ -48,7 +56,6 @@ import type {
   ChunkResult,
   ChunkType,
   SessionGroup,
-  SessionStatus,
 } from './types.js';
 
 const CHUNK_PREFIX = 'squish_chunk:';
@@ -56,13 +63,7 @@ const SESSION_PREFIX = 'squish_session:';
 const AGENT_PREFIX = 'agent:';
 const FILE_PREFIX = 'file:';
 
-/**
- * Source filter for chunk/session queries. `squish` is the manually-
- * captured store. `opencode` reads the user's local opencode.db
- * (history of every past session). `all` merges both, deduping
- * identical session_ids.
- */
-export type SessionSource = 'squish' | 'opencode' | 'all';
+export type { AgentName, AgentSessionStore, SessionSource } from './agent-stores/types.js';
 
 const CHUNK_TYPE_TO_MEMORY: Record<ChunkType, string> = {
   summary: 'note',
@@ -123,55 +124,6 @@ function projectFor(chunk: Chunk, opts: StoreOptions): string | undefined {
 
 function memoryIdFromRecord(rec: { id: string }): string {
   return rec.id;
-}
-
-function chunkFromMemory(args: {
-  id: string;
-  content: string;
-  type: string;
-  tags: string[];
-  metadata: Record<string, unknown> | null;
-  createdAt?: string | null;
-}): Chunk | null {
-  const md = args.metadata ?? {};
-  const sessionId = typeof md.session_id === 'string' ? md.session_id : null;
-  if (!sessionId) return null;
-  const sessionTitle = typeof md.session_title === 'string' ? md.session_title : '';
-  const project =
-    typeof md.project === 'string'
-      ? md.project
-      : typeof (args.metadata ?? {}).project === 'string'
-        ? ((args.metadata ?? {}).project as string)
-        : '';
-  const repoPath = typeof md.repo_path === 'string' ? md.repo_path : '';
-  const branch = typeof md.branch === 'string' ? md.branch : '';
-  const agent = typeof md.agent === 'string' ? (md.agent as AgentId) : 'manual';
-  const agentSessionId = typeof md.agent_session_id === 'string' ? md.agent_session_id : '';
-  const chunkType = typeof md.chunk_type === 'string' ? (md.chunk_type as ChunkType) : null;
-  if (!chunkType) return null;
-  const files = Array.isArray(md.files) ? (md.files as string[]) : undefined;
-  const timestamp =
-    typeof md.timestamp === 'string' && md.timestamp.length > 0
-      ? md.timestamp
-      : args.createdAt ?? new Date().toISOString();
-  return {
-    type: chunkType,
-    content: args.content,
-    session_id: sessionId,
-    session_title: sessionTitle,
-    project,
-    repo_path: repoPath,
-    branch,
-    agent,
-    agent_session_id: agentSessionId,
-    ...(files ? { files } : {}),
-    timestamp,
-  };
-}
-
-function isChunkMemory(md: Record<string, unknown> | null | undefined): boolean {
-  if (!md) return false;
-  return typeof md.session_id === 'string' && typeof md.chunk_type === 'string';
 }
 
 function whyLine(query: string, chunk: Chunk): string {
@@ -236,10 +188,18 @@ export interface SearchChunksInput {
   project?: string;
   repo_path?: string;
   chunk_type?: ChunkType;
-  /** Default 'all'. Use 'squish' to search only the captured store, 'opencode' for only the local OpenCode db. */
-  source?: SessionSource;
+  /** Default 'all'. One of: opencode, claude-code, codex, all. */
+  source?: import('./agent-stores/types.js').SessionSource;
   /** Optional override for opencode.db path. */
   opencode_db_path?: string;
+  /** 'text' (default, fast) | 'deep' (all parts, slower). */
+  depth?: 'text' | 'deep';
+}
+
+function clampLimit(n: number, max: number): number {
+  if (!Number.isFinite(n) || n <= 0) return DEFAULT_LIMIT;
+  if (n > max) return max;
+  return Math.floor(n);
 }
 
 /**
@@ -252,109 +212,60 @@ export function getOpenCodeStatus(input: { db_path?: string } = {}) {
 }
 
 /**
- * Build an OpenCodeStoreOptions from a search/list input.
- * Returns `null` when the opencode source is not requested.
+ * Resolve the list of agent names to query for a given source.
+ * `all` expands to every registered agent; a specific name returns
+ * just that one.
  */
-function opencodeOptsFor(input: { opencode_db_path?: string }, source: SessionSource): OpenCodeStoreOptions | null {
-  if (source === 'squish') return null;
-  const opts: OpenCodeStoreOptions = { readonly: true };
-  if (input.opencode_db_path) opts.dbPath = input.opencode_db_path;
-  return opts;
+function resolveSources(source: import('./agent-stores/types.js').SessionSource): AgentName[] {
+  if (source === 'all') return availableAgentStores();
+  return [source];
+}
+
+/**
+ * Wraps a `Chunk` from an agent store into a `ChunkResult` with
+ * a synthesized score (1 / rank-in-its-source) and a `why` line.
+ * Different agents use different scoring scales; we just rank
+ * within each source and let the merge step interleave.
+ */
+function chunkToResult(rank: number, chunk: Chunk, agent: AgentName): ChunkResult {
+  return {
+    chunk,
+    score: 1 / (rank + 1),
+    memory_id: `${agent}:${chunk.session_id}:${chunk.agent_session_id}`,
+    why: `agent:${agent} - ${whyLine(chunk.content, chunk) || `matched in ${chunk.type} text`}`,
+  };
 }
 
 export async function searchChunks(input: SearchChunksInput): Promise<ChunkResult[]> {
   const limit = clampLimit(input.limit ?? DEFAULT_LIMIT, MAX_LIMIT);
-  const source: SessionSource = input.source ?? 'all';
+  const source: import('./agent-stores/types.js').SessionSource = input.source ?? 'all';
+  const sources = resolveSources(source);
 
   const out: ChunkResult[] = [];
-  let outForSource: ChunkResult[] = [];
 
-  // 1) Squish memory store
-  if (source === 'squish' || source === 'all') {
-    const fetchLimit = Math.max(limit * 4, 30);
-    const raw = await squishSearch({
+  for (const name of sources) {
+    const store = getAgentStore(name);
+    const available = await store.available().catch(() => ({ ok: false as const }));
+    if (!available.ok) continue;
+
+    // Per-source fetch: ask for `limit` hits, then wrap them as ChunkResult.
+    const chunks = await store.searchSessions({
       query: input.query,
-      limit: fetchLimit,
-      project: input.project,
+      limit,
+      depth: input.depth,
+      directory_glob: input.repo_path,
     });
 
-    for (const r of raw) {
-      if (outForSource.length >= limit) break;
-      if (!isChunkMemory(r.metadata)) continue;
-      const tags = r.tags ?? [];
-      if (!tags.some((t) => t.startsWith(CHUNK_PREFIX))) continue;
-      const chunkType = (r.metadata as Record<string, unknown>).chunk_type as ChunkType;
-      if (input.chunk_type && chunkType !== input.chunk_type) continue;
-      if (input.repo_path) {
-        const recRepo = (r.metadata as Record<string, unknown>).repo_path;
-        if (typeof recRepo === 'string' && recRepo !== input.repo_path) continue;
-      }
-      const chunk = chunkFromMemory({
-        id: r.id,
-        content: r.content,
-        type: r.type,
-        tags,
-        metadata: r.metadata ?? null,
-        createdAt: r.createdAt ?? null,
-      });
-      if (!chunk) continue;
-      outForSource.push({
-        chunk,
-        score: typeof r.similarity === 'number' ? r.similarity : 0,
-        memory_id: r.id,
-        why: whyLine(input.query, chunk),
-      });
+    for (let i = 0; i < chunks.length; i++) {
+      const c = chunks[i];
+      if (input.chunk_type && c.type !== input.chunk_type) continue;
+      out.push(chunkToResult(i, c, name));
+      if (out.length >= limit) break;
     }
-    outForSource.sort((a, b) => b.score - a.score);
   }
 
-  if (source === 'squish') {
-    return outForSource.slice(0, limit);
-  }
-
-  // 2) OpenCode local DB (lazy FTS5 sidecar)
-  const ocOpts = opencodeOptsFor(input, source);
-  const openCodeResults: ChunkResult[] = ocOpts
-    ? safeOpenCodeSearch(input.query, limit, ocOpts)
-    : [];
-
-  // 3) Merge: dedupe by (session_id, content-prefix) and interleave by score.
-  // The squish memory and opencode DB are independent stores with
-  // different scoring scales, so we do a stable interleave rather
-  // than a score-fused merge. OpenCode results get a small bonus so
-  // they show alongside captured chunks when both exist for the same
-  // session.
-  const seen = new Set<string>();
-  const merged: ChunkResult[] = [];
-  for (const r of outForSource) {
-    const key = `${r.chunk.session_id}::${r.chunk.content.slice(0, 80)}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    merged.push(r);
-  }
-  for (const r of openCodeResults) {
-    const key = `${r.chunk.session_id}::${r.chunk.content.slice(0, 80)}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    merged.push({ ...r, score: r.score + 0.001 }); // small bonus so it sorts near the top
-  }
-  merged.sort((a, b) => b.score - a.score);
-  return merged.slice(0, limit);
-}
-
-function safeOpenCodeSearch(query: string, limit: number, opts: OpenCodeStoreOptions): ChunkResult[] {
-  try {
-    return searchOpenCodeSessionsFts({ query, limit, depth: 'text' }, opts);
-  } catch (err) {
-    logger.debug(`[sessions] opencode search error: ${err}`);
-    return [];
-  }
-}
-
-function clampLimit(n: number, max: number): number {
-  if (!Number.isFinite(n) || n <= 0) return DEFAULT_LIMIT;
-  if (n > max) return max;
-  return Math.floor(n);
+  out.sort((a, b) => b.score - a.score);
+  return out.slice(0, limit);
 }
 
 /* ------------------------------------------------------------------ */
@@ -363,296 +274,69 @@ function clampLimit(n: number, max: number): number {
 
 export async function getSessionChunks(
   sessionId: string,
-  opts: { source?: SessionSource; opencode_db_path?: string } = {}
+  opts: { source?: import('./agent-stores/types.js').SessionSource; opencode_db_path?: string } = {}
 ): Promise<SessionGroup | null> {
-  const source: SessionSource = opts.source ?? 'all';
+  const source: import('./agent-stores/types.js').SessionSource = opts.source ?? 'all';
+  const sources = resolveSources(source);
 
-  if (source === 'squish' || source === 'all') {
-    const fromSquish = await getSessionChunksFromSquish(sessionId);
-    if (fromSquish) return fromSquish;
-    if (source === 'squish') return null;
-  }
-
-  if (source === 'opencode' || source === 'all') {
-    return getSessionChunksFromOpenCode(sessionId, opts.opencode_db_path);
+  for (const name of sources) {
+    const store = getAgentStore(name);
+    const available = await store.available().catch(() => ({ ok: false as const }));
+    if (!available.ok) continue;
+    const result = await store.getSession(sessionId).catch(() => null);
+    if (result) {
+      return { ...result.group, chunks: result.chunks };
+    }
   }
   return null;
-}
-
-async function getSessionChunksFromSquish(sessionId: string): Promise<SessionGroup | null> {
-  // Walk recent memories and filter by session_id tag. Search is unreliable
-  // for this since the session id is a UUID-like opaque token. Direct DB
-  // query is more robust.
-  const client = await getDbClient();
-  const raw = client.$client as any;
-  const rows: any[] = [];
-  try {
-    if (raw && typeof raw.prepare === 'function') {
-      const stmt = raw.prepare(
-        `SELECT id, content, type, tags, metadata, created_at
-         FROM memories
-         WHERE tags LIKE ?
-         ORDER BY created_at ASC`
-      );
-      const tag = sessionIdTag(sessionId);
-      const matches = stmt.all(`%${JSON.stringify(tag).slice(1, -1)}%`) as any[];
-      // tags may be JSON array or comma-list; safer to load all and post-filter.
-      rows.push(...matches);
-    } else if (raw && typeof raw.query === 'function') {
-      // PostgreSQL path
-      const result = await raw.query(
-        `SELECT id, content, type, tags, metadata, created_at
-         FROM memories
-         WHERE $1 = ANY(tags)
-         ORDER BY created_at ASC`,
-        [sessionIdTag(sessionId)]
-      );
-      rows.push(...(result.rows ?? []));
-    }
-  } catch (err) {
-    logger.debug(`[sessions] getSessionChunks DB error: ${err}`);
-    return null;
-  }
-
-  const chunks: Chunk[] = [];
-  for (const row of rows) {
-    const tags = parseTagsColumn(row.tags);
-    if (!tags.includes(sessionIdTag(sessionId))) continue;
-    let meta: Record<string, unknown> | null = null;
-    if (row.metadata) {
-      try {
-        meta = typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata;
-      } catch {
-        meta = null;
-      }
-    }
-    const chunk = chunkFromMemory({
-      id: row.id,
-      content: row.content,
-      type: row.type,
-      tags,
-      metadata: meta,
-      createdAt: row.created_at,
-    });
-    if (chunk) chunks.push(chunk);
-  }
-  if (chunks.length === 0) return null;
-  chunks.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
-  // Note: returns the SessionGroup below.
-
-  const first = chunks[0];
-  const last = chunks[chunks.length - 1];
-  return {
-    session_id: sessionId,
-    title: first.session_title,
-    project: first.project,
-    repo_path: first.repo_path,
-    branch: first.branch,
-    agent: first.agent,
-    started_at: first.timestamp,
-    ended_at: last.timestamp !== first.timestamp ? last.timestamp : null,
-    status: 'completed',
-    chunk_count: chunks.length,
-    chunks,
-  };
-}
-
-function parseTagsColumn(value: unknown): string[] {
-  if (Array.isArray(value)) return value.map(String);
-  if (typeof value === 'string') {
-    try {
-      const parsed = JSON.parse(value);
-      if (Array.isArray(parsed)) return parsed.map(String);
-    } catch {
-      // fall through
-    }
-    return value
-      .split(',')
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
-  }
-  return [];
-}
-
-function getSessionChunksFromOpenCode(sessionId: string, dbPath?: string): SessionGroup | null {
-  try {
-    const detail = getOpenCodeSession(sessionId, { dbPath });
-    if (!detail) return null;
-    return {
-      session_id: detail.session_id,
-      title: detail.title,
-      project: detail.project,
-      repo_path: detail.repo_path,
-      branch: detail.branch,
-      agent: detail.agent,
-      started_at: detail.started_at,
-      ended_at: detail.ended_at,
-      status: detail.status,
-      chunk_count: detail.chunk_count,
-      chunks: detail.chunks,
-    };
-  } catch (err) {
-    logger.debug(`[sessions] getSessionChunksFromOpenCode error: ${err}`);
-    return null;
-  }
 }
 
 export interface ListSessionsInput {
   limit?: number;
   project?: string;
-  source?: SessionSource;
+  source?: import('./agent-stores/types.js').SessionSource;
   opencode_db_path?: string;
   /** Directory glob to filter opencode sessions (case-insensitive substring). */
   directory_glob?: string;
 }
 
-export async function listSessionGroups(input: ListSessionsInput = {}): Promise<SessionGroup[]> {
-  const limit = input.limit ?? 20;
-  const client = await getDbClient();
-  const raw = client.$client as any;
-
-  // Fetch a generous recent pool, filter to chunk memories, group by session_id.
-  const fetchLimit = Math.max(limit * 10, 100);
-  const rows: any[] = [];
-  try {
-    if (raw && typeof raw.prepare === 'function') {
-      const stmt = raw.prepare(
-        `SELECT id, content, type, tags, metadata, created_at
-         FROM memories
-         ORDER BY created_at DESC
-         LIMIT ?`
-      );
-      rows.push(...(stmt.all(fetchLimit) as any[]));
-    } else if (raw && typeof raw.query === 'function') {
-      const result = await raw.query(
-        `SELECT id, content, type, tags, metadata, created_at
-         FROM memories
-         ORDER BY created_at DESC
-         LIMIT $1`,
-        [fetchLimit]
-      );
-      rows.push(...(result.rows ?? []));
-    }
-  } catch (err) {
-    logger.debug(`[sessions] listSessionGroups DB error: ${err}`);
-    return [];
-  }
-
-  const groups = new Map<string, SessionGroup>();
-  for (const row of rows) {
-    const tags = parseTagsColumn(row.tags);
-    if (!tags.some((t) => t.startsWith(CHUNK_PREFIX))) continue;
-    let meta: Record<string, unknown> | null = null;
-    if (row.metadata) {
-      try {
-        meta = typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata;
-      } catch {
-        meta = null;
-      }
-    }
-    const chunk = chunkFromMemory({
-      id: row.id,
-      content: row.content,
-      type: row.type,
-      tags,
-      metadata: meta,
-      createdAt: row.created_at,
-    });
-    if (!chunk) continue;
-    if (input.project && chunk.project !== input.project) continue;
-    const existing = groups.get(chunk.session_id);
-    if (!existing) {
-      groups.set(chunk.session_id, {
-        session_id: chunk.session_id,
-        title: chunk.session_title,
-        project: chunk.project,
-        repo_path: chunk.repo_path,
-        branch: chunk.branch,
-        agent: chunk.agent,
-        started_at: chunk.timestamp,
-        ended_at: null,
-        status: 'completed',
-        chunk_count: 1,
-      });
-    } else {
-      existing.chunk_count += 1;
-      if (chunk.timestamp.localeCompare(existing.started_at) < 0) {
-        existing.started_at = chunk.timestamp;
-      }
-      const lastStamp = existing.ended_at ?? existing.started_at;
-      if (chunk.timestamp.localeCompare(lastStamp) > 0) {
-        existing.ended_at = chunk.timestamp;
-      }
-    }
-  }
-
-  return Array.from(groups.values())
-    .sort((a, b) => {
-      const ae = a.ended_at ?? a.started_at;
-      const be = b.ended_at ?? b.started_at;
-      return be.localeCompare(ae);
-    })
-    .slice(0, limit);
+export interface ListSessionsResult {
+  sessions: SessionGroup[];
+  /** Per-agent counts of how many sessions came back from each store. */
+  sources: Record<AgentName, number>;
+  /** Convenience: the opencode-specific status (or null if not requested). */
+  opencode: ReturnType<typeof opencodeDbStatus>;
 }
 
 /**
- * Public list: merges squish captured groups with the user's local
- * opencode.db history. Dedupes by session_id, sorts by recency.
+ * Public list: iterates the registered agent stores and merges
+ * their session groups, sorted by recency. Each store is queried
+ * with `directory_glob` so the opencode side respects the filter
+ * at the SQL level (rather than post-filtering in JS).
  */
-export async function listSessions(input: ListSessionsInput = {}): Promise<{
-  sessions: SessionGroup[];
-  sources: { squish: number; opencode: number };
-  opencode: ReturnType<typeof opencodeDbStatus>;
-}> {
+export async function listSessions(input: ListSessionsInput = {}): Promise<ListSessionsResult> {
   const limit = input.limit ?? 20;
-  const source: SessionSource = input.source ?? 'all';
+  const source: import('./agent-stores/types.js').SessionSource = input.source ?? 'all';
+  const sources = resolveSources(source);
   const groups: SessionGroup[] = [];
-  let squishCount = 0;
-  let opencodeCount = 0;
+  const counts: Record<AgentName, number> = {
+    'opencode': 0,
+    'claude-code': 0,
+    'codex': 0,
+  };
 
-  if (source === 'squish' || source === 'all') {
-    const squishGroups = await listSessionGroups({ limit: Math.max(limit, 50), project: input.project });
-    groups.push(...squishGroups);
-    squishCount = squishGroups.length;
-  }
-
-  if (source === 'opencode' || source === 'all') {
-    const ocOpts = opencodeOptsFor(input, source);
-    if (ocOpts) {
-      try {
-        const ocList = listOpenCodeSessions(
-          {
-            limit: Math.max(limit, 50),
-            directory_glob: input.directory_glob,
-          },
-          ocOpts
-        );
-        for (const g of ocList) {
-          groups.push(g);
-          opencodeCount += 1;
-        }
-      } catch (err) {
-        logger.debug(`[sessions] listSessions opencode error: ${err}`);
-      }
+  for (const name of sources) {
+    const store = getAgentStore(name);
+    const available = await store.available().catch(() => ({ ok: false as const }));
+    if (!available.ok) continue;
+    const list = await store.listSessions({ limit, directory_glob: input.directory_glob });
+    for (const g of list) {
+      groups.push(g);
+      counts[name] += 1;
     }
   }
 
-  // Dedup by session_id, prefer the opencode group (it has full
-  // started_at/ended_at range from the DB).
-  const byId = new Map<string, SessionGroup>();
-  for (const g of groups) {
-    const existing = byId.get(g.session_id);
-    if (!existing) {
-      byId.set(g.session_id, g);
-      continue;
-    }
-    // Merge: keep the one with the most chunks.
-    if ((g.chunk_count ?? 0) > (existing.chunk_count ?? 0)) {
-      byId.set(g.session_id, g);
-    }
-  }
-
-  const merged = Array.from(byId.values())
+  const merged = Array.from(groups.values())
     .sort((a, b) => {
       const ae = a.ended_at ?? a.started_at;
       const be = b.ended_at ?? b.started_at;
@@ -662,7 +346,7 @@ export async function listSessions(input: ListSessionsInput = {}): Promise<{
 
   return {
     sessions: merged,
-    sources: { squish: squishCount, opencode: opencodeCount },
+    sources: counts,
     opencode: opencodeDbStatus(),
   };
 }
@@ -675,7 +359,7 @@ export interface FindRelatedInput {
   repo_path: string;
   files?: string[];
   limit?: number;
-  source?: SessionSource;
+  source?: import('./agent-stores/types.js').SessionSource;
   opencode_db_path?: string;
 }
 
@@ -683,202 +367,81 @@ export interface RelatedResult {
   session: SessionGroup;
   score: number;
   matching_chunks: Chunk[];
+  reason: string;
 }
 
+/**
+ * Find past sessions related to a directory (and optional file
+ * paths). Iterates the registered agent stores. Each store returns
+ * `{ group, score, reason }` per the `AgentSessionStore` interface;
+ * the public surface enriches the result with the matching chunks
+ * (by calling `getSession` on each group).
+ */
 export async function findRelatedSessions(input: FindRelatedInput): Promise<RelatedResult[]> {
   const limit = input.limit ?? 5;
-  const source: SessionSource = input.source ?? 'all';
-  const terms: string[] = [];
-  if (input.repo_path) terms.push(input.repo_path);
-  if (input.files) {
-    for (const f of input.files) terms.push(f);
-  }
-  const query = terms.join(' ').trim() || input.repo_path;
+  const source: import('./agent-stores/types.js').SessionSource = input.source ?? 'all';
+  const sources = resolveSources(source);
 
-  // Group by session_id, score by overlap of files and repo_path.
-  const perSession = new Map<string, { session: SessionGroup; score: number; chunks: Chunk[]; files: Set<string> }>();
+  const perSession = new Map<string, { session: SessionGroup; score: number; reason: string; chunks: Chunk[] }>();
 
-  // 1) Squish captured store
-  if (source === 'squish' || source === 'all') {
-    const pool = await squishSearch({
-      query,
-      limit: Math.max(limit * 10, 50),
+  for (const name of sources) {
+    const store = getAgentStore(name);
+    const available = await store.available().catch(() => ({ ok: false as const }));
+    if (!available.ok) continue;
+    const results = await store.findRelatedSessions({
+      repo_path: input.repo_path,
+      files: input.files,
+      limit: Math.max(limit, 20),
     });
-
-    for (const r of pool) {
-      if (!isChunkMemory(r.metadata)) continue;
-      const tags = r.tags ?? [];
-      if (!tags.some((t) => t.startsWith(CHUNK_PREFIX))) continue;
-      const meta = r.metadata as Record<string, unknown>;
-      const recRepo = typeof meta.repo_path === 'string' ? meta.repo_path : '';
-      if (recRepo !== input.repo_path) continue;
-      const chunk = chunkFromMemory({
-        id: r.id,
-        content: r.content,
-        type: r.type,
-        tags,
-        metadata: meta,
-        createdAt: r.createdAt ?? null,
+    for (const r of results) {
+      const existing = perSession.get(r.group.session_id);
+      if (existing) {
+        existing.score += r.score + 1; // boost when multiple agents agree
+        if (existing.reason === '' || existing.reason !== r.reason) {
+          existing.reason = `${existing.reason} + ${r.reason}`;
+        }
+        continue;
+      }
+      perSession.set(r.group.session_id, {
+        session: r.group,
+        score: r.score,
+        reason: r.reason,
+        chunks: [],
       });
-      if (!chunk) continue;
-
-      let entry = perSession.get(chunk.session_id);
-      if (!entry) {
-        entry = {
-          session: {
-            session_id: chunk.session_id,
-            title: chunk.session_title,
-            project: chunk.project,
-            repo_path: chunk.repo_path,
-            branch: chunk.branch,
-            agent: chunk.agent,
-            started_at: chunk.timestamp,
-            ended_at: null,
-            status: 'completed',
-            chunk_count: 0,
-          },
-          score: 0,
-          chunks: [],
-          files: new Set(),
-        };
-        perSession.set(chunk.session_id, entry);
-      }
-      entry.session.chunk_count += 1;
-      if (chunk.timestamp.localeCompare(entry.session.started_at) < 0) {
-        entry.session.started_at = chunk.timestamp;
-      }
-      const lastStamp = entry.session.ended_at ?? entry.session.started_at;
-      if (chunk.timestamp.localeCompare(lastStamp) > 0) {
-        entry.session.ended_at = chunk.timestamp;
-      }
-      entry.chunks.push(chunk);
-      const fileOverlap = countFileOverlap(chunk.files ?? [], input.files ?? []);
-      entry.score += (typeof r.similarity === 'number' ? r.similarity : 0) * 2 + fileOverlap * 3;
-      for (const f of chunk.files ?? []) entry.files.add(f);
     }
   }
 
-  // 2) OpenCode local DB - find sessions in the same directory, then
-  //    score by file overlap from tool/patch parts.
-  if (source === 'opencode' || source === 'all') {
-    try {
-      const ocResults = findOpenCodeRelatedSessions(
-        { repo_path: input.repo_path, files: input.files, limit: Math.max(limit, 20) },
-        { dbPath: input.opencode_db_path, readonly: true }
-      );
-      for (const r of ocResults) {
-        const existing = perSession.get(r.session.session_id);
-        if (existing) {
-          // Boost the existing entry's score (opencode is authoritative
-          // for the directory match).
-          existing.score += 1 + r.score * 2;
-          for (const c of r.matching_chunks) {
-            if (!existing.chunks.some((ec) => ec.content === c.content)) {
-              existing.chunks.push(c);
-            }
-          }
-        } else {
-          perSession.set(r.session.session_id, {
-            session: r.session,
-            score: 1 + r.score * 2,
-            chunks: r.matching_chunks.slice(),
-            files: new Set(r.matching_chunks.flatMap((c) => c.files ?? [])),
-          });
+  // Pull chunks for the top sessions. Cheap if the agent has an
+  // indexed store (opencode.db is in-process; sub-millisecond).
+  const topIds = Array.from(perSession.values())
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map((p) => p.session.session_id);
+
+  await Promise.all(
+    topIds.map(async (id) => {
+      const entry = perSession.get(id);
+      if (!entry) return;
+      for (const name of sources) {
+        const store = getAgentStore(name);
+        const detail = await store.getSession(id).catch(() => null);
+        if (detail) {
+          entry.chunks = detail.chunks;
+          return;
         }
       }
-    } catch (err) {
-      logger.debug(`[sessions] findRelatedSessions opencode error: ${err}`);
-    }
-  }
+    })
+  );
 
   const out: RelatedResult[] = [];
-  for (const [, entry] of perSession) {
+  for (const entry of perSession.values()) {
     out.push({
       session: entry.session,
       score: entry.score,
       matching_chunks: entry.chunks,
+      reason: entry.reason,
     });
   }
   out.sort((a, b) => b.score - a.score);
   return out.slice(0, limit);
-}
-
-function countFileOverlap(a: string[], b: string[]): number {
-  if (a.length === 0 || b.length === 0) return 0;
-  const setB = new Set(b);
-  let n = 0;
-  for (const f of a) {
-    if (setB.has(f)) n += 1;
-  }
-  return n;
-}
-
-/* ------------------------------------------------------------------ */
-/* Inject                                                              */
-/* ------------------------------------------------------------------ */
-
-export interface BuildInjectInput {
-  maxChars?: number;
-  source?: SessionSource;
-  opencode_db_path?: string;
-}
-
-export async function buildInjectText(
-  sessionId: string,
-  opts: BuildInjectInput = {}
-): Promise<string | null> {
-  const group = await getSessionChunks(sessionId, { source: opts.source, opencode_db_path: opts.opencode_db_path });
-  if (!group || !group.chunks || group.chunks.length === 0) return null;
-  const max = opts.maxChars ?? 4000;
-
-  const lines: string[] = [];
-  lines.push(`### Related past session: ${group.title || group.session_id}`);
-  lines.push('');
-
-  const summary = group.chunks.find((c) => c.type === 'summary');
-  if (summary) {
-    lines.push(summary.content);
-    lines.push('');
-  }
-
-  const grouped: Record<ChunkType, Chunk[]> = {
-    summary: [],
-    decision: [],
-    command: [],
-    file: [],
-    error: [],
-    todo: [],
-  };
-  for (const c of group.chunks) grouped[c.type].push(c);
-
-  if (grouped.decision.length > 0) {
-    lines.push('**Decisions:**');
-    for (const d of grouped.decision) lines.push(`- ${d.content}`);
-    lines.push('');
-  }
-  if (grouped.file.length > 0) {
-    lines.push(`**Files touched:** ${grouped.file.map((f) => f.content).join(', ')}`);
-    lines.push('');
-  }
-  if (grouped.command.length > 0) {
-    lines.push('**Commands:**');
-    for (const c of grouped.command) lines.push(`- ${c.content}`);
-    lines.push('');
-  }
-  if (grouped.error.length > 0) {
-    lines.push('**Errors:**');
-    for (const e of grouped.error) lines.push(`- ${e.content}`);
-    lines.push('');
-  }
-  if (grouped.todo.length > 0) {
-    lines.push('**Todos:**');
-    for (const t of grouped.todo) lines.push(`- ${t.content}`);
-    lines.push('');
-  }
-
-  lines.push(`(session ${group.session_id} from ${group.started_at})`);
-
-  let out = lines.join('\n');
-  if (out.length > max) out = out.slice(0, max - 1) + '\u2026';
-  return out;
 }

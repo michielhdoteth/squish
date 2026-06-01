@@ -192,37 +192,6 @@ describe('squish sessions related', () => {
   });
 });
 
-describe('squish sessions inject', () => {
-  it('returns an inject_text markdown block for a captured session', () => {
-    // capture one to inject
-    const cap = run([
-      'sessions',
-      'capture',
-      'injectable session body',
-      '--title',
-      'Injectable',
-      '--agent',
-      'cli',
-    ]);
-    expect(cap.status).toBe(0);
-    const capJson = JSON.parse(cap.stdout);
-
-    const r = run(['sessions', 'inject', capJson.id]);
-    expect(r.status).toBe(0);
-    const parsed = JSON.parse(r.stdout);
-    expect(parsed.ok).toBe(true);
-    expect(parsed.id).toBe(capJson.id);
-    expect(parsed.inject_text).toContain('Injectable');
-  });
-
-  it('returns ok:false for an unknown session id', () => {
-    const r = run(['sessions', 'inject', 'does-not-exist-xyz']);
-    expect(r.status).not.toBe(0);
-    const parsed = JSON.parse(r.stdout || r.stderr);
-    expect(parsed.ok).toBe(false);
-  });
-});
-
 describe('sessions command is in the program surface', () => {
   it('appears under program.commands', async () => {
     const { createProgram } = await import('../../packages/cli/src/program.ts');
