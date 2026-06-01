@@ -63,7 +63,10 @@ const CLIENT_NAMES = {
 };
 
 const PLUGIN_CLIENTS = new Set(['claude-code', 'opencode', 'openclaw', 'codex']);
-const HOOK_CLIENTS = new Set(['claude-code', 'opencode']);
+// Only Claude Code uses a settings.json `hooks` key. OpenCode's v1.x config
+// schema has NO `hooks` top-level key (verified at https://opencode.ai/config.json);
+// OpenCode hooks are registered through the plugin SDK (`Hooks` export) only.
+const HOOK_CLIENTS = new Set(['claude-code']);
 
 export function getClientName(client) {
   return CLIENT_NAMES[client] || client;
@@ -298,6 +301,24 @@ export function installPlugin(client, { dryRun = false } = {}) {
     // Enable plugin in client config
     enablePluginInConfig(client);
 
+    // Mirror slash command file to the client's commands folder, if applicable.
+    // This is a best-effort step: the plugin itself still works without it.
+    try {
+      if (client === 'opencode') {
+        const slashSource = path.join(sourcePluginDir, 'commands', 'squish.md');
+        if (fs.existsSync(slashSource)) {
+          const slashTarget = getSlashCommandTargetPath('opencode');
+          fs.mkdirSync(path.dirname(slashTarget), { recursive: true });
+          fs.copyFileSync(slashSource, slashTarget);
+          recordInstall('opencode', 'slash-command');
+        }
+      }
+    } catch (slashError) {
+      process.stderr.write(
+        `[squish] warning: failed to install slash command: ${slashError.message || String(slashError)}\n`
+      );
+    }
+
     recordInstall(client, 'plugin');
     return { ok: true, path: targetDir };
   } catch (error) {
@@ -322,6 +343,21 @@ export function uninstallPlugin(client, { dryRun = false } = {}) {
     // Disable plugin in client config
     disablePluginInConfig(client);
 
+    // Remove mirrored slash command file, if it was installed. Best-effort.
+    try {
+      if (client === 'opencode') {
+        const slashTarget = getSlashCommandTargetPath('opencode');
+        if (slashTarget && fs.existsSync(slashTarget)) {
+          fs.unlinkSync(slashTarget);
+        }
+        recordUninstall('opencode', 'slash-command');
+      }
+    } catch (slashError) {
+      process.stderr.write(
+        `[squish] warning: failed to remove slash command: ${slashError.message || String(slashError)}\n`
+      );
+    }
+
     recordUninstall(client, 'plugin');
     return { ok: true, path: targetDir };
   } catch (error) {
@@ -341,6 +377,19 @@ function getPluginTargetDir(client) {
       return path.join(homeDir, '.codex', 'plugins', 'squish-memory');
     default:
       throw new Error(`Unknown plugin target for: ${client}`);
+  }
+}
+
+// Returns the absolute path where a client-specific slash command file should
+// be installed, or null if the client does not use the slash-command convention.
+// OpenCode loads slash commands from ~/.config/opencode/commands/*.md; the
+// plugin copy goes elsewhere, so we mirror the file to the commands folder.
+function getSlashCommandTargetPath(client) {
+  switch (client) {
+    case 'opencode':
+      return path.join(homeDir, '.config', 'opencode', 'commands', 'squish.md');
+    default:
+      return null;
   }
 }
 
@@ -428,6 +477,49 @@ function disablePluginInConfig(client) {
 // Hook Install / Uninstall
 // ---------------------------------------------------------------------------
 
+/**
+ * Pure helper: merge a template `{ hooks: { event: [...], ... } }` shape with
+ * an existing `settings.hooks` value (which is itself a flat `{ event: [...], ... }`).
+ *
+ * - Unwraps the template's outer `hooks` key (templates may use it for group
+ *   shape; we map the inner events directly onto `settings.hooks`).
+ * - Preserves any pre-existing hook events the user has configured.
+ * - The template value wins for events it defines (we do NOT deep-merge per
+ *   event — callers wanting that can build a richer helper later).
+ * - Returns the merged flat event map. Defensive against missing/null inputs.
+ */
+export function mergeHookEvents(existing, template) {
+  const existingEvents = (existing && typeof existing === 'object' && !Array.isArray(existing))
+    ? existing
+    : {};
+  const newEvents = (template && template.hooks && typeof template.hooks === 'object' && !Array.isArray(template.hooks))
+    ? template.hooks
+    : {};
+  return { ...existingEvents, ...newEvents };
+}
+
+/**
+ * Pure helper: remove the hook events that came from the template from the
+ * existing `settings.hooks` value, preserving any user-defined events.
+ *
+ * - Returns `null` if nothing is left (caller should delete the `hooks` key).
+ * - Returns the remaining flat event map if user-defined events are present.
+ * - Returns `null` defensively if `existing` is missing or not an object.
+ */
+export function removeHookEvents(existing, template) {
+  if (!existing || typeof existing !== 'object' || Array.isArray(existing)) {
+    return null;
+  }
+  const templateKeys = (template && template.hooks && typeof template.hooks === 'object' && !Array.isArray(template.hooks))
+    ? Object.keys(template.hooks)
+    : [];
+  const filtered = { ...existing };
+  for (const key of templateKeys) {
+    delete filtered[key];
+  }
+  return Object.keys(filtered).length === 0 ? null : filtered;
+}
+
 export function installHooks(client, { dryRun = false } = {}) {
   if (!HOOK_CLIENTS.has(client)) {
     return { ok: false, error: `Client does not support hooks: ${client}` };
@@ -453,7 +545,11 @@ export function installHooks(client, { dryRun = false } = {}) {
     );
 
     const settings = readJson(settingsPath) || {};
-    settings.hooks = hooksConfig;
+    // Per-event merge: preserves any user-defined hook events (e.g. the user's
+    // own `session.created`) and unwraps the template's outer `hooks` key
+    // (templates use `{ hooks: { event: [...] } }`, but the actual settings
+    // schema is a flat `{ event: [...] }`).
+    settings.hooks = mergeHookEvents(settings.hooks, hooksConfig);
     writeJson(settingsPath, settings);
 
     recordInstall(client, 'hooks');
@@ -476,7 +572,30 @@ export function uninstallHooks(client, { dryRun = false } = {}) {
 
     const settings = readJson(settingsPath);
     if (settings && settings.hooks) {
-      delete settings.hooks;
+      // Re-read the template so we know exactly which event keys to remove.
+      // Best-effort: if the template is missing, fall back to wiping the key
+      // (matches prior behavior; logged via the error branch if it ever happens).
+      let template = null;
+      try {
+        const templateName = getHookTemplateName(client);
+        const templatePath = path.join(templatesDir, templateName);
+        if (fs.existsSync(templatePath)) {
+          template = JSON.parse(fs.readFileSync(templatePath, 'utf-8'));
+        }
+      } catch {
+        template = null;
+      }
+
+      if (template) {
+        const remaining = removeHookEvents(settings.hooks, template);
+        if (remaining === null) {
+          delete settings.hooks;
+        } else {
+          settings.hooks = remaining;
+        }
+      } else {
+        delete settings.hooks;
+      }
       writeJson(settingsPath, settings);
     }
 

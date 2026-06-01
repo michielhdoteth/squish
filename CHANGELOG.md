@@ -2,6 +2,30 @@
 
 All notable changes to Squish will be documented in this file.
 
+## [1.5.5] - 2026-06-01
+
+### Added - Sessions: Search Your Past AI Coding Sessions
+
+The killer feature for v1.5.5: persistent, searchable, agent-agnostic session history. Never restart from zero again.
+
+- **Auto-capture**: OpenCode plugin auto-records every session — title, summary, files touched, decisions, commands, errors, todos. Zero config.
+- **Search**: `squish sessions search "query"` returns the 3-10 most relevant CHUNKS (not whole sessions). Each chunk is a decision, command, file change, error, or summary tied to a session.
+- **Killer feature `/squish related`**: One slash command auto-finds past sessions relevant to the current repo and recently-touched files.
+- **CLI subcommands**: `squish sessions {list, show, search, capture, related, inject}` — thin JSON wrappers over the storage module.
+- **Plugin sessions tools**: 6 LLM-invokable tools (`squish_session_*`) — list/show use OpenCode SDK, search/capture/related/inject use Squish memory chunks.
+- **Slash command**: ONE `squish.md` command that parses `$ARGUMENTS` as a subcommand. User: "no, dont make a ton of commands just 1 with args" — done.
+- **Storage**: Chunks are stored as Squish memories (rich tags + metadata). NO parallel session index file. The plugin uses OpenCode's SDK for session discovery.
+- **Search scoring**: keyword + tag + file + decision matching, ranked. NO embeddings in MVP.
+- **Cross-agent prep**: Chunk schema has `agent` and `agent_session_id` fields, ready for Claude Code / OpenClaw / Codex support later.
+
+### Changed
+
+- `squish sessions` command added to schema probe exempt list (it does not require a database).
+
+### Fixed
+
+- Plugin previously used a non-existent OpenCode plugin API (`api.registerTool`, `api.on("session.start")`). The OpenCode plugin now uses the real hook-based `@opencode-ai/plugin` API.
+
 ## [1.5.0] - 2026-05-31
 
 - **Removed hot/cold tier system**: Memories no longer classified into tiers. Decay and eviction still run on importance scores. Tier column preserved in schema for backward compatibility.
