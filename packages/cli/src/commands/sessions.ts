@@ -231,18 +231,62 @@ async function runCapture(
   outputJson({ ok: true, id: sessionId, memory_id: memoryId, chunk });
 }
 
-async function runRelated(opts: {
-  file?: string;
-  repoPath?: string;
-  source?: string;
-  dbPath?: string;
-  limit?: string;
-  json?: boolean;
-  pretty?: boolean;
-}): Promise<void> {
+async function runRelated(
+  id: string | undefined,
+  opts: {
+    file?: string;
+    repoPath?: string;
+    source?: string;
+    dbPath?: string;
+    limit?: string;
+    json?: boolean;
+    pretty?: boolean;
+  }
+): Promise<void> {
   const files = parseCsv(opts.file);
-  const repoPath = opts.repoPath ?? process.cwd();
   const source = parseSource(opts.source);
+
+  // If the user gave an id, derive the repo path from the session itself
+  // (works for both squish-stored sessions and opencode.db sessions).
+  let repoPath = opts.repoPath ?? process.cwd();
+  let sourceSession: SessionGroup | null = null;
+  if (id) {
+    const { getSessionChunks } = await import(
+      '../../../../core/sessions/store.js'
+    );
+    const { getOpenCodeSession } = await import(
+      '../../../../core/sessions/opencode-store.js'
+    );
+    const chunks = await getSessionChunks(id, {
+      source: source === 'squish' ? 'squish' : 'all',
+      opencode_db_path: opts.dbPath,
+    });
+    if (chunks.length > 0) {
+      repoPath = chunks[0].repo_path || repoPath;
+      sourceSession = {
+        session_id: chunks[0].session_id,
+        title: chunks[0].session_title,
+        project: chunks[0].project,
+        repo_path: chunks[0].repo_path,
+        branch: chunks[0].branch,
+        agent: chunks[0].agent,
+        status: 'completed',
+        started_at: chunks[0].timestamp,
+        ended_at: chunks[0].timestamp,
+        chunk_count: chunks.length,
+      };
+    } else {
+      // Try opencode directly
+      const oc = getOpenCodeSession(id, opts.dbPath);
+      if (oc) {
+        sourceSession = oc;
+        repoPath = oc.repo_path || repoPath;
+      } else {
+        fail(`Session not found: ${id}`);
+      }
+    }
+  }
+
   const limit = opts.limit ? parseInt(opts.limit, 10) || 5 : 5;
   const results = await findRelatedSessions({
     repo_path: repoPath,
@@ -254,11 +298,24 @@ async function runRelated(opts: {
 
   if (opts.pretty) {
     const sessions: SessionGroup[] = results.map((r) => r.session);
+    if (sourceSession) {
+      outputPretty(
+        `Source: ${sourceSession.title || sourceSession.session_id}  (${sourceSession.repo_path})\n`
+      );
+    }
     outputPretty(formatSessionList(sessions));
     return;
   }
   outputJson({
     ok: true,
+    source: sourceSession
+      ? {
+          session_id: sourceSession.session_id,
+          title: sourceSession.title,
+          repo_path: sourceSession.repo_path,
+        }
+      : null,
+    repo_path: repoPath,
     count: results.length,
     results: results.map((r) => ({
       score: r.score,
@@ -382,8 +439,11 @@ export function registerSessionsCommand(program: Command): void {
     });
 
   sessions
-    .command('related')
-    .description('Find past sessions related to a repo and files (squish + opencode)')
+    .command('related [id]')
+    .description(
+      'Find past sessions related to a repo and files. With [id], derive the repo from that session. ' +
+        'Without [id], use --repo-path or cwd.'
+    )
     .option('--file <paths>', 'Comma-separated files of interest')
     .option('--repo-path <path>', 'Absolute repo path (default: cwd)')
     .option('-s, --source <src>', 'squish | opencode | all (default: all)', 'all')
@@ -391,9 +451,9 @@ export function registerSessionsCommand(program: Command): void {
     .option('-l, --limit <n>', 'Max results (default 5)', '5')
     .option('--json', 'Emit JSON (default)', false)
     .option('--pretty', 'Human-readable output', false)
-    .action(async (opts: any) => {
+    .action(async (id: string | undefined, opts: any) => {
       try {
-        await runRelated(opts);
+        await runRelated(id, opts);
       } catch (err: any) {
         fail(err?.message ?? String(err));
       }
