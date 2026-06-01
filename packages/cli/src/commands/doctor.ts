@@ -262,7 +262,7 @@ async function runDoctorDiagnostics(options: { fix?: boolean; migrate?: boolean;
     process.exit(combined.severity === 'broken' ? 1 : 0);
   }
 
-  console.log('\n=== Squish Doctor v1.2.3 ===\n');
+  console.log('\n=== Squish Doctor v1.5.0 ===\n');
   console.log(formatHealthReport({
     severity: combined.severity,
     currentProject: combined.currentProject,
