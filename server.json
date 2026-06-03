@@ -1,17 +1,17 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.michielhdoteth/squish",
+  "name": "io.github.4m-labs/squish",
   "description": "Memory runtime for AI agents. Local-first, 283KB, optional LLM. MCP + OAuth cloud sync.",
   "repository": {
-    "url": "https://github.com/michielhdoteth/squish",
+    "url": "https://github.com/4m-labs/squish",
     "source": "github"
   },
-  "version": "1.5.0",
+  "version": "1.6.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "squish-memory",
-      "version": "1.5.0",
+      "version": "1.6.0",
       "transport": {
         "type": "stdio"
       }
@@ -19,7 +19,7 @@
     {
       "registryType": "npm",
       "identifier": "squish-memory",
-      "version": "1.5.0",
+      "version": "1.6.0",
       "transport": {
         "type": "streamable-http",
         "url": "https://api.squishplugin.dev/mcp"

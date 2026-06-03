@@ -48,7 +48,7 @@ import type { AgentSessionStore, AgentName } from './types.js';
  * Default location of the user's OpenCode database.
  * XDG-style: data lives at `~/.local/share/opencode/opencode.db` on
  * every platform, including Windows. The user's install confirms this
- * (6.77 GB at `C:\Users\michi\.local\share\opencode\opencode.db`).
+ * (6.77 GB at `~/.local/share/opencode/opencode.db`).
  *
  * Tests can set `SQUISH_OPENCODE_DISABLED=1` to force the opencode
  * source to be unavailable even if a real opencode.db exists on the
@@ -221,8 +221,8 @@ function epochToIso(ms: number): string {
 }
 
 function deriveProjectName(directory: string): string {
-  // For a path like "C:\Users\michi\Desktop\Command Center\Companies OS\4M Labs"
-  // we want "4M Labs". For paths ending in a leaf repo, use the leaf.
+  // Extract the last meaningful directory name from a path
+  // For paths ending in a leaf repo, use the leaf.
   if (!directory) return '';
   const norm = directory.replace(/\\/g, '/').replace(/\/+$/, '');
   if (norm === '/' || /^[A-Z]:$/.test(norm)) return directory;

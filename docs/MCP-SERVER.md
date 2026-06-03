@@ -338,7 +338,7 @@ SQUISH_QMD_FALLBACK=hybrid          # Fallback mode: qmd-only|cloud-first|hybrid
 
 ```bash
 # Clone
-git clone https://github.com/michielhdoteth/squish.git
+git clone https://github.com/4m-labs/squish.git
 cd squish
 
 # Install
@@ -366,10 +366,10 @@ These must be done manually via the `.env` file in the data directory.
 
 ## License
 
-MIT © michielhdoteth
+MIT © 4M Labs
 
 ## Links
 
-- [GitHub](https://github.com/michielhdoteth/squish)
+- [GitHub](https://github.com/4m-labs/squish)
 - [QMD](https://github.com/tobi/qmd)
 - [MCP Specification](https://modelcontextprotocol.io)

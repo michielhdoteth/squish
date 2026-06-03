@@ -1,12 +1,12 @@
 {
   "name": "squish-memory",
-  "version": "1.5.5",
-  "author": "michielhdoteth <michiel@4mlabs.io>",
+  "version": "1.6.0",
+  "author": "4m-labs <michiel@4mlabs.io>",
   "repository": {
     "type": "git",
-    "url": "https://github.com/michielhdoteth/squish.git"
+    "url": "https://github.com/4m-labs/squish.git"
   },
-  "mcpName": "io.github.michielhdoteth/squish",
+  "mcpName": "io.github.4m-labs/squish",
   "main": "config.ts",
   "dependencies": {
     "@clack/prompts": "^1.2.0",
@@ -48,7 +48,7 @@
     "squish-mcp": "bin/squish-mcp.mjs"
   },
   "bugs": {
-    "url": "https://github.com/michielhdoteth/squish/issues"
+    "url": "https://github.com/4m-labs/squish/issues"
   },
   "description": "Local-first memory runtime for Claude Code, Codex, ChatGPT, MCP workflows, and AI agents. One command: squish install. Use locally free or sync with Squish Cloud.",
   "engines": {
@@ -81,7 +81,7 @@
   ],
   "funding": {
     "type": "github",
-    "url": "https://github.com/sponsors/michielhdoteth"
+    "url": "https://github.com/sponsors/4m-labs"
   },
   "homepage": "https://squishplugin.dev",
   "keywords": [
