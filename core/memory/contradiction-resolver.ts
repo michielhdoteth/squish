@@ -15,6 +15,8 @@ export interface ContradictionResult {
   supersededMemories: string[];
   confidence: number;
   reason: string;
+  /** Which association type to use: 'updates' for explicit replacements, 'supersedes' for temporal contradictions */
+  associationType: 'updates' | 'supersedes';
 }
 
 export interface ContradictionCheck {
@@ -164,6 +166,7 @@ export async function detectContradictions(check: ContradictionCheck): Promise<C
     supersededMemories: [],
     confidence: 0,
     reason: '',
+    associationType: 'supersedes',
   };
 
   try {
@@ -193,6 +196,8 @@ export async function detectContradictions(check: ContradictionCheck): Promise<C
     const toSupersede: string[] = [];
     let maxConfidence = 0;
     let reasons: string[] = [];
+    // Default to 'supersedes' for temporal contradictions; 'updates' for explicit replacements
+    let pendingAssociationType: 'updates' | 'supersedes' = 'supersedes';
     
     for (const existing of existingMemories) {
       // Skip already superseded memories
@@ -241,7 +246,7 @@ export async function detectContradictions(check: ContradictionCheck): Promise<C
          continue;
        }
        
-       // Scenario 2: Update indicator with overlapping subject
+       // Scenario 2: Update indicator with overlapping subject (explicit replacement)
        if (newHasUpdate && subjectSimilarity > 0.5) {
          // Boost confidence for updates when existing is older
          let temporalFactor = 1.0;
@@ -252,6 +257,8 @@ export async function detectContradictions(check: ContradictionCheck): Promise<C
          toSupersede.push(existing.id);
          maxConfidence = Math.max(maxConfidence, subjectSimilarity * 0.85 * temporalFactor);
          reasons.push(`update to existing information`);
+         // Use 'updates' for explicit replacements (newer, better version of same info)
+         pendingAssociationType = 'updates';
          continue;
        }
        
@@ -277,7 +284,7 @@ export async function detectContradictions(check: ContradictionCheck): Promise<C
          }
        }
        
-       // Scenario 4: Entity overlap with correction signals
+       // Scenario 4: Entity overlap with correction signals (explicit replacement)
        if (entityOverlap.length >= 2 && similarity > 0.3) {
          const correctionSignals = /\b(fixed|changed|updated|replaced|removed|added)\b/i.test(check.newContent);
          if (correctionSignals) {
@@ -290,6 +297,8 @@ export async function detectContradictions(check: ContradictionCheck): Promise<C
            toSupersede.push(existing.id);
            maxConfidence = Math.max(maxConfidence, 0.75 * temporalFactor);
            reasons.push(`correction involving ${entityOverlap.slice(0, 2).join(', ')}`);
+           // Use 'updates' for explicit corrections (replacing specific data)
+           pendingAssociationType = 'updates';
            continue;
          }
        }
@@ -336,6 +345,7 @@ export async function detectContradictions(check: ContradictionCheck): Promise<C
       result.supersededMemories = [...new Set(toSupersede)]; // Dedupe
       result.confidence = maxConfidence;
       result.reason = reasons[0] || 'contradiction detected';
+      result.associationType = pendingAssociationType;
     }
     
   } catch (error) {
@@ -351,7 +361,8 @@ export async function detectContradictions(check: ContradictionCheck): Promise<C
 export async function applySupersession(
   newMemoryId: string,
   supersededIds: string[],
-  confidence: number
+  confidence: number,
+  associationType: 'updates' | 'supersedes' = 'supersedes'
 ): Promise<void> {
   if (supersededIds.length === 0) return;
   
@@ -373,7 +384,7 @@ export async function applySupersession(
     
     // Create associations for traceability
     for (const oldId of supersededIds) {
-      await createAssociation(newMemoryId, oldId, 'supersedes', confidence);
+      await createAssociation(newMemoryId, oldId, associationType, confidence);
     }
     
     logger.debug('Applied supersession', {
@@ -460,6 +471,7 @@ export async function resolveContradictions(
   supersededIds: string[];
   confidence: number;
   reason: string;
+  associationType: 'updates' | 'supersedes';
 }> {
   // Detect standard contradictions
   const contradictionResult = await detectContradictions({
@@ -484,11 +496,19 @@ export async function resolveContradictions(
     temporalSuperseded.length > 0 ? 0.7 : 0
   );
   
+  // Determine the association type based on the reason
+  // Temporal contradictions use 'supersedes'; explicit replacements use 'updates'
+  let associationType: 'updates' | 'supersedes' = 'supersedes';
+  if (contradictionResult.associationType === 'updates') {
+    associationType = 'updates';
+  }
+  
   return {
     shouldProceed: true, // Always proceed, but track supersessions
     supersededIds: allSuperseded,
     confidence: maxConfidence,
     reason: contradictionResult.reason || 
             (temporalSuperseded.length > 0 ? 'temporal supersession' : ''),
+    associationType,
   };
 }

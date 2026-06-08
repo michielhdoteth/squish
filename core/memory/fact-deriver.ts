@@ -5,10 +5,11 @@
  * Example: works_on(A, X) + uses(X, Y) -> depends_on(A, Y)
  */
 
-import { eq, and, or } from 'drizzle-orm';
+import { eq, and, or, sql } from 'drizzle-orm';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
 import { logger } from '../logger.js';
+import { createAssociation } from '../associations.js';
 import type { RelationType } from '../graph/llm-entity-extractor.js';
 
 // Extend RelationType to include derived relation types
@@ -23,10 +24,12 @@ interface DerivationRule {
   derivedType: ExtendedRelationType;
   description: string;
   confidence: number;
+  /** Memory association type to create when storing this derivation */
+  memoryAssociationType: 'derives' | 'extends';
 }
 
 const DERIVATION_RULES: DerivationRule[] = [
-  // Transitivity rules
+  // Transitivity rules - use 'derives' for memory associations
   {
     name: 'works_on_uses_depends_on',
     fromType: 'works_on',
@@ -34,6 +37,7 @@ const DERIVATION_RULES: DerivationRule[] = [
     derivedType: 'depends_on',
     description: 'If A works on X and X uses Y, then A depends on Y',
     confidence: 0.8,
+    memoryAssociationType: 'derives',
   },
   {
     name: 'manages_works_oversees',
@@ -42,6 +46,7 @@ const DERIVATION_RULES: DerivationRule[] = [
     derivedType: 'oversees',
     description: 'If A manages B and B works on X, then A oversees X',
     confidence: 0.75,
+    memoryAssociationType: 'derives',
   },
   {
     name: 'caused_affects_may_affect',
@@ -50,7 +55,9 @@ const DERIVATION_RULES: DerivationRule[] = [
     derivedType: 'may_affect',
     description: 'If X caused Y and Y affects Z, then X may affect Z',
     confidence: 0.7,
+    memoryAssociationType: 'derives',
   },
+  // Enrichment rules - use 'extends' for memory associations
   {
     name: 'part_of_contains',
     fromType: 'part_of',
@@ -58,6 +65,7 @@ const DERIVATION_RULES: DerivationRule[] = [
     derivedType: 'related_to',
     description: 'If A is part of X and X contains B, then A is related to B',
     confidence: 0.6,
+    memoryAssociationType: 'extends',
   },
   {
     name: 'uses_depends_on',
@@ -66,6 +74,7 @@ const DERIVATION_RULES: DerivationRule[] = [
     derivedType: 'depends_on',
     description: 'If A uses X and X depends on Y, then A depends on Y',
     confidence: 0.85,
+    memoryAssociationType: 'derives',
   },
   {
     name: 'created_resolved',
@@ -74,6 +83,7 @@ const DERIVATION_RULES: DerivationRule[] = [
     derivedType: 'related_to',
     description: 'If A created X and X was resolved by B, then A is related to B',
     confidence: 0.5,
+    memoryAssociationType: 'extends',
   },
   {
     name: 'blocks_depends_on',
@@ -82,6 +92,7 @@ const DERIVATION_RULES: DerivationRule[] = [
     derivedType: 'blocks',
     description: 'If X blocks A and A depends on Y, then X may block Y',
     confidence: 0.65,
+    memoryAssociationType: 'derives',
   },
 ];
 
@@ -94,6 +105,37 @@ export interface DerivedFact {
   rule: string;
   confidence: number;
   isDerived: boolean;
+}
+
+/**
+ * Find memories that mention a specific entity name.
+ * Returns memory IDs that could be source memories for associations.
+ */
+async function findMemoriesForEntity(
+  entityName: string,
+  projectId: string,
+  limit: number = 3
+): Promise<string[]> {
+  try {
+    const db = await getDb();
+    const schema = await getSchema();
+
+    const memories = await (db as any)
+      .select({ id: schema.memories.id })
+      .from(schema.memories)
+      .where(
+        and(
+          eq(schema.memories.projectId, projectId),
+          sql`LOWER(${schema.memories.content}) LIKE ${'%' + entityName.toLowerCase() + '%'}`
+        )
+      )
+      .limit(limit);
+
+    return memories.map((m: any) => m.id as string);
+  } catch (error) {
+    logger.debug('Error finding memories for entity', { entityName, error: error as Error });
+    return [];
+  }
 }
 
 // ─── Main Derivation Function ─────────────────────────────────────────────────
@@ -224,6 +266,35 @@ export async function deriveFacts(
                   description: rule.description,
                 } as any,
               });
+
+              // Also create memory associations between source memories
+              // Use 'derives' for transitive rules, 'extends' for enrichment rules
+              try {
+                const fromMemories = await findMemoriesForEntity(fromEntity.name, projectId, 2);
+                const toMemories = await findMemoriesForEntity(toEntity.name, projectId, 2);
+
+                // Create associations between source memories of derived entities
+                for (const fromMemId of fromMemories) {
+                  for (const toMemId of toMemories) {
+                    if (fromMemId !== toMemId) {
+                      await createAssociation(
+                        fromMemId,
+                        toMemId,
+                        rule.memoryAssociationType,
+                        rule.confidence,
+                        { tag: 'INFERRED', score: rule.confidence }
+                      );
+                    }
+                  }
+                }
+              } catch (assocError) {
+                logger.debug('Error creating memory association for derived fact', {
+                  rule: rule.name,
+                  from: fromEntity.name,
+                  to: toEntity.name,
+                  error: assocError as Error,
+                });
+              }
             } catch (error) {
               logger.debug('Error storing derived fact', {
                 rule: rule.name,

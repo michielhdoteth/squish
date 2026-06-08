@@ -8,7 +8,7 @@ import { getDb } from '../db/index.js';
 import { getSchema } from '../db/schema.js';
 import { logger } from './logger.js';
 
-export type AssociationType = 'co_occurred' | 'supersedes' | 'contradicts' | 'supports' | 'relates_to' | 'duplicate' | 'merged';
+export type AssociationType = 'co_occurred' | 'supersedes' | 'contradicts' | 'supports' | 'relates_to' | 'duplicate' | 'merged' | 'updates' | 'extends' | 'derives';
 
 /**
  * Create or update an association between two memories

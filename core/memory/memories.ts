@@ -265,8 +265,8 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
    if (process.env.SQUISH_SKIP_CONTRADICTION !== 'true') {
      resolveContradictions(input.content, type, project?.id)
        .then(async (result) => {
-         if (result.supersededIds.length > 0) {
-           await applySupersession(id, result.supersededIds, result.confidence);
+          if (result.supersededIds.length > 0) {
+            await applySupersession(id, result.supersededIds, result.confidence, result.associationType);
            // Update metadata with contradiction resolution info
            const updatedMetadata: Record<string, unknown> = {
              ...enrichedMetadata,
