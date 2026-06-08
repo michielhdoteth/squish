@@ -238,4 +238,4 @@ Existing installations continue to work:
 - [Claude Code Plugin Docs](https://docs.anthropic.com/claude/docs/claude-code/plugins) - Claude Code hooks
 
 ---
-*Last updated: $(date)*
+*Last updated: 2026-06-08*

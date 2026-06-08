@@ -74,7 +74,7 @@ Once installed, Squish works automatically:
    ```bash
    squish remember "User prefers TypeScript for new projects"
    squish recall "TypeScript preferences"
-   squish core_memory  # View your always-visible core memory
+   squish context  # View your memory context
    ```
 
 ## Configuration
@@ -137,4 +137,4 @@ Your Squish data and memories in `~/.squish/` are preserved.
 - [Universal Plugin Architecture](../PLUGIN-ARCHITECTURE.md)
 - [OpenClaw Installation](./openclaw.md)
 - [OpenCode Installation](./opencode.md)
-- [Squish CLI Reference](../cli-reference.md)
+- [Squish CLI Reference](../CLI.md)

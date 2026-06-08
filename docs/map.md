@@ -1,4 +1,4 @@
-# Squish Codebase Map (v0.4.1)
+# Squish Codebase Map (v1.6.0)
 
 ## 📁 **Project Structure Overview**
 
@@ -153,38 +153,34 @@ Result Ranking & Filtering
 Response Formatting
 ```
 
-## 🛠️ **MCP Tools (12 Total)**
+## 🛠️ **MCP Tools (16 Total)**
 
 ### **Memory Management**
 - `remember` - Store new memories
 - `recall` - Query memories or retrieve a specific memory
-- `get_related` - Association-based retrieval
+- `forget` - Delete memory by ID or bulk delete
+- `link` - Manage memory associations
 
-### **Conversation Management (2 tools)**
-- `conversations` - Search conversation history
-- `recent` - Get recent conversations
+### **Timeline & Retrieval (3 tools)**
+- `timeline` - Progressive disclosure over retrieved memory
+- `recent` - Get recent memories by period
+- `stale` - Show stale memories
 
 ### **Observation Tracking (1 tool)**
-- `learn observation` - Record tool usage patterns and work observations
+- `on_tool_use` - Record tool usage patterns and work observations
 
 ### **Context & Project (1 tool)**
 - `context` - Retrieve project context
 
-### **Merge/Deduplication (5 tools)**
-- `detect_duplicate_memories` - Find duplicates
-- `list_merge_proposals` - Review proposals
-- `preview_merge` - Preview merge results
-- `approve_merge` - Execute approved merges
-- `reject_merge` - Reject merge proposals
-- `reverse_merge` - Undo completed merges
-- `get_merge_stats` - Merge analytics
+### **Inspection & Governance (4 tools)**
+- `inspect` - Explain why a memory was retained
+- `pin` - Pin or unpin a memory
+- `list_pinned` - List all pinned memories
+- `stats` - Get memory statistics
 
-### **Lifecycle Management (3 tools)**
-- `lifecycle` - Run maintenance tasks
-- `summarize_session` - Create session summaries
-- `agent_remember` - Store agent-specific memory
-- `protect_memory` - Prevent eviction
-- `pin_memory` - Auto-injection pinning
+### **Session Lifecycle (2 tools)**
+- `on_session_start` - Trigger session start and context injection
+- `on_session_end` - Trigger session end and cleanup
 
 ### **System (1 tool)**
 - `health` - Service status checks
@@ -427,9 +423,9 @@ Response Formatting
 
 ---
 
-*This codemap provides a comprehensive view of the Squish v0.4.1 codebase architecture, showing how all 50+ files work together to create a sophisticated memory management system for Claude Code.*
+*This codemap provides a comprehensive view of the Squish v1.6.0 codebase architecture, showing how all 50+ files work together to create a sophisticated memory management system for Claude Code.*
 
-## 🆕 **v0.4.1 Enhancements (New Features)**
+## 🆕 **v1.6.0 Enhancements (New Features)**
 
 ### **Advanced Memory Features**
 - **Bridge Discovery** (`features/memory/bridge-discovery.ts`): Cross-context relationship detection

@@ -63,7 +63,7 @@ Once installed, Squish works automatically with OpenCode:
    ```bash
    squish remember "Important architectural decision"
    squish recall "architecture decisions"
-   squish core_memory
+   squish context
    ```
 
 ## Configuration
@@ -197,4 +197,4 @@ Memories are automatically organized into places:
 - [Universal Plugin Architecture](../PLUGIN-ARCHITECTURE.md)
 - [Claude Code Installation](./claude-code.md)
 - [OpenClaw Installation](./openclaw.md)
-- [Squish CLI Reference](../cli-reference.md)
+- [Squish CLI Reference](../CLI.md)

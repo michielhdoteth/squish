@@ -10,7 +10,7 @@ Any AI Agent
 MCP (stdio/Streamable HTTP) / CLI
      ↓
 packages/mcp/src/index.ts
-   ├─ MCP Tools (12 tools)
+   ├─ MCP Tools (16 tools)
    ├─ Core Services
    │   ├─ Signal Engine
    │   ├─ Session Working Set
@@ -30,7 +30,7 @@ squish/
 ├── packages/
 │   ├── mcp/                 # MCP server package
 │   │   ├── src/
-│   │   │   └── index.ts      # Main MCP entry point (12 tools)
+│   │   │   └── index.ts      # Main MCP entry point (16 tools)
 │   │   └── package.json
 │   └── cli/                  # CLI package
 │       ├── src/
@@ -51,18 +51,26 @@ squish/
 
 ## Architecture Layers
 
-### 1. MCP Server (12 Tools)
+### 1. MCP Server (16 Tools)
 
-The main entry point (`packages/mcp/src/index.ts`) defines 12 MCP tools covering memory management, recall, timeline, context, and system operations.
+The main entry point (`packages/mcp/src/index.ts`) defines 16 MCP tools covering memory management, recall, timeline, context, lifecycle, and system operations.
 
+- **timeline** - Progressive disclosure over retrieved memory
 - **remember** - Store memories with embeddings
 - **recall** - Query memories or get a specific memory by ID
-- **timeline** - Progressive disclosure over retrieved memory
-- **conversations** - Search conversation history
-- **recent** - Get recent memories
-- **observe** - Store tool usage observations
+- **forget** - Delete memory by ID or bulk delete with filters
+- **link** - Manage memory associations for graph-based reasoning
 - **context** - Retrieve project context
 - **health** - Service status checks
+- **stats** - Get memory statistics
+- **inspect** - Explain why a memory was retained
+- **pin** - Pin or unpin a memory
+- **recent** - Get recent memories
+- **stale** - Show stale memories
+- **list_pinned** - List all pinned memories
+- **on_session_start** - Trigger session start
+- **on_tool_use** - Capture tool use events
+- **on_session_end** - Trigger session end
 
 ### 2. Services Layer
 

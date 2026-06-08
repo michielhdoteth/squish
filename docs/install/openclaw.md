@@ -80,7 +80,7 @@ Once installed, Squish works automatically with OpenClaw:
    ```bash
    squish remember "Important project decision"
    squish recall "project decisions"
-   squish core_memory
+   squish context
    ```
 
 ## Configuration
@@ -168,4 +168,4 @@ This removes the OpenClaw plugin configuration but preserves your Squish data an
 - [Universal Plugin Architecture](../PLUGIN-ARCHITECTURE.md)
 - [Claude Code Installation](./claude-code.md)
 - [OpenCode Installation](./opencode.md)
-- [Squish CLI Reference](../cli-reference.md)
+- [Squish CLI Reference](../CLI.md)

@@ -4,7 +4,7 @@ Universal memory layer for AI agents via Model Context Protocol (MCP).
 
 ## Features
 
-- **15 MCP Tools**: universal memory operations across recall, health, graph, recency, and maintenance flows
+- **16 MCP Tools**: universal memory operations across recall, health, graph, recency, lifecycle, and maintenance flows
 - **Local Embeddings**: TF-IDF based, 768-dim vectors
 - **QMD Integration**: Local markdown search with BM25 + vector
 - **Hybrid Search**: Semantic + recency + importance scoring
@@ -272,6 +272,64 @@ Show stale memories (old, low-confidence, or rarely accessed).
 }
 ```
 
+### 13. `squish_list_pinned`
+
+List all pinned memories (pinned memories are always preserved).
+
+```json
+{
+  "name": "squish_list_pinned",
+  "arguments": {
+    "project": "/path/to/project"
+  }
+}
+```
+
+### 14. `squish_on_session_start`
+
+Trigger session start - injects context from previous sessions, initializes session tracking.
+
+```json
+{
+  "name": "squish_on_session_start",
+  "arguments": {
+    "projectPath": "/path/to/project",
+    "mode": "startup"
+  }
+}
+```
+
+Mode options: `startup`, `resume`, `compact`
+
+### 15. `squish_on_tool_use`
+
+Capture a tool use event for memory - stores observation about tool execution.
+
+```json
+{
+  "name": "squish_on_tool_use",
+  "arguments": {
+    "toolName": "write",
+    "toolInput": { "filePath": "src/index.ts" },
+    "toolResult": { "success": true },
+    "projectPath": "/path/to/project"
+  }
+}
+```
+
+### 16. `squish_on_session_end`
+
+Trigger session end - performs cleanup and signals session completion.
+
+```json
+{
+  "name": "squish_on_session_end",
+  "arguments": {
+    "projectPath": "/path/to/project"
+  }
+}
+```
+
 ## Configuration
 
 ### Environment Variables
@@ -321,9 +379,10 @@ SQUISH_QMD_FALLBACK=hybrid          # Fallback mode: qmd-only|cloud-first|hybrid
 ┌───────────────────────────────────��─────────┐
 │         Squish MCP Server (port 8767)        │
 │  ┌──────────────────────────────────────┐ │
-│  │  12 Tools: remember, recall, timeline, │ │
-│  │  context, health, stats, inspect, pin, │ │
-│  │  recent, stale, link, forget           │ │
+│  │  16 Tools: remember, recall, timeline, forget,    │ │
+│  │  link, context, health, stats, inspect, pin,      │ │
+│  │  recent, stale, list_pinned, on_session_start,    │ │
+│  │  on_tool_use, on_session_end                      │ │
 │  └──────────────────────────────────────┘ │
 │  ┌──────────────────────────────────────┐ │
 │  │  Embeddings: Local, QMD, Multimodal  │ │

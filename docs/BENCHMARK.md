@@ -85,29 +85,6 @@ curl -sL "https://raw.githubusercontent.com/snap-research/locomo/main/data/locom
 cd benchmarks/run-lmstudio && bun run locomo-full.ts
 ```
 
-### JSON Output
-
-```json
-{
-  "version": "1.2.0",
-  "passed": 9,
-  "total": 9,
-  "totalTime": 230,
-  "throughput": 39,
-  "tests": {
-    "Embedding Generation": { "status": "pass", "ms": 6.6 },
-    "Store Memory": { "status": "pass", "ms": 110.1 },
-    "Retrieve Memory": { "status": "pass", "ms": 6.5 },
-    "Search": { "status": "pass", "ms": 6.1 },
-    "Store Learning": { "status": "pass", "ms": 10.2 },
-    "Create Association": { "status": "pass", "ms": 2.5 },
-    "Get Related": { "status": "pass", "ms": 1.9 },
-    "Bulk Create (10)": { "status": "pass", "ms": 68.4 },
-    "Health Check": { "status": "pass", "ms": 18.2 }
-  }
-}
-```
-
 ---
 
 ## Package Metrics

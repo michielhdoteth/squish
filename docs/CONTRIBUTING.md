@@ -240,9 +240,9 @@ Update package READMEs when:
 
 ### Documentation Files
 
-- `docs/README.md` - User guide
+- `docs/MCP-SERVER.md` - MCP server reference
 - `docs/ARCHITECTURE.md` - System design
-- `docs/DEPLOYMENT.md` - Deployment guide
+- `docs/CLI.md` - CLI reference
 - `docs/CONTRIBUTING.md` - This file
 
 ## Performance
@@ -271,7 +271,7 @@ bun run bench
 1. **Update version**
    ```bash
    # In root package.json
-   "version": "0.9.2"
+   "version": "1.6.0"
    ```
 
 2. **Update CHANGELOG.md** with notable changes for this release
@@ -279,13 +279,13 @@ bun run bench
 3. **Create commit**
    ```bash
    git add .
-   git commit -m "chore: release v0.9.2"
+   git commit -m "chore: release v1.6.0"
    ```
 
 4. **Create git tag**
    ```bash
-   git tag v0.9.2
-   git push origin v0.9.2
+   git tag v1.6.0
+   git push origin v1.6.0
    ```
 
 5. **Automated Release**
