@@ -12,8 +12,8 @@ export type AgentName = 'opencode' | 'claude-code' | 'codex';
 
 /**
  * Source filter for chunk/session queries. `opencode` reads the
- * user's local opencode.db. `claude-code` and `codex` are stubs
- * (not yet implemented). `all` iterates every registered agent
+ * user's local opencode.db. `claude-code` and `codex` read their
+ * respective agent stores. `all` iterates every registered agent
  * store.
  */
 export type SessionSource = AgentName | 'all';
