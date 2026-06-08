@@ -44,7 +44,6 @@ import {
   formatSessionDetail,
   formatSessionList,
   getSessionChunks,
-  getOpenCodeStatus,
   listSessions,
   makeSummaryChunk,
   searchChunks,
@@ -53,6 +52,8 @@ import {
   type SessionGroup,
   type SessionSource,
 } from '../../../../core/sessions/index.js';
+
+import { allAgentStores } from '../../../../core/sessions/agent-stores/registry.js';
 
 function parseCsv(input: string | undefined): string[] {
   if (!input) return [];
@@ -326,26 +327,64 @@ async function runRelated(
   });
 }
 
-async function runStatus(opts: { dbPath?: string; json?: boolean; pretty?: boolean }): Promise<void> {
-  const status = getOpenCodeStatus({ db_path: opts.dbPath });
-  if (opts.pretty) {
-    if (!status.ok) {
-      outputPretty(`opencode.db: not available (${status.error ?? 'unknown'})`);
-      return;
+async function runStatus(opts: { json?: boolean; pretty?: boolean }): Promise<void> {
+  const stores = allAgentStores();
+
+  const results: Array<{
+    name: string;
+    available: boolean;
+    path?: string;
+    size?: number;
+    sessions?: number;
+    messages?: number;
+    parts?: number;
+    error?: string;
+  }> = [];
+
+  for (const store of stores) {
+    const st = await store.status();
+    if (st) {
+      results.push({
+        name: store.name,
+        available: true,
+        path: st.path,
+        size: st.size,
+        sessions: st.sessions,
+        messages: st.messages,
+        parts: st.parts,
+      });
+    } else {
+      results.push({
+        name: store.name,
+        available: false,
+      });
     }
-    const mb = status.size_bytes ? (status.size_bytes / 1_000_000).toFixed(1) + ' MB' : '?';
-    outputPretty(
-      [
-        `opencode.db: ${status.path}`,
-        `  size:        ${mb}`,
-        `  sessions:    ${status.session_count ?? 0}`,
-        `  messages:    ${status.message_count ?? 0}`,
-        `  parts:       ${status.part_count ?? 0}`,
-      ].join('\n')
-    );
+  }
+
+  if (opts.pretty) {
+    const lines: string[] = ['Agent stores:'];
+    for (const r of results) {
+      if (r.available) {
+        const mb = r.size ? (r.size / 1_000_000).toFixed(1) + ' MB' : '?';
+        lines.push(
+          [
+            `  ${r.name}:`,
+            `    path:     ${r.path ?? '?'}`,
+            `    size:     ${mb}`,
+            `    sessions: ${r.sessions ?? 0}`,
+            `    messages: ${r.messages ?? 0}`,
+            `    parts:    ${r.parts ?? 0}`,
+          ].join('\n')
+        );
+      } else {
+        lines.push(`  ${r.name}: not available`);
+      }
+    }
+    outputPretty(lines.join('\n'));
     return;
   }
-  outputJson({ ok: status.ok, ...status });
+
+  outputJson({ ok: true, stores: results });
 }
 
 /* ------------------------------------------------------------------ */
@@ -452,8 +491,7 @@ export function registerSessionsCommand(program: Command): void {
 
   sessions
     .command('status')
-    .description('Show opencode.db connection status (path, size, session/message/part counts)')
-    .option('--db-path <path>', 'Override opencode.db path')
+    .description('Show status for all registered agent stores (opencode, claude-code, codex)')
     .option('--json', 'Emit JSON (default)', false)
     .option('--pretty', 'Human-readable output', false)
     .action(async (opts: any) => {

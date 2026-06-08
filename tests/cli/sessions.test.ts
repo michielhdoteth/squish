@@ -192,6 +192,59 @@ describe('squish sessions related', () => {
   });
 });
 
+describe('squish sessions status', () => {
+  it('returns ok:true with stores array for all registered agent stores', () => {
+    const r = run(['sessions', 'status']);
+    expect(r.status).toBe(0);
+    const parsed = JSON.parse(r.stdout);
+    expect(parsed.ok).toBe(true);
+    expect(Array.isArray(parsed.stores)).toBe(true);
+    // All 3 stores should appear: opencode, claude-code, codex
+    const names = parsed.stores.map((s: { name: string }) => s.name);
+    expect(names).toContain('opencode');
+    expect(names).toContain('claude-code');
+    expect(names).toContain('codex');
+    // Each store entry should have at minimum: name, available
+    for (const store of parsed.stores) {
+      expect(typeof store.name).toBe('string');
+      expect(typeof store.available).toBe('boolean');
+    }
+  });
+
+  it('marks opencode as unavailable when SQUISH_OPENCODE_DISABLED=1', () => {
+    const r = run(['sessions', 'status']);
+    expect(r.status).toBe(0);
+    const parsed = JSON.parse(r.stdout);
+    // In test env with SQUISH_OPENCODE_DISABLED=1, opencode should be unavailable
+    const oc = parsed.stores.find((s: { name: string }) => s.name === 'opencode');
+    expect(oc).toBeTruthy();
+    expect(oc.available).toBe(false);
+  });
+
+  it('marks unavailable stores with no path/size fields', () => {
+    const r = run(['sessions', 'status']);
+    expect(r.status).toBe(0);
+    const parsed = JSON.parse(r.stdout);
+    for (const store of parsed.stores) {
+      if (!store.available) {
+        expect(store.path).toBeUndefined();
+        expect(store.size).toBeUndefined();
+      } else {
+        expect(typeof store.path).toBe('string');
+        expect(typeof store.size).toBe('number');
+      }
+    }
+  });
+
+  it('pretty output contains all store names', () => {
+    const r = run(['sessions', 'status', '--pretty']);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain('opencode');
+    expect(r.stdout).toContain('claude-code');
+    expect(r.stdout).toContain('codex');
+  });
+});
+
 describe('sessions command is in the program surface', () => {
   it('appears under program.commands', async () => {
     const { createProgram } = await import('../../packages/cli/src/program.ts');
