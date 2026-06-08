@@ -563,6 +563,77 @@ CREATE TABLE IF NOT EXISTS belief_edges (
 );
 CREATE INDEX IF NOT EXISTS belief_edges_from_idx ON belief_edges(from_belief_id);
 CREATE INDEX IF NOT EXISTS belief_edges_to_idx ON belief_edges(to_belief_id);
+
+CREATE TABLE IF NOT EXISTS strategies (
+  id TEXT PRIMARY KEY,
+  project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+  user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+  agent_id TEXT,
+  strategy_type TEXT NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL,
+  context TEXT,
+  steps TEXT,
+  success_criteria TEXT,
+  failure_indicators TEXT,
+  confidence REAL DEFAULT 0.5,
+  usage_count INTEGER DEFAULT 0,
+  success_count INTEGER DEFAULT 0,
+  failure_count INTEGER DEFAULT 0,
+  last_used_at INTEGER,
+  last_success_at INTEGER,
+  last_failure_at INTEGER,
+  status TEXT DEFAULT 'active',
+  superseded_by TEXT,
+  tags TEXT,
+  metadata TEXT,
+  visibility_scope TEXT DEFAULT 'private',
+  created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL,
+  updated_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL
+);
+CREATE INDEX IF NOT EXISTS strategies_project_idx ON strategies(project_id);
+CREATE INDEX IF NOT EXISTS strategies_type_idx ON strategies(strategy_type);
+CREATE INDEX IF NOT EXISTS strategies_status_idx ON strategies(status);
+CREATE INDEX IF NOT EXISTS strategies_confidence_idx ON strategies(confidence);
+CREATE INDEX IF NOT EXISTS strategies_user_idx ON strategies(user_id);
+
+CREATE TABLE IF NOT EXISTS strategy_edges (
+  id TEXT PRIMARY KEY,
+  from_strategy_id TEXT REFERENCES strategies(id) ON DELETE CASCADE,
+  to_strategy_id TEXT REFERENCES strategies(id) ON DELETE CASCADE,
+  edge_type TEXT NOT NULL,
+  metadata TEXT,
+  created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL,
+  UNIQUE(from_strategy_id, to_strategy_id, edge_type)
+);
+CREATE INDEX IF NOT EXISTS strategy_edges_from_idx ON strategy_edges(from_strategy_id);
+CREATE INDEX IF NOT EXISTS strategy_edges_to_idx ON strategy_edges(to_strategy_id);
+
+CREATE TABLE IF NOT EXISTS strategy_belief_edges (
+  id TEXT PRIMARY KEY,
+  strategy_id TEXT REFERENCES strategies(id) ON DELETE CASCADE,
+  belief_id TEXT REFERENCES beliefs(id) ON DELETE CASCADE,
+  edge_type TEXT NOT NULL,
+  metadata TEXT,
+  created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL,
+  UNIQUE(strategy_id, belief_id, edge_type)
+);
+CREATE INDEX IF NOT EXISTS strategy_belief_edges_strategy_idx ON strategy_belief_edges(strategy_id);
+CREATE INDEX IF NOT EXISTS strategy_belief_edges_belief_idx ON strategy_belief_edges(belief_id);
+
+CREATE TABLE IF NOT EXISTS team_members (
+  id TEXT PRIMARY KEY,
+  project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+  user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+  agent_id TEXT,
+  role TEXT DEFAULT 'member',
+  joined_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL,
+  last_active_at INTEGER,
+  metadata TEXT,
+  UNIQUE(project_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS team_members_project_idx ON team_members(project_id);
+CREATE INDEX IF NOT EXISTS team_members_user_idx ON team_members(user_id);
 `;
 
 const postgresStatements = [
@@ -963,7 +1034,75 @@ const postgresStatements = [
     UNIQUE(from_belief_id, to_belief_id, edge_type)
   );`,
   `CREATE INDEX IF NOT EXISTS belief_edges_from_idx ON belief_edges(from_belief_id);`,
-  `CREATE INDEX IF NOT EXISTS belief_edges_to_idx ON belief_edges(to_belief_id);`
+  `CREATE INDEX IF NOT EXISTS belief_edges_to_idx ON belief_edges(to_belief_id);`,
+  // Strategies (v1.7.0+)
+  `CREATE TABLE IF NOT EXISTS strategies (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    agent_id TEXT,
+    strategy_type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    context TEXT,
+    steps TEXT,
+    success_criteria TEXT,
+    failure_indicators TEXT,
+    confidence REAL DEFAULT 0.5,
+    usage_count INTEGER DEFAULT 0,
+    success_count INTEGER DEFAULT 0,
+    failure_count INTEGER DEFAULT 0,
+    last_used_at TIMESTAMPTZ,
+    last_success_at TIMESTAMPTZ,
+    last_failure_at TIMESTAMPTZ,
+    status TEXT DEFAULT 'active',
+    superseded_by UUID,
+    tags TEXT,
+    metadata JSONB,
+    visibility_scope TEXT DEFAULT 'private',
+    created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+  );`,
+  `CREATE INDEX IF NOT EXISTS strategies_project_idx ON strategies(project_id);`,
+  `CREATE INDEX IF NOT EXISTS strategies_type_idx ON strategies(strategy_type);`,
+  `CREATE INDEX IF NOT EXISTS strategies_status_idx ON strategies(status);`,
+  `CREATE INDEX IF NOT EXISTS strategies_confidence_idx ON strategies(confidence);`,
+  `CREATE INDEX IF NOT EXISTS strategies_user_idx ON strategies(user_id);`,
+  `CREATE TABLE IF NOT EXISTS strategy_edges (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    from_strategy_id UUID REFERENCES strategies(id) ON DELETE CASCADE,
+    to_strategy_id UUID REFERENCES strategies(id) ON DELETE CASCADE,
+    edge_type TEXT NOT NULL,
+    metadata JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+    UNIQUE(from_strategy_id, to_strategy_id, edge_type)
+  );`,
+  `CREATE INDEX IF NOT EXISTS strategy_edges_from_idx ON strategy_edges(from_strategy_id);`,
+  `CREATE INDEX IF NOT EXISTS strategy_edges_to_idx ON strategy_edges(to_strategy_id);`,
+  `CREATE TABLE IF NOT EXISTS strategy_belief_edges (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    strategy_id UUID REFERENCES strategies(id) ON DELETE CASCADE,
+    belief_id UUID REFERENCES beliefs(id) ON DELETE CASCADE,
+    edge_type TEXT NOT NULL,
+    metadata JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+    UNIQUE(strategy_id, belief_id, edge_type)
+  );`,
+  `CREATE INDEX IF NOT EXISTS strategy_belief_edges_strategy_idx ON strategy_belief_edges(strategy_id);`,
+  `CREATE INDEX IF NOT EXISTS strategy_belief_edges_belief_idx ON strategy_belief_edges(belief_id);`,
+  `CREATE TABLE IF NOT EXISTS team_members (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    agent_id TEXT,
+    role TEXT DEFAULT 'member',
+    joined_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+    last_active_at TIMESTAMPTZ,
+    metadata JSONB,
+    UNIQUE(project_id, user_id)
+  );`,
+  `CREATE INDEX IF NOT EXISTS team_members_project_idx ON team_members(project_id);`,
+  `CREATE INDEX IF NOT EXISTS team_members_user_idx ON team_members(user_id);`
 ];
 
 /**

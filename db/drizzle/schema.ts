@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, uuid, integer, boolean, jsonb, index, vector, numeric } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, uuid, integer, boolean, jsonb, index, vector, numeric, real } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
 // Type Definitions
@@ -1116,6 +1116,102 @@ export const beliefEdges = pgTable('belief_edges', {
   index('belief_edges_to_idx').on(table.toBeliefId),
 ]);
 
+// Strategy Systems (v1.7.0+)
+// ============================================================================
+
+/**
+ * Strategies - executable strategies for agents
+ */
+export const strategies = pgTable('strategies', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+  agentId: text('agent_id'),
+
+  strategyType: text('strategy_type').notNull(),
+  title: text('title').notNull(),
+  description: text('description').notNull(),
+  context: text('context'),
+  steps: text('steps'),
+  successCriteria: text('success_criteria'),
+  failureIndicators: text('failure_indicators'),
+
+  confidence: real('confidence').default(0.5),
+  usageCount: integer('usage_count').default(0),
+  successCount: integer('success_count').default(0),
+  failureCount: integer('failure_count').default(0),
+  lastUsedAt: timestamp('last_used_at'),
+  lastSuccessAt: timestamp('last_success_at'),
+  lastFailureAt: timestamp('last_failure_at'),
+
+  status: text('status').default('active'),
+  supersededBy: uuid('superseded_by'),
+  tags: text('tags'),
+  metadata: jsonb('metadata'),
+  visibilityScope: text('visibility_scope').default('private'),
+
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => [
+  index('strategies_project_idx').on(table.projectId),
+  index('strategies_type_idx').on(table.strategyType),
+  index('strategies_status_idx').on(table.status),
+  index('strategies_confidence_idx').on(table.confidence),
+  index('strategies_user_idx').on(table.userId),
+]);
+
+/**
+ * Strategy Edges - relationships between strategies
+ */
+export const strategyEdges = pgTable('strategy_edges', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  fromStrategyId: uuid('from_strategy_id').references(() => strategies.id, { onDelete: 'cascade' }).notNull(),
+  toStrategyId: uuid('to_strategy_id').references(() => strategies.id, { onDelete: 'cascade' }).notNull(),
+
+  edgeType: text('edge_type').notNull(),
+  metadata: jsonb('metadata'),
+
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => [
+  index('strategy_edges_from_idx').on(table.fromStrategyId),
+  index('strategy_edges_to_idx').on(table.toStrategyId),
+]);
+
+/**
+ * Strategy Belief Edges - links strategies to beliefs
+ */
+export const strategyBeliefEdges = pgTable('strategy_belief_edges', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  strategyId: uuid('strategy_id').references(() => strategies.id, { onDelete: 'cascade' }).notNull(),
+  beliefId: uuid('belief_id').references(() => beliefs.id, { onDelete: 'cascade' }).notNull(),
+
+  edgeType: text('edge_type').notNull(),
+  metadata: jsonb('metadata'),
+
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => [
+  index('strategy_belief_edges_strategy_idx').on(table.strategyId),
+  index('strategy_belief_edges_belief_idx').on(table.beliefId),
+]);
+
+/**
+ * Team Members - project membership and roles
+ */
+export const teamMembers = pgTable('team_members', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }).notNull(),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+  agentId: text('agent_id'),
+
+  role: text('role').default('member'),
+  joinedAt: timestamp('joined_at').defaultNow().notNull(),
+  lastActiveAt: timestamp('last_active_at'),
+  metadata: jsonb('metadata'),
+}, (table) => [
+  index('team_members_project_idx').on(table.projectId),
+  index('team_members_user_idx').on(table.userId),
+]);
+
 export type BeliefType = 'decision' | 'preference' | 'failure_cause' | 'constraint' | 'state_change' | 'dispute';
 export type BeliefStatus = 'active' | 'superseded' | 'disputed';
 export type BeliefEdgeType = 'causes' | 'supports' | 'rejects' | 'supersedes' | 'depends_on';
@@ -1126,3 +1222,12 @@ export type BeliefMemorySource = typeof beliefMemorySources.$inferSelect;
 export type NewBeliefMemorySource = typeof beliefMemorySources.$inferInsert;
 export type BeliefEdge = typeof beliefEdges.$inferSelect;
 export type NewBeliefEdge = typeof beliefEdges.$inferInsert;
+
+export type Strategy = typeof strategies.$inferSelect;
+export type NewStrategy = typeof strategies.$inferInsert;
+export type StrategyEdge = typeof strategyEdges.$inferSelect;
+export type NewStrategyEdge = typeof strategyEdges.$inferInsert;
+export type StrategyBeliefEdge = typeof strategyBeliefEdges.$inferSelect;
+export type NewStrategyBeliefEdge = typeof strategyBeliefEdges.$inferInsert;
+export type TeamMember = typeof teamMembers.$inferSelect;
+export type NewTeamMember = typeof teamMembers.$inferInsert;

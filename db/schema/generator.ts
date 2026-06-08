@@ -41,6 +41,7 @@ const ALLOWED_TABLE_NAMES = new Set([
   'belief_memory_sources', 'maintenance_jobs', 'maintenance_job_history',
   'telemetry_events', 'learnings', 'core_memory', 'conversations',
   'edit_proposals', 'merge_proposals', 'snapshots', 'summaries',
+  'strategies', 'strategy_edges', 'strategy_belief_edges', 'team_members',
 ]);
 
 function sanitizeTableName(name: string): string {

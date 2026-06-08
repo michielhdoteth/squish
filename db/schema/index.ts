@@ -14,6 +14,7 @@ import type { TableSchema } from './generator.js';
 export { memoriesSchema } from './memories.js';
 export { learningsSchema } from './learnings.js';
 export { beliefsSchema, beliefMemorySourcesSchema, beliefEdgesSchema } from './beliefs.js';
+export { strategiesSchema, strategyEdgesSchema, strategyBeliefEdgesSchema, teamMembersSchema } from './strategies.js';
 
 /**
  * Table schemas for migration utilities
