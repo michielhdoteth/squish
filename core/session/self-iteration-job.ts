@@ -12,6 +12,9 @@ import { rememberMemory, search } from '../memory/memories.js';
 import { serializeMetadata, deserializeMetadata } from '../memory/serialization.js';
 import { logger } from '../logger.js';
 import { generateExtractiveSummary, extractMessageContent } from '../utils/content-extraction.js';
+import { extractStrategiesFromConversation } from '../strategies/extractor.js';
+import { createStrategy, createStrategyBeliefEdge } from '../strategies/store.js';
+import { autoDeprecateUnusedStrategies } from '../strategies/decay.js';
 import type { MemoryType } from '../lib/types.js';
 
 export interface SelfIterationConfig {
@@ -382,6 +385,42 @@ async function processConversation(
     }
   }
 
+  // Auto-extract strategies from conversation
+  try {
+    const conversationContent = messagesToProcess.map(m => `[${m.role}]: ${m.content}`).join('\n\n');
+    const project = conversation.projectId ? await getProjectById(conversation.projectId) : null;
+    const extractedStrategies = await extractStrategiesFromConversation(conversationContent, project?.path);
+    for (const extracted of extractedStrategies) {
+      try {
+        const strategy = await createStrategy({
+          projectId: project?.path,
+          strategyType: extracted.strategyType,
+          title: extracted.title,
+          description: extracted.description,
+          context: extracted.context,
+          steps: extracted.steps,
+          successCriteria: extracted.successCriteria,
+          failureIndicators: extracted.failureIndicators,
+          confidence: extracted.confidence,
+          tags: ['auto-extracted'],
+        });
+
+        // If the strategy was extracted from a belief, link them
+        if (extracted.sourceType === 'belief' && extracted.sourceId) {
+          try {
+            await createStrategyBeliefEdge(strategy.id, extracted.sourceId, 'informed_by');
+          } catch (edgeError) {
+            logger.debug('[SelfIteration] Failed to create belief-strategy edge:', edgeError);
+          }
+        }
+      } catch (strategyCreateError) {
+        logger.debug('[SelfIteration] Failed to create strategy:', strategyCreateError);
+      }
+    }
+  } catch (strategyError) {
+    logger.warn('[SelfIteration] Strategy extraction failed:', strategyError);
+  }
+
   // Generate summary
   if (config.generateSummaries && messagesToProcess.length > 0) {
     // Use extractive summarization for better results
@@ -457,6 +496,16 @@ const selfIterationHandler: JobHandler = async (
     logger.info(`[SelfIteration] Processed ${processedCount}/${conversations.length} conversations`);
     logger.info(`[SelfIteration] Created ${totalMemoriesCreated} memories`);
     logger.info(`[SelfIteration] Generated ${totalSummariesGenerated} summaries`);
+
+    // Run strategy decay periodically
+    try {
+      const deprecatedIds = await autoDeprecateUnusedStrategies(undefined, 90); // deprecate after 90 days unused
+      if (deprecatedIds.length > 0) {
+        logger.info(`[SelfIteration] Deprecated ${deprecatedIds.length} unused strategies`);
+      }
+    } catch (decayError) {
+      logger.debug('[SelfIteration] Strategy decay check failed:', decayError);
+    }
 
     return {
       recordsProcessed: processedCount,

@@ -42,6 +42,7 @@ export interface CreateStrategyInput {
   steps?: string[];
   successCriteria?: string;
   failureIndicators?: string;
+  confidence?: number;
   tags?: string[];
   visibilityScope?: string;
   metadata?: Record<string, unknown>;

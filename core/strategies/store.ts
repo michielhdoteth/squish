@@ -98,7 +98,7 @@ export async function createStrategy(input: CreateStrategyInput): Promise<Strate
     steps: stepsJson,
     successCriteria: input.successCriteria ?? null,
     failureIndicators: input.failureIndicators ?? null,
-    confidence: 0.5,
+    confidence: input.confidence ?? 0.5,
     usageCount: 0,
     successCount: 0,
     failureCount: 0,

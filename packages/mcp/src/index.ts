@@ -35,6 +35,13 @@ import { createLearning } from "../../../core/ingestion/learnings.js";
 import { getAllProjects } from "../../../core/projects.js";
 import { logger } from "../../../core/logger.js";
 
+// Strategy imports
+import { createStrategy, listStrategies, searchStrategies, supersedeStrategy, getStrategyStats } from "../../../core/strategies/store.js";
+import type { StrategyType, StrategyStatus } from "../../../core/strategies/types.js";
+
+// Team imports
+import { createTeamMember, getTeamMembers, removeTeamMember } from "../../../core/team/workspace.js";
+
 const SERVER_NAME = "squish-memory";
 const SERVER_VERSION = "1.5.0";
 
@@ -784,6 +791,113 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
           text: `Session ended: ${result.sessionId}\nConsolidated: ${result.consolidatedCount} memories\nCleaned up: ${result.cleanedUpCount} stale entries`
         }]
       };
+    }
+  )) toolCount++;
+
+  // squish_strategy - Polymorphic strategy tool with action-based routing
+  if (safeRegisterTool(
+    server,
+    "squish_strategy",
+    {
+      description: "Manage actionable strategies. Actions: read (before task), write (after task), list, search, supersede, stats.",
+      inputSchema: {
+        action: z.enum(["read", "write", "list", "search", "supersede", "stats"]).describe("Action to perform"),
+        // read params
+        tags: z.array(z.string()).optional().describe("Filter by tags (read/list)"),
+        type: z.enum(["procedure", "heuristic", "pattern", "constraint", "workaround"]).optional().describe("Filter by type (read/list/write)"),
+        // write params
+        title: z.string().optional().describe("Strategy title (write)"),
+        description: z.string().optional().describe("Strategy description (write)"),
+        context: z.string().optional().describe("When to apply (write)"),
+        steps: z.array(z.string()).optional().describe("Step-by-step procedure (write)"),
+        successCriteria: z.string().optional().describe("How to know it worked (write)"),
+        failureIndicators: z.string().optional().describe("How to know it failed (write)"),
+        confidence: z.number().min(0).max(1).optional().describe("Initial confidence 0-1 (write)"),
+        // list params
+        status: z.enum(["active", "superseded", "deprecated", "experimental"]).optional().describe("Filter by status (list)"),
+        limit: z.number().min(1).max(100).default(10).describe("Max results"),
+        offset: z.number().min(0).default(0).describe("Pagination offset (list)"),
+        // search params
+        query: z.string().optional().describe("Search query (search)"),
+        // supersede params
+        oldStrategyId: z.string().optional().describe("Strategy to supersede (supersede)"),
+        newStrategyId: z.string().optional().describe("New strategy ID (supersede)"),
+        reason: z.string().optional().describe("Reason for supersession (supersede)"),
+        // common
+        projectId: z.string().optional().describe("Project path")
+      }
+    },
+    async (input: any) => {
+      const { action, tags, type, title, description: desc, context, steps, successCriteria, failureIndicators, confidence, status, limit = 10, offset = 0, query, oldStrategyId, newStrategyId, reason, projectId } = input;
+      const resolvedProject = resolveProjectPath(projectId);
+
+      if (action === "read") {
+        // Read strategies ranked by confidence + recency, filtered by type/tags
+        const strategies = await listStrategies({
+          projectId: resolvedProject || undefined,
+          strategyType: type as StrategyType | undefined,
+          tags,
+          limit,
+          offset
+        });
+        // Sort by confidence descending, then by updatedAt descending
+        strategies.sort((a: any, b: any) => (b.confidence || 0) - (a.confidence || 0));
+        return { content: [{ type: "text", text: JSON.stringify({ ok: true, count: strategies.length, strategies }, null, 2) }] };
+      }
+
+      if (action === "write") {
+        if (!title || !desc || !type) {
+          return { content: [{ type: "text", text: "Error: title, description, and type are required for write action" }], isError: true };
+        }
+        const strategy = await createStrategy({
+          projectId: resolvedProject || undefined,
+          strategyType: type as StrategyType,
+          title,
+          description: desc,
+          context,
+          steps,
+          successCriteria,
+          failureIndicators,
+          tags,
+          confidence: confidence ?? 0.5
+        });
+        return { content: [{ type: "text", text: JSON.stringify({ ok: true, strategy }, null, 2) }] };
+      }
+
+      if (action === "list") {
+        const strategies = await listStrategies({
+          projectId: resolvedProject || undefined,
+          strategyType: type as StrategyType | undefined,
+          status: status as StrategyStatus | undefined,
+          tags,
+          limit,
+          offset
+        });
+        return { content: [{ type: "text", text: JSON.stringify({ ok: true, count: strategies.length, strategies }, null, 2) }] };
+      }
+
+      if (action === "search") {
+        if (!query) {
+          return { content: [{ type: "text", text: "Error: query is required for search action" }], isError: true };
+        }
+        const strategies = await searchStrategies(query, resolvedProject || undefined);
+        return { content: [{ type: "text", text: JSON.stringify({ ok: true, count: strategies.length, strategies }, null, 2) }] };
+      }
+
+      if (action === "supersede") {
+        if (!oldStrategyId) {
+          return { content: [{ type: "text", text: "Error: oldStrategyId is required for supersede action" }], isError: true };
+        }
+        await supersedeStrategy(oldStrategyId, newStrategyId || '', reason);
+        return { content: [{ type: "text", text: JSON.stringify({ ok: true, superseded: oldStrategyId, by: newStrategyId || 'deprecated', reason }, null, 2) }] };
+      }
+
+      if (action === "stats") {
+        const stats = await getStrategyStats(resolvedProject || undefined);
+        return { content: [{ type: "text", text: JSON.stringify({ ok: true, stats }, null, 2) }] };
+      }
+
+      return { content: [{ type: "text", text: "Error: invalid action. Use read, write, list, search, supersede, or stats" }], isError: true };
     }
   )) toolCount++;
 
