@@ -4,6 +4,12 @@ All notable changes to Squish will be documented in this file.
 
 ## [1.6.0] - 2026-06-08
 
+### Summary
+
+Session search across Claude Code and Codex. Agents can now search previous session history as evidence, not just recall durable memory.
+
+Squish 1.5 made memory adaptive. Squish 1.6 makes agent history searchable.
+
 ### Added
 
 - **Claude Code session search** (`squish sessions list/search/show --source claude-code`):
