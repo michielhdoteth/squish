@@ -356,7 +356,10 @@ async function autoMergeDuplicates(
         mergedAt: now,
         updatedAt: now,
       })
-      .where(inArray(schema.memories.id, duplicateIds));
+      .where(and(
+        inArray(schema.memories.id, duplicateIds),
+        eq(schema.memories.status, 'active')
+      ));
     
     // Create associations for traceability
     for (const dupId of duplicateIds) {

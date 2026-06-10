@@ -2,6 +2,23 @@
 
 All notable changes to Squish will be documented in this file.
 
+## [1.6.0] - 2026-06-08
+
+### Added
+
+- **Claude Code session search** (`squish sessions list/search/show --source claude-code`):
+  - Reads `~/.claude/history.jsonl` and per-session JSONL files
+  - Full text search across session messages
+  - Related session discovery by project path overlap
+- **Codex session search** (`squish sessions list/search/show --source codex`):
+  - Reads `~/.codex/state_5.sqlite` threads table
+  - Deep search via rollout JSON files
+  - Related session discovery by cwd and git remote
+
+### Improved
+
+- **CLI `squish sessions status`** now shows status for all available agent stores (OpenCode, Claude Code, Codex)
+
 ## [1.5.5] - 2026-06-01
 
 ### BREAKING

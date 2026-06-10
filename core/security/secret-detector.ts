@@ -29,7 +29,8 @@ const HIGH_CONFIDENCE_PATTERNS: PatternConfig[] = [
   { pattern: /gh[pousr]_[A-Za-z0-9_]{36,255}/g, type: 'github_token', confidence: 'high' },
   { pattern: /xox[baprs]-[0-9]{10,13}-[0-9]{10,13}-[A-Za-z0-9_-]{24,34}/g, type: 'slack_token', confidence: 'high' },
   { pattern: /sk_live_[0-9a-zA-Z]{20,}/g, type: 'stripe_api_key', confidence: 'high' },
-  { pattern: /(mongodb|postgres|mysql|redis|cassandra):\/\/[^\s]+@[^\s]+/gi, type: 'database_url', confidence: 'high' }
+  { pattern: /(mongodb|postgres|mysql|redis|cassandra):\/\/[^\s]+@[^\s]+/gi, type: 'database_url', confidence: 'high' },
+  { pattern: /0x[a-fA-F0-9]{40}/g, type: 'ethereum_wallet', confidence: 'high' }
 ];
 
 const MEDIUM_CONFIDENCE_PATTERNS: PatternConfig[] = [
@@ -38,7 +39,8 @@ const MEDIUM_CONFIDENCE_PATTERNS: PatternConfig[] = [
   { pattern: /eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, type: 'jwt_token', confidence: 'medium' },
   { pattern: /basic\s+[A-Za-z0-9+/=]+/gi, type: 'basic_auth', confidence: 'medium' },
   { pattern: /(?:password|passwd|pwd)\s*[:=]\s*['""`]?[^\s'""`]+['""`]?/gi, type: 'password', confidence: 'medium' },
-  { pattern: /(?:connection_string|connstr|conn_string)\s*[:=]\s*['""`][^'""`]+['""`]/gi, type: 'connection_string', confidence: 'medium' }
+  { pattern: /(?:connection_string|connstr|conn_string)\s*[:=]\s*['""`][^'""`]+['""`]/gi, type: 'connection_string', confidence: 'medium' },
+  { pattern: /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, type: 'email_address', confidence: 'medium' }
 ];
 
 const LOW_CONFIDENCE_PATTERNS: PatternConfig[] = [

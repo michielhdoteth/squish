@@ -4,7 +4,7 @@
  * Implements supersession logic for outdated information
  */
 
-import { eq, and, inArray } from 'drizzle-orm';
+import { eq, and, not, inArray } from 'drizzle-orm';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
 import { logger } from '../logger.js';
@@ -24,6 +24,8 @@ export interface ContradictionCheck {
   newType: string;
   projectId?: string;
   entities?: string[];
+  excludeId?: string; // Exclude this memory from contradiction checks (the newly inserted one)
+  newMemoryCreatedAt?: string; // ISO timestamp of the new memory for temporal comparison
 }
 
 /**
@@ -174,9 +176,17 @@ export async function detectContradictions(check: ContradictionCheck): Promise<C
     const schema = await getSchema();
     
     // Get memories from same project with similar content
-    const whereClause = check.projectId
-      ? eq(schema.memories.projectId, check.projectId)
-      : undefined;
+    const conditions: any[] = [];
+    // Only check active memories (skip superseded/merged)
+    conditions.push(eq(schema.memories.status, 'active'));
+    if (check.projectId) {
+      conditions.push(eq(schema.memories.projectId, check.projectId));
+    }
+    if (check.excludeId) {
+      conditions.push(not(eq(schema.memories.id, check.excludeId)));
+    }
+    
+    const whereClause = and(...conditions);
     
     const existingMemories = await (db as any)
       .select()
@@ -225,7 +235,7 @@ export async function detectContradictions(check: ContradictionCheck): Promise<C
        const temporalRelationship = calculateTemporalRelationship(
          existing.validFrom, 
          existing.validTo, 
-         new Date() // current time for new memory
+         check.newMemoryCreatedAt ? new Date(check.newMemoryCreatedAt) : new Date()
        );
        
        // Detect contradiction scenarios with temporal awareness
@@ -380,7 +390,10 @@ export async function applySupersession(
         supersededAt: now,
         updatedAt: now,
       })
-      .where(inArray(schema.memories.id, supersededIds));
+      .where(and(
+        inArray(schema.memories.id, supersededIds),
+        eq(schema.memories.status, 'active')
+      ));
     
     // Create associations for traceability
     for (const oldId of supersededIds) {
@@ -465,7 +478,9 @@ export async function checkTemporalContradictions(
 export async function resolveContradictions(
   content: string,
   type: string,
-  projectId?: string
+  projectId?: string,
+  newMemoryId?: string,
+  newMemoryCreatedAt?: string
 ): Promise<{
   shouldProceed: boolean;
   supersededIds: string[];
@@ -478,6 +493,8 @@ export async function resolveContradictions(
     newContent: content,
     newType: type,
     projectId,
+    excludeId: newMemoryId,
+    newMemoryCreatedAt,
   });
   
   // Also check temporal contradictions

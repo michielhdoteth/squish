@@ -108,6 +108,69 @@ squish doctor --json
 squish doctor --verbose
 ```
 
+## Session Search
+
+Search previous agent runs from Claude Code, Codex, and OpenCode. Sessions are separate from long-term memory -- they are raw evidence from past work.
+
+### squish sessions list
+
+List past sessions across all available agent stores:
+
+```bash
+squish sessions list
+squish sessions list --limit 10
+squish sessions list --source claude-code
+squish sessions list --source codex
+squish sessions list --project /path/to/project
+```
+
+### squish sessions search
+
+Full-text search across session history. Returns matching chunks (decisions, commands, file changes, errors) not whole sessions:
+
+```bash
+squish sessions search "postgres migration"
+squish sessions search "auth bug" --source claude-code --limit 5
+squish sessions search "deploy" --depth deep
+squish sessions search "pricing" --chunk-type decision
+```
+
+### squish sessions show
+
+Display full detail for a specific session:
+
+```bash
+squish sessions show <session-id>
+squish sessions show <session-id> --source codex
+```
+
+### squish sessions related
+
+Find past sessions relevant to the current repo or specific files:
+
+```bash
+squish sessions related --repo-path /path/to/repo
+squish sessions related --file src/auth.ts,src/db.ts
+squish sessions related --limit 5
+```
+
+### squish sessions capture
+
+Record a session summary manually:
+
+```bash
+squish sessions capture "Implemented OAuth flow" --title "Auth work" --project /path/to/project
+```
+
+### squish sessions status
+
+Show which agent stores are available and their health:
+
+```bash
+squish sessions status
+squish sessions status --pretty
+```
+
 ## Maintenance
 
 ### squish forget
@@ -158,5 +221,6 @@ squish migrate
 |--------|----------|
 | Runtime | `squish-mcp`, `squish run web` |
 | Capture / Retrieval | `squish remember`, `squish recall`, `squish recent`, `squish inspect` |
+| Session Search | `squish sessions list`, `squish sessions search`, `squish sessions show`, `squish sessions related`, `squish sessions capture`, `squish sessions status` |
 | Context / Trust | `squish context`, `squish health`, `squish stats`, `squish doctor` |
 | Maintenance | `squish forget`, `squish link`, `squish stale`, `squish clean`, `squish migrate` |

@@ -1,17 +1,16 @@
 /**
- * Tests for the agent-stores registry (v1.5.5).
+ * Tests for the agent-stores registry (v1.6.0).
  *
  * Verifies:
  *   - The registry exposes all 3 stores: opencode, claude-code, codex
- *   - The claude-code and codex stubs return `available: false` and
- *     empty/null for every read method
  *   - The opencode store honors `SQUISH_OPENCODE_DISABLED=1`
  *   - The `name` field on each store matches its registry key
+ *   - All stores are now fully implemented (not stubs)
  *
  * These tests do NOT touch the user's real opencode.db - the
  * `SQUISH_OPENCODE_DISABLED=1` flag is set so the opencode store
- * reports unavailable. Tests that DO need a real opencode.db live
- * elsewhere (smoke tests via the CLI on the user's machine).
+ * reports unavailable. Claude Code and Codex tests use their own
+ * disable flags to avoid reading real data in unit tests.
  */
 
 import { describe, test, expect, beforeAll } from 'bun:test';
@@ -26,10 +25,11 @@ import {
 } from '../../../../core/sessions/agent-stores/index.js';
 
 beforeAll(() => {
-  // Make sure the opencode store reports unavailable during these
-  // tests. The user's real opencode.db must never be read from a
-  // test file.
+  // Disable all stores during registry tests - we only test registration,
+  // not real data access (those tests live in per-store test files).
   process.env.SQUISH_OPENCODE_DISABLED = '1';
+  process.env.SQUISH_CLAUDE_DISABLED = '1';
+  process.env.SQUISH_CODEX_DISABLED = '1';
 });
 
 describe('getAgentStore', () => {
@@ -77,16 +77,15 @@ describe('OpenCodeSessionStore (disabled)', () => {
   });
 });
 
-describe('ClaudeCodeSessionStore (stub)', () => {
-  test('reports available: false with reason', async () => {
+describe('ClaudeCodeSessionStore (disabled)', () => {
+  test('reports available: false when SQUISH_CLAUDE_DISABLED=1', async () => {
     const store = getAgentStore('claude-code');
     const status = await store.available();
     expect(status.ok).toBe(false);
-    expect(typeof status.reason).toBe('string');
-    expect(status.reason!.length).toBeGreaterThan(0);
+    expect(status.reason).toContain('SQUISH_CLAUDE_DISABLED');
   });
 
-  test('returns empty/null for every read method', async () => {
+  test('returns empty/null for every read method when disabled', async () => {
     const store = getAgentStore('claude-code');
     expect(await store.listSessions()).toEqual([]);
     expect(await store.listSessions({ limit: 5 })).toEqual([]);
@@ -98,16 +97,15 @@ describe('ClaudeCodeSessionStore (stub)', () => {
   });
 });
 
-describe('CodexSessionStore (stub)', () => {
-  test('reports available: false with reason', async () => {
+describe('CodexSessionStore (disabled)', () => {
+  test('reports available: false when SQUISH_CODEX_DISABLED=1', async () => {
     const store = getAgentStore('codex');
     const status = await store.available();
     expect(status.ok).toBe(false);
-    expect(typeof status.reason).toBe('string');
-    expect(status.reason!.length).toBeGreaterThan(0);
+    expect(status.reason).toContain('SQUISH_CODEX_DISABLED');
   });
 
-  test('returns empty/null for every read method', async () => {
+  test('returns empty/null for every read method when disabled', async () => {
     const store = getAgentStore('codex');
     expect(await store.listSessions()).toEqual([]);
     expect(await store.listSessions({ limit: 5 })).toEqual([]);

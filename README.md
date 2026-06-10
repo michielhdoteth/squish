@@ -1,9 +1,11 @@
-# Squish -- Local-First Memory Runtime for AI Agents
+# Squish -- Memory Runtime for AI Agents
 
 [![npm version](https://img.shields.io/npm/v/squish-memory)](https://www.npmjs.com/package/squish-memory)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![npm downloads](https://img.shields.io/npm/dt/squish-memory?color=green)](https://www.npmjs.com/package/squish-memory)
-[![CI](https://img.shields.io/badge/CI-passing-brightgreen)](https://github.com/anthropics/squish-memory)
+[![CI](https://img.shields.io/badge/CI-passing-brightgreen)](https://github.com/michielhdoteth/squish)
+
+> 4.5k+ npm downloads. Local-first. No external LLM required.
 
 **Squish is a local-first memory runtime for AI coding agents.** It gives every AI agent persistent memory using local embeddings with zero LLM dependency. If you use Claude Code, Cursor, Codex, Copilot, Gemini CLI, or any MCP-compatible tool and want your agents to remember decisions, constraints, and context across sessions -- Squish is the MCP memory server that works locally and optionally syncs to the cloud.
 
@@ -26,6 +28,14 @@ Every AI coding agent starts from zero when a new session begins. The architectu
 Built-in memory files like CLAUDE.md and .cursorrules help, but they have hard limits. They cap out around 200 lines, require manual curation, and do not work across agents. You end up copy-pasting the same context into every tool.
 
 Squish gives you persistent memory for coding agents that scales without limits. No manual maintenance. No token waste. No agent lock-in.
+
+### Three Layers of Memory
+
+| Layer | What It Does | Command |
+|-------|-------------|---------|
+| **Recall** | Durable memory -- decisions, preferences, constraints that persist across sessions | `squish recall` |
+| **Sessions** | Searchable history -- past agent runs you can inspect for evidence and context | `squish sessions search` |
+| **Remember** | Write to long-term memory -- store new facts, decisions, observations | `squish remember` |
 
 ### Token Cost Comparison
 
@@ -60,7 +70,16 @@ squish remember "We chose PostgreSQL for team mode" --type decision
 squish recall "project decisions"
 ```
 
-### Step 3: Restart
+### Step 3: Search Past Sessions
+
+After a few sessions, search your agent history:
+
+```bash
+squish sessions search "postgres migration"
+squish sessions related --repo-path .
+```
+
+### Step 4: Restart
 
 Close your session and open a new one. Your agent picks up where you left off -- all context is restored automatically.
 
@@ -168,9 +187,16 @@ Squish uses local embeddings by default. Zero LLM dependency. 1-5ms latency. $0 
 - Confidence scoring adjusts memory relevance over time
 - Decay system automatically ages low-value memories
 
+### Session Search
+
+- Search previous Claude Code, Codex, and OpenCode sessions
+- Find related sessions by project path or file overlap
+- Inspect past decisions, errors, and commands as evidence
+- Separate from long-term memory -- raw session history, not distilled facts
+
 ### Interfaces
 
-- **CLI**: `squish remember`, `recall`, `inspect`, `context`, `stats`, `search`
+- **CLI**: `squish remember`, `recall`, `inspect`, `context`, `stats`, `search`, `sessions`
 - **MCP Server**: 15 tools for any MCP client -- recall, health, graph, recency, maintenance
 - **Web UI**: Local dashboard at `localhost:37777` for visualizing memories
 - **Cloud Dashboard**: Analytics and management at [squishplugin.dev](https://squishplugin.dev)
@@ -217,6 +243,24 @@ Agent Action
 [4. Context] -----> Inject relevant memories into agent context
                     50-200 tokens average
                     Auto-decay old/low-value memories
+```
+
+### Three-Layer Memory Model
+
+```
++------------------+     +------------------+     +------------------+
+|   RECALL         |     |   SESSIONS       |     |   REMEMBER       |
+|   (durable)      |     |   (evidence)     |     |   (write)        |
+|                  |     |                  |     |                  |
+|  Decisions       |     |  Past agent runs |     |  Store new facts |
+|  Preferences     |     |  Searchable      |     |  Auto-classify   |
+|  Constraints     |     |  Raw history     |     |  Graph update    |
+|  Beliefs         |     |  Related repos   |     |  Place routing   |
++------------------+     +------------------+     +------------------+
+        |                        |                        |
+        v                        v                        v
+   squish recall          squish sessions          squish remember
+   squish_recall          search/show/list         squish_remember
 ```
 
 ### Storage Layer
@@ -330,7 +374,7 @@ Full benchmark details: [docs/BENCHMARK.md](docs/BENCHMARK.md)
 
 ### What is Squish?
 
-Squish is a local-first memory runtime for AI coding agents. It gives your agents persistent memory using local embeddings with zero LLM dependency. Think of it as a brain that persists between sessions -- your agents remember decisions, constraints, preferences, and context without you having to re-explain everything.
+Squish is a local-first memory runtime for AI coding agents. It gives your agents persistent memory using local embeddings with zero LLM dependency. Think of it as a brain that persists between sessions -- your agents remember decisions, constraints, preferences, and context without you having to re-explain everything. In v1.6.0, Squish also searches past agent sessions as evidence, so agents can inspect prior work instead of starting from zero.
 
 ### Does Squish require an API key?
 
@@ -351,6 +395,10 @@ Yes. In local mode, all data stays on your machine in an encrypted SQLite databa
 ### What databases does Squish support?
 
 Squish supports SQLite (default, local) and PostgreSQL (team mode). SQLite requires zero configuration. PostgreSQL is used for team workspaces and shared memory across multiple users.
+
+### What is the difference between recall and sessions?
+
+`squish recall` searches your long-term memory -- distilled facts, decisions, and preferences that Squish has captured and organized. `squish sessions search` searches raw past agent runs -- the actual messages, commands, and file changes from previous Claude Code, Codex, or OpenCode sessions. Recall gives you what the system decided to remember. Sessions give you the evidence.
 
 ---
 

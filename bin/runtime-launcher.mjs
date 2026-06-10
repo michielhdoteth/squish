@@ -2,15 +2,49 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import { execFileSync } from 'node:child_process';
 
 function normalizePath(value) {
   return value.replace(/\\/g, '/');
 }
 
+/**
+ * Detect bun on PATH by running `bun --version`.
+ * Returns the absolute path to bun if found, null otherwise.
+ */
+function detectBunOnPath(env) {
+  try {
+    const cmd = process.platform === 'win32' ? 'bun.exe' : 'bun';
+    const result = execFileSync(cmd, ['--version'], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 5000,
+      env,
+    });
+    // execFileSync returns Buffer (stdout) directly, not {stdout}
+    if (result && result.toString().trim()) {
+      // Resolve the actual bun path from PATH
+      const whichCmd = process.platform === 'win32' ? 'where' : 'which';
+      const pathResult = execFileSync(whichCmd, [cmd], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        timeout: 5000,
+        env,
+      });
+      const bunFullPath = pathResult.toString().trim().split('\n')[0].trim();
+      if (bunFullPath && fs.existsSync(bunFullPath)) {
+        return normalizePath(bunFullPath);
+      }
+    }
+  } catch {
+    // bun not available on PATH
+  }
+  return null;
+}
+
 export function resolveRuntimeLaunch({ rootDir, entryRelativePath, env = process.env, extraArgs = [] }) {
   const entryPath = path.join(rootDir, entryRelativePath);
-  const bunPath = env.BUN ? normalizePath(env.BUN) : null;
 
+  // 1. Explicit BUN env var (highest priority)
+  const bunPath = env.BUN ? normalizePath(env.BUN) : null;
   if (bunPath) {
     return {
       command: bunPath,
@@ -18,6 +52,16 @@ export function resolveRuntimeLaunch({ rootDir, entryRelativePath, env = process
     };
   }
 
+  // 2. Auto-detect bun on PATH (preferred — faster than tsx, avoids Node 24 ESM issues)
+  const detectedBun = detectBunOnPath(env);
+  if (detectedBun) {
+    return {
+      command: detectedBun,
+      args: [normalizePath(entryPath), ...extraArgs],
+    };
+  }
+
+  // 3. Fallback to tsx
   const tsxCliPath = resolveTsxCliPath(rootDir);
   if (!tsxCliPath) {
     throw new Error('Missing runtime dependency: tsx. Install squish-memory with bundled dependencies before running the CLI.');

@@ -17,15 +17,13 @@ import { parseEmbedding } from '../lib/parse-embedding.js';
 import { cosineSimilarity } from '../utils/vector-operations.js';
 import config from '../../config.js';
 import { getRelatedMemories } from '../associations.js';
-import { getPlaceMemories } from '../places/memory-places.js';
-import { getPlaceByType, type PlaceType } from '../places/places.js';
 import { multiHopSearch } from '../graph/multi-hop-retrieval.js';
 import { callLLM } from '../llm/client.js';
 import { logger } from '../logger.js';
 import { getRetrievalConfig, type SquishRetrievalConfig, type RetrievalScoringConfig, type RetrievalTrace, type ScoreBreakdown } from '../retrieval/config.js';
 import { questionPlaceType, getAdjacentPlaces as getQuestionAdjacentPlaces } from '../places/question-router.js';
 import { getSchema } from '../../db/schema.js';
-import { eq, and, gte, inArray, isNotNull } from 'drizzle-orm';
+import { eq, and, gte, inArray } from 'drizzle-orm';
 
 /**
  * Detect if query asks about time (temporal queries)
@@ -236,7 +234,7 @@ async function getSupersededMemoryIds(projectId?: string): Promise<Set<string>> 
   const sqliteDb = db as any;
 
   try {
-    const conditions: any[] = [isNotNull(schema.memories.supersededBy)];
+    const conditions: any[] = [inArray(schema.memories.status, ['superseded', 'merged'])];
     if (projectId) {
       conditions.push(eq(schema.memories.projectId, projectId));
     }
@@ -590,58 +588,6 @@ export async function hybridSearch(
 }
 
 /**
- * Task 2: Filter and boost results by place
- */
-async function applyPlaceFilterAndBoost(
-  results: SearchResult[],
-  input: SearchInput,
-  limit: number
-): Promise<SearchResult[]> {
-  let placeIds: string[] = [];
-
-  // Get place IDs from placeId or placeType
-  if (input.placeType && input.project) {
-    const project = await requireProject(input.project);
-    const place = await getPlaceByType(project.id, input.placeType as any);
-    if (place) {
-      placeIds = [place.id];
-    }
-  } else if (input.placeId) {
-    placeIds = [input.placeId];
-  }
-
-  if (placeIds.length === 0) {
-    return results;
-  }
-
-  // Get memories in this place
-  const placeMemories = new Set<string>();
-  for (const pid of placeIds) {
-    const memIds = await getPlaceMemories(pid, limit * 3);
-    for (const mid of memIds) {
-      placeMemories.add(mid);
-    }
-  }
-
-  // Boost memories from the specified place
-  const PLACE_BOOST = 0.15;
-  const boosted = results.map(r => {
-    if (placeMemories.has(r.id)) {
-      return {
-        ...r,
-        similarity: (r.similarity ?? 0) + PLACE_BOOST
-      };
-    }
-    return r;
-  });
-
-  // Re-sort with place boost
-  boosted.sort((a, b) => (b.similarity ?? 0) - (a.similarity ?? 0));
-
-  return boosted;
-}
-
-/**
  * Task 3: Boost memories from the same session (temporal)
  */
 function applySessionBoost(
@@ -696,76 +642,6 @@ function applyTemporalBoost(results: SearchResult[]): SearchResult[] {
 }
 
 /**
- * MULTI-HOP FIX: Get memories from adjacent sessions using DB query
- * This provides actual cross-session retrieval for multi-hop queries
- */
-async function applySessionAdjacencyBoost(
-  results: SearchResult[],
-  input: SearchInput,
-  limit: number
-): Promise<SearchResult[]> {
-  if (!input.project) return results;
-
-  // Extract session tags from top results
-  const sessionTags = new Set<string>();
-  for (const r of results.slice(0, 5)) {
-    const sessionTag = extractSessionTag(r.tags);
-    if (sessionTag) {
-      sessionTags.add(sessionTag);
-    }
-  }
-
-  if (sessionTags.size === 0) {
-    return results;
-  }
-
-  // Get adjacent session tags
-  const adjacentSessionTags = new Set<string>();
-  for (const tag of sessionTags) {
-    const adjacent = getAdjacentSessionTags(tag);
-    for (const adj of adjacent) {
-      adjacentSessionTags.add(adj);
-    }
-  }
-
-  if (adjacentSessionTags.size === 0) {
-    return results;
-  }
-
-  // Fetch memories from adjacent sessions
-  const project = await requireProject(input.project);
-  const adjacentMemories: SearchResult[] = [];
-
-  for (const sessionTag of adjacentSessionTags) {
-    const memories = await getMemoriesBySession(project.id, sessionTag, limit);
-    adjacentMemories.push(...memories);
-  }
-
-  if (adjacentMemories.length === 0) {
-    return results;
-  }
-
-  // Merge with boost
-  const existingIds = new Set(results.map(r => r.id));
-  const ADJACENT_BOOST = 0.3;
-  const merged = [...results];
-
-  for (const mem of adjacentMemories) {
-    if (!existingIds.has(mem.id)) {
-      merged.push({
-        ...mem,
-        similarity: (mem.similarity ?? 0) + ADJACENT_BOOST
-      });
-    }
-  }
-
-  // Re-sort
-  merged.sort((a, b) => (b.similarity ?? 0) - (a.similarity ?? 0));
-
-  return merged.slice(0, limit * 2);
-}
-
-/**
  * Expand results with directly associated memories
  */
 async function expandWithAssociations(
@@ -796,110 +672,6 @@ async function expandWithAssociations(
   // Re-sort and return top results
   expanded.sort((a, b) => (b.similarity ?? 0) - (a.similarity ?? 0));
   return expanded.slice(0, limit);
-}
-
-/**
- * Get memories by session ID (stored in tags as "dialogue-1", "session-2", etc.)
- */
-async function getMemoriesBySession(
-  projectId: string,
-  sessionTag: string,
-  limit: number
-): Promise<SearchResult[]> {
-  try {
-    const db = createDatabaseClient(await getDb());
-    const sqlite = db.$client as any;
-
-    // Query memories where tags contain the session tag
-    const statement = sqlite.prepare(`
-      SELECT
-        m.id as id,
-        m.project_id as projectId,
-        m.type as type,
-        m.content as content,
-        m.summary as summary,
-        m.tags as tags,
-        m.metadata as metadata,
-        m.embedding as embedding,
-        m.embedding_json as embeddingJson,
-        m.created_at as createdAt
-      FROM memories m
-      WHERE m.project_id = ? AND m.tags LIKE ?
-      ORDER BY m.created_at DESC
-      LIMIT ?
-    `);
-
-    const rows = statement.all(projectId, `%${sessionTag}%`, limit) as Array<{
-      id: string;
-      projectId: string | null;
-      type: string;
-      content: string;
-      summary: string | null;
-      tags: string | null;
-      metadata: string | null;
-      embedding: any;
-      embeddingJson: any;
-      createdAt: string | null;
-    }>;
-
-    return rows.map((row) => ({
-      id: row.id,
-      projectId: row.projectId,
-      type: row.type as any,
-      content: row.content,
-      summary: row.summary ?? undefined,
-      tags: deserializeTags(row.tags ?? null),
-      metadata: deserializeMetadata(row.metadata ?? null),
-      createdAt: row.createdAt ? (normalizeTimestamp(Number(row.createdAt)) ?? undefined) : undefined,
-      similarity: 0.5, // Default similarity for fetched memories
-    }));
-  } catch (error) {
-    logger.debug(`[HybridSearch] getMemoriesBySession failed: ${error}`);
-    return [];
-  }
-}
-
-/**
- * Extract session tag from memory tags (e.g., "dialogue-1", "session_1", "D1", "D2")
- */
-function extractSessionTag(tags: string[] | undefined): string | null {
-  if (!tags) return null;
-  // Look for patterns:
-  // - "dialogue-1", "dialogue_1", "dialogue1"
-  // - "session-2", "session_2", "session2"
-  // - "conv-1", "conv_1", "conv1"
-  // - "D1", "D2" (capital D followed by number)
-  for (const tag of tags) {
-    const lower = tag.toLowerCase();
-    if (
-      /^(dialogue|session|conv|d)[_-]?\d+$/.test(lower)
-    ) {
-      return tag;
-    }
-  }
-  return null;
-}
-
-/**
- * Get adjacent session tags (e.g., dialogue-1 -> dialogue-2, D1 -> D2)
- */
-function getAdjacentSessionTags(currentTag: string): string[] {
-  const adjacent: string[] = [];
-
-  // Pattern: dialogue-N, session-N, D-N, conv-N (with or without hyphen)
-  const match = currentTag.match(/^(.*?)(\d+)$/i);
-  if (match) {
-    const prefix = match[1];
-    const num = parseInt(match[2], 10);
-
-    // Adjacent: previous and next
-    if (num > 1) {
-      adjacent.push(`${prefix}${num - 1}`);
-    }
-    adjacent.push(`${prefix}${num + 1}`);
-  }
-
-  return adjacent;
 }
 
 /**

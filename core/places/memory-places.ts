@@ -60,7 +60,7 @@ export async function assignMemoryToPlace(params: {
       .where(eq(schema.memoryPlaces.memoryId, params.memoryId));
   } catch {
     try {
-      sqliteDb.$client.exec(`DELETE FROM memory_places WHERE memory_id = '${params.memoryId}'`);
+      sqliteDb.$client.prepare('DELETE FROM memory_places WHERE memory_id = ?').run(params.memoryId);
     } catch {
       // Ignore
     }
@@ -80,10 +80,10 @@ export async function assignMemoryToPlace(params: {
   } catch {
     // Fallback to raw SQL
     try {
-      sqliteDb.$client.exec(
+      sqliteDb.$client.prepare(
         `INSERT OR IGNORE INTO memory_places (id, memory_id, place_type, weight, reason, source, is_primary)
-         VALUES ('${randomUUID()}', '${params.memoryId}', '${placeType}', 1.0, NULL, '${source}', 1)`
-      );
+         VALUES (?, ?, ?, 1.0, NULL, ?, 1)`
+      ).run(randomUUID(), params.memoryId, placeType, source);
     } catch (e) {
       logger.debug(`[MemoryPlaces] Failed to insert place: ${e}`);
       return false;
@@ -101,9 +101,9 @@ export async function assignMemoryToPlace(params: {
 
   // Update primaryPlace on the memories table
   try {
-    sqliteDb.$client.exec(
-      `UPDATE memories SET primary_place = '${placeType}', place_type = '${placeType}' WHERE id = '${params.memoryId}'`
-    );
+    sqliteDb.$client.prepare(
+      'UPDATE memories SET primary_place = ?, place_type = ? WHERE id = ?'
+    ).run(placeType, placeType, params.memoryId);
   } catch {
     // Ignore
   }
@@ -198,20 +198,66 @@ export async function getMemoryPlace(memoryId: string): Promise<string | null> {
   const client = sqliteDb.$client || sqliteDb;
 
   try {
-    // Get the place_type from memory_places for this memory
-    const rows = client.prepare(
-      'SELECT place_type FROM memory_places WHERE memory_id = ? LIMIT 1'
-    ).all(memoryId);
+    // Get the place_type and project from memory_places and memories for this memory
+    const rows = client.prepare(`
+      SELECT mp.place_type, m.project_id
+      FROM memory_places mp
+      JOIN memories m ON m.id = mp.memory_id
+      WHERE mp.memory_id = ? AND mp.is_primary = 1
+      LIMIT 1
+    `).all(memoryId);
     
-    if (!rows || rows.length === 0) return null;
+    if (!rows || rows.length === 0) {
+      // Fallback: try without is_primary filter
+      const fallbackRows = client.prepare(`
+        SELECT mp.place_type, m.project_id
+        FROM memory_places mp
+        JOIN memories m ON m.id = mp.memory_id
+        WHERE mp.memory_id = ?
+        LIMIT 1
+      `).all(memoryId);
+      if (!fallbackRows || fallbackRows.length === 0) return null;
+      const placeType = fallbackRows[0].place_type;
+      const projectId = fallbackRows[0].project_id;
+      if (!placeType) return null;
+      let resolvedProjectId = projectId;
+      if (!resolvedProjectId) {
+        try {
+          const { ensureGlobalProject } = await import('./places.js');
+          const global = await ensureGlobalProject();
+          resolvedProjectId = global.id;
+        } catch {
+          return null;
+        }
+      }
+      const placeRows = client.prepare(
+        'SELECT id FROM places WHERE place_type = ? AND project_id = ? LIMIT 1'
+      ).all(placeType, resolvedProjectId);
+      if (placeRows && placeRows.length > 0) {
+        return placeRows[0].id;
+      }
+      return null;
+    }
     
     const placeType = rows[0].place_type;
+    const projectId = rows[0].project_id;
     if (!placeType) return null;
     
-    // Resolve placeType to placeId by looking up the places table
+    // Resolve placeType to placeId by looking up the places table scoped to project
+    // For global memories (projectId is null), resolve to global project
+    let resolvedProjectId = projectId;
+    if (!resolvedProjectId) {
+      try {
+        const { ensureGlobalProject } = await import('./places.js');
+        const global = await ensureGlobalProject();
+        resolvedProjectId = global.id;
+      } catch {
+        return null;
+      }
+    }
     const placeRows = client.prepare(
-      'SELECT id FROM places WHERE place_type = ? LIMIT 1'
-    ).all(placeType);
+      'SELECT id FROM places WHERE place_type = ? AND project_id = ? LIMIT 1'
+    ).all(placeType, resolvedProjectId);
     
     if (placeRows && placeRows.length > 0) {
       return placeRows[0].id;
@@ -272,7 +318,7 @@ export async function removeMemoryFromPlace(memoryId: string): Promise<boolean> 
     .limit(1);
 
   if (existing.length > 0) {
-    const oldPlaceId = existing[0].place_id;
+    const oldPlaceType = existing[0].placeType || existing[0].place_type;
     
     // Delete assignment
     await sqliteDb.delete(schema.memoryPlaces)
@@ -284,9 +330,13 @@ export async function removeMemoryFromPlace(memoryId: string): Promise<boolean> 
       .where(eq(schema.memories.id, memoryId));
 
     // Update old place memory count
-    await updatePlaceMemoryCount(oldPlaceId);
+    if (oldPlaceType) {
+      const { getPlaceByType } = await import('./places.js');
+      const place = await getPlaceByType(undefined, oldPlaceType as any);
+      if (place) await updatePlaceMemoryCount(place.id);
+    }
 
-    logger.info(`[MemoryPlaces] Removed memory ${memoryId} from place ${oldPlaceId}`);
+    logger.info(`[MemoryPlaces] Removed memory ${memoryId} from place ${oldPlaceType}`);
   }
 
   return true;
@@ -353,11 +403,11 @@ export async function processInbox(projectId: string): Promise<{
   // Get all memory-place assignments for Inbox
   const inboxAssignments = await sqliteDb.select({
     memoryId: schema.memoryPlaces.memoryId,
-    placeId: schema.memoryPlaces.placeId,
-    isManual: schema.memoryPlaces.isManual,
+    placeType: schema.memoryPlaces.placeType,
+    source: schema.memoryPlaces.source,
   })
   .from(schema.memoryPlaces)
-  .where(eq(schema.memoryPlaces.placeId, inboxPlace.id));
+  .where(eq(schema.memoryPlaces.placeType, 'inbox'));
 
   if (inboxAssignments.length === 0) {
     return { processed: 0, moved: 0, errors: 0 };
@@ -365,7 +415,7 @@ export async function processInbox(projectId: string): Promise<{
 
   // Filter out manually assigned memories
   const autoAssignedMemories = inboxAssignments
-    .filter((m: any) => !m.isManual)
+    .filter((m: any) => m.source !== 'manual')
     .map((m: any) => m.memoryId);
 
   if (autoAssignedMemories.length === 0) {
@@ -481,27 +531,19 @@ export async function autoArchiveOldMemories(projectId: string, daysOld: number 
   lowImpCutoffDate.setDate(lowImpCutoffDate.getDate() - 45);
   const lowImpCutoffTimestamp = Math.floor(lowImpCutoffDate.getTime() / 1000);
 
-  // Get all place IDs (excluding archive and inbox)
+  // Get all places (excluding archive and inbox)
   const allPlaces = await sqliteDb.select()
     .from(schema.places)
     .where(eq(schema.places.projectId, projectId));
   
-  const activePlaceIds = allPlaces
-    .filter((p: any) => p.place_type !== 'archive')
-    .map((p: any) => p.id);
-
-  const nonInboxNonArchivePlaceIds = allPlaces
-    .filter((p: any) => p.place_type !== 'archive' && p.place_type !== 'inbox')
-    .map((p: any) => p.id);
-  
-  if (activePlaceIds.length === 0) {
+  if (allPlaces.length === 0) {
     return { archived: 0, failed: 0 };
   }
 
   // Find memories in active places that are older than cutoff
   const oldMemories = await sqliteDb.select({
     memoryId: schema.memories.id,
-    placeId: schema.memoryPlaces.placeId,
+    placeType: schema.memoryPlaces.placeType,
     createdAt: schema.memories.createdAt,
     importance: schema.memories.importanceScore,
     lastAccessedAt: schema.memories.lastAccessedAt,
@@ -514,14 +556,23 @@ export async function autoArchiveOldMemories(projectId: string, daysOld: number 
     )
   );
 
+  // Resolve active place types
+  const activePlaceTypes = allPlaces
+    .filter((p: any) => p.place_type !== 'archive')
+    .map((p: any) => p.place_type);
+
+  const nonInboxNonArchivePlaceTypes = allPlaces
+    .filter((p: any) => p.place_type !== 'archive' && p.place_type !== 'inbox')
+    .map((p: any) => p.place_type);
+
   // Filter 1: Old memories from active places (original behavior)
   const memoriesToArchive = oldMemories.filter((m: any) => 
-    activePlaceIds.includes(m.placeId) && m.createdAt < cutoffTimestamp
+    activePlaceTypes.includes(m.placeType) && m.createdAt < cutoffTimestamp
   );
 
   // Filter 2: Low-importance, long-unaccessed memories from non-inbox/non-archive places
   const lowImpMemories = oldMemories.filter((m: any) =>
-    nonInboxNonArchivePlaceIds.includes(m.placeId) &&
+    nonInboxNonArchivePlaceTypes.includes(m.placeType) &&
     (m.createdAt < lowImpCutoffTimestamp || (m.lastAccessedAt && m.lastAccessedAt < lowImpCutoffTimestamp)) &&
     (m.importance ?? 50) < 30
   );
@@ -544,11 +595,13 @@ export async function autoArchiveOldMemories(projectId: string, daysOld: number 
     try {
       // Move to archive place
       await sqliteDb.update(schema.memoryPlaces)
-        .set({ placeId: archivePlace.id })
+        .set({ placeType: 'archive' })
         .where(eq(schema.memoryPlaces.memoryId, mem.memoryId));
       
       // Update the old place's memory count
-      await updatePlaceMemoryCount(mem.placeId);
+      const { getPlaceByType } = await import('./places.js');
+      const oldPlace = await getPlaceByType(projectId, mem.placeType as any);
+      if (oldPlace) await updatePlaceMemoryCount(oldPlace.id);
       
       archived++;
     } catch (e) {
@@ -585,7 +638,7 @@ export async function assignMemoryToPlaces(
 
   // Remove existing assignments for this memory
   try {
-    client.exec(`DELETE FROM memory_places WHERE memory_id = '${memoryId}'`);
+    client.prepare('DELETE FROM memory_places WHERE memory_id = ?').run(memoryId);
   } catch (e) {
     logger.debug(`[MemoryPlaces] Failed to delete existing assignments: ${e}`);
     return;
@@ -595,21 +648,24 @@ export async function assignMemoryToPlaces(
   for (let i = 0; i < candidates.length; i++) {
     const c = candidates[i];
     const id = randomUUID();
-    const reason = c.reason ? c.reason.replace(/'/g, "''") : '';
     try {
-      client.exec(
+      client.prepare(
         `INSERT OR IGNORE INTO memory_places (id, memory_id, place_type, weight, reason, source, is_primary)
-         VALUES ('${id}', '${memoryId}', '${c.type}', ${c.weight}, ${c.reason ? `'${reason}'` : 'NULL'}, '${c.source}', ${i === 0 ? 1 : 0})`
-      );
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      ).run(id, memoryId, c.type, c.weight, c.reason || null, c.source, i === 0 ? 1 : 0);
     } catch (e) {
       logger.debug(`[MemoryPlaces] Failed to insert place candidate ${c.type}: ${e}`);
     }
   }
 
-  // Update place memory counts
+  // Update place memory counts (deduplicated - avoid N+1)
+  const seenPlaceTypes = new Set<string>();
   for (const c of candidates) {
-    const place = await getPlaceByType(projectId, c.type);
-    if (place) await updatePlaceMemoryCount(place.id);
+    if (!seenPlaceTypes.has(c.type)) {
+      seenPlaceTypes.add(c.type);
+      const place = await getPlaceByType(projectId, c.type);
+      if (place) await updatePlaceMemoryCount(place.id);
+    }
   }
 }
 
@@ -637,7 +693,7 @@ export async function storeMemoryTags(
 
   // Remove existing tags for this memory
   try {
-    client.exec(`DELETE FROM memory_tags WHERE memory_id = '${memoryId}'`);
+    client.prepare('DELETE FROM memory_tags WHERE memory_id = ?').run(memoryId);
   } catch {
     // Ignore if table doesn't exist
   }
@@ -646,10 +702,9 @@ export async function storeMemoryTags(
   for (const tag of normalized) {
     const id = randomUUID();
     try {
-      client.exec(
-        `INSERT OR IGNORE INTO memory_tags (id, memory_id, tag, source)
-         VALUES ('${id}', '${memoryId}', '${tag}', '${source}')`
-      );
+      client.prepare(
+        'INSERT OR IGNORE INTO memory_tags (id, memory_id, tag, source) VALUES (?, ?, ?, ?)'
+      ).run(id, memoryId, tag, source);
     } catch (e) {
       logger.debug(`[MemoryTags] Failed to insert tag '${tag}': ${e}`);
     }

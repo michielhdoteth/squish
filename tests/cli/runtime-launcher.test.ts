@@ -13,10 +13,16 @@ describe('runtime launcher', () => {
       env: {},
     });
 
-    expect(launch.command).toBe(process.execPath);
-    expect(launch.args[0]).toContain('node_modules');
-    expect(launch.args[0]).toContain('tsx');
-    expect(launch.args[launch.args.length - 1]).toBe(repoRoot.replace(/\\/g, '/') + '/packages/mcp/src/index.ts');
+    // When bun is on PATH, it should prefer bun; otherwise falls back to tsx via node
+    const isBun = launch.command.includes('bun');
+    if (isBun) {
+      expect(launch.args[0]).toBe(repoRoot.replace(/\\/g, '/') + '/packages/mcp/src/index.ts');
+    } else {
+      expect(launch.command).toBe(process.execPath.replace(/\\/g, '/'));
+      expect(launch.args[0]).toContain('node_modules');
+      expect(launch.args[0]).toContain('tsx');
+      expect(launch.args[launch.args.length - 1]).toBe(repoRoot.replace(/\\/g, '/') + '/packages/mcp/src/index.ts');
+    }
   });
 
   test('prefers explicit bun path when available', async () => {

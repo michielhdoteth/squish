@@ -118,10 +118,11 @@ export async function enforceWriteGate(
   }
 
   // 4. Contradiction detection (async, non-blocking for write)
+  // Use original content (not redacted) so contradiction matching works correctly
   if (!opts.skipContradictionCheck && signals.implicit.correction) {
     try {
       const contradictionResult = await resolveContradictions(
-        processedContent,
+        content,
         type,
         opts.projectId
       );
@@ -142,17 +143,7 @@ export async function enforceWriteGate(
     }
   }
 
-  // 5. Temporal fact handling
-  if (!opts.skipTemporalSupersession) {
-    try {
-      // This would be done after the memory is actually written, but we note it here
-      result.metadata.temporalSupersession = { count: 0 };
-    } catch (error) {
-      logger.error('Temporal check failed', error);
-    }
-  }
-
-  // 6. Content quality checks
+  // 5. Content quality checks
   const qualityIssues = checkContentQuality(processedContent);
   result.warnings.push(...qualityIssues);
 

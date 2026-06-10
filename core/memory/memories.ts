@@ -263,7 +263,7 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
    // Resolve contradictions and supersede old memories (async, non-blocking)
    // Benchmarks can skip this expensive path by setting SQUISH_SKIP_CONTRADICTION=true
    if (process.env.SQUISH_SKIP_CONTRADICTION !== 'true') {
-     resolveContradictions(input.content, type, project?.id)
+       resolveContradictions(input.content, type, project?.id, id, insertValues.createdAt as string)
        .then(async (result) => {
           if (result.supersededIds.length > 0) {
             await applySupersession(id, result.supersededIds, result.confidence, result.associationType);
@@ -795,13 +795,15 @@ async function assignMemoryToDefaultPlace(
       const placeId = place?.id ?? null;
 
       if (placeId) {
-        client.exec(
-          `UPDATE memories SET primary_place = '${primaryPlace}', place_id = '${placeId}' WHERE id = '${memoryId}'`
+        const stmt = client.prepare(
+          'UPDATE memories SET primary_place = ?, place_id = ? WHERE id = ?'
         );
+        stmt.run(primaryPlace, placeId, memoryId);
       } else {
-        client.exec(
-          `UPDATE memories SET primary_place = '${primaryPlace}' WHERE id = '${memoryId}'`
+        const stmt = client.prepare(
+          'UPDATE memories SET primary_place = ? WHERE id = ?'
         );
+        stmt.run(primaryPlace, memoryId);
       }
     } catch {
       // Fallback to drizzle

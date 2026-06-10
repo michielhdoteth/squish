@@ -436,22 +436,49 @@ export async function updatePlaceMemoryCount(placeId: string): Promise<void> {
   const schema = await getSchema();
   const sqliteDb = db as any;
 
-  // Count memories in this place using raw SQL via underlying client
-  const rawClient = db.$client || db;
+  // Resolve placeId to placeType and projectId by looking up the places table
+  let placeType: string | null = null;
+  let projectId: string | null = null;
+  try {
+    const placeRow = sqliteDb.$client.prepare(
+      'SELECT place_type, project_id FROM places WHERE id = ? LIMIT 1'
+    ).get(placeId) as { place_type: string; project_id: string } | undefined;
+    placeType = placeRow?.place_type ?? null;
+    projectId = placeRow?.project_id ?? null;
+  } catch {
+    // Ignore
+  }
+
+  if (!placeType) {
+    logger.warn(`[Places] Could not resolve place type for place ${placeId}`);
+    return;
+  }
+
+  // Count memories in this place type, scoped by project
   let count = 0;
   try {
+    const rawClient = db.$client || db;
     if (typeof rawClient.prepare === 'function') {
-      const stmt = rawClient.prepare(`SELECT COUNT(*) as count FROM memory_places WHERE place_id = ?`);
-      const row = stmt.get(placeId) as { count: number } | undefined;
-      count = row?.count ?? 0;
-    } else if (typeof rawClient.query === 'function') {
-      const result = await rawClient.query(`SELECT COUNT(*) as count FROM memory_places WHERE place_id = $1`, [placeId]);
-      count = Number(result.rows?.[0]?.count ?? 0);
+      if (projectId) {
+        const stmt = rawClient.prepare(
+          `SELECT COUNT(*) as count FROM memory_places mp
+           INNER JOIN memories m ON mp.memory_id = m.id
+           WHERE mp.place_type = ? AND m.project_id = ?`
+        );
+        const row = stmt.get(placeType, projectId) as { count: number } | undefined;
+        count = row?.count ?? 0;
+      } else {
+        const stmt = rawClient.prepare(
+          'SELECT COUNT(*) as count FROM memory_places WHERE place_type = ?'
+        );
+        const row = stmt.get(placeType) as { count: number } | undefined;
+        count = row?.count ?? 0;
+      }
     }
   } catch {
     // If raw SQL fails, fall back to counting from select results
     try {
-      const rows = await sqliteDb.select().from(schema.memoryPlaces).where(eq(schema.memoryPlaces.placeId, placeId));
+      const rows = await sqliteDb.select().from(schema.memoryPlaces).where(eq(schema.memoryPlaces.placeType, placeType));
       count = rows.length;
     } catch {
       logger.warn(`[Places] Failed to update memory count for place ${placeId}`);

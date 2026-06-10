@@ -15,7 +15,7 @@
  *     Assistant messages: { type: "assistant", message: { role: "assistant", content: [...] } }
  *
  * Project hash: the project path with `:` and `\` replaced by `-`.
- *   e.g. `C:\Users\michi\Desktop\Command-Center` -> `C--Users-michi-Desktop-Command-Center`
+ *   e.g. `C:\Users\user\projects\my-app` -> `C--Users-user-projects-my-app`
  *
  * Public surface consumed by:
  *   - core/sessions/store.ts (the public sessions surface)
@@ -67,7 +67,7 @@ function projectHash(projectPath: string): string {
 }
 
 /**
- * Extract the leaf project name from a path (e.g. `C:\Users\michi\Desktop\foo` -> `foo`).
+ * Extract the leaf project name from a path (e.g. `C:\Users\user\projects\foo` -> `foo`).
  */
 function deriveProjectName(projectPath: string): string {
   if (!projectPath) return '';

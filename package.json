@@ -4,7 +4,7 @@
   "author": "4m-labs <michiel@4mlabs.io>",
   "repository": {
     "type": "git",
-    "url": "https://github.com/4m-labs/squish.git"
+    "url": "https://github.com/michielhdoteth/squish.git"
   },
   "mcpName": "io.github.4m-labs/squish",
   "main": "config.ts",
@@ -48,9 +48,9 @@
     "squish-mcp": "bin/squish-mcp.mjs"
   },
   "bugs": {
-    "url": "https://github.com/4m-labs/squish/issues"
+    "url": "https://github.com/michielhdoteth/squish/issues"
   },
-  "description": "Local-first memory runtime for Claude Code, Codex, ChatGPT, MCP workflows, and AI agents. One command: squish install. Use locally free or sync with Squish Cloud.",
+  "description": "Local-first memory runtime for Claude Code, Codex, ChatGPT, and AI agents. Searchable session history, durable memory, and cross-tool sync. No external LLM required.",
   "engines": {
     "node": ">=18.0.0"
   },
@@ -85,32 +85,28 @@
   },
   "homepage": "https://squishplugin.dev",
   "keywords": [
-    "ai-agent",
     "ai-memory",
-    "agent-memory",
-    "memory",
-    "memory-runtime",
-    "persistent-memory",
-    "local-first",
-    "mcp-server",
-    "model-context-protocol",
     "claude-code",
     "codex",
     "chatgpt",
+    "agent-memory",
+    "memory-runtime",
+    "mcp-server",
+    "persistent-memory",
+    "local-first",
+    "session-search",
+    "context-engineering",
     "cursor",
     "windsurf",
     "opencode",
-    "openclaw",
     "vscode",
-    "plugin",
+    "cli",
     "sqlite",
     "postgres",
     "hybrid-search",
-    "context-management",
-    "cli",
-    "context-engineering",
     "long-term-memory",
-    "session-persistence"
+    "session-persistence",
+    "model-context-protocol"
   ],
   "license": "MIT",
   "scripts": {

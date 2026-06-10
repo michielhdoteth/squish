@@ -4,36 +4,39 @@
 
 ### Summary
 
-Three-tool session model, personal info anonymization, and preparation for public release.
+Session search across Claude Code and Codex. Agents can now search previous session history as evidence, not just recall durable memory.
 
 ### Highlights
 
-#### Three-Tool Session Model
-- Replaced multi-tool session lifecycle with a clean three-tool model: `on_session_start`, `on_tool_use`, `on_session_end`
-- Session context injection consolidated into `on_session_start`
-- Tool use observations captured via `on_tool_use`
-- Session cleanup handled by `on_session_end`
+#### Claude Code Session Search
+- Reads `~/.claude/history.jsonl` and per-session JSONL files
+- Full text search across session messages
+- Related session discovery by project path overlap
 
-#### Privacy & Anonymization
-- Added personal info anonymization for memory storage
-- Sensitive data detected and redacted before durable writes
+#### Codex Session Search
+- Reads `~/.codex/state_5.sqlite` threads table
+- Deep search via rollout JSON files
+- Related session discovery by cwd and git remote
 
-#### Public Release Preparation
-- Documentation overhaul for external audiences
-- CLI reference consolidated into single `CLI.md`
-- Installation guides verified across all supported clients
+#### Three-Tool Mental Model
+The product surface is now three clean layers:
+- **recall** — durable memory (decisions, preferences, constraints)
+- **sessions** — evidence from past agent runs (searchable history)
+- **remember** — write to long-term memory
 
 ### User-Facing Impact
 
 #### CLI
-- New: `squish context` (replaces legacy `core_memory`)
-- Improved: `squish install --all` (universal installer)
+- New: `squish sessions list` — list past agent sessions
+- New: `squish sessions search <query>` — full-text search across session history
+- New: `squish sessions show <id>` — display session detail
+- New: `squish sessions related` — find sessions relevant to current repo/files
+- New: `squish sessions capture` — record a session summary
+- New: `squish sessions status` — show which agent stores are available
 
 #### MCP
-- New: `squish_list_pinned`
-- New: `squish_on_session_start`
-- New: `squish_on_tool_use`
-- New: `squish_on_session_end`
+- Improved: `squish_session_search` now searches Claude Code and Codex stores
+- Improved: `squish_sessions_status` shows all available agent stores
 
 ---
 
