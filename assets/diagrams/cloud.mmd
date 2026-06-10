@@ -1,0 +1,17 @@
+flowchart TD
+    CG["ChatGPT\nOAuth 2.1"] --> API["Squish Cloud API"]
+    CD["Claude Desktop\nOAuth 2.1"] --> API
+    CC["Claude Code\nStreamable HTTP"] --> API
+    LA["Local Agents\nMCP / CLI"] --> API
+    API --> DB[("PostgreSQL +\nEncrypted Storage")]
+    DB --> Dashboard["Admin Dashboard\n& Analytics"]
+
+    classDef client fill:#4a9eff,stroke:#2d7dd2,color:#fff
+    classDef api fill:#7c3aed,stroke:#5b21b6,color:#fff
+    classDef db fill:#059669,stroke:#047857,color:#fff
+    classDef dash fill:#d97706,stroke:#b45309,color:#fff
+
+    class CG,CD,CC,LA client
+    class API api
+    class DB db
+    class Dashboard dash

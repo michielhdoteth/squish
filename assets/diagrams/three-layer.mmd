@@ -1,0 +1,32 @@
+flowchart LR
+    subgraph RECALL["RECALL — durable"]
+        R1["Decisions"]
+        R2["Preferences"]
+        R3["Constraints"]
+        R4["Beliefs"]
+    end
+    subgraph SESSIONS["SESSIONS — evidence"]
+        S1["Past agent runs"]
+        S2["Searchable"]
+        S3["Raw history"]
+        S4["Related repos"]
+    end
+    subgraph REMEMBER["REMEMBER — write"]
+        M1["Store new facts"]
+        M2["Auto-classify"]
+        M3["Graph update"]
+        M4["Place routing"]
+    end
+    RECALL --> |"squish recall"| CLI1["CLI / MCP"]
+    SESSIONS --> |"squish sessions search"| CLI2["CLI / MCP"]
+    REMEMBER --> |"squish remember"| CLI3["CLI / MCP"]
+
+    classDef recall fill:#4a9eff,stroke:#2d7dd2,color:#fff
+    classDef sessions fill:#7c3aed,stroke:#5b21b6,color:#fff
+    classDef remember fill:#059669,stroke:#047857,color:#fff
+    classDef cli fill:#f3f4f6,stroke:#9ca3af,color:#374151
+
+    class R1,R2,R3,R4 recall
+    class S1,S2,S3,S4 sessions
+    class M1,M2,M3,M4 remember
+    class CLI1,CLI2,CLI3 cli

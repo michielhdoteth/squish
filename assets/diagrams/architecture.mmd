@@ -1,0 +1,37 @@
+flowchart TD
+    A["Agent Action"] --> B["1. Capture"]
+    B --> B1["Filter noisy output"]
+    B --> B2["Promote decisions,\nconstraints, preferences"]
+    B1 --> C["2. Store"]
+    B2 --> C
+    C --> C1["SQLite / PostgreSQL"]
+    C --> C2["Embeddings\n(local TF-IDF)"]
+    C --> C3["Knowledge graph edges"]
+    C --> C4["Places routing"]
+    C1 --> D["3. Retrieve"]
+    C2 --> D
+    C3 --> D
+    C4 --> D
+    D --> D1["Keyword search (BM25)"]
+    D --> D2["Semantic search\n(cosine similarity)"]
+    D --> D3["Recency weighting"]
+    D --> D4["RRF fusion scoring"]
+    D1 --> E["4. Context"]
+    D2 --> E
+    D3 --> E
+    D4 --> E
+    E --> E1["Inject relevant memories\ninto agent context"]
+    E1 --> E2["50-200 tokens average"]
+    E1 --> E3["Auto-decay old/low-value\nmemories"]
+
+    classDef capture fill:#4a9eff,stroke:#2d7dd2,color:#fff
+    classDef store fill:#7c3aed,stroke:#5b21b6,color:#fff
+    classDef retrieve fill:#059669,stroke:#047857,color:#fff
+    classDef context fill:#d97706,stroke:#b45309,color:#fff
+    classDef detail fill:#f3f4f6,stroke:#9ca3af,color:#374151
+
+    class A capture
+    class B,B1,B2 capture
+    class C,C1,C2,C3,C4 store
+    class D,D1,D2,D3,D4 retrieve
+    class E,E1,E2,E3 context
