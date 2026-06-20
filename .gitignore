@@ -8,6 +8,15 @@ yarn.lock
 # Build outputs
 dist/
 *.tgz
+*.js.map
+*.d.ts.map
+
+# Compiled JS (keep only source TS)
+core/**/*.js
+db/**/*.js
+packages/*/src/**/*.js
+config.js
+config.d.ts
 
 # Environment
 .env

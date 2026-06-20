@@ -21,6 +21,7 @@ import { registerExportCommand } from './commands/export.js';
 import { registerInstallCommand, registerUninstallCommand } from './commands/install.js';
 import { registerPinCommand } from './commands/pin.js';
 import { registerSessionsCommand } from './commands/sessions.js';
+import { registerCloudCommand } from './commands/cloud.js';
 
 export function createProgram(): Command {
   const program = new Command();
@@ -28,11 +29,11 @@ export function createProgram(): Command {
   program
     .name('squish')
     .description('Universal Memory for AI Agents - CLI')
-    .version('1.5.5');
+    .version('1.7.0');
 
   program.hook('preAction', async (_thisCommand, actionCommand) => {
     const commandName = actionCommand.name();
-    const exempt = new Set(['doctor', 'health', 'install', 'install-plugin', 'uninstall', 'migrate', 'pin', 'sessions']);
+    const exempt = new Set(['doctor', 'health', 'install', 'install-plugin', 'uninstall', 'migrate', 'pin', 'sessions', 'cloud']);
     if (exempt.has(commandName)) return;
 
     const probe = await probeSchemaHealth();
@@ -97,6 +98,7 @@ export function createProgram(): Command {
   registerUninstallCommand(program);
   registerPinCommand(program);
   registerSessionsCommand(program);
+  registerCloudCommand(program);
 
   return program;
 }
