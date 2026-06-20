@@ -4,18 +4,21 @@
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { mkdirSync, existsSync } from 'fs';
+import { describe, test, expect, beforeEach, beforeAll } from 'bun:test';
 
 const testDataDir = join(tmpdir(), `squish-global-mem-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 process.env.SQUISH_DATA_DIR = testDataDir;
 process.env.DATABASE_URL = '';
 if (!existsSync(testDataDir)) mkdirSync(testDataDir, { recursive: true });
 
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-
-import { resetDb, getDb } from '../../../db/index.js';
-import { rememberMemory, search, getMemory } from '../../../core/memory/memories.js';
-import { initializeGlobalPlaces, getPlaceByType } from '../../../core/places/places.js';
-import { getMemoryPlace } from '../../../core/places/memory-places.js';
+let resetDb: typeof import('../../../db/index.js').resetDb;
+let getDb: typeof import('../../../db/index.js').getDb;
+let rememberMemory: typeof import('../../../core/memory/memories.js').rememberMemory;
+let search: typeof import('../../../core/memory/memories.js').search;
+let getMemory: typeof import('../../../core/memory/memories.js').getMemory;
+let initializeGlobalPlaces: typeof import('../../../core/places/places.js').initializeGlobalPlaces;
+let getPlaceByType: typeof import('../../../core/places/places.js').getPlaceByType;
+let getMemoryPlace: typeof import('../../../core/places/memory-places.js').getMemoryPlace;
 
 async function clearAllData() {
   const db = await getDb();
@@ -30,6 +33,21 @@ async function clearAllData() {
 }
 
 describe('Global Memory Operations', () => {
+  beforeAll(async () => {
+    const dbMod = await import('../../../db/index.js');
+    const memoryMod = await import('../../../core/memory/memories.js');
+    const placesMod = await import('../../../core/places/places.js');
+    const placeMemoryMod = await import('../../../core/places/memory-places.js');
+    resetDb = dbMod.resetDb;
+    getDb = dbMod.getDb;
+    rememberMemory = memoryMod.rememberMemory;
+    search = memoryMod.search;
+    getMemory = memoryMod.getMemory;
+    initializeGlobalPlaces = placesMod.initializeGlobalPlaces;
+    getPlaceByType = placesMod.getPlaceByType;
+    getMemoryPlace = placeMemoryMod.getMemoryPlace;
+  });
+
   beforeEach(async () => {
     process.env.SQUISH_DATA_DIR = testDataDir;
     process.env.DATABASE_URL = '';

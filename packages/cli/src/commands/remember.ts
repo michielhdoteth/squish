@@ -17,6 +17,8 @@ export function registerRememberCommand(program: Command) {
     .option('-t, --type <type>', 'Memory type (observation, fact, decision, context, preference)', 'observation')
     .option('-T, --tags <tags>', 'Comma-separated tags')
     .option('-p, --project <project>', 'Project path (global if omitted)')
+    .option('--actor-user <user>', 'Actor user identity for team-mode ACL')
+    .option('--actor-agent <agent>', 'Actor agent identity for team-mode ACL')
     .option('-s, --source <source>', 'Source (cli, voice, chat, document)', 'cli')
     .option('-r, --reasoning <reasoning>', 'Why this memory is important')
     .option('-c, --context <context>', 'What triggered this memory')
@@ -88,7 +90,9 @@ export function registerRememberCommand(program: Command) {
             reasoning: options.reasoning,
             memoryContext: options.context,
             examples: options.examples,
-            exceptions: options.exceptions
+            exceptions: options.exceptions,
+            actorUser: options.actorUser,
+            actorAgent: options.actorAgent,
           });
           
           if (options.pin) {

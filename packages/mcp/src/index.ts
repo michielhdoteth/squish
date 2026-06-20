@@ -32,7 +32,7 @@ import { rememberMemory, search as searchMemories, getMemory, getRecent, type Me
 import { getQMDClient } from "../../../core/embeddings/qmd-client.js";
 import { createAssociation, getRelatedMemories, type AssociationType } from "../../../core/associations.js";
 import { createLearning } from "../../../core/ingestion/learnings.js";
-import { getAllProjects } from "../../../core/projects.js";
+import { getAllProjects, requireProject } from "../../../core/projects.js";
 import { logger } from "../../../core/logger.js";
 
 // Strategy imports
@@ -40,7 +40,7 @@ import { createStrategy, listStrategies, searchStrategies, supersedeStrategy, ge
 import type { StrategyType, StrategyStatus } from "../../../core/strategies/types.js";
 
 // Team imports
-import { createTeamMember, getTeamMembers, removeTeamMember } from "../../../core/team/workspace.js";
+import { createTeamMember, getTeamMember, getTeamMembers, removeTeamMember, updateLastActive, updateMemberRole } from "../../../core/team/workspace.js";
 
 const SERVER_NAME = "squish-memory";
 const SERVER_VERSION = "1.5.0";
@@ -139,6 +139,27 @@ function resolveProjectPath(projectArg?: string): string | null | undefined {
   return detectProjectScope();
 }
 
+async function resolveProjectId(projectArg?: string): Promise<string | null> {
+  const resolvedPath = resolveProjectPath(projectArg);
+  if (!resolvedPath) return null;
+  const project = await requireProject(resolvedPath);
+  return project.id;
+}
+
+function formatTeamMember(member: Awaited<ReturnType<typeof getTeamMember>>): Record<string, unknown> | null {
+  if (!member) return null;
+  return {
+    id: member.id,
+    projectId: member.projectId,
+    userId: member.userId,
+    agentId: member.agentId,
+    role: member.role,
+    joinedAt: member.joinedAt,
+    lastActiveAt: member.lastActiveAt,
+    metadata: member.metadata,
+  };
+}
+
 function createSquishServer(): { server: McpServer; toolCount: number } {
   const server = new McpServer(
     { name: SERVER_NAME, version: SERVER_VERSION },
@@ -192,8 +213,11 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
         content: z.string().describe("What to remember - can be a fact, decision, lesson, observation, or note"),
         project: z.string().optional().describe("Project path (auto-detected if not provided)"),
         user: z.string().optional().describe("User identifier (name or email) to associate with this memory"),
+        actorUser: z.string().optional().describe("Actor user identity for team-mode ACL"),
+        actorAgent: z.string().optional().describe("Actor agent identity for team-mode ACL"),
         tags: z.array(z.string()).optional().describe("Optional tags for organization"),
         type: z.enum(["observation", "fact", "decision", "context", "preference", "note"]).optional().describe("Memory type - auto-detected if not provided"),
+        visibilityScope: z.enum(["private", "project", "team", "global"]).optional().describe("Visibility scope for team mode writes"),
         learningType: z.enum(["success", "failure", "fix", "insight"]).optional().describe("Learning type when routing to learning storage"),
         confidence: z.number().min(0).max(100).optional().describe("Confidence level 0-100 (default: auto-calculated)"),
         source: z.string().optional().describe("Source of memory: mcp, cli, voice, chat, document (default: mcp)"),
@@ -202,12 +226,15 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
         unpin: z.boolean().default(false).describe("Unpin memory")
       }
     },
-    async ({ content, project, user, tags = [], type, learningType, confidence, source, route = "auto", pin = false, unpin = false }: {
+    async ({ content, project, user, actorUser, actorAgent, tags = [], type, visibilityScope, learningType, confidence, source, route = "auto", pin = false, unpin = false }: {
       content: string;
       project?: string;
       user?: string;
+      actorUser?: string;
+      actorAgent?: string;
       tags?: string[];
       type?: "observation" | "fact" | "decision" | "context" | "preference" | "note";
+      visibilityScope?: "private" | "project" | "team" | "global";
       learningType?: "success" | "failure" | "fix" | "insight";
       confidence?: number;
       source?: string;
@@ -281,14 +308,17 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
         result = { id: learning.id, type: "learning", learningType: finalLearningType, content };
       } else {
         // Store as memory with all options
-        const memory = await rememberMemory({
-          content,
-          type: inferredType as any,
-          tags,
-          project: resolvedProject,
-          user,
-          source: source || 'mcp'
-        });
+          const memory = await rememberMemory({
+            content,
+            type: inferredType as any,
+            tags,
+            project: resolvedProject,
+            user,
+            actorUser: actorUser ?? user,
+            actorAgent,
+            source: source || 'mcp',
+            visibilityScope,
+          });
 
         // Handle pin/unpin after creation
         if (pin) {
@@ -332,16 +362,26 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
         limit: z.number().min(1).max(100).default(5).describe("Maximum results for query recall"),
         project: z.string().optional().describe("Project path filter"),
         user: z.string().optional().describe("Filter by user (name or email)"),
+        actorUser: z.string().optional().describe("Actor user identity for team-mode ACL"),
+        actorAgent: z.string().optional().describe("Actor agent identity for team-mode ACL"),
         type: z.enum(["observation", "fact", "decision", "context", "preference", "note", "task"]).optional().describe("Filter by memory type"),
+        visibilityScope: z.union([
+          z.enum(["private", "project", "team", "global"]),
+          z.array(z.enum(["private", "project", "team", "global"]))
+        ]).optional().describe("Filter by visibility scope(s)"),
         place: z.string().optional().describe("Filter by place (inbox, ref, wip, sandbox, board, sparks, archive)")
       }
     },
-    async ({ query, limit = 5, project, user, type, place }: { query: string; limit?: number; project?: string; user?: string; type?: MemoryType; place?: string }) => {
+    async ({ query, limit = 5, project, user, actorUser, actorAgent, type, place, visibilityScope }: { query: string; limit?: number; project?: string; user?: string; actorUser?: string; actorAgent?: string; type?: MemoryType; place?: string; visibilityScope?: "private" | "project" | "team" | "global" | ("private" | "project" | "team" | "global")[] }) => {
       const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(query);
       const resolvedProject = resolveProjectPath(project);
+      const actor = {
+        userId: actorUser ?? user,
+        agentId: actorAgent,
+      };
 
       if (isUuid) {
-        const memory = await getMemory(query);
+        const memory = await getMemory(query, true, actor);
         if (!memory) {
           return { content: [{ type: "text", text: `Memory not found: ${query}` }], isError: true };
         }
@@ -353,11 +393,92 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
         limit,
         project: resolvedProject,
         user,
+        actorUser: actor.userId ?? undefined,
+        actorAgent: actor.agentId ?? undefined,
         type,
+        visibilityScope,
         placeType: place
       });
 
       return { content: [{ type: "text", text: JSON.stringify({ ok: true, count: results.length, results }, null, 2) }] };
+    }
+  )) toolCount++;
+
+  // squish_team - Manage team membership and roles
+  if (safeRegisterTool(
+    server,
+    "squish_team",
+    {
+      description: "Manage team workspace membership. Actions: add, list, member, role, touch, remove.",
+      inputSchema: {
+        action: z.enum(["add", "list", "member", "role", "touch", "remove"]).describe("Action to perform"),
+        project: z.string().optional().describe("Project path (auto-detected if omitted)"),
+        user: z.string().optional().describe("User identifier (name or email)"),
+        agent: z.string().optional().describe("Agent identifier"),
+        role: z.enum(["owner", "admin", "member", "viewer"]).optional().describe("Team role (add/role actions)"),
+        metadata: z.record(z.unknown()).optional().describe("Optional member metadata"),
+      }
+    },
+    async ({ action, project, user, agent, role, metadata }: {
+      action: "add" | "list" | "member" | "role" | "touch" | "remove";
+      project?: string;
+      user?: string;
+      agent?: string;
+      role?: "owner" | "admin" | "member" | "viewer";
+      metadata?: Record<string, unknown>;
+    }) => {
+      const projectId = await resolveProjectId(project);
+      if (!projectId) {
+        return { content: [{ type: "text", text: "Error: project is required for team actions" }], isError: true };
+      }
+
+      if (action === "list") {
+        const members = await getTeamMembers(projectId);
+        return { content: [{ type: "text", text: JSON.stringify({ ok: true, count: members.length, members: members.map((member) => formatTeamMember(member)) }, null, 2) }] };
+      }
+
+      if (action === "add") {
+        if (!user && !agent) {
+          return { content: [{ type: "text", text: "Error: user or agent is required for add action" }], isError: true };
+        }
+        const member = await createTeamMember({
+          projectId,
+          userId: user,
+          agentId: agent,
+          role,
+          metadata,
+        });
+        return { content: [{ type: "text", text: JSON.stringify({ ok: true, member }, null, 2) }] };
+      }
+
+      if (action === "member") {
+        const member = await getTeamMember(projectId, user, agent);
+        return { content: [{ type: "text", text: JSON.stringify({ ok: true, member: formatTeamMember(member), exists: Boolean(member), role: member?.role ?? null }, null, 2) }] };
+      }
+
+      if (action === "role") {
+        if (!user || !role) {
+          return { content: [{ type: "text", text: "Error: user and role are required for role action" }], isError: true };
+        }
+        const updated = await updateMemberRole(projectId, user, role);
+        return { content: [{ type: "text", text: JSON.stringify({ ok: true, member: updated }, null, 2) }] };
+      }
+
+      if (action === "touch") {
+        await updateLastActive(projectId, user, agent);
+        const member = await getTeamMember(projectId, user, agent);
+        return { content: [{ type: "text", text: JSON.stringify({ ok: true, touched: true, member: formatTeamMember(member) }, null, 2) }] };
+      }
+
+      if (action === "remove") {
+        if (!user && !agent) {
+          return { content: [{ type: "text", text: "Error: user or agent is required for remove action" }], isError: true };
+        }
+        await removeTeamMember(projectId, user, agent);
+        return { content: [{ type: "text", text: JSON.stringify({ ok: true, removed: true, projectId, user: user ?? null, agent: agent ?? null }, null, 2) }] };
+      }
+
+      return { content: [{ type: "text", text: "Error: invalid team action. Use add, list, member, role, touch, or remove." }], isError: true };
     }
   )) toolCount++;
 
@@ -374,10 +495,12 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
         type: z.string().optional().describe("Filter by memory type"),
         confirm: z.boolean().optional().describe("Actually delete (default is dry-run)"),
         limit: z.number().optional().describe("Max memories to delete"),
-        project: z.string().optional().describe("Project path (defaults to current)")
+        project: z.string().optional().describe("Project path (defaults to current)"),
+        actorUser: z.string().optional().describe("Actor user identity for team-mode ACL"),
+        actorAgent: z.string().optional().describe("Actor agent identity for team-mode ACL")
       }
     },
-    async ({ memoryId, olderThan, search, type, confirm = false, limit = 100, project }: { memoryId?: string; olderThan?: string; search?: string; type?: string; confirm?: boolean; limit?: number; project?: string }) => {
+    async ({ memoryId, olderThan, search, type, confirm = false, limit = 100, project, actorUser, actorAgent }: { memoryId?: string; olderThan?: string; search?: string; type?: string; confirm?: boolean; limit?: number; project?: string; actorUser?: string; actorAgent?: string }) => {
       const db = await getDb();
       const schema = await getSchema();
       const sqliteDb = db as any;
@@ -387,6 +510,11 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
 
       // Single memory deletion
       if (memoryId) {
+        const actor = { userId: actorUser, agentId: actorAgent };
+        const memory = await getMemory(memoryId, false, actor);
+        if (!memory) {
+          return { content: [{ type: "text", text: `Memory not found or not accessible: ${memoryId}` }], isError: true };
+        }
         await sqliteDb.delete(schema.memories).where(eq(schema.memories.id, memoryId));
         return { content: [{ type: "text", text: `Memory deleted: ${memoryId}` }] };
       }
@@ -396,7 +524,14 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
         return { content: [{ type: "text", text: "Error: Provide memoryId or use --older-than / --search for bulk delete" }], isError: true };
       }
 
-      const results = await searchMemories({ query: search || '', type: type as MemoryType, limit, project: proj });
+      const results = await searchMemories({
+        query: search || '',
+        type: type as MemoryType,
+        limit,
+        project: proj,
+        actorUser,
+        actorAgent,
+      });
 
       let filtered = results;
       if (olderThan) {
@@ -487,10 +622,12 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
       inputSchema: {
         project: z.string().optional().describe("Project path"),
         limit: z.number().min(1).max(50).default(10).describe("Maximum memories to return"),
-        listProjects: z.boolean().optional().describe("List registered projects instead of loading context")
+        listProjects: z.boolean().optional().describe("List registered projects instead of loading context"),
+        actorUser: z.string().optional().describe("Actor user identity for team-mode ACL"),
+        actorAgent: z.string().optional().describe("Actor agent identity for team-mode ACL")
       }
     },
-    async ({ project, limit = 10, listProjects = false }: { project?: string; limit?: number; listProjects?: boolean }) => {
+    async ({ project, limit = 10, listProjects = false, actorUser, actorAgent }: { project?: string; limit?: number; listProjects?: boolean; actorUser?: string; actorAgent?: string }) => {
       const resolvedProject = resolveProjectPath(project);
       if (listProjects) {
         const projects = await getAllProjects();
@@ -515,7 +652,10 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
         };
       }
 
-      const context = await buildContextState(resolvedProject, limit);
+      const context = await buildContextState(resolvedProject, limit, {
+        userId: actorUser,
+        agentId: actorAgent,
+      });
       return { content: [{ type: "text", text: JSON.stringify({ ok: true, ...context }, null, 2) }] };
     }
   )) toolCount++;
@@ -617,10 +757,12 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
         since: z.string().optional().describe("Start date (alternative to period, e.g., '3 days', '2026-01-01')"),
         until: z.string().optional().describe("End date (alternative to period, e.g., 'now', '2026-01-15')"),
         limit: z.number().optional().describe("Max results to return"),
-        project: z.string().optional().describe("Project path filter (global if omitted)")
+        project: z.string().optional().describe("Project path filter (global if omitted)"),
+        actorUser: z.string().optional().describe("Actor user identity for team-mode ACL"),
+        actorAgent: z.string().optional().describe("Actor agent identity for team-mode ACL")
       }
     },
-    async ({ period = 'today', since, until, limit = 10, project }: { period?: string; since?: string; until?: string; limit?: number; project?: string }) => {
+    async ({ period = 'today', since, until, limit = 10, project, actorUser, actorAgent }: { period?: string; since?: string; until?: string; limit?: number; project?: string; actorUser?: string; actorAgent?: string }) => {
       const proj = resolveProjectPath(project); // auto-detect if undefined
       let sinceDate: string, untilDate: string;
 
@@ -649,7 +791,10 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
         }
       }
 
-      const results = await getRecent(proj, 100);
+      const results = await getRecent(proj, 100, {
+        userId: actorUser,
+        agentId: actorAgent,
+      });
       const filtered = filterByDateRange(results, sinceDate, untilDate);
       const limited = filtered.slice(0, limit);
       return { content: [{ type: "text", text: JSON.stringify({ ok: true, period, since: sinceDate, until: untilDate, count: limited.length, results: limited }, null, 2) }] };
@@ -665,13 +810,18 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
       inputSchema: {
         days: z.number().optional().describe("Show memories older than N days"),
         limit: z.number().optional().describe("Max results to return"),
-        project: z.string().optional().describe("Project path filter (global if omitted)")
+        project: z.string().optional().describe("Project path filter (global if omitted)"),
+        actorUser: z.string().optional().describe("Actor user identity for team-mode ACL"),
+        actorAgent: z.string().optional().describe("Actor agent identity for team-mode ACL")
       }
     },
-    async ({ days = 30, limit = 20, project }: { days?: number; limit?: number; project?: string }) => {
+    async ({ days = 30, limit = 20, project, actorUser, actorAgent }: { days?: number; limit?: number; project?: string; actorUser?: string; actorAgent?: string }) => {
       const proj = resolveProjectPath(project); // auto-detect if undefined
       const cutoffDate = new Date(Date.now() - days * 86400000);
-      const results = await getRecent(proj, 500);
+      const results = await getRecent(proj, 500, {
+        userId: actorUser,
+        agentId: actorAgent,
+      });
       const stale = results.filter((m: any) => {
         const created = m.createdAt ? new Date(m.createdAt) : null;
         const isOld = created && created < cutoffDate;

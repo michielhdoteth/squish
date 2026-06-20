@@ -20,6 +20,8 @@ export function registerForgetCommand(program: Command) {
     .option('--confirm', 'Actually delete (default is dry-run)', false)
     .option('-l, --limit <number>', 'Max memories to delete', '100')
     .option('-p, --project <project>', 'Project path (global if omitted)')
+    .option('--actor-user <user>', 'Actor user identity for team-mode ACL')
+    .option('--actor-agent <agent>', 'Actor agent identity for team-mode ACL')
     .action(async (memoryId: string, options: any) => {
       try {
         const { db, schema } = await getDbClient();
@@ -42,7 +44,9 @@ export function registerForgetCommand(program: Command) {
           query: options.search || '',
           project: options.project,
           limit: parseInt(options.limit) || 100,
-          type: options.type
+          type: options.type,
+          actorUser: options.actorUser,
+          actorAgent: options.actorAgent,
         });
         
         let filtered = results;

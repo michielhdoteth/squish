@@ -16,6 +16,7 @@
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { mkdirSync, rmSync, existsSync } from 'fs';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 
 const testDataDir = join(
   tmpdir(),
@@ -27,21 +28,19 @@ process.env.DATABASE_URL = '';
 process.env.SQUISH_OPENCODE_DISABLED = '1';
 if (!existsSync(testDataDir)) mkdirSync(testDataDir, { recursive: true });
 
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-
-import { resetDb, getDb } from '../../../db/index.js';
-import {
-  captureChunk,
-  searchChunks,
-  getSessionChunks,
-  makeSummaryChunk,
-  extractDecisionChunks,
-  extractCommandChunks,
-  extractFileChunks,
-  extractErrorChunks,
-  extractTodoChunks,
-} from '../../../core/sessions/index.js';
-import type { Chunk, AgentId } from '../../../core/sessions/index.js';
+let resetDb: typeof import('../../../db/index.js').resetDb;
+let getDb: typeof import('../../../db/index.js').getDb;
+let captureChunk: typeof import('../../../core/sessions/index.js').captureChunk;
+let searchChunks: typeof import('../../../core/sessions/index.js').searchChunks;
+let getSessionChunks: typeof import('../../../core/sessions/index.js').getSessionChunks;
+let makeSummaryChunk: typeof import('../../../core/sessions/index.js').makeSummaryChunk;
+let extractDecisionChunks: typeof import('../../../core/sessions/index.js').extractDecisionChunks;
+let extractCommandChunks: typeof import('../../../core/sessions/index.js').extractCommandChunks;
+let extractFileChunks: typeof import('../../../core/sessions/index.js').extractFileChunks;
+let extractErrorChunks: typeof import('../../../core/sessions/index.js').extractErrorChunks;
+let extractTodoChunks: typeof import('../../../core/sessions/index.js').extractTodoChunks;
+type Chunk = import('../../../core/sessions/index.js').Chunk;
+type AgentId = import('../../../core/sessions/index.js').AgentId;
 
 async function clearAllData(): Promise<void> {
   const db = await getDb();
@@ -79,6 +78,19 @@ function makeChunk(overrides: Partial<Chunk> = {}): Chunk {
 const previousDataDir = process.env.SQUISH_DATA_DIR;
 
 beforeAll(async () => {
+  const dbMod = await import('../../../db/index.js');
+  const sessionsMod = await import('../../../core/sessions/index.js');
+  resetDb = dbMod.resetDb;
+  getDb = dbMod.getDb;
+  captureChunk = sessionsMod.captureChunk;
+  searchChunks = sessionsMod.searchChunks;
+  getSessionChunks = sessionsMod.getSessionChunks;
+  makeSummaryChunk = sessionsMod.makeSummaryChunk;
+  extractDecisionChunks = sessionsMod.extractDecisionChunks;
+  extractCommandChunks = sessionsMod.extractCommandChunks;
+  extractFileChunks = sessionsMod.extractFileChunks;
+  extractErrorChunks = sessionsMod.extractErrorChunks;
+  extractTodoChunks = sessionsMod.extractTodoChunks;
   process.env.SQUISH_DATA_DIR = testDataDir;
   process.env.DATABASE_URL = '';
   resetDb();

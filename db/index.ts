@@ -5,11 +5,11 @@ import { logger } from '../core/logger.js';
 import { isDatabaseUnavailableError } from '../core/lib/utils.js';
 import { clearSchemaCache } from './schema.js';
 
-// Use any for db to avoid type conflicts between different drivers
-// The actual type will be determined at runtime based on mode
-let db: any = null;
-let dbError: string | null = null;
-let lastDataDir: string | null = null;
+// Cache database clients per effective runtime environment so parallel tests
+// using different data directories or connection strings do not interfere.
+const dbInstances = new Map<string, any>();
+const dbInitPromises = new Map<string, Promise<any>>();
+const dbErrors = new Map<string, string>();
 
 /**
  * Detect the current mode dynamically from process.env instead of using
@@ -26,76 +26,60 @@ function detectCurrentMode(): 'local' | 'team' | 'remote' {
   return 'local';
 }
 
+function getDbCacheKey(): string {
+  const mode = detectCurrentMode();
+  return [
+    mode,
+    process.env.SQUISH_DATA_DIR || '',
+    process.env.DATABASE_URL || '',
+    process.env.SUPABASE_URL || '',
+    process.env.NEON_PROJECT_ID || '',
+    process.env.SQUISH_REMOTE_BACKEND || '',
+    process.env.SQUISH_TEAM_BACKEND || '',
+  ].join('|');
+}
+
 export async function getDb() {
-  if (dbError) {
-    throw new Error(dbError);
+  const cacheKey = getDbCacheKey();
+
+  const cachedError = dbErrors.get(cacheKey);
+  if (cachedError) {
+    throw new Error(cachedError);
   }
 
-  // If SQUISH_DATA_DIR changed since last db creation, invalidate the cached db
-  // so a fresh connection is created for the new data directory.
-  const currentDataDir = process.env.SQUISH_DATA_DIR || null;
-  if (db && lastDataDir !== currentDataDir) {
-    db = null;
-    lastDataDir = null;
-    dbError = null;
+  const cachedDb = dbInstances.get(cacheKey);
+  if (cachedDb) {
+    return cachedDb;
   }
 
-  if (!db) {
+  const pending = dbInitPromises.get(cacheKey);
+  if (pending) {
+    return pending;
+  }
+
+  const initPromise = (async () => {
     try {
-      // Detect mode dynamically from current env vars (not cached config)
-      const currentMode = detectCurrentMode();
-      const remoteBackend = process.env.SQUISH_REMOTE_BACKEND || config.remoteBackend;
-      const teamBackend = process.env.SQUISH_TEAM_BACKEND || config.teamBackend;
-      const supabaseUrl = process.env.SUPABASE_URL || config.supabaseUrl;
-      const supabaseKey = process.env.SUPABASE_SERVICE_KEY || config.supabaseKey;
-      const neonProjectId = process.env.NEON_PROJECT_ID || config.neonProjectId;
-      const neonServiceKey = process.env.NEON_SERVICE_KEY || config.neonServiceKey;
-
-      // Priority: remote (user's Supabase/Neon) > team (PostgreSQL) > local (SQLite)
-      if (currentMode === 'remote') {
-        if (remoteBackend === 'neon' && neonProjectId && neonServiceKey) {
-          const { createNeonClient } = await import('./neon.js');
-          db = await createNeonClient();
-        } else if (supabaseUrl && supabaseKey) {
-          const { createSupabaseClient } = await import('./supabase.js');
-          db = await createSupabaseClient();
-        } else {
-          throw new Error('Remote backend not configured (need SUPABASE_URL or NEON_PROJECT_ID)');
-        }
-      } else if (currentMode === 'team') {
-        // Team mode: PostgreSQL (or Supabase/Neon if explicitly configured)
-        if (teamBackend === 'supabase' && supabaseUrl && supabaseKey) {
-          const { createSupabaseClient } = await import('./supabase.js');
-          db = await createSupabaseClient();
-        } else if (teamBackend === 'neon' && neonProjectId && neonServiceKey) {
-          const { createNeonClient } = await import('./neon.js');
-          db = await createNeonClient();
-        } else {
-          db = await createDb();
-        }
-      } else {
-        // Local mode: SQLite
-        db = await createDb();
-      }
-      lastDataDir = process.env.SQUISH_DATA_DIR || null;
+      const createdDb = await createDb();
+      dbInstances.set(cacheKey, createdDb);
+      return createdDb;
     } catch (error) {
-      dbError = error instanceof Error ? error.message : 'Database initialization failed';
+      const dbError = error instanceof Error ? error.message : 'Database initialization failed';
+      dbErrors.set(cacheKey, dbError);
       throw new Error(dbError);
+    } finally {
+      dbInitPromises.delete(cacheKey);
     }
-  }
+  })();
 
-  // Safety: never return null/undefined
-  if (!db) {
-    throw new Error('Database initialization returned null. Ensure SQUISH_DATA_DIR is set and the database driver is available.');
-  }
-
-  return db;
+  dbInitPromises.set(cacheKey, initPromise);
+  return initPromise;
 }
 
 export function resetDb(): void {
-  db = null;
-  dbError = null;
-  lastDataDir = null;
+  const cacheKey = getDbCacheKey();
+  dbInstances.delete(cacheKey);
+  dbErrors.delete(cacheKey);
+  dbInitPromises.delete(cacheKey);
   // Clear schema cache so it re-resolves for the new db
   clearSchemaCache();
 }

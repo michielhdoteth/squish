@@ -1,6 +1,7 @@
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { mkdirSync, existsSync } from 'fs';
+import { describe, test, expect, beforeEach, afterEach, beforeAll } from 'bun:test';
 
 const testDataDir = join(tmpdir(), `squish-graph-boost-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 process.env.SQUISH_DATA_DIR = testDataDir;
@@ -10,9 +11,11 @@ if (!existsSync(testDataDir)) {
   mkdirSync(testDataDir, { recursive: true });
 }
 
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { calculateGraphBoost, calculateRecencyBonus, getGraphBackend } from '../../../core/search/graph-boost.js';
-import { getDb, resetDb } from '../../../db/index.js';
+let calculateGraphBoost: typeof import('../../../core/search/graph-boost.js').calculateGraphBoost;
+let calculateRecencyBonus: typeof import('../../../core/search/graph-boost.js').calculateRecencyBonus;
+let getGraphBackend: typeof import('../../../core/search/graph-boost.js').getGraphBackend;
+let getDb: typeof import('../../../db/index.js').getDb;
+let resetDb: typeof import('../../../db/index.js').resetDb;
 
 /**
  * Integration test for graph boost v2
@@ -30,6 +33,16 @@ describe('Graph Boost v2 Integration', () => {
   let mem1Id: string;
   let mem2Id: string;
   let mem3Id: string;
+
+  beforeAll(async () => {
+    const graphMod = await import('../../../core/search/graph-boost.js');
+    const dbMod = await import('../../../db/index.js');
+    calculateGraphBoost = graphMod.calculateGraphBoost;
+    calculateRecencyBonus = graphMod.calculateRecencyBonus;
+    getGraphBackend = graphMod.getGraphBackend;
+    getDb = dbMod.getDb;
+    resetDb = dbMod.resetDb;
+  });
 
   beforeEach(async () => {
     // Ensure env vars are set for this test (other tests may have changed them)

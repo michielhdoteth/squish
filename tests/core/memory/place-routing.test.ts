@@ -1,18 +1,20 @@
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { mkdirSync, existsSync } from 'fs';
+import { beforeEach, beforeAll, describe, expect, test } from 'bun:test';
 
 const testDataDir = join(tmpdir(), `squish-place-routing-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 process.env.SQUISH_DATA_DIR = testDataDir;
 process.env.DATABASE_URL = '';
 if (!existsSync(testDataDir)) mkdirSync(testDataDir, { recursive: true });
 
-import { beforeEach, describe, expect, test } from 'bun:test';
-import { getDb, resetDb } from '../../../db/index.js';
-import { rememberMemory } from '../../../core/memory/memories.js';
-import { initializeDefaultPlaces, getPlaceByType } from '../../../core/places/places.js';
-import { getMemoryPlace } from '../../../core/places/memory-places.js';
-import { getOrCreateProject } from '../../../core/projects.js';
+let getDb: typeof import('../../../db/index.js').getDb;
+let resetDb: typeof import('../../../db/index.js').resetDb;
+let rememberMemory: typeof import('../../../core/memory/memories.js').rememberMemory;
+let initializeDefaultPlaces: typeof import('../../../core/places/places.js').initializeDefaultPlaces;
+let getPlaceByType: typeof import('../../../core/places/places.js').getPlaceByType;
+let getMemoryPlace: typeof import('../../../core/places/memory-places.js').getMemoryPlace;
+let getOrCreateProject: typeof import('../../../core/projects.js').getOrCreateProject;
 
 async function clearData() {
   const db = await getDb();
@@ -27,6 +29,21 @@ async function clearData() {
 }
 
 describe('Place routing through rememberMemory', () => {
+  beforeAll(async () => {
+    const dbMod = await import('../../../db/index.js');
+    const memoryMod = await import('../../../core/memory/memories.js');
+    const placesMod = await import('../../../core/places/places.js');
+    const placeMemoryMod = await import('../../../core/places/memory-places.js');
+    const projectsMod = await import('../../../core/projects.js');
+    getDb = dbMod.getDb;
+    resetDb = dbMod.resetDb;
+    rememberMemory = memoryMod.rememberMemory;
+    initializeDefaultPlaces = placesMod.initializeDefaultPlaces;
+    getPlaceByType = placesMod.getPlaceByType;
+    getMemoryPlace = placeMemoryMod.getMemoryPlace;
+    getOrCreateProject = projectsMod.getOrCreateProject;
+  });
+
   beforeEach(async () => {
     process.env.SQUISH_DATA_DIR = testDataDir;
     process.env.DATABASE_URL = '';

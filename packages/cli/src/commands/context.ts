@@ -21,6 +21,8 @@ export function registerContextCommand(program: Command) {
     .option('--json', 'Emit machine-readable output', false)
     .option('--pinned', 'Show pinned memories instead of full context', false)
     .option('--tiers', 'Show memory count per tier', false)
+    .option('--actor-user <user>', 'Actor user identity for team-mode ACL')
+    .option('--actor-agent <agent>', 'Actor agent identity for team-mode ACL')
     .action(async (options: any) => {
       const previousQuiet = process.env.SQUISH_QUIET;
       if (options.json) {
@@ -98,7 +100,10 @@ export function registerContextCommand(program: Command) {
             nextStep: scope.nextStep,
           }));
         } else {
-          const context = await buildContextState(options.project, parseInt(options.limit) || 10);
+          const context = await buildContextState(options.project, parseInt(options.limit) || 10, {
+            userId: options.actorUser,
+            agentId: options.actorAgent,
+          });
           if (options.json) {
             console.log(JSON.stringify({ ok: true, ...context }, null, 2));
             return;

@@ -11,6 +11,7 @@ import { getMemoryPlace } from '../places/memory-places.js';
 import { getPlace } from '../places/places.js';
 import { config } from '../../config.js';
 import { getBeliefsForMemory } from '../beliefs/store.js';
+import type { TeamAccessContext } from '../team/types.js';
 import type {
   ContextReportInput,
   CurrentProjectSummary,
@@ -130,14 +131,18 @@ async function getMemoryPlaceName(memoryId: string): Promise<string | null> {
   return place?.name ?? null;
 }
 
-export async function buildContextState(projectPath?: string, limit: number = 10): Promise<ContextReportInput> {
+export async function buildContextState(
+  projectPath?: string,
+  limit: number = 10,
+  actor?: TeamAccessContext,
+): Promise<ContextReportInput> {
   const scope = await resolveProjectScope(projectPath);
   const projectPathResolved = scope.currentProject.path;
   const [sessionSummary, signalSummary, graphStats, memories] = await Promise.all([
     getLatestProjectWorkingSetSummary(projectPathResolved),
     getProjectSignalStats(projectPathResolved),
     getGraphStats(projectPathResolved),
-    getRecent(projectPathResolved, limit),
+    getRecent(projectPathResolved, limit, actor),
   ]);
 
   const project = await getProjectByPath(projectPathResolved);
@@ -183,7 +188,7 @@ export async function buildContextState(projectPath?: string, limit: number = 10
   };
 }
 
-export async function buildStatsState(projectPath?: string): Promise<StatsReportInput> {
+export async function buildStatsState(projectPath?: string, actor?: TeamAccessContext): Promise<StatsReportInput> {
   const scope = await resolveProjectScope(projectPath);
   const projectPathResolved = scope.currentProject.path;
   const [stats, graphStats, sessionSummary] = await Promise.all([

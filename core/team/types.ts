@@ -27,6 +27,14 @@ export interface CreateTeamMemberInput {
 }
 
 /**
+ * Minimal actor identity used to resolve team membership for runtime ACL checks.
+ */
+export interface TeamAccessContext {
+  userId?: string;
+  agentId?: string;
+}
+
+/**
  * Minimal memory shape needed for ACL checks.
  * Avoids coupling to the full Drizzle Memory type.
  */

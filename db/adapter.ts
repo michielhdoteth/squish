@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { config, getDataDir } from '../config.js';
+import { getDataDir } from '../config.js';
 import { ensurePostgresSchema, ensureSqliteSchema } from './bootstrap.js';
 import { logger } from '../core/logger.js';
 
@@ -9,6 +9,16 @@ const SQL_JS_WASM_RELATIVE_PATH = '../vendor/sql.js/sql-wasm.wasm';
 
 function isBunRuntime(): boolean {
   return typeof (globalThis as { Bun?: unknown }).Bun !== 'undefined';
+}
+
+function detectCurrentMode(): 'local' | 'team' | 'remote' {
+  const databaseUrl = process.env.DATABASE_URL || '';
+  const supabaseUrl = process.env.SUPABASE_URL || '';
+  const neonProjectId = process.env.NEON_PROJECT_ID || '';
+
+  if (supabaseUrl || neonProjectId) return 'remote';
+  if (databaseUrl.startsWith('postgres')) return 'team';
+  return 'local';
 }
 
 function formatInitializationError(label: string, error: unknown): string {
@@ -80,14 +90,20 @@ async function createBunSqliteDb(dbPath: string) {
 }
 
 export async function createDb() {
-  if (config.isTeamMode) {
-    return createPostgresDb();
-  } else {
-    return createSqliteDb();
+  const currentMode = detectCurrentMode();
+
+  if (currentMode === 'remote') {
+    return createRemoteDb();
   }
+
+  if (currentMode === 'team') {
+    return createTeamDb();
+  }
+
+  return createSqliteDb();
 }
 
-async function createPostgresDb() {
+async function createTeamDb() {
   const { Pool } = await import('pg');
   const { drizzle } = await import('drizzle-orm/node-postgres');
   const schemaModule = await import('./drizzle/schema.js');
@@ -98,6 +114,26 @@ async function createPostgresDb() {
   });
 
   return drizzle(pool, { schema: schemaModule });
+}
+
+async function createRemoteDb() {
+  const remoteBackend = process.env.SQUISH_REMOTE_BACKEND || '';
+  const supabaseUrl = process.env.SUPABASE_URL || '';
+  const supabaseKey = process.env.SUPABASE_SERVICE_KEY || '';
+  const neonProjectId = process.env.NEON_PROJECT_ID || '';
+  const neonServiceKey = process.env.NEON_SERVICE_KEY || '';
+
+  if (remoteBackend === 'neon' && neonProjectId && neonServiceKey) {
+    const { createNeonClient } = await import('./neon.js');
+    return createNeonClient();
+  }
+
+  if (supabaseUrl && supabaseKey) {
+    const { createSupabaseClient } = await import('./supabase.js');
+    return createSupabaseClient();
+  }
+
+  throw new Error('Remote backend not configured (need SUPABASE_URL or NEON_PROJECT_ID)');
 }
 
 async function createSqliteDb() {

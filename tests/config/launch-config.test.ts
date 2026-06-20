@@ -101,6 +101,7 @@ async function loadDataDirSnapshot(
   const previousEnv = { ...process.env };
 
   process.chdir(cwd);
+  delete process.env.SQUISH_DATA_DIR;
 
   Object.assign(process.env, {
     DATABASE_URL: '',
@@ -122,7 +123,10 @@ async function loadDataDirSnapshot(
     return snapshot;
   } finally {
     process.chdir(previousCwd);
-    process.env = previousEnv;
+    for (const key of Object.keys(process.env)) {
+      delete process.env[key];
+    }
+    Object.assign(process.env, previousEnv);
   }
 }
 

@@ -15,11 +15,16 @@ export function registerRecentCommand(program: Command) {
     .option('--period <period>', 'Period: today, yesterday, thisweek, 7days, 14days, 30days, 90days', 'today')
     .option('-l, --limit <number>', 'Max results', '10')
     .option('-p, --project <project>', 'Project path (global if omitted)')
+    .option('--actor-user <user>', 'Actor user identity for team-mode ACL')
+    .option('--actor-agent <agent>', 'Actor agent identity for team-mode ACL')
     .option('-P, --pretty', 'Human-friendly output', false)
     .action(async (options: any) => {
       try {
         const limit = parseInt(options.limit) || 10;
-        const allRecent = await getRecent(options.project, 500);
+        const allRecent = await getRecent(options.project, 500, {
+          userId: options.actorUser,
+          agentId: options.actorAgent,
+        });
         
         const periodMap: Record<string, [string, string]> = {
           today: ['today', 'now'],

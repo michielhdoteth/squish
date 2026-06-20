@@ -4,25 +4,25 @@
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { mkdirSync, existsSync } from 'fs';
+import { describe, test, expect, beforeAll, beforeEach, afterEach } from 'bun:test';
 
 const testDataDir = join(tmpdir(), `squish-places-global-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 process.env.SQUISH_DATA_DIR = testDataDir;
 process.env.DATABASE_URL = '';
 if (!existsSync(testDataDir)) mkdirSync(testDataDir, { recursive: true });
 
-import { describe, test, expect, beforeAll, beforeEach, afterEach } from 'bun:test';
-import {
-  initializeGlobalPlaces,
-  initializeDefaultPlaces,
-  getProjectPlaces,
-  getGlobalPlaces,
-  getPlaceByType,
-  getPlace,
-  DEFAULT_PLACES,
-  GLOBAL_PROJECT_PATH,
-} from '../../../core/places/places.js';
-import { getOrCreateProject, requireProject } from '../../../core/projects.js';
-import { getDb, resetDb } from '../../../db/index.js';
+let initializeGlobalPlaces: typeof import('../../../core/places/places.js').initializeGlobalPlaces;
+let initializeDefaultPlaces: typeof import('../../../core/places/places.js').initializeDefaultPlaces;
+let getProjectPlaces: typeof import('../../../core/places/places.js').getProjectPlaces;
+let getGlobalPlaces: typeof import('../../../core/places/places.js').getGlobalPlaces;
+let getPlaceByType: typeof import('../../../core/places/places.js').getPlaceByType;
+let getPlace: typeof import('../../../core/places/places.js').getPlace;
+let DEFAULT_PLACES: typeof import('../../../core/places/places.js').DEFAULT_PLACES;
+let GLOBAL_PROJECT_PATH: typeof import('../../../core/places/places.js').GLOBAL_PROJECT_PATH;
+let getOrCreateProject: typeof import('../../../core/projects.js').getOrCreateProject;
+let requireProject: typeof import('../../../core/projects.js').requireProject;
+let getDb: typeof import('../../../db/index.js').getDb;
+let resetDb: typeof import('../../../db/index.js').resetDb;
 
 async function clearAllPlaces() {
   const db = await getDb();
@@ -36,6 +36,24 @@ async function clearAllPlaces() {
 }
 
 describe('Global Places', () => {
+  beforeAll(async () => {
+    const placesMod = await import('../../../core/places/places.js');
+    const projectsMod = await import('../../../core/projects.js');
+    const dbMod = await import('../../../db/index.js');
+    initializeGlobalPlaces = placesMod.initializeGlobalPlaces;
+    initializeDefaultPlaces = placesMod.initializeDefaultPlaces;
+    getProjectPlaces = placesMod.getProjectPlaces;
+    getGlobalPlaces = placesMod.getGlobalPlaces;
+    getPlaceByType = placesMod.getPlaceByType;
+    getPlace = placesMod.getPlace;
+    DEFAULT_PLACES = placesMod.DEFAULT_PLACES;
+    GLOBAL_PROJECT_PATH = placesMod.GLOBAL_PROJECT_PATH;
+    getOrCreateProject = projectsMod.getOrCreateProject;
+    requireProject = projectsMod.requireProject;
+    getDb = dbMod.getDb;
+    resetDb = dbMod.resetDb;
+  });
+
   beforeEach(async () => {
     process.env.SQUISH_DATA_DIR = testDataDir;
     process.env.DATABASE_URL = '';

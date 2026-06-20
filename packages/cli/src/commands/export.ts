@@ -17,6 +17,8 @@ export function registerExportCommand(program: Command) {
     .option('--place <place>', 'Filter by place (inbox, ref, wip, sandbox, board, sparks, archive)')
     .option('-l, --limit <number>', 'Max memories to export', '100')
     .option('-p, --project <project>', 'Project path')
+    .option('--actor-user <user>', 'Actor user identity for team-mode ACL')
+    .option('--actor-agent <agent>', 'Actor agent identity for team-mode ACL')
     .option('-o, --output <file>', 'Output file (default: stdout)')
     .action(async (options: any) => {
       try {
@@ -28,7 +30,9 @@ export function registerExportCommand(program: Command) {
           query: '*', // Get all
           project: options.project,
           limit,
-          placeType: options.place
+          placeType: options.place,
+          actorUser: options.actorUser,
+          actorAgent: options.actorAgent,
         });
         
         if (memories.length === 0) {

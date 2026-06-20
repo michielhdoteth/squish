@@ -193,165 +193,417 @@ function resolveDataDir(): string {
   return globalDataDir();
 }
 
-const databaseUrl = process.env.DATABASE_URL || '';
-const supabaseUrlEnv = process.env.SUPABASE_URL || '';
-const neonProjectIdEnv = process.env.NEON_PROJECT_ID || '';
-
 function detectMode(): 'local' | 'team' | 'remote' {
-  if (supabaseUrlEnv || neonProjectIdEnv) return 'remote';
+  const databaseUrl = process.env.DATABASE_URL || '';
+  const supabaseUrl = process.env.SUPABASE_URL || '';
+  const neonProjectId = process.env.NEON_PROJECT_ID || '';
+
+  if (supabaseUrl || neonProjectId) return 'remote';
   if (databaseUrl.startsWith('postgres')) return 'team';
   return 'local';
 }
 
-const detectedMode = detectMode();
-const embeddingsProvider = getEnum('embeddings.provider', 'SQUISH_EMBEDDINGS_PROVIDER', EMBEDDINGS_PROVIDERS, 'local');
-const llmEnabled = getBoolean('llm.enabled', 'SQUISH_LLM_ENABLED', false);
-const llmProvider = getEnum('llm.provider', 'SQUISH_LLM_PROVIDER', LLM_PROVIDERS, 'openai');
-const llmEndpoint = getString('llm.endpoint', 'SQUISH_LLM_ENDPOINT', '');
-const graphAutoBuild = getBoolean('graph.autoBuild', 'SQUISH_GRAPH_AUTO_BUILD', true);
-const graphAutoExport = getBoolean('graph.autoExport', 'SQUISH_GRAPH_AUTO_EXPORT', false);
-const graphExtractionMethod = getEnum('graph.extractionMethod', 'SQUISH_GRAPH_EXTRACTION_METHOD', GRAPH_EXTRACTION_METHODS, 'auto');
-const graphMaxContentLength = getNumber('graph.maxContentLength', 'SQUISH_GRAPH_MAX_CONTENT_LENGTH', 10000);
-const placeClassificationEnabled = getBoolean('places.placeClassificationEnabled', 'SQUISH_PLACE_LLM_CLASSIFICATION', false);
+let modeOverride: 'local' | 'team' | null = null;
 
-const scoringWeights = {
-  recency: getNumber('scoring.weights.recency', 'SQUISH_WEIGHT_RECENCY', 0.5),
-  relevance: getNumber('scoring.weights.relevance', 'SQUISH_WEIGHT_RELEVANCE', 3),
-  importance: getNumber('scoring.weights.importance', 'SQUISH_WEIGHT_IMPORTANCE', 2),
-  vectorSim: getNumber('scoring.weights.vectorSim', 'SQUISH_WEIGHT_VECTOR_SIM', 3),
-  graphBoost: getNumber('scoring.weights.graphBoost', 'SQUISH_WEIGHT_GRAPH_BOOST', 0.2),
-};
+function getEffectiveMode(): 'local' | 'team' | 'remote' {
+  if (modeOverride) return modeOverride;
+  return detectMode();
+}
 
-export const config = {
-  mode: detectedMode,
-  isLocalMode: detectedMode === 'local',
-  isTeamMode: detectedMode === 'team',
-  isRemoteMode: detectedMode === 'remote',
-  teamBackend: getEnum('team.backend', 'SQUISH_TEAM_BACKEND', ['postgres', 'supabase', 'neon'] as const, 'postgres'),
-  remoteBackend: getEnum('remote.backend', 'SQUISH_REMOTE_BACKEND', ['supabase', 'neon'] as const, 'supabase'),
+function getEnvironmentString(key: string, fallback = ''): string {
+  return process.env[key] || fallback;
+}
 
-  isManagedMode: getBoolean('managed.enabled', 'SQUISH_MANAGED_MODE', false),
-  managedApiUrl: getString('managed.apiUrl', 'SQUISH_MANAGED_API_URL', 'https://api.squish.dev'),
-  managedApiKey: getString('managed.apiKey', 'SQUISH_MANAGED_API_KEY', ''),
-  redisEnabled: Boolean(process.env.REDIS_URL),
-  dataDir: resolveDataDir(),
-  mcpServerPort: getNumber('mcp.serverPort', 'SQUISH_MCP_PORT', 8767),
-  autoMigrate: getBoolean('autoMigrate', 'SQUISH_AUTO_MIGRATE', false),
+function getEnvironmentBoolean(key: string, fallback: boolean): boolean {
+  return getBoolean('', key, fallback);
+}
 
-  embeddingsProvider,
-  openAiApiKey: process.env.SQUISH_OPENAI_API_KEY || process.env.OPENAI_API_KEY || '',
-  openAiApiUrl: getString('api.openai.apiUrl', 'SQUISH_OPENAI_API_URL', 'https://api.openai.com/v1/embeddings'),
-  openAiEmbeddingModel: getString('embeddings.models.openai.model', 'SQUISH_OPENAI_EMBEDDING_MODEL', ''),
-  googleCloudApiKey: process.env.GOOGLE_CLOUD_API_KEY || process.env.SQUISH_GOOGLE_CLOUD_API_KEY || '',
-  googleCloudProject: process.env.GOOGLE_CLOUD_PROJECT || process.env.SQUISH_GOOGLE_CLOUD_PROJECT || '',
-  googleCloudLocation: process.env.GOOGLE_CLOUD_LOCATION || process.env.SQUISH_GOOGLE_CLOUD_LOCATION || 'us-central1',
-  googleEmbeddingModel: getString('embeddings.models.google.model', 'SQUISH_GOOGLE_EMBEDDING_MODEL', ''),
-  ollamaUrl: getString('api.ollama.url', 'SQUISH_OLLAMA_URL', 'http://localhost:11434'),
-  ollamaEmbeddingModel: getString('embeddings.models.ollama.model', 'SQUISH_OLLAMA_EMBEDDING_MODEL', ''),
-  lmStudioUrl: getString('api.lmstudio.url', 'SQUISH_LM_STUDIO_URL', 'http://localhost:1234'),
-  lmStudioEmbeddingModel: getString('embeddings.models.lmstudio.model', 'SQUISH_LM_STUDIO_EMBEDDING_MODEL', ''),
-  transformersLocalModel: getString('embeddings.models.transformers.model', 'SQUISH_LOCAL_MODEL', ''),
+function getEnvironmentNumber(key: string, fallback: number): number {
+  return getNumber('', key, fallback);
+}
 
-  supabaseUrl: getString('supabase.url', 'SUPABASE_URL', ''),
-  supabaseKey: getString('supabase.key', 'SUPABASE_SERVICE_KEY', ''),
-  neonProjectId: process.env.NEON_PROJECT_ID || '',
-  neonServiceKey: process.env.NEON_SERVICE_KEY || '',
-  clientEncryptionEnabled: getBoolean('security.encryptionEnabled', null, false),
-  encryptionPassphrase: process.env.SQUISH_ENCRYPTION_PASSPHRASE || '',
+function getEnvironmentEnum<T extends readonly string[]>(key: string, allowed: T, fallback: T[number]): T[number] {
+  return getEnum('', key, allowed, fallback);
+}
 
-  lifecycleEnabled: getBoolean('features.lifecycleEnabled', 'SQUISH_LIFECYCLE_ENABLED', true),
-  lifecycleInterval: getNumber('lifecycle.interval', 'SQUISH_LIFECYCLE_INTERVAL', 3600000),
-  decayThreshold: getNumber('lifecycle.decay.threshold', 'SQUISH_DECAY_THRESHOLD', 0.1),
-  sectorDecayIntervals: {
+function buildScoringWeights() {
+  return {
+    recency: getNumber('scoring.weights.recency', 'SQUISH_WEIGHT_RECENCY', 0.5),
+    relevance: getNumber('scoring.weights.relevance', 'SQUISH_WEIGHT_RELEVANCE', 3),
+    importance: getNumber('scoring.weights.importance', 'SQUISH_WEIGHT_IMPORTANCE', 2),
+    vectorSim: getNumber('scoring.weights.vectorSim', 'SQUISH_WEIGHT_VECTOR_SIM', 3),
+    graphBoost: getNumber('scoring.weights.graphBoost', 'SQUISH_WEIGHT_GRAPH_BOOST', 0.2),
+  };
+}
+
+function buildLlmConfig() {
+  const enabled = getBoolean('llm.enabled', 'SQUISH_LLM_ENABLED', false);
+  const provider = getEnum('llm.provider', 'SQUISH_LLM_PROVIDER', LLM_PROVIDERS, 'openai');
+  const endpoint = getString('llm.endpoint', 'SQUISH_LLM_ENDPOINT', '');
+  return { enabled, provider, endpoint };
+}
+
+function buildGraphConfig() {
+  const autoBuild = getBoolean('graph.autoBuild', 'SQUISH_GRAPH_AUTO_BUILD', true);
+  const autoExport = getBoolean('graph.autoExport', 'SQUISH_GRAPH_AUTO_EXPORT', false);
+  const extractionMethod = getEnum('graph.extractionMethod', 'SQUISH_GRAPH_EXTRACTION_METHOD', GRAPH_EXTRACTION_METHODS, 'auto');
+  const maxContentLength = getNumber('graph.maxContentLength', 'SQUISH_GRAPH_MAX_CONTENT_LENGTH', 10000);
+  return { autoBuild, autoExport, extractionMethod, maxContentLength };
+}
+
+function buildSectorDecayIntervals() {
+  return {
     episodic: getNumber('lifecycle.decay.episodic', 'SQUISH_DECAY_EPISODIC', 30),
     semantic: getNumber('lifecycle.decay.semantic', 'SQUISH_DECAY_SEMANTIC', 90),
     procedural: getNumber('lifecycle.decay.procedural', 'SQUISH_DECAY_PROCEDURAL', 180),
     autobiographical: getNumber('lifecycle.decay.autobiographical', 'SQUISH_DECAY_AUTOBIOGRAPHICAL', 365),
     working: getNumber('lifecycle.decay.working', 'SQUISH_DECAY_WORKING', 7),
-  },
-  // Phase 5: Ebbinghaus decay engine config
-  decay: {
+  };
+}
+
+function buildDecayConfig() {
+  return {
     engine: getEnum('decay.engine', 'SQUISH_DECAY_ENGINE', DECAY_ENGINES, 'ebbinghaus'),
     hotTierDays: getNumber('decay.hotTierDays', 'SQUISH_DECAY_HOT_TIER_DAYS', 7),
     coldTierDays: getNumber('decay.coldTierDays', 'SQUISH_DECAY_COLD_TIER_DAYS', 30),
-  },
+  };
+}
 
-  // Phase 7: Memory Tier configuration
-  tiers: {
+function buildTierConfig() {
+  return {
     sturdyAccessCount: getNumber('tiers.sturdyAccessCount', 'SQUISH_STURDY_ACCESS_COUNT', 5),
     sturdyAccessWindow: getNumber('tiers.sturdyAccessWindow', 'SQUISH_STURDY_ACCESS_WINDOW', 30),
     longTermAge: getNumber('tiers.longTermAge', 'SQUISH_LONG_TERM_AGE', 90),
     longTermImportance: getNumber('tiers.longTermImportance', 'SQUISH_LONG_TERM_IMPORTANCE', 50),
     fleetingImportance: getNumber('tiers.fleetingImportance', 'SQUISH_FLETING_IMPORTANCE', 25),
     fleetingAge: getNumber('tiers.fleetingAge', 'SQUISH_FLETING_AGE', 60),
-  },
+  };
+}
 
-  summarizationEnabled: getBoolean('features.summarizationEnabled', 'SQUISH_SUMMARIZATION_ENABLED', true),
-  incrementalThreshold: getNumber('summarization.incrementalThreshold', 'SQUISH_INCREMENTAL_THRESHOLD', 10),
-  rollingWindowSize: getNumber('summarization.rollingWindowSize', 'SQUISH_ROLLING_WINDOW_SIZE', 50),
-  agentIsolationEnabled: getBoolean('features.agentIsolation', 'SQUISH_AGENT_ISOLATION_ENABLED', true),
-  defaultVisibilityScope: getEnum('visibility.defaultScope', 'SQUISH_DEFAULT_VISIBILITY', VISIBILITY_SCOPES, 'private'),
-  governanceEnabled: getBoolean('features.governanceEnabled', 'SQUISH_GOVERNANCE_ENABLED', true),
-  consolidationEnabled: getBoolean('features.consolidationEnabled', 'SQUISH_CONSOLIDATION_ENABLED', false),
-  consolidationSimilarityThreshold: getNumber('consolidation.similarityThreshold', 'SQUISH_CONSOLIDATION_THRESHOLD', 0.8),
+function buildConsolidationGeometryConfig() {
+  return {
+    enabled: getBoolean('consolidation.geometry.enabled', 'SQUISH_GEOMETRY_CONSOLIDATION', true),
+    thetaPrime: getNumber('consolidation.geometry.thetaPrime', 'SQUISH_GEOMETRY_THETA_PRIME', 0.15),
+    minClusterSize: getNumber('consolidation.geometry.minClusterSize', 'SQUISH_GEOMETRY_MIN_CLUSTER_SIZE', 3),
+    autoConsolidate: getBoolean('consolidation.geometry.autoConsolidate', 'SQUISH_GEOMETRY_AUTO_CONSOLIDATE', true),
+    autoSplit: getBoolean('consolidation.geometry.autoSplit', 'SQUISH_GEOMETRY_AUTO_SPLIT', true),
+    preservePinned: getBoolean('consolidation.geometry.preservePinned', 'SQUISH_GEOMETRY_PRESERVE_PINNED', true),
+  };
+}
 
-  // Geometry-aware consolidation config
-  consolidationGeometryEnabled: getBoolean('consolidation.geometry.enabled', 'SQUISH_GEOMETRY_CONSOLIDATION', true),
-  consolidationGeometryThetaPrime: getNumber('consolidation.geometry.thetaPrime', 'SQUISH_GEOMETRY_THETA_PRIME', 0.15),
-  consolidationGeometryMinClusterSize: getNumber('consolidation.geometry.minClusterSize', 'SQUISH_GEOMETRY_MIN_CLUSTER_SIZE', 3),
-  consolidationGeometryAutoConsolidate: getBoolean('consolidation.geometry.autoConsolidate', 'SQUISH_GEOMETRY_AUTO_CONSOLIDATE', true),
-  consolidationGeometryAutoSplit: getBoolean('consolidation.geometry.autoSplit', 'SQUISH_GEOMETRY_AUTO_SPLIT', true),
-  consolidationGeometryPreservePinned: getBoolean('consolidation.geometry.preservePinned', 'SQUISH_GEOMETRY_PRESERVE_PINNED', true),
-  enableV2ContradictionCheck: getBoolean('features.enableV2ContradictionCheck', 'SQUISH_V2_CONTRADICTION_CHECK', false),
-  externalMemoryEnabled: getBoolean('features.externalMemoryEnabled', 'SQUISH_EXTERNAL_MEMORY_ENABLED', false),
-  externalMemoryPath: getString('external.memoryPath', 'SQUISH_EXTERNAL_MEMORY_PATH', ''),
+function buildConfig() {
+  return {
+    get mode() {
+      return getEffectiveMode();
+    },
+    set mode(value: 'local' | 'team' | 'remote') {
+      if (value === 'remote') {
+        modeOverride = null;
+      } else {
+        modeOverride = value;
+      }
+    },
+    get isLocalMode() {
+      return getEffectiveMode() === 'local';
+    },
+    get isTeamMode() {
+      return getEffectiveMode() === 'team';
+    },
+    set isTeamMode(value: boolean) {
+      modeOverride = value ? 'team' : 'local';
+    },
+    get isRemoteMode() {
+      return getEffectiveMode() === 'remote';
+    },
+    get teamBackend() {
+      return getEnum('team.backend', 'SQUISH_TEAM_BACKEND', ['postgres', 'supabase', 'neon'] as const, 'postgres');
+    },
+    get remoteBackend() {
+      return getEnum('remote.backend', 'SQUISH_REMOTE_BACKEND', ['supabase', 'neon'] as const, 'supabase');
+    },
 
-  sessionAutoLoadEnabled: getBoolean('features.sessionAutoLoadEnabled', 'SQUISH_SESSION_AUTO_LOAD', true),
-  sessionAutoLoadRecentCount: getNumber('session.autoLoadRecentCount', 'SQUISH_SESSION_AUTO_LOAD_RECENT_COUNT', 5),
-  sessionAutoLoadImportanceThreshold: getNumber('session.autoLoadImportanceThreshold', 'SQUISH_SESSION_AUTO_LOAD_IMPORTANCE_THRESHOLD', 70),
-  // Phase 6: Unified Clean command - maintenance scheduling
-  maintenanceNightlyClean: getBoolean('maintenance.nightlyClean', 'SQUISH_NIGHTLY_CLEAN', true),
-  maintenanceWeeklyConsolidation: getBoolean('maintenance.weeklyConsolidation', 'SQUISH_WEEKLY_CONSOLIDATION', true),
-  maintenanceMonthlyDeep: getBoolean('maintenance.monthlyDeep', 'SQUISH_MONTHLY_DEEP', false),
+    get isManagedMode() {
+      return getBoolean('managed.enabled', 'SQUISH_MANAGED_MODE', false);
+    },
+    get managedApiUrl() {
+      return getString('managed.apiUrl', 'SQUISH_MANAGED_API_URL', 'https://api.squish.dev');
+    },
+    get managedApiKey() {
+      return getString('managed.apiKey', 'SQUISH_MANAGED_API_KEY', '');
+    },
+    get redisEnabled() {
+      return Boolean(process.env.REDIS_URL);
+    },
+    get dataDir() {
+      return resolveDataDir();
+    },
+    get mcpServerPort() {
+      return getNumber('mcp.serverPort', 'SQUISH_MCP_PORT', 8767);
+    },
+    get autoMigrate() {
+      return getBoolean('autoMigrate', 'SQUISH_AUTO_MIGRATE', false);
+    },
 
-  queryRewritingEnabled: getBoolean('features.queryRewritingEnabled', 'SQUISH_QUERY_REWRITING', true),
-  queryRewritingContextMessages: getNumber('query.rewritingContextMessages', 'SQUISH_QUERY_REWRITING_CONTEXT_MESSAGES', 5),
-  queryRewritingFallbackEnabled: getBoolean('features.queryRewritingFallbackEnabled', 'SQUISH_QUERY_REWRITING_FALLBACK', true),
-  feedbackTrackingEnabled: getBoolean('features.feedbackTrackingEnabled', 'SQUISH_FEEDBACK_TRACKING', true),
-  feedbackEchoBonus: getNumber('feedback.echoBonus', 'SQUISH_FEEDBACK_ECHO_BONUS', 10),
-  feedbackFizzlePenalty: getNumber('feedback.fizzlePenalty', 'SQUISH_FEEDBACK_FIZZLE_PENALTY', 5),
-  scoringWeights,
+    get embeddingsProvider() {
+      return getEnum('embeddings.provider', 'SQUISH_EMBEDDINGS_PROVIDER', EMBEDDINGS_PROVIDERS, 'local');
+    },
+    get openAiApiKey() {
+      return process.env.SQUISH_OPENAI_API_KEY || process.env.OPENAI_API_KEY || '';
+    },
+    get openAiApiUrl() {
+      return getString('api.openai.apiUrl', 'SQUISH_OPENAI_API_URL', 'https://api.openai.com/v1/embeddings');
+    },
+    get openAiEmbeddingModel() {
+      return getString('embeddings.models.openai.model', 'SQUISH_OPENAI_EMBEDDING_MODEL', '');
+    },
+    get googleCloudApiKey() {
+      return process.env.GOOGLE_CLOUD_API_KEY || process.env.SQUISH_GOOGLE_CLOUD_API_KEY || '';
+    },
+    get googleCloudProject() {
+      return process.env.GOOGLE_CLOUD_PROJECT || process.env.SQUISH_GOOGLE_CLOUD_PROJECT || '';
+    },
+    get googleCloudLocation() {
+      return process.env.GOOGLE_CLOUD_LOCATION || process.env.SQUISH_GOOGLE_CLOUD_LOCATION || 'us-central1';
+    },
+    get googleEmbeddingModel() {
+      return getString('embeddings.models.google.model', 'SQUISH_GOOGLE_EMBEDDING_MODEL', '');
+    },
+    get ollamaUrl() {
+      return getString('api.ollama.url', 'SQUISH_OLLAMA_URL', 'http://localhost:11434');
+    },
+    get ollamaEmbeddingModel() {
+      return getString('embeddings.models.ollama.model', 'SQUISH_OLLAMA_EMBEDDING_MODEL', '');
+    },
+    get lmStudioUrl() {
+      return getString('api.lmstudio.url', 'SQUISH_LM_STUDIO_URL', 'http://localhost:1234');
+    },
+    get lmStudioEmbeddingModel() {
+      return getString('embeddings.models.lmstudio.model', 'SQUISH_LM_STUDIO_EMBEDDING_MODEL', '');
+    },
+    get transformersLocalModel() {
+      return getString('embeddings.models.transformers.model', 'SQUISH_LOCAL_MODEL', '');
+    },
 
-  schedulerMode: getEnum('scheduler.mode', 'SQUISH_SCHEDULER_MODE', SCHEDULER_MODES, 'cron'),
-  cronEnabled: getBoolean('scheduler.cronEnabled', 'SQUISH_CRON_ENABLED', true),
-  heartbeatInterval: getNumber('scheduler.heartbeatInterval', 'SQUISH_HEARTBEAT_INTERVAL', 60000),
-  jobRetentionDays: getNumber('scheduler.jobRetentionDays', 'SQUISH_JOB_RETENTION_DAYS', 30),
-  coreMemoryTotalBytes: getNumber('coreMemory.totalBytes', 'SQUISH_CORE_MEMORY_TOTAL_BYTES', 16384),
-  coreMemorySectionBytes: getNumber('coreMemory.sectionBytes', 'SQUISH_CORE_MEMORY_SECTION_BYTES', 4096),
+    get supabaseUrl() {
+      return getString('supabase.url', 'SUPABASE_URL', '');
+    },
+    get supabaseKey() {
+      return getString('supabase.key', 'SUPABASE_SERVICE_KEY', '');
+    },
+    get neonProjectId() {
+      return process.env.NEON_PROJECT_ID || '';
+    },
+    get neonServiceKey() {
+      return process.env.NEON_SERVICE_KEY || '';
+    },
+    get clientEncryptionEnabled() {
+      return getBoolean('security.encryptionEnabled', null, false);
+    },
+    get encryptionPassphrase() {
+      return process.env.SQUISH_ENCRYPTION_PASSPHRASE || '';
+    },
 
-  embeddingsTimeoutMs: getNumber('embeddings.timeout', 'SQUISH_EMBEDDINGS_TIMEOUT_MS', 30000),
-  embeddingsMaxRetries: getNumber('embeddings.maxRetries', 'SQUISH_EMBEDDINGS_MAX_RETRIES', 3),
-  embeddingsRetryDelayMs: getNumber('embeddings.retryDelay', 'SQUISH_EMBEDDINGS_RETRY_DELAY_MS', 1000),
-  openAiTimeoutMs: getNumber('embeddings.models.openai.timeout', 'SQUISH_OPENAI_TIMEOUT_MS', getNumber('embeddings.timeout', 'SQUISH_EMBEDDINGS_TIMEOUT_MS', 30000)),
-  ollamaTimeoutMs: getNumber('embeddings.models.ollama.timeout', 'SQUISH_OLLAMA_TIMEOUT_MS', getNumber('embeddings.timeout', 'SQUISH_EMBEDDINGS_TIMEOUT_MS', 30000)),
-  googleTimeoutMs: getNumber('embeddings.models.google.timeout', 'SQUISH_GOOGLE_TIMEOUT_MS', getNumber('embeddings.timeout', 'SQUISH_EMBEDDINGS_TIMEOUT_MS', 30000)),
+    get lifecycleEnabled() {
+      return getBoolean('features.lifecycleEnabled', 'SQUISH_LIFECYCLE_ENABLED', true);
+    },
+    get lifecycleInterval() {
+      return getNumber('lifecycle.interval', 'SQUISH_LIFECYCLE_INTERVAL', 3600000);
+    },
+    get decayThreshold() {
+      return getNumber('lifecycle.decay.threshold', 'SQUISH_DECAY_THRESHOLD', 0.1);
+    },
+    get sectorDecayIntervals() {
+      return buildSectorDecayIntervals();
+    },
+    get decay() {
+      return buildDecayConfig();
+    },
 
-  llmEnabled,
-  llmApiKey: process.env.SQUISH_LLM_API_KEY || process.env.OPENAI_API_KEY || '',
-  llmProvider,
-  llmExtractionModel: getString('llm.models.extraction', 'SQUISH_LLM_EXTRACTION_MODEL', ''),
-  llmReasoningModel: getString('llm.models.reasoning', 'SQUISH_LLM_REASONING_MODEL', ''),
-  llmEndpoint,
-  llm: { enabled: llmEnabled, provider: llmProvider, endpoint: llmEndpoint },
+    get tiers() {
+      return buildTierConfig();
+    },
 
-  graphAutoBuild,
-  graphAutoExport,
-  graphExtractionMethod,
-  graphMaxContentLength,
-  graphBackend: getEnum('graph.backend', 'SQUISH_GRAPH_BACKEND', ['memory', 'kuzu'] as const, 'memory'),
-  kuzuPath: getString('graph.kuzuPath', 'SQUISH_KUZU_PATH', './squish.graph'),
-  graph: { autoBuild: graphAutoBuild, autoExport: graphAutoExport, extractionMethod: graphExtractionMethod, maxContentLength: graphMaxContentLength },
-  placeClassificationEnabled,
-};
+    get summarizationEnabled() {
+      return getBoolean('features.summarizationEnabled', 'SQUISH_SUMMARIZATION_ENABLED', true);
+    },
+    get incrementalThreshold() {
+      return getNumber('summarization.incrementalThreshold', 'SQUISH_INCREMENTAL_THRESHOLD', 10);
+    },
+    get rollingWindowSize() {
+      return getNumber('summarization.rollingWindowSize', 'SQUISH_ROLLING_WINDOW_SIZE', 50);
+    },
+    get agentIsolationEnabled() {
+      return getBoolean('features.agentIsolation', 'SQUISH_AGENT_ISOLATION_ENABLED', true);
+    },
+    get defaultVisibilityScope() {
+      return getEnum('visibility.defaultScope', 'SQUISH_DEFAULT_VISIBILITY', VISIBILITY_SCOPES, 'private');
+    },
+    get governanceEnabled() {
+      return getBoolean('features.governanceEnabled', 'SQUISH_GOVERNANCE_ENABLED', true);
+    },
+    get consolidationEnabled() {
+      return getBoolean('features.consolidationEnabled', 'SQUISH_CONSOLIDATION_ENABLED', false);
+    },
+    get consolidationSimilarityThreshold() {
+      return getNumber('consolidation.similarityThreshold', 'SQUISH_CONSOLIDATION_THRESHOLD', 0.8);
+    },
+
+    get consolidationGeometryEnabled() {
+      return buildConsolidationGeometryConfig().enabled;
+    },
+    get consolidationGeometryThetaPrime() {
+      return buildConsolidationGeometryConfig().thetaPrime;
+    },
+    get consolidationGeometryMinClusterSize() {
+      return buildConsolidationGeometryConfig().minClusterSize;
+    },
+    get consolidationGeometryAutoConsolidate() {
+      return buildConsolidationGeometryConfig().autoConsolidate;
+    },
+    get consolidationGeometryAutoSplit() {
+      return buildConsolidationGeometryConfig().autoSplit;
+    },
+    get consolidationGeometryPreservePinned() {
+      return buildConsolidationGeometryConfig().preservePinned;
+    },
+    get enableV2ContradictionCheck() {
+      return getBoolean('features.enableV2ContradictionCheck', 'SQUISH_V2_CONTRADICTION_CHECK', false);
+    },
+    get externalMemoryEnabled() {
+      return getBoolean('features.externalMemoryEnabled', 'SQUISH_EXTERNAL_MEMORY_ENABLED', false);
+    },
+    get externalMemoryPath() {
+      return getString('external.memoryPath', 'SQUISH_EXTERNAL_MEMORY_PATH', '');
+    },
+
+    get sessionAutoLoadEnabled() {
+      return getBoolean('features.sessionAutoLoadEnabled', 'SQUISH_SESSION_AUTO_LOAD', true);
+    },
+    get sessionAutoLoadRecentCount() {
+      return getNumber('session.autoLoadRecentCount', 'SQUISH_SESSION_AUTO_LOAD_RECENT_COUNT', 5);
+    },
+    get sessionAutoLoadImportanceThreshold() {
+      return getNumber('session.autoLoadImportanceThreshold', 'SQUISH_SESSION_AUTO_LOAD_IMPORTANCE_THRESHOLD', 70);
+    },
+    get maintenanceNightlyClean() {
+      return getBoolean('maintenance.nightlyClean', 'SQUISH_NIGHTLY_CLEAN', true);
+    },
+    get maintenanceWeeklyConsolidation() {
+      return getBoolean('maintenance.weeklyConsolidation', 'SQUISH_WEEKLY_CONSOLIDATION', true);
+    },
+    get maintenanceMonthlyDeep() {
+      return getBoolean('maintenance.monthlyDeep', 'SQUISH_MONTHLY_DEEP', false);
+    },
+
+    get queryRewritingEnabled() {
+      return getBoolean('features.queryRewritingEnabled', 'SQUISH_QUERY_REWRITING', true);
+    },
+    get queryRewritingContextMessages() {
+      return getNumber('query.rewritingContextMessages', 'SQUISH_QUERY_REWRITING_CONTEXT_MESSAGES', 5);
+    },
+    get queryRewritingFallbackEnabled() {
+      return getBoolean('features.queryRewritingFallbackEnabled', 'SQUISH_QUERY_REWRITING_FALLBACK', true);
+    },
+    get feedbackTrackingEnabled() {
+      return getBoolean('features.feedbackTrackingEnabled', 'SQUISH_FEEDBACK_TRACKING', true);
+    },
+    get feedbackEchoBonus() {
+      return getNumber('feedback.echoBonus', 'SQUISH_FEEDBACK_ECHO_BONUS', 10);
+    },
+    get feedbackFizzlePenalty() {
+      return getNumber('feedback.fizzlePenalty', 'SQUISH_FEEDBACK_FIZZLE_PENALTY', 5);
+    },
+    get scoringWeights() {
+      return buildScoringWeights();
+    },
+
+    get schedulerMode() {
+      return getEnum('scheduler.mode', 'SQUISH_SCHEDULER_MODE', SCHEDULER_MODES, 'cron');
+    },
+    get cronEnabled() {
+      return getBoolean('scheduler.cronEnabled', 'SQUISH_CRON_ENABLED', true);
+    },
+    get heartbeatInterval() {
+      return getNumber('scheduler.heartbeatInterval', 'SQUISH_HEARTBEAT_INTERVAL', 60000);
+    },
+    get jobRetentionDays() {
+      return getNumber('scheduler.jobRetentionDays', 'SQUISH_JOB_RETENTION_DAYS', 30);
+    },
+    get coreMemoryTotalBytes() {
+      return getNumber('coreMemory.totalBytes', 'SQUISH_CORE_MEMORY_TOTAL_BYTES', 16384);
+    },
+    get coreMemorySectionBytes() {
+      return getNumber('coreMemory.sectionBytes', 'SQUISH_CORE_MEMORY_SECTION_BYTES', 4096);
+    },
+
+    get embeddingsTimeoutMs() {
+      return getNumber('embeddings.timeout', 'SQUISH_EMBEDDINGS_TIMEOUT_MS', 30000);
+    },
+    get embeddingsMaxRetries() {
+      return getNumber('embeddings.maxRetries', 'SQUISH_EMBEDDINGS_MAX_RETRIES', 3);
+    },
+    get embeddingsRetryDelayMs() {
+      return getNumber('embeddings.retryDelay', 'SQUISH_EMBEDDINGS_RETRY_DELAY_MS', 1000);
+    },
+    get openAiTimeoutMs() {
+      return getNumber('embeddings.models.openai.timeout', 'SQUISH_OPENAI_TIMEOUT_MS', getNumber('embeddings.timeout', 'SQUISH_EMBEDDINGS_TIMEOUT_MS', 30000));
+    },
+    get ollamaTimeoutMs() {
+      return getNumber('embeddings.models.ollama.timeout', 'SQUISH_OLLAMA_TIMEOUT_MS', getNumber('embeddings.timeout', 'SQUISH_EMBEDDINGS_TIMEOUT_MS', 30000));
+    },
+    get googleTimeoutMs() {
+      return getNumber('embeddings.models.google.timeout', 'SQUISH_GOOGLE_TIMEOUT_MS', getNumber('embeddings.timeout', 'SQUISH_EMBEDDINGS_TIMEOUT_MS', 30000));
+    },
+
+    get llmEnabled() {
+      return buildLlmConfig().enabled;
+    },
+    get llmApiKey() {
+      return process.env.SQUISH_LLM_API_KEY || process.env.OPENAI_API_KEY || '';
+    },
+    get llmProvider() {
+      return buildLlmConfig().provider;
+    },
+    get llmExtractionModel() {
+      return getString('llm.models.extraction', 'SQUISH_LLM_EXTRACTION_MODEL', '');
+    },
+    get llmReasoningModel() {
+      return getString('llm.models.reasoning', 'SQUISH_LLM_REASONING_MODEL', '');
+    },
+    get llmEndpoint() {
+      return buildLlmConfig().endpoint;
+    },
+    get llm() {
+      return buildLlmConfig();
+    },
+
+    get graphAutoBuild() {
+      return buildGraphConfig().autoBuild;
+    },
+    get graphAutoExport() {
+      return buildGraphConfig().autoExport;
+    },
+    get graphExtractionMethod() {
+      return buildGraphConfig().extractionMethod;
+    },
+    get graphMaxContentLength() {
+      return buildGraphConfig().maxContentLength;
+    },
+    get graphBackend() {
+      return getEnum('graph.backend', 'SQUISH_GRAPH_BACKEND', ['memory', 'kuzu'] as const, 'memory');
+    },
+    get kuzuPath() {
+      return getString('graph.kuzuPath', 'SQUISH_KUZU_PATH', './squish.graph');
+    },
+    get graph() {
+      return buildGraphConfig();
+    },
+    get placeClassificationEnabled() {
+      return getBoolean('places.placeClassificationEnabled', 'SQUISH_PLACE_LLM_CLASSIFICATION', false);
+    },
+  };
+}
+
+export const config = buildConfig();
 
 export default config;

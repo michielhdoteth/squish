@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 import { config } from '../../config.js';
 import { logger } from '../../core/logger.js';
 import { getOrCreateProject, requireProject } from '../../core/projects.js';
@@ -26,6 +26,11 @@ import { findOrCreateCluster, updateClusterStats } from '../clustering/cluster-e
 import { evaluateCluster, shouldConsolidate, shouldSplit } from '../clustering/consolidation-check.js';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
+import { canWriteMemory } from '../team/acl.js';
+import { filterMemoriesByScope } from '../team/scope-filter.js';
+import { getTeamMember } from '../team/workspace.js';
+import type { VisibilityScope } from '../team/types.js';
+import type { TeamAccessContext, TeamMember } from '../team/types.js';
 
 // MemoryType and MemoryRecord imported from ../lib/types.js
 
@@ -35,6 +40,9 @@ export interface RememberInput {
   tags?: string[];
   project?: string;
   user?: string;            // Optional user identifier (name or email)
+  actorUser?: string;
+  actorAgent?: string;
+  visibilityScope?: VisibilityScope;
   metadata?: Record<string, unknown>;
   source?: string;
   // Rich context fields (Agent 4 feedback)
@@ -98,6 +106,9 @@ export interface SearchInput {
   limit?: number;
   project?: string;
   user?: string;           // Optional user filter (name or email)
+  actorUser?: string;
+  actorAgent?: string;
+  visibilityScope?: VisibilityScope | VisibilityScope[]; // Optional visibility filter
   // Place and session filters for unified search (Task 2, Task 3)
   placeId?: string;        // Filter by place
   placeType?: string;     // Filter by place type (inbox, wip, archive, etc.)
@@ -118,10 +129,33 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
   const { db, schema } = await getDbClient();
   const tags = normalizeTags(input.tags);
   const project = input.project ? await getOrCreateProject(input.project) : null;
+  const actor = await resolveTeamAccessMember(project?.id, {
+    userId: input.actorUser ?? input.user,
+    agentId: input.actorAgent,
+  });
+  const accessUser = input.actorUser ?? input.user;
   const embedding = await getEmbedding(input.content);
   const id = randomUUID();
   const signals = detectMemorySignals(input.content);
   const type = input.type ?? signals.suggestedType;
+  const visibilityScope = input.visibilityScope ?? config.defaultVisibilityScope;
+  const readScope = buildReadScope(visibilityScope, accessUser);
+  const writeScope = buildWriteScope(visibilityScope, accessUser);
+  const serializedReadScope = serializeScopeList(readScope);
+  const serializedWriteScope = serializeScopeList(writeScope);
+
+  if (config.isTeamMode && project && !actor) {
+    logger.warn('[TeamMode] Writing memory without actor identity; falling back to legacy project-scoped write');
+  }
+
+  if (config.isTeamMode && actor && !canWriteMemory({
+    visibilityScope,
+    projectId: project?.id ?? null,
+    userId: input.actorUser ?? input.user ?? null,
+    agentId: input.actorAgent ?? null,
+  }, actor)) {
+    throw new Error('Not authorized to write this memory in team mode');
+  }
 
   const baseValues = {
     id,
@@ -129,6 +163,7 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
     type,
     content: input.content,
     source: input.source ?? 'mcp',
+    visibilityScope,
   };
 
   // Calculate initial importance score
@@ -180,6 +215,9 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
     tokensEstimate,
     createdAt: new Date(),
     status: 'active',
+    visibilityScope,
+    readScope: serializedReadScope,
+    writeScope: serializedWriteScope,
   };
 
   // Add namespace if specified
@@ -188,9 +226,9 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
   }
 
   // Add user if specified
-  if (input.user && schema.users) {
+  if (accessUser && schema.users) {
     try {
-      const userRecord = await getOrCreateUser(input.user, db, schema);
+      const userRecord = await getOrCreateUser(accessUser, db, schema);
       if (userRecord) {
         insertValues.userId = userRecord.id;
       }
@@ -322,13 +360,18 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
   content: input.content,
   tags,
   metadata: enrichedMetadata,
+  visibilityScope,
   importance: importance.score as number,
 };
 
   return memoryRecord;
 }
 
-export async function getMemory(id: string, incrementAccess: boolean = true): Promise<MemoryRecord | null> {
+export async function getMemory(
+  id: string,
+  incrementAccess: boolean = true,
+  actor?: TeamAccessContext,
+): Promise<MemoryRecord | null> {
   try {
     // Validate UUID
     requireUuid(id);
@@ -348,8 +391,8 @@ export async function getMemory(id: string, incrementAccess: boolean = true): Pr
 			.where(eq(schema.memories.id, id));
 		}
 
-		let content = row.content;
-		if (row.is_encrypted) {
+  let content = row.content;
+  if (row.is_encrypted) {
 		  try {
 		    content = decrypt(row.encrypted_content, row.encryption_nonce);
 		  } catch (e) {
@@ -358,7 +401,15 @@ export async function getMemory(id: string, incrementAccess: boolean = true): Pr
 		  }
 		}
 		const decryptedRow = { ...row, content };
-		return normalizeMemory(decryptedRow);
+    const normalized = normalizeMemory(decryptedRow);
+    if (config.isTeamMode) {
+      const allowed = await isMemoryReadableByTeamContext(normalized, {
+        projectId: normalized.projectId ?? row.projectId ?? row.project_id ?? null,
+        ...actor,
+      });
+      if (!allowed) return null;
+    }
+		return normalized;
 	} catch (error: any) {
 		throw error;
 	}
@@ -379,7 +430,7 @@ export async function setConfidence(id: string, level: 'certain' | 'speculative'
 	}
 }
 
-export async function getRecent(projectPath: string, limit: number): Promise<MemoryRecord[]> {
+export async function getRecent(projectPath: string, limit: number, actor?: TeamAccessContext): Promise<MemoryRecord[]> {
   try {
     const { db } = await getDbClient();
     const sqlite = db.$client as any;
@@ -393,7 +444,12 @@ export async function getRecent(projectPath: string, limit: number): Promise<Mem
       LIMIT ?
     `).all(project.id, limit);
 
-    return rows.map((row: any) => normalizeMemory(row));
+    const memories = rows.map((row: any) => normalizeMemory(row));
+    if (!config.isTeamMode) {
+      return memories;
+    }
+    const member = await resolveTeamAccessMember(project.id, actor);
+    return filterReadableMemories(memories, member, project.id);
   } catch (error: any) {
     throw error;
   }
@@ -416,9 +472,25 @@ export async function search(input: SearchInput): Promise<SearchResult[]> {
     }
   }
 
+  const project = input.project ? await requireProject(input.project) : null;
+  const member = config.isTeamMode && project
+    ? await resolveTeamAccessMember(project.id, {
+        userId: input.actorUser ?? input.user,
+        agentId: input.actorAgent,
+      })
+    : null;
+
   // Always use hybrid search for both SQLite and PostgreSQL
   // Omitted project means truly global search.
-  const dbResults = await hybridSearchImpl(input, { limit });
+  let dbResults = await hybridSearchImpl(input, { limit });
+
+  if (dbResults.length === 0) {
+    dbResults = await fallbackSearchByRecency(input, limit);
+  }
+
+  if (config.isTeamMode) {
+    dbResults = filterReadableMemories(dbResults, member, project?.id ?? null);
+  }
 
   // Post-filter by userId if user filter was provided
   if (userId) {
@@ -428,6 +500,102 @@ export async function search(input: SearchInput): Promise<SearchResult[]> {
   }
 
   return dbResults.slice(0, limit);
+}
+
+async function fallbackSearchByRecency(input: SearchInput, limit: number): Promise<SearchResult[]> {
+  try {
+    const { db, schema } = await getDbClient();
+    const conditions: any[] = [];
+
+    if (input.project) {
+      const project = await requireProject(input.project);
+      conditions.push(eq(schema.memories.projectId, project.id));
+    }
+
+    if (input.type) {
+      conditions.push(eq(schema.memories.type, input.type));
+    }
+
+    const visibilityScopes = normalizeVisibilityScopes(input.visibilityScope);
+    if (visibilityScopes && visibilityScopes.length > 0) {
+      conditions.push(inArray(schema.memories.visibilityScope, visibilityScopes));
+    }
+
+    const query = (db as any)
+      .select()
+      .from(schema.memories);
+
+    const rows = conditions.length > 0
+      ? await query.where(and(...conditions)).orderBy(desc(schema.memories.createdAt)).limit(limit * 2)
+      : await query.orderBy(desc(schema.memories.createdAt)).limit(limit * 2);
+
+    let results = rows.map((row: any): SearchResult => ({
+      ...normalizeMemory(row),
+      similarity: 0,
+    }));
+    if (config.isTeamMode) {
+      const projectId = input.project ? (await requireProject(input.project)).id : null;
+      const member = projectId
+        ? await resolveTeamAccessMember(projectId, {
+            userId: input.actorUser ?? input.user,
+            agentId: input.actorAgent,
+          })
+        : null;
+      results = filterReadableMemories(results, member, projectId);
+    }
+    return results;
+  } catch {
+    return [];
+  }
+}
+
+function normalizeVisibilityScopes(visibilityScope?: SearchInput['visibilityScope']): string[] | null {
+  if (!visibilityScope) return null;
+  return Array.isArray(visibilityScope) ? visibilityScope : [visibilityScope];
+}
+
+async function resolveTeamAccessMember(projectId: string | null | undefined, actor?: TeamAccessContext): Promise<TeamMember | null> {
+  if (!config.isTeamMode) return null;
+  if (!projectId) return null;
+  if (!actor?.userId && !actor?.agentId) return null;
+  try {
+    return await getTeamMember(projectId, actor.userId, actor.agentId);
+  } catch {
+    return null;
+  }
+}
+
+function filterReadableMemories<T extends { visibilityScope?: string | null; projectId?: string | null; userId?: string | null; agentId?: string | null }>(
+  memories: T[],
+  member: TeamMember | null,
+  projectId: string | null,
+): T[] {
+  if (!config.isTeamMode) return memories;
+  if (member) {
+    return filterMemoriesByScope(memories as any, member) as T[];
+  }
+  return memories.filter((memory) => {
+    const scope = memory.visibilityScope ?? 'private';
+    if (scope === 'global') return true;
+    if (scope === 'private') return false;
+    if (!projectId) return false;
+    return !memory.projectId || memory.projectId === projectId;
+  });
+}
+
+async function isMemoryReadableByTeamContext(
+  memory: MemoryRecord,
+  actor: TeamAccessContext & { projectId?: string | null },
+): Promise<boolean> {
+  if (!config.isTeamMode) return true;
+  const scope = memory.visibilityScope ?? 'private';
+  if (scope === 'global') return true;
+  if (!actor.projectId) return false;
+  const member = await resolveTeamAccessMember(actor.projectId, actor);
+  if (!member) {
+    return scope !== 'private';
+  }
+  return filterMemoriesByScope([memory as any], member).length > 0;
 }
 
 // parseEmbedding imported from ../lib/parse-embedding.js
@@ -623,12 +791,43 @@ function normalizeMemory(row: any): MemoryRecord {
     summary: row.summary ?? null,
     tags,
     metadata,
+    visibilityScope: row.visibilityScope ?? row.visibility_scope ?? null,
     createdAt: createdAtStr,
     validFrom: row.validFrom ?? row.valid_from ?? null,
     validTo: row.validTo ?? row.valid_to ?? null,
     recordedAt: row.recordedAt ?? row.recorded_at ?? null,
     confidenceLevel: row.confidenceLevel ?? row.confidence_level ?? null,
   };
+}
+
+function buildReadScope(scope: VisibilityScope, user?: string): string[] {
+  switch (scope) {
+    case 'private':
+      return user ? [`user:${user}`] : ['private'];
+    case 'project':
+      return user ? [`user:${user}`, 'project:*'] : ['project:*'];
+    case 'team':
+      return user ? [`user:${user}`, 'team:*'] : ['team:*'];
+    case 'global':
+      return ['*'];
+  }
+}
+
+function buildWriteScope(scope: VisibilityScope, user?: string): string[] {
+  switch (scope) {
+    case 'private':
+      return user ? [`user:${user}`] : ['private'];
+    case 'project':
+      return user ? [`user:${user}`, 'project:*'] : ['project:*'];
+    case 'team':
+      return user ? [`user:${user}`, 'team:*'] : ['team:*'];
+    case 'global':
+      return ['*'];
+  }
+}
+
+function serializeScopeList(scopes: string[]): string[] | string {
+  return config.isTeamMode ? scopes : JSON.stringify(scopes);
 }
 
 /**

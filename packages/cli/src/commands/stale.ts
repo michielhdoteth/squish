@@ -14,11 +14,16 @@ export function registerStaleCommand(program: Command) {
     .option('-d, --days <number>', 'Show memories older than N days', '30')
     .option('-l, --limit <number>', 'Max results', '20')
     .option('-p, --project <project>', 'Project path (global if omitted)')
+    .option('--actor-user <user>', 'Actor user identity for team-mode ACL')
+    .option('--actor-agent <agent>', 'Actor agent identity for team-mode ACL')
     .action(async (options: any) => {
       try {
         const days = parseInt(options.days) || 30;
         const cutoffDate = new Date(Date.now() - days * 86400000);
-        const results = await getRecent(options.project, 500);
+        const results = await getRecent(options.project, 500, {
+          userId: options.actorUser,
+          agentId: options.actorAgent,
+        });
         
         const stale = results.filter((m: any) => {
           const created = m.createdAt ? new Date(m.createdAt) : null;

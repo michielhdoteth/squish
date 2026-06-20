@@ -50,6 +50,8 @@ export async function storeAgentMemory(
     // Determine scopes based on visibility
     const readScope = calculateReadScope(context, visibilityScope);
     const writeScope = [`agent:${context.agentId}`];
+    const serializedReadScope = serializeScopeList(readScope);
+    const serializedWriteScope = serializeScopeList(writeScope);
 
     await (db as any).insert(schema.memories).values({
       id: memoryId,
@@ -61,8 +63,8 @@ export async function storeAgentMemory(
       userId: context.userId || null,
       projectId: context.projectId || null,
       visibilityScope,
-      writeScope,
-      readScope,
+      writeScope: serializedWriteScope,
+      readScope: serializedReadScope,
       tags: options.tags || [],
       metadata: options.metadata || null,
       embedding: embedding || null,
@@ -102,8 +104,12 @@ function calculateReadScope(context: AgentContext, visibility: VisibilityScope):
     case 'global':
       return ['*'];
     default:
-      return [`agent:${context.agentId}`];
-  }
+  return [`agent:${context.agentId}`];
+}
+
+function serializeScopeList(scopes: string[]): string[] | string {
+  return config.isTeamMode ? scopes : JSON.stringify(scopes);
+}
 }
 
 async function storeStandardMemory(

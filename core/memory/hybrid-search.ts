@@ -24,6 +24,7 @@ import { getRetrievalConfig, type SquishRetrievalConfig, type RetrievalScoringCo
 import { questionPlaceType, getAdjacentPlaces as getQuestionAdjacentPlaces } from '../places/question-router.js';
 import { getSchema } from '../../db/schema.js';
 import { eq, and, gte, inArray } from 'drizzle-orm';
+import type { VisibilityScope } from '../team/types.js';
 
 /**
  * Detect if query asks about time (temporal queries)
@@ -50,6 +51,13 @@ function isMultiSessionQuery(query: string): boolean {
   ];
   const lower = query.toLowerCase();
   return multiSessionIndicators.some(w => lower.includes(w));
+}
+
+function normalizeVisibilityScopes(
+  visibilityScope?: SearchInput['visibilityScope']
+): VisibilityScope[] | null {
+  if (!visibilityScope) return null;
+  return Array.isArray(visibilityScope) ? visibilityScope : [visibilityScope];
 }
 
 /**
@@ -575,6 +583,16 @@ export async function hybridSearch(
   trace.finalResultCount = results.length;
   for (const r of results) {
     trace.scoreBreakdown[r.id] = r.similarity ?? 0;
+  }
+
+  const visibilityScopes = normalizeVisibilityScopes(input.visibilityScope);
+  if (visibilityScopes && visibilityScopes.length > 0) {
+    results = results.filter((result: any) => {
+      const scope = (result.visibilityScope ?? result.visibility_scope ?? 'private') as VisibilityScope;
+      return visibilityScopes.includes(scope);
+    });
+    trace.finalOrder = results.map(r => r.id);
+    trace.finalResultCount = results.length;
   }
 
   // Attach trace to results when trace mode is enabled

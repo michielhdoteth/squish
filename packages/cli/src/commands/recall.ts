@@ -18,6 +18,8 @@ export function registerRecallCommand(program: Command) {
     .option('-l, --limit <number>', 'Max results', '5')
     .option('-P, --pretty', 'Human-friendly output', false)
     .option('-p, --project <project>', 'Project path')
+    .option('--actor-user <user>', 'Actor user identity for team-mode ACL')
+    .option('--actor-agent <agent>', 'Actor agent identity for team-mode ACL')
     .action(async (query: string, options: any) => {
       try {
         const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(query);
@@ -25,7 +27,10 @@ export function registerRecallCommand(program: Command) {
         let result;
         
         if (isUuid) {
-          const memory = await getMemory(query);
+          const memory = await getMemory(query, true, {
+            userId: options.actorUser,
+            agentId: options.actorAgent,
+          });
           if (!memory) {
             console.error(JSON.stringify({ ok: false, error: 'Memory not found' }));
             process.exit(1);
@@ -38,7 +43,9 @@ export function registerRecallCommand(program: Command) {
             project: options.project,
             limit,
             type: options.type,
-            placeType: options.place
+            placeType: options.place,
+            actorUser: options.actorUser,
+            actorAgent: options.actorAgent,
           });
           result = await Promise.all(memories.map(async (memory) => {
             const metadata = (memory.metadata ?? {}) as Record<string, unknown>;
