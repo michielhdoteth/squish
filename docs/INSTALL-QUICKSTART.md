@@ -2,6 +2,8 @@
 
 Launch-ready install and verification paths for the current release.
 
+Squish is free to run locally. Squish Cloud is the paid managed tier when you want sync, dashboard, and team features.
+
 ## 1) Install
 
 Recommended:
@@ -53,6 +55,7 @@ squish run web
 squish context --json
 squish health --json
 squish stats --json
+squish status --pretty
 ```
 
 If you want to inspect why a specific record exists:

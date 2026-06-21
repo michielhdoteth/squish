@@ -1,20 +1,27 @@
-# Squish — Memory Runtime for AI Agents
+# Squish - One command. Memory everywhere.
 
 [![npm version](https://img.shields.io/npm/v/squish-memory)](https://www.npmjs.com/package/squish-memory)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![GitHub stars](https://img.shields.io/github/stars/michielhdoteth/squish?style=social)](https://github.com/michielhdoteth/squish/stargazers)
 
-> Local-first. Optional LLM support.
+> Local-first memory runtime for Claude Code, Codex, ChatGPT, MCP workflows, and local agents.
 >
-> Star the repo if Squish saves you context.
+> Works locally for free. Squish Cloud is available for cross-device sync.
 
-**Squish gives agents stable orientation, durable memory, and searchable session history across runs.** Local-first. Optional LLM support. Works with Claude Code, Cursor, Codex, Copilot, Gemini CLI, and any MCP-compatible tool.
+**Squish gives agents stable orientation, durable memory, and searchable session history across runs.** Use it locally with no cloud dependency, or connect Squish Cloud for sync across machines.
 
 ```bash
-npm install -g squish-memory && squish install --all
+npm i -g squish-memory && squish install --all
 ```
 
-Squish provides AI agent memory that persists between sessions, across agents, and across machines. It is a local-first MCP server with built-in embeddings, a knowledge graph, and hybrid retrieval — no external database or API key required. Use it for free locally, or enable Squish Cloud for cross-device sync.
+Squish provides AI agent memory that persists between sessions, across agents, and across machines. It is a free local-first MCP server with built-in embeddings, a knowledge graph, and hybrid retrieval. Squish Cloud is the paid managed tier for sync, dashboard, and team features.
+
+Cloud pricing:
+
+- Local Free: $0
+- Cloud Solo: $9/mo
+- Cloud Pro: $29/mo
+- Founder Pass: $49-$99
 
 <p align="center">
   <img src="assets/demo/squish-demo.gif" width="780" alt="Squish Demo" />
@@ -194,7 +201,7 @@ squish context    # See what your agent remembers
 squish stats      # Check memory health
 ```
 
-Works locally free. Optional cloud sync available at [squishplugin.dev](https://squishplugin.dev).
+Works locally free. Paid Squish Cloud is available at [squishplugin.dev](https://squishplugin.dev) for sync, dashboard, and team features.
 
 ---
 
@@ -441,7 +448,7 @@ Bring your own LLM if you want — Squish supports external embeddings and reaso
 - **CLI**: `squish remember`, `recall`, `inspect`, `context`, `stats`, `search`, `sessions`
 - **MCP Server**: 15 tools for any MCP client — recall, health, graph, recency, maintenance
 - **Web UI**: Local dashboard at `localhost:37777` for visualizing memories
-- **Cloud Dashboard**: Analytics and management at [squishplugin.dev](https://squishplugin.dev)
+- **Cloud Dashboard**: Paid analytics and management at [squishplugin.dev](https://squishplugin.dev)
 
 ### Storage
 
@@ -723,7 +730,7 @@ Squish is a local-first memory runtime for AI coding agents. It gives your agent
 
 ### Does Squish require an API key?
 
-No. Squish works locally by default with zero API keys. It uses local embeddings (TF-IDF) and SQLite storage. You can optionally configure an external LLM for enhanced reasoning, but it's not required. An API key is only needed if you want to use Squish Cloud for cross-device sync.
+No. Squish works locally by default with zero API keys. It uses local embeddings (TF-IDF) and SQLite storage. You can optionally configure an external LLM for enhanced reasoning, but it's not required. An API key is only needed if you want to use the paid Squish Cloud for cross-device sync.
 
 ### How does Squish compare to mem0 or agentmemory?
 

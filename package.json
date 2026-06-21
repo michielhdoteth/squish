@@ -50,7 +50,7 @@
   "bugs": {
     "url": "https://github.com/michielhdoteth/squish/issues"
   },
-  "description": "Local-first memory runtime for Claude Code, Codex, ChatGPT, and AI agents. Searchable session history, durable memory, and cross-tool sync. No external LLM required.",
+  "description": "Free local-first memory runtime for Claude Code, Codex, ChatGPT, and AI agents. Paid Squish Cloud adds sync, dashboard, and team features.",
   "engines": {
     "node": ">=18.0.0"
   },

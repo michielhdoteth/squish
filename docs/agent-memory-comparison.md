@@ -25,7 +25,7 @@ Squish takes a different architectural approach, targeting production-grade memo
 - **Geometry-aware consolidation**: Score-based decay system with spatial segmentation (Places), graph enrichment, and contradiction handling keeps memory size manageable without LLM-driven summarization.
 - **LOCOMO-verified recall**: Benchmarked at 65% on the academic LoCoMo memory benchmark (1540 questions) using deterministic retrieval methods. Results are reproducible and verifiable.
 - **Multiple integration surfaces**: CLI for scripts and automation, MCP server for agent integration, Web UI for inspection, and SDK for custom integrations.
-- **Local-first by default**: Runs entirely on-device with SQLite. Optional PostgreSQL backend for team mode. No data leaves your machine unless you configure cloud sync.
+- **Local-first by default**: Runs entirely on-device with SQLite. Optional PostgreSQL backend for team mode. No data leaves your machine unless you configure paid Squish Cloud sync.
 
 ## Architecture Differences
 
@@ -62,7 +62,7 @@ Squish takes a different architectural approach, targeting production-grade memo
 - You need memory for autonomous agents, multi-agent systems, or scheduled tasks
 - You want verifiable benchmark results for memory recall quality
 - You need multiple integration surfaces (CLI, MCP, SDK, Web UI)
-- You prefer local-first architecture with optional cloud sync
+- You prefer local-first architecture with a paid cloud sync option
 - You need team/shared memory across multiple agent instances
 
 ## Summary

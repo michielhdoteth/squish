@@ -22,6 +22,7 @@ import { registerInstallCommand, registerUninstallCommand } from './commands/ins
 import { registerPinCommand } from './commands/pin.js';
 import { registerSessionsCommand } from './commands/sessions.js';
 import { registerCloudCommand } from './commands/cloud.js';
+import { registerStatusCommand } from './commands/status.js';
 
 export function createProgram(): Command {
   const program = new Command();
@@ -99,6 +100,7 @@ export function createProgram(): Command {
   registerPinCommand(program);
   registerSessionsCommand(program);
   registerCloudCommand(program);
+  registerStatusCommand(program);
 
   return program;
 }
