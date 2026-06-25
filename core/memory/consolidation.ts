@@ -33,6 +33,16 @@ import {
   compressionSafetyTest,
 } from '../clustering/geometry.js';
 
+// GAC strategy selector (Layer 3: integration)
+import {
+  selectGACStrategy,
+  findMedoid,
+  computeMedoidWithResiduals,
+  pruneDiverseCluster,
+  type GACDecision,
+  type ResidualBudget,
+} from '../clustering/gac-strategy.js';
+
 export interface ConsolidationOptions {
   projectId: string;
   minAge?: number; // days - minimum age for consolidation
@@ -40,6 +50,7 @@ export interface ConsolidationOptions {
   minClusterSize?: number; // minimum memories in a cluster to consolidate
   similarityThreshold?: number; // 0-1 - minimum similarity to cluster
   limit?: number; // max memories to process
+  preConsolidationReduction?: boolean; // NEW: reduce dimensions before clustering
 }
 
 export interface ConsolidationResult {
@@ -50,6 +61,8 @@ export interface ConsolidationResult {
   geometrySafe?: boolean;  // Whether geometry check passed
   dBar?: number;           // Mean cosine distance (if geometry checked)
   dEff?: number;           // Effective dimension (if geometry checked)
+  gacStrategy?: string;    // GAC strategy used (centroid, medoid-residual, prune)
+  gacDecision?: GACDecision; // Full GAC decision object
 }
 
 export interface ClusterResult {
@@ -234,18 +247,47 @@ function findNearestToCentroid(memories: any[], centroid: number[]): any {
 }
 
 /**
+ * Pre-consolidation dimensionality reduction.
+ * Randomly reduces dimensions by 50% before clustering for efficiency.
+ * Safe per Takeshita et al. (EMNLP 2025) - 50% random removal retains 90%+ performance.
+ *
+ * @param vectors - Array of embedding vectors
+ * @param reductionRatio - Fraction of dimensions to remove (default 0.5)
+ * @returns Array of reduced-dimension vectors
+ */
+export function preConsolidationReduction(vectors: number[][], reductionRatio: number = 0.5): number[][] {
+  if (vectors.length === 0) return vectors;
+  const d = vectors[0].length;
+  const keepDims = Math.max(1, Math.floor(d * (1 - reductionRatio)));
+
+  // Deterministic random selection for reproducibility
+  const indices: number[] = [];
+  const step = Math.floor(d / keepDims);
+  for (let i = 0; i < d && indices.length < keepDims; i += step) {
+    indices.push(i);
+  }
+
+  return vectors.map(v => indices.map(i => v[i]));
+}
+
+/**
  * Consolidate a cluster of memories into a single summary memory.
  *
- * When geometry-aware consolidation is enabled:
+ * When geometry-aware consolidation (GAC) is enabled:
  * 1. Extract embeddings from cluster memories
- * 2. Compute centroid, d_bar, and d_eff
- * 3. Run compression safety test
- * 4. If safe: use nearest memory to centroid as representative (conservative approach)
- * 5. If not safe: skip consolidation with log
+ * 2. Call selectGACStrategy to determine optimal strategy
+ * 3. Execute the chosen strategy:
+ *    - centroid: Use nearest-to-centroid as representative
+ *    - medoid-residual: Use medoid, store principal directions in metadata
+ *    - prune: Keep top distinct members, consolidate the rest
+ * 4. Store full GAC decision in consolidated memory metadata
  *
  * When geometry is disabled: falls back to extractive summary.
  */
-async function consolidateCluster(cluster: ClusterResult): Promise<ConsolidationResult> {
+async function consolidateCluster(
+  cluster: ClusterResult,
+  options?: ConsolidationOptions,
+): Promise<ConsolidationResult> {
   const { memories } = cluster;
   const sourceMemoryIds = memories.map((m: any) => m.id);
 
@@ -254,84 +296,201 @@ async function consolidateCluster(cluster: ClusterResult): Promise<Consolidation
     const vectors = extractClusterEmbeddings(memories);
 
     if (vectors) {
-      // Compute geometry
-      const centroid = computeCentroid(vectors);
-      const dBar = computeMeanCosineDistance(vectors, centroid);
-      const dEff = estimateEffectiveDimension(vectors);
+      // Use GAC strategy selector for the 3-way decision
       const thetaPrime = config.consolidationGeometryThetaPrime;
+      const decision = selectGACStrategy(memories, thetaPrime);
 
-      // Run compression safety test
-      const safety = compressionSafetyTest(dBar, dEff, thetaPrime);
+      logger.debug('GAC strategy selected', {
+        strategy: decision.strategy,
+        dBar: decision.dBar.toFixed(4),
+        dEff: decision.dEff.toFixed(2),
+        rhoC: decision.rhoC.toFixed(4),
+      });
 
-      if (safety.safe && config.consolidationGeometryAutoConsolidate) {
-        // Safe to consolidate: use the nearest memory to centroid as representative
-        const nearest = findNearestToCentroid(memories, centroid);
-        const summary = `[Consolidated] ${nearest.content}`;
+      switch (decision.strategy) {
+        case 'centroid': {
+          // Tight cluster: use nearest-to-centroid as representative
+          const centroid = computeCentroid(vectors);
+          const nearest = findNearestToCentroid(memories, centroid);
+          const summary = `[Consolidated] ${nearest.content}`;
 
-        // Create consolidated memory
-        const consolidated = await rememberMemory({
-          content: summary,
-          type: 'context',
-          metadata: {
-            consolidatedFrom: sourceMemoryIds,
-            consolidatedAt: new Date().toISOString(),
+          const consolidated = await rememberMemory({
+            content: summary,
+            type: 'context',
+            metadata: {
+              consolidatedFrom: sourceMemoryIds,
+              consolidatedAt: new Date().toISOString(),
+              clusterSize: memories.length,
+              avgSimilarity: cluster.similarity,
+              // GAC metadata
+              gacStrategy: decision.strategy,
+              gacDBar: decision.dBar,
+              gacDEff: decision.dEff,
+              gacRhoC: decision.rhoC,
+              gacSpreadSafe: decision.spreadSafe,
+              gacSpreadUnsafe: decision.spreadUnsafe,
+              gacRepresentatives: decision.representatives,
+              gacReason: decision.reason,
+            },
+            tags: ['consolidated', 'geometry-safe', 'gac-centroid'],
+          });
+
+          await markConsolidated(consolidated.id, sourceMemoryIds);
+
+          logger.info('GAC centroid consolidation', {
+            consolidatedId: consolidated.id,
+            sourceCount: memories.length,
+            dBar: decision.dBar.toFixed(4),
+            dEff: decision.dEff.toFixed(2),
+          });
+
+          return {
+            consolidatedMemoryId: consolidated.id,
+            sourceMemoryIds,
             clusterSize: memories.length,
-            avgSimilarity: cluster.similarity,
+            summary,
             geometrySafe: true,
-            dBar,
-            dEff,
-            thetaPrime,
-            representativeId: nearest.id,
-          },
-          tags: ['consolidated', 'geometry-safe'],
-        });
-
-        // Mark originals as consolidated
-        await markConsolidated(consolidated.id, sourceMemoryIds);
-
-        logger.info('Geometry-safe consolidation', {
-          consolidatedId: consolidated.id,
-          sourceCount: memories.length,
-          dBar: dBar.toFixed(4),
-          dEff: dEff.toFixed(2),
-        });
-
-        return {
-          consolidatedMemoryId: consolidated.id,
-          sourceMemoryIds,
-          clusterSize: memories.length,
-          summary,
-          geometrySafe: true,
-          dBar,
-          dEff,
-        };
-      } else if (!safety.safe) {
-        // Unsafe to consolidate: log and skip
-        logger.info(`Skipping consolidation for cluster of ${memories.length} memories: ${safety.reason}`, {
-          clusterId: cluster.representativeId,
-          dBar: dBar.toFixed(4),
-          dEff: dEff.toFixed(2),
-          thetaPrime,
-        });
-
-        // If auto-split is enabled, log that splitting could help
-        if (config.consolidationGeometryAutoSplit) {
-          logger.debug(`Cluster (rep=${cluster.representativeId}) is candidate for splitting ` +
-            `(d_eff=${dEff.toFixed(2)}, n=${memories.length})`);
+            dBar: decision.dBar,
+            dEff: decision.dEff,
+            gacStrategy: decision.strategy,
+            gacDecision: decision,
+          };
         }
 
-        // Return a "skipped" result
-        return {
-          consolidatedMemoryId: '',
-          sourceMemoryIds,
-          clusterSize: memories.length,
-          summary: `[Skipped] cluster too diverse: d_bar=${dBar.toFixed(4)} >= ${thetaPrime}`,
-          geometrySafe: false,
-          dBar,
-          dEff,
-        };
+        case 'medoid-residual': {
+          // Borderline cluster: use medoid + residual directions
+          const centroid = computeCentroid(vectors);
+          const residualRank = Math.min(6, Math.max(1, Math.floor(decision.dEff)));
+          const budget: ResidualBudget = computeMedoidWithResiduals(memories, centroid, residualRank);
+
+          // Use the medoid's content as the consolidated summary
+          const medoidMemory = memories.find((m: any) => m.id === budget.medoidId) ?? memories[0];
+          const summary = `[Consolidated-Medoid] ${medoidMemory.content}`;
+
+          const consolidated = await rememberMemory({
+            content: summary,
+            type: 'context',
+            metadata: {
+              consolidatedFrom: sourceMemoryIds,
+              consolidatedAt: new Date().toISOString(),
+              clusterSize: memories.length,
+              avgSimilarity: cluster.similarity,
+              // GAC metadata
+              gacStrategy: decision.strategy,
+              gacDBar: decision.dBar,
+              gacDEff: decision.dEff,
+              gacRhoC: decision.rhoC,
+              gacSpreadSafe: decision.spreadSafe,
+              gacSpreadUnsafe: decision.spreadUnsafe,
+              gacRepresentatives: decision.representatives,
+              gacReason: decision.reason,
+              // Residual budget for future reference
+              residualBudget: {
+                medoidId: budget.medoidId,
+                principalDirections: budget.principalDirections.length,
+                scalingFactor: budget.scalingFactor,
+              },
+            },
+            tags: ['consolidated', 'geometry-borderline', 'gac-medoid-residual'],
+          });
+
+          await markConsolidated(consolidated.id, sourceMemoryIds);
+
+          logger.info('GAC medoid-residual consolidation', {
+            consolidatedId: consolidated.id,
+            sourceCount: memories.length,
+            medoidId: budget.medoidId,
+            principalDirections: budget.principalDirections.length,
+            dBar: decision.dBar.toFixed(4),
+          });
+
+          return {
+            consolidatedMemoryId: consolidated.id,
+            sourceMemoryIds,
+            clusterSize: memories.length,
+            summary,
+            geometrySafe: true,
+            dBar: decision.dBar,
+            dEff: decision.dEff,
+            gacStrategy: decision.strategy,
+            gacDecision: decision,
+          };
+        }
+
+        case 'prune': {
+          // Diverse cluster: keep top distinct members, consolidate the rest
+          const kept = pruneDiverseCluster(memories, 0.5);
+          const pruned = memories.filter((m: any) => !kept.some((k: any) => k.id === m.id));
+
+          // If nothing was actually pruned, skip
+          if (pruned.length === 0) {
+            logger.info('GAC prune: no memories pruned, skipping', {
+              clusterSize: memories.length,
+            });
+            return {
+              consolidatedMemoryId: '',
+              sourceMemoryIds,
+              clusterSize: memories.length,
+              summary: `[Skipped] prune strategy but no memories to prune`,
+              geometrySafe: false,
+              dBar: decision.dBar,
+              dEff: decision.dEff,
+              gacStrategy: decision.strategy,
+              gacDecision: decision,
+            };
+          }
+
+          // Consolidate the pruned memories
+          const prunedIds = pruned.map((m: any) => m.id);
+          const keptIds = kept.map((m: any) => m.id);
+
+          const summary = `[Consolidated-Pruned] Kept ${kept.length} distinct memories, consolidated ${pruned.length} similar ones`;
+
+          const consolidated = await rememberMemory({
+            content: summary,
+            type: 'context',
+            metadata: {
+              consolidatedFrom: prunedIds,
+              consolidatedAt: new Date().toISOString(),
+              clusterSize: pruned.length,
+              avgSimilarity: cluster.similarity,
+              // GAC metadata
+              gacStrategy: decision.strategy,
+              gacDBar: decision.dBar,
+              gacDEff: decision.dEff,
+              gacRhoC: decision.rhoC,
+              gacSpreadSafe: decision.spreadSafe,
+              gacSpreadUnsafe: decision.spreadUnsafe,
+              gacRepresentatives: decision.representatives,
+              gacReason: decision.reason,
+              // Prune-specific: which memories were kept
+              keptMemoryIds: keptIds,
+            },
+            tags: ['consolidated', 'geometry-diverse', 'gac-prune'],
+          });
+
+          await markConsolidated(consolidated.id, prunedIds);
+
+          logger.info('GAC prune consolidation', {
+            consolidatedId: consolidated.id,
+            prunedCount: pruned.length,
+            keptCount: kept.length,
+            dBar: decision.dBar.toFixed(4),
+          });
+
+          return {
+            consolidatedMemoryId: consolidated.id,
+            sourceMemoryIds: prunedIds,
+            clusterSize: pruned.length,
+            summary,
+            geometrySafe: true,
+            dBar: decision.dBar,
+            dEff: decision.dEff,
+            gacStrategy: decision.strategy,
+            gacDecision: decision,
+          };
+        }
       }
-      // If autoConsolidate is disabled, fall through to old behavior
     }
   }
 
