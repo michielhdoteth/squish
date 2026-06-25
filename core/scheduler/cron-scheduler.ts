@@ -657,7 +657,8 @@ export async function scheduleJob(job: ScheduledJob): Promise<void> {
       .where(eq(maintenanceJobs.id, job.id));
   }
 
-  logger.info(`[Scheduler] Scheduled ${job.jobName} with cron: ${job.cronExpression}${nextRun ? `, next run: ${nextRun.toISOString()}` : ''}`);
+  const nextRunStr = nextRun instanceof Date && !isNaN(nextRun.getTime()) ? `, next run: ${nextRun.toISOString()}` : '';
+  logger.info(`[Scheduler] Scheduled ${job.jobName} with cron: ${job.cronExpression}${nextRunStr}`);
 }
 
 export async function executeJob(job: ScheduledJob): Promise<void> {
@@ -732,15 +733,34 @@ export async function executeJob(job: ScheduledJob): Promise<void> {
   }
 }
 
+/**
+ * Parse a cron field that may contain wildcards, steps, or ranges.
+ * Returns a numeric value or NaN if the field is dynamic and can't be reduced to a single number.
+ */
+function parseCronField(field: string): number {
+  // Handle step expressions like */6 -> use the step value
+  if (field.includes('/')) {
+    return parseInt(field.split('/')[1]);
+  }
+  return parseInt(field);
+}
+
 function getNextRunTime(cronExpression: string): Date | null {
   try {
     const now = new Date();
     const parts = cronExpression.split(' ');
+    if (parts.length < 5) return null;
+
+    const minute = parseCronField(parts[0]);
+    const hour = parseCronField(parts[1]);
+
+    // Validate that key fields are numbers
+    if (isNaN(minute) || isNaN(hour)) return null;
 
     // Daily jobs: MM HH * * *
     if (parts[2] === '*' && parts[3] === '*' && parts[4] === '*' && parts[1] !== '*') {
       const next = new Date(now);
-      next.setHours(parseInt(parts[1]), parseInt(parts[0]), 0, 0);
+      next.setHours(hour, minute, 0, 0);
       if (next <= now) next.setDate(next.getDate() + 1);
       return next;
     }
@@ -748,18 +768,42 @@ function getNextRunTime(cronExpression: string): Date | null {
     // Hourly jobs: MM * * * *
     if (parts[1] === '*' && parts[2] === '*' && parts[3] === '*' && parts[4] === '*') {
       const next = new Date(now);
-      next.setMinutes(parseInt(parts[0]), 0, 0);
+      next.setMinutes(minute, 0, 0);
       if (next <= now) next.setHours(next.getHours() + 1);
+      return next;
+    }
+
+    // Multi-hour jobs: MM */N * * * or similar with step hours
+    if (parts[1].includes('/') && parts[2] === '*' && parts[3] === '*' && parts[4] === '*') {
+      const stepHours = parseInt(parts[1].split('/')[1]) || 6;
+      const next = new Date(now);
+      next.setHours(hour, minute, 0, 0);
+      // Advance to next step boundary
+      while (next <= now) {
+        next.setHours(next.getHours() + stepHours);
+      }
       return next;
     }
 
     // Weekly jobs: MM HH * * D
     if (parts[4] !== '*') {
       const dayOfWeek = parseInt(parts[4]);
+      if (isNaN(dayOfWeek)) return null;
       const next = new Date(now);
-      next.setHours(parseInt(parts[1]), parseInt(parts[0]), 0, 0);
+      next.setHours(hour, minute, 0, 0);
       const daysUntil = (dayOfWeek - next.getDay() + 7) % 7;
       next.setDate(next.getDate() + (daysUntil === 0 && next > now ? 7 : daysUntil));
+      return next;
+    }
+
+    // Monthly jobs: MM HH D * *
+    if (parts[2] !== '*' && parts[3] === '*' && parts[4] === '*') {
+      const dayOfMonth = parseInt(parts[2]);
+      if (isNaN(dayOfMonth)) return null;
+      const next = new Date(now);
+      next.setHours(hour, minute, 0, 0);
+      next.setDate(dayOfMonth);
+      if (next <= now) next.setMonth(next.getMonth() + 1);
       return next;
     }
 
