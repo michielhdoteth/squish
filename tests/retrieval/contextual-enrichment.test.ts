@@ -1,0 +1,188 @@
+/**
+ * Tests for Contextual Retrieval Enrichment
+ */
+
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import {
+  getContextualConfig,
+  extractTopics,
+  generateContextPrefix,
+  enrichContent,
+  enrichBatch,
+  checkHealth,
+} from '../../core/retrieval/contextual-enrichment.js';
+
+describe('Contextual Retrieval Enrichment', () => {
+  const originalEnv: Record<string, string | undefined> = {};
+
+  beforeEach(() => {
+    originalEnv.SQUISH_CONTEXTUAL_RETRIEVAL = process.env.SQUISH_CONTEXTUAL_RETRIEVAL;
+    originalEnv.SQUISH_CONTEXTUAL_PREFIX_TEMPLATE = process.env.SQUISH_CONTEXTUAL_PREFIX_TEMPLATE;
+  });
+
+  afterEach(() => {
+    for (const [key, value] of Object.entries(originalEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  });
+
+  describe('getContextualConfig', () => {
+    it('should return default config when no env vars set', () => {
+      delete process.env.SQUISH_CONTEXTUAL_RETRIEVAL;
+      delete process.env.SQUISH_CONTEXTUAL_PREFIX_TEMPLATE;
+
+      const cfg = getContextualConfig();
+      expect(cfg.enabled).toBe(false);
+      expect(cfg.template).toContain('[TYPE]');
+      expect(cfg.maxPrefixLength).toBe(100);
+    });
+
+    it('should read from env vars', () => {
+      process.env.SQUISH_CONTEXTUAL_RETRIEVAL = 'true';
+      process.env.SQUISH_CONTEXTUAL_PREFIX_TEMPLATE = 'Custom template';
+
+      const cfg = getContextualConfig();
+      expect(cfg.enabled).toBe(true);
+      expect(cfg.template).toBe('Custom template');
+    });
+  });
+
+  describe('extractTopics', () => {
+    it('should extract topics from tags', () => {
+      const topics = extractTopics('Some content', ['tag1', 'tag2', 'tag3']);
+      expect(topics).toContain('tag1');
+      expect(topics).toContain('tag2');
+      expect(topics).toContain('tag3');
+    });
+
+    it('should extract capitalized words', () => {
+      const topics = extractTopics('This is about React and TypeScript');
+      expect(topics).toContain('React');
+      expect(topics).toContain('TypeScript');
+    });
+
+    it('should limit to 3 topics', () => {
+      const topics = extractTopics(
+        'About React Vue Angular Svelte Ember',
+        ['tag1', 'tag2', 'tag3', 'tag4', 'tag5']
+      );
+      expect(topics.length).toBeLessThanOrEqual(3);
+    });
+
+    it('should deduplicate topics', () => {
+      const topics = extractTopics('React is great', ['React', 'react']);
+      const uniqueTopics = [...new Set(topics)];
+      expect(topics.length).toBe(uniqueTopics.length);
+    });
+
+    it('should return empty array when no topics found', () => {
+      const topics = extractTopics('hello world');
+      expect(Array.isArray(topics)).toBe(true);
+    });
+  });
+
+  describe('generateContextPrefix', () => {
+    it('should generate prefix with all placeholders', () => {
+      const prefix = generateContextPrefix('content', {
+        type: 'decision',
+        project: 'squish',
+        tags: ['tooling'],
+      });
+
+      expect(prefix).toContain('decision');
+      expect(prefix).toContain('squish');
+      expect(prefix).toContain('tooling');
+    });
+
+    it('should handle missing options', () => {
+      const prefix = generateContextPrefix('content');
+      expect(typeof prefix).toBe('string');
+      expect(prefix.length).toBeGreaterThan(0);
+    });
+
+    it('should truncate long prefixes', () => {
+      const longTemplate = 'A'.repeat(200);
+      const prefix = generateContextPrefix('content', {
+        template: longTemplate,
+      });
+
+      expect(prefix.length).toBeLessThanOrEqual(100);
+    });
+
+    it('should use custom template', () => {
+      const prefix = generateContextPrefix('content', {
+        template: '[TYPE] - [PROJECT]',
+      });
+
+      expect(prefix).toContain(' - ');
+    });
+  });
+
+  describe('enrichContent', () => {
+    it('should return original content when disabled', () => {
+      delete process.env.SQUISH_CONTEXTUAL_RETRIEVAL;
+
+      const result = enrichContent('test content');
+      expect(result.original).toBe('test content');
+      expect(result.enriched).toBe('test content');
+      expect(result.prefix).toBe('');
+    });
+
+    it('should enrich content when enabled', () => {
+      process.env.SQUISH_CONTEXTUAL_RETRIEVAL = 'true';
+
+      const result = enrichContent('test content', {
+        type: 'fact',
+        project: 'test',
+      });
+
+      expect(result.original).toBe('test content');
+      expect(result.enriched).toContain('test content');
+      expect(result.enriched).toContain('fact');
+      expect(result.prefix.length).toBeGreaterThan(0);
+    });
+
+    it('should not modify content when prefix is empty', () => {
+      process.env.SQUISH_CONTEXTUAL_RETRIEVAL = 'true';
+
+      const result = enrichContent('test content', {
+        template: '',
+      });
+
+      expect(result.enriched).toBe('test content');
+    });
+  });
+
+  describe('enrichBatch', () => {
+    it('should enrich multiple memories', () => {
+      process.env.SQUISH_CONTEXTUAL_RETRIEVAL = 'true';
+
+      const memories = [
+        { content: 'content1', type: 'fact' },
+        { content: 'content2', type: 'decision' },
+      ];
+
+      const results = enrichBatch(memories);
+      expect(results.length).toBe(2);
+      expect(results[0].original).toBe('content1');
+      expect(results[1].original).toBe('content2');
+    });
+
+    it('should handle empty array', () => {
+      const results = enrichBatch([]);
+      expect(results).toEqual([]);
+    });
+  });
+
+  describe('checkHealth', () => {
+    it('should report status', () => {
+      const health = checkHealth();
+      expect(health).toHaveProperty('enabled');
+      expect(health).toHaveProperty('template');
+    });
+  });
+});

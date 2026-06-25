@@ -197,9 +197,12 @@ function detectMode(): 'local' | 'team' | 'remote' {
   const databaseUrl = process.env.DATABASE_URL || '';
   const supabaseUrl = process.env.SUPABASE_URL || '';
   const neonProjectId = process.env.NEON_PROJECT_ID || '';
+  const managedMode = getBoolean('managed.enabled', 'SQUISH_MANAGED_MODE', false);
 
   if (supabaseUrl || neonProjectId) return 'remote';
-  if (databaseUrl.startsWith('postgres')) return 'team';
+  // Team mode is cloud-managed only. Local PostgreSQL alone should not
+  // auto-switch a workstation into team mode.
+  if (managedMode && databaseUrl.startsWith('postgres')) return 'team';
   return 'local';
 }
 
@@ -553,6 +556,36 @@ function buildConfig() {
     },
     get googleTimeoutMs() {
       return getNumber('embeddings.models.google.timeout', 'SQUISH_GOOGLE_TIMEOUT_MS', getNumber('embeddings.timeout', 'SQUISH_EMBEDDINGS_TIMEOUT_MS', 30000));
+    },
+
+    // Cross-Encoder Reranker
+    get rerankerEnabled() {
+      return getBoolean('retrieval.reranker.enabled', 'SQUISH_RERANKER_ENABLED', false);
+    },
+    get rerankerModel() {
+      return getString('retrieval.reranker.model', 'SQUISH_RERANKER_MODEL', 'cross-encoder/ms-marco-MiniLM-L-6-v2');
+    },
+    get rerankerTopK() {
+      return getNumber('retrieval.reranker.topK', 'SQUISH_RERANKER_TOP_K', 100);
+    },
+    get rerankerReturnTopK() {
+      return getNumber('retrieval.reranker.returnTopK', 'SQUISH_RERANKER_RETURN_TOP_K', 20);
+    },
+
+    // Contextual Retrieval
+    get contextualRetrievalEnabled() {
+      return getBoolean('retrieval.contextual.enabled', 'SQUISH_CONTEXTUAL_RETRIEVAL', false);
+    },
+    get contextualPrefixTemplate() {
+      return getString('retrieval.contextual.prefixTemplate', 'SQUISH_CONTEXTUAL_PREFIX_TEMPLATE', '[TYPE] from [PROJECT] about [TOPICS]');
+    },
+
+    // MMR Diversity
+    get mmrEnabled() {
+      return getBoolean('retrieval.mmr.enabled', 'SQUISH_MMR_ENABLED', false);
+    },
+    get mmrLambda() {
+      return getNumber('retrieval.mmr.lambda', 'SQUISH_MMR_LAMBDA', 0.7);
     },
 
     get llmEnabled() {

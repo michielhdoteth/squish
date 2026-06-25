@@ -26,6 +26,11 @@ import { getSchema } from '../../db/schema.js';
 import { eq, and, gte, inArray } from 'drizzle-orm';
 import type { VisibilityScope } from '../team/types.js';
 
+// Enhanced retrieval modules
+import { rerankResults } from '../retrieval/cross-encoder-reranker.js';
+import { enrichContent } from '../retrieval/contextual-enrichment.js';
+import { smartMMR } from '../retrieval/mmr-diversity.js';
+
 /**
  * Detect if query asks about time (temporal queries)
  */
@@ -575,6 +580,39 @@ export async function hybridSearch(
     } catch {
       // LLM reranking failed silently - continue with existing results
       logger.debug('[HybridSearch] LLM reranking failed, using original order');
+    }
+  }
+
+  // Cross-Encoder Reranking: precision reranking using cross-encoder model
+  // Higher quality than LLM reranking, runs locally
+  if (config.rerankerEnabled && input.query && input.query.trim().length > 5) {
+    try {
+      results = await rerankResults(results, input.query, {
+        topK: config.rerankerTopK,
+        returnTopK: limit,
+        blendWeight: 0.7,
+      });
+      logger.debug(`[HybridSearch] Cross-encoder reranking applied, ${results.length} results`);
+    } catch (e) {
+      // Cross-encoder reranking failed silently
+      logger.debug(`[HybridSearch] Cross-encoder reranking failed: ${e}`);
+    }
+  }
+
+  // MMR Diversity: inject diversity to prevent redundant results
+  if (config.mmrEnabled && results.length > 0) {
+    try {
+      // Get query embedding for MMR
+      const queryEmbedding = await getEmbedding(input.query);
+      results = smartMMR(queryEmbedding, results, {
+        lambda: config.mmrLambda,
+        topK: limit,
+        candidatePool: 50,
+      });
+      logger.debug(`[HybridSearch] MMR diversity applied, ${results.length} results`);
+    } catch (e) {
+      // MMR failed silently
+      logger.debug(`[HybridSearch] MMR diversity failed: ${e}`);
     }
   }
 
