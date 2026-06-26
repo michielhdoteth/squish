@@ -149,6 +149,17 @@ export interface HybridSearchOptions {
 }
 
 /**
+ * Cached DB context for a single search operation.
+ * Avoids redundant getDb()/createDatabaseClient() calls across
+ * vectorSearch, keywordSearch, and helper functions.
+ */
+interface SearchDbContext {
+  dbClient: ReturnType<typeof createDatabaseClient>;
+  /** Raw drizzle DB instance for direct query builder usage */
+  db: Awaited<ReturnType<typeof getDb>>;
+}
+
+/**
  * Score with recency + similarity + entity boost (NO LLM required)
  */
 function scoreWithHeuristics(
@@ -181,9 +192,10 @@ function scoreWithHeuristics(
 async function getMemoryPlacesByType(
   placeType: string,
   minWeight: number,
-  limit: number
+  limit: number,
+  ctx?: SearchDbContext
 ): Promise<Array<{ memoryId: string; weight: number; isPrimary: boolean }>> {
-  const db = await getDb();
+  const db = ctx?.db ?? await getDb();
   if (!db) return [];
   const schema = await getSchema();
   const sqliteDb = db as any;
@@ -214,10 +226,11 @@ async function getMemoryPlacesByType(
  */
 async function getMemoriesByIndexedTags(
   tags: string[],
-  limit: number
+  limit: number,
+  ctx?: SearchDbContext
 ): Promise<Array<{ memoryId: string; tag: string }>> {
   if (tags.length === 0) return [];
-  const db = await getDb();
+  const db = ctx?.db ?? await getDb();
   if (!db) return [];
   const schema = await getSchema();
   const sqliteDb = db as any;
@@ -241,8 +254,8 @@ async function getMemoriesByIndexedTags(
 /**
  * Get IDs of superseded memories to filter from results
  */
-async function getSupersededMemoryIds(projectId?: string): Promise<Set<string>> {
-  const db = await getDb();
+async function getSupersededMemoryIds(projectId?: string, ctx?: SearchDbContext): Promise<Set<string>> {
+  const db = ctx?.db ?? await getDb();
   if (!db) return new Set();
   const schema = await getSchema();
   const sqliteDb = db as any;
@@ -273,7 +286,8 @@ async function applyMultiPlaceScoring(
   results: SearchResult[],
   input: SearchInput,
   limit: number,
-  retrievalConfig: SquishRetrievalConfig
+  retrievalConfig: SquishRetrievalConfig,
+  ctx?: SearchDbContext
 ): Promise<SearchResult[]> {
   if (!input.project) return results;
 
@@ -287,7 +301,8 @@ async function applyMultiPlaceScoring(
     const primaryMatches = await getMemoryPlacesByType(
       queryPlace,
       retrievalConfig.placeMinWeight,
-      limit * 3
+      limit * 3,
+      ctx
     );
     const primaryIds = new Set(primaryMatches.map(m => m.memoryId));
     const primaryWeightMap = new Map(primaryMatches.map(m => [m.memoryId, m.weight]));
@@ -295,7 +310,7 @@ async function applyMultiPlaceScoring(
     // Get adjacent places for fallback
     const adjacentPlaces = getQuestionAdjacentPlaces(queryPlace as any);
     const adjacentMatchesArrays = await Promise.all(
-      adjacentPlaces.map(p => getMemoryPlacesByType(p, retrievalConfig.placeMinWeight, limit * 2))
+      adjacentPlaces.map(p => getMemoryPlacesByType(p, retrievalConfig.placeMinWeight, limit * 2, ctx))
     );
     const adjacentIds = new Set(adjacentMatchesArrays.flat().map(m => m.memoryId));
 
@@ -332,14 +347,15 @@ async function applyMultiPlaceScoring(
 async function applyTagOverlapBoost(
   results: SearchResult[],
   queryTags: string[],
-  scoring: RetrievalScoringConfig
+  scoring: RetrievalScoringConfig,
+  ctx?: SearchDbContext
 ): Promise<SearchResult[]> {
   if (!queryTags || queryTags.length === 0) return results;
 
   // Normalize query tags for matching
   const normalizedQueryTags = queryTags.map(t => t.toLowerCase().trim().replace(/\s+/g, '-'));
 
-  const tagMatches = await getMemoriesByIndexedTags(normalizedQueryTags, results.length * 5);
+  const tagMatches = await getMemoriesByIndexedTags(normalizedQueryTags, results.length * 5, ctx);
 
   // Count overlapping tags per memory
   const overlapCounts = new Map<string, number>();
@@ -363,9 +379,10 @@ async function applySupersessionFilter(
   results: SearchResult[],
   projectId: string | undefined,
   includeSuperseded: boolean,
-  retrievalConfig: SquishRetrievalConfig
+  retrievalConfig: SquishRetrievalConfig,
+  ctx?: SearchDbContext
 ): Promise<{ filtered: SearchResult[]; supersededCount: number }> {
-  const supersededIds = await getSupersededMemoryIds(projectId);
+  const supersededIds = await getSupersededMemoryIds(projectId, ctx);
   if (supersededIds.size === 0) return { filtered: results, supersededCount: 0 };
 
   let supersededCount = 0;
@@ -429,6 +446,13 @@ export async function hybridSearch(
   const isEmptyQuery = !input.query || input.query.trim() === '';
   const queryEmbedding = isEmptyQuery ? null : await getEmbedding(input.query);
 
+  // Cache DB client once per search operation to avoid redundant getDb()/createDatabaseClient() calls
+  const rawDb = await getDb();
+  const searchCtx: SearchDbContext = {
+    dbClient: createDatabaseClient(rawDb),
+    db: rawDb,
+  };
+
   // Initialize trace object for debugging (Phase 8)
   const trace: RetrievalTrace = {
     selectedPlace: input.placeType ?? questionPlaceType(input.query) ?? null,
@@ -457,7 +481,8 @@ export async function hybridSearch(
       const expResults = await vectorSearch(
         { ...input, query: expQuery },
         { ...options, limit: Math.ceil(limit * 2) },
-        expEmbedding
+        expEmbedding,
+        searchCtx
       );
       allResults.push(...expResults);
     }
@@ -472,10 +497,10 @@ export async function hybridSearch(
     vectorResults = Array.from(byId.values());
   } else if (isTemporal) {
     // Temporal: fetch more results
-    vectorResults = await vectorSearch(input, { ...options, limit: limit * 4 }, queryEmbedding);
+    vectorResults = await vectorSearch(input, { ...options, limit: limit * 4 }, queryEmbedding, searchCtx);
   } else {
     // Regular query
-    vectorResults = await vectorSearch(input, { ...options, limit: limit * 2 }, queryEmbedding);
+    vectorResults = await vectorSearch(input, { ...options, limit: limit * 2 }, queryEmbedding, searchCtx);
   }
 
   // Record total candidates for trace
@@ -483,7 +508,7 @@ export async function hybridSearch(
 
   // FTS5 keyword search + RRF fusion: add keyword signal and fuse with vector results
   // This is the industry standard (TrueMemory episodic layer, MemPalace FTS5, etc.)
-  const keywordResults = await keywordSearch(input, limit * 2);
+  const keywordResults = await keywordSearch(input, limit * 2, searchCtx);
   if (keywordResults.length > 0) {
     vectorResults = rrfFusion(vectorResults, keywordResults, limit * 3);
   }
@@ -491,7 +516,7 @@ export async function hybridSearch(
   // v1.5.0: Place-aware scoring using indexed memory_places queries
   const retrievalConfig = getRetrievalConfig();
   if (input.project || input.placeType) {
-    vectorResults = await applyMultiPlaceScoring(vectorResults, input, limit, retrievalConfig);
+    vectorResults = await applyMultiPlaceScoring(vectorResults, input, limit, retrievalConfig, searchCtx);
     // Track matched places for trace
     if (trace.selectedPlace) {
       trace.matchedPlaces.push(trace.selectedPlace);
@@ -507,7 +532,7 @@ export async function hybridSearch(
   // v1.5.0: Tag overlap boost using indexed memory_tags
   const queryTags = input.tags ?? [];
   if (queryTags.length > 0) {
-    vectorResults = await applyTagOverlapBoost(vectorResults, queryTags, retrievalConfig.scoring);
+    vectorResults = await applyTagOverlapBoost(vectorResults, queryTags, retrievalConfig.scoring, searchCtx);
     trace.matchedTags = [...queryTags];
   }
 
@@ -540,7 +565,7 @@ export async function hybridSearch(
 
   // v1.5.0: Filter or penalize superseded memories
   const { filtered: supersededResults, supersededCount } = await applySupersessionFilter(
-    results, input.project, retrievalConfig.includeSuperseded, retrievalConfig
+    results, input.project, retrievalConfig.includeSuperseded, retrievalConfig, searchCtx
   );
   trace.supersededFiltered = supersededCount;
   results = supersededResults;
@@ -715,21 +740,27 @@ async function expandWithAssociations(
   const allIds = new Set(results.map(r => r.id));
   const expanded: SearchResult[] = [...results];
 
-  // Get related for top results only
-  for (const r of results.slice(0, 3)) {
-    try {
-      const related = await getRelatedMemories(r.id, 5);
-      for (const rel of related) {
-        if (!allIds.has(rel.id)) {
-          allIds.add(rel.id);
-          expanded.push({
-            ...rel,
-            similarity: (rel.similarity ?? 0) * 0.8 // Slightly lower weight
-          });
-        }
+  // Parallel: fetch related memories for all top results at once
+  const topResults = results.slice(0, 3);
+  const relatedArrays = await Promise.all(
+    topResults.map(async (r) => {
+      try {
+        return await getRelatedMemories(r.id, 5);
+      } catch {
+        return [];
       }
-    } catch (e) {
-      // Skip errors
+    })
+  );
+
+  for (const related of relatedArrays) {
+    for (const rel of related) {
+      if (!allIds.has(rel.id)) {
+        allIds.add(rel.id);
+        expanded.push({
+          ...rel,
+          similarity: (rel.similarity ?? 0) * 0.8 // Slightly lower weight
+        });
+      }
     }
   }
 
@@ -745,11 +776,12 @@ async function expandWithAssociations(
  */
 export async function keywordSearch(
   input: SearchInput,
-  limit: number
+  limit: number,
+  ctx?: SearchDbContext
 ): Promise<SearchResult[]> {
   try {
-    const db = createDatabaseClient(await getDb());
-    const sqlite = db.$client as any;
+    const dbClient = ctx?.dbClient ?? createDatabaseClient(await getDb());
+    const sqlite = dbClient.$client as any;
 
     // Sanitize query for FTS5: remove special chars, keep meaningful words
     const ftsQuery = (input.query || '')
@@ -872,11 +904,12 @@ export function rrfFusion(
 async function vectorSearch(
   input: SearchInput,
   options: HybridSearchOptions,
-  precomputedEmbedding?: number[] | null
+  precomputedEmbedding?: number[] | null,
+  ctx?: SearchDbContext
 ): Promise<SearchResult[]> {
   try {
-    const db = createDatabaseClient(await getDb());
-    const sqlite = db.$client as any;
+    const dbClient = ctx?.dbClient ?? createDatabaseClient(await getDb());
+    const sqlite = dbClient.$client as any;
     const limit = options.limit ?? 10;
     const tags = normalizeTags(options.tags ?? input.tags);
 

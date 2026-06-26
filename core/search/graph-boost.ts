@@ -16,7 +16,7 @@
 
 import { getDbClient } from '../lib/db-client.js';
 import { logger } from '../logger.js';
-import { eq, and, or } from 'drizzle-orm';
+import { eq, and, or, inArray } from 'drizzle-orm';
 import { config } from '../../config.js';
 import { createGraphBackend, GraphBackend } from '../graph/backend.js';
 
@@ -74,30 +74,38 @@ export async function calculateGraphBoost(
   try {
     const backend = await getGraphBackend();
 
-    for (const memoryId of memoryIds) {
-      try {
-        const nodes = await backend.bfs(memoryId, maxDepth, minWeight);
-        let totalBoost = 0;
+    // Batch BFS: run all memory ID traversals in parallel
+    const bfsResults = await Promise.all(
+      memoryIds.map(async (memoryId) => {
+        try {
+          const nodes = await backend.bfs(memoryId, maxDepth, minWeight);
+          let totalBoost = 0;
 
-        for (const node of nodes) {
-          const recencyBonus = calculateRecencyBonus(node.lastAccessedAt);
-          const nodeBoost = (node.weight * node.coactivationCount * recencyBonus) / (node.depth + 1);
-          totalBoost += nodeBoost;
+          for (const node of nodes) {
+            const recencyBonus = calculateRecencyBonus(node.lastAccessedAt);
+            const nodeBoost = (node.weight * node.coactivationCount * recencyBonus) / (node.depth + 1);
+            totalBoost += nodeBoost;
+          }
+
+          // Cap boost at 3.0x to prevent dominance
+          const cappedBoost = Math.min(totalBoost, 3.0);
+          return { memoryId, boost: Math.max(0, cappedBoost), totalNodes: nodes.length, rawBoost: totalBoost };
+        } catch (e) {
+          logger.warn(`Graph boost calculation failed for ${memoryId}:`, e);
+          return { memoryId, boost: 0, totalNodes: 0, rawBoost: 0 };
         }
+      })
+    );
 
-        // Cap boost at 3.0x to prevent dominance
-        const cappedBoost = Math.min(totalBoost, 3.0);
-        boostMap.set(memoryId, Math.max(0, cappedBoost));
-
+    for (const result of bfsResults) {
+      boostMap.set(result.memoryId, result.boost);
+      if (result.totalNodes > 0) {
         logger.debug('Graph boost calculated', {
-          memoryId,
-          totalNodes: nodes.length,
-          rawBoost: totalBoost,
-          cappedBoost,
+          memoryId: result.memoryId,
+          totalNodes: result.totalNodes,
+          rawBoost: result.rawBoost,
+          cappedBoost: result.boost,
         });
-      } catch (e) {
-        logger.warn(`Graph boost calculation failed for ${memoryId}:`, e);
-        boostMap.set(memoryId, 0);
       }
     }
   } catch (e) {
@@ -121,23 +129,30 @@ async function calculateGraphBoostFallback(
   const { maxDepth = 2, minWeight = 0.3 } = options;
   const boostMap = new Map<string, number>();
 
-  for (const memoryId of memoryIds) {
-    try {
-      const nodes = await bfsTraverseFallback(memoryId, projectId, maxDepth, minWeight);
-      let totalBoost = 0;
+  // Batch BFS: run all memory ID traversals in parallel
+  const fallbackResults = await Promise.all(
+    memoryIds.map(async (memoryId) => {
+      try {
+        const nodes = await bfsTraverseFallback(memoryId, projectId, maxDepth, minWeight);
+        let totalBoost = 0;
 
-      for (const node of nodes) {
-        const recencyBonus = calculateRecencyBonus(node.lastAccessedAt);
-        const nodeBoost = (node.weight * node.coactivationCount * recencyBonus) / (node.depth + 1);
-        totalBoost += nodeBoost;
+        for (const node of nodes) {
+          const recencyBonus = calculateRecencyBonus(node.lastAccessedAt);
+          const nodeBoost = (node.weight * node.coactivationCount * recencyBonus) / (node.depth + 1);
+          totalBoost += nodeBoost;
+        }
+
+        const cappedBoost = Math.min(totalBoost, 3.0);
+        return { memoryId, boost: Math.max(0, cappedBoost) };
+      } catch (e) {
+        logger.warn(`Graph boost fallback failed for ${memoryId}:`, e);
+        return { memoryId, boost: 0 };
       }
+    })
+  );
 
-      const cappedBoost = Math.min(totalBoost, 3.0);
-      boostMap.set(memoryId, Math.max(0, cappedBoost));
-    } catch (e) {
-      logger.warn(`Graph boost fallback failed for ${memoryId}:`, e);
-      boostMap.set(memoryId, 0);
-    }
+  for (const result of fallbackResults) {
+    boostMap.set(result.memoryId, result.boost);
   }
 
   return boostMap;
@@ -166,65 +181,89 @@ async function bfsTraverseFallback(
   const results: GraphNode[] = [];
 
   while (queue.length > 0) {
-    const current = queue.shift()!;
+    // Batch: collect all nodes at the current BFS level
+    const currentBatch = [...queue];
+    queue.length = 0;
 
-    // Skip if already visited or exceeded max depth
-    if (visited.has(current.id) || current.depth > maxDepth) {
-      continue;
+    // Filter to unvisited nodes and mark them visited
+    const levelNodes: { id: string; depth: number }[] = [];
+    for (const item of currentBatch) {
+      if (!visited.has(item.id) && item.depth <= maxDepth) {
+        visited.add(item.id);
+        levelNodes.push(item);
+      }
     }
-    visited.add(current.id);
+
+    if (levelNodes.length === 0) break;
 
     try {
-      // Get associations where this memory is either from or to
+      // Batch DB query: fetch ALL associations for ALL nodes in this level at once
+      const nodeIds = levelNodes.map(n => n.id);
       const edges = await (db as any)
         .select()
         .from(schema.memoryAssociations)
         .where(
           or(
-            and(
-              eq(schema.memoryAssociations.fromMemoryId, current.id),
-              projectId ? eq(schema.memoryAssociations.projectId, projectId) : undefined
-            ),
-            and(
-              eq(schema.memoryAssociations.toMemoryId, current.id),
-              projectId ? eq(schema.memoryAssociations.projectId, projectId) : undefined
-            )
+            inArray(schema.memoryAssociations.fromMemoryId, nodeIds),
+            inArray(schema.memoryAssociations.toMemoryId, nodeIds)
           )
         );
 
+      // Index edges by node ID for O(1) lookup using Set for fast membership tests
+      const nodeIdSet = new Set(nodeIds);
+      const edgesByNode = new Map<string, typeof edges>();
       for (const edge of edges) {
-        // Determine the connected memory ID
-        const connectedId = edge.fromMemoryId === current.id ? edge.toMemoryId : edge.fromMemoryId;
-
-        // Skip if minimum weight not met
-        if (edge.weight < minWeight) {
-          continue;
+        // An edge is relevant to a node if the node is either from or to
+        if (nodeIdSet.has(edge.fromMemoryId)) {
+          const list = edgesByNode.get(edge.fromMemoryId) || [];
+          list.push(edge);
+          edgesByNode.set(edge.fromMemoryId, list);
         }
-
-        // FIX: Calculate new depth BEFORE adding to results
-        const newNodeDepth = current.depth + 1;
-
-        // Skip if new node would exceed maxDepth
-        if (newNodeDepth > maxDepth) {
-          continue;
+        if (nodeIdSet.has(edge.toMemoryId)) {
+          const list = edgesByNode.get(edge.toMemoryId) || [];
+          list.push(edge);
+          edgesByNode.set(edge.toMemoryId, list);
         }
+      }
 
-        results.push({
-          id: connectedId,
-          weight: edge.weight,
-          depth: newNodeDepth,
-          associationType: edge.associationType,
-          coactivationCount: edge.coactivationCount || 1,
-          lastAccessedAt: edge.lastCoactivatedAt || edge.createdAt || new Date(),
-        });
+      // Process each node's edges
+      for (const current of levelNodes) {
+        const nodeEdges = edgesByNode.get(current.id) || [];
 
-        // Add to queue for further traversal only if not at max depth
-        if (newNodeDepth < maxDepth && !visited.has(connectedId)) {
-          queue.push({ id: connectedId, depth: newNodeDepth });
+        for (const edge of nodeEdges) {
+          // Determine the connected memory ID
+          const connectedId = edge.fromMemoryId === current.id ? edge.toMemoryId : edge.fromMemoryId;
+
+          // Skip if minimum weight not met
+          if (edge.weight < minWeight) {
+            continue;
+          }
+
+          // Calculate new depth BEFORE adding to results
+          const newNodeDepth = current.depth + 1;
+
+          // Skip if new node would exceed maxDepth
+          if (newNodeDepth > maxDepth) {
+            continue;
+          }
+
+          results.push({
+            id: connectedId,
+            weight: edge.weight,
+            depth: newNodeDepth,
+            associationType: edge.associationType,
+            coactivationCount: edge.coactivationCount || 1,
+            lastAccessedAt: edge.lastCoactivatedAt || edge.createdAt || new Date(),
+          });
+
+          // Add to queue for further traversal only if not at max depth
+          if (newNodeDepth < maxDepth && !visited.has(connectedId)) {
+            queue.push({ id: connectedId, depth: newNodeDepth });
+          }
         }
       }
     } catch (e) {
-      logger.warn(`Error traversing associations for ${current.id}:`, e);
+      logger.warn(`Error batch traversing associations:`, e);
     }
   }
 
