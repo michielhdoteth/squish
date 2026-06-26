@@ -25,14 +25,15 @@ Squish takes a different architectural approach, targeting production-grade memo
 - **Geometry-aware consolidation**: Score-based decay system with spatial segmentation (Places), graph enrichment, and contradiction handling keeps memory size manageable without LLM-driven summarization.
 - **LOCOMO-verified recall**: Benchmarked at 65% on the academic LoCoMo memory benchmark (1540 questions) using deterministic retrieval methods. Results are reproducible and verifiable.
 - **Multiple integration surfaces**: CLI for scripts and automation, MCP server for agent integration, Web UI for inspection, and SDK for custom integrations.
-- **Local-first by default**: Runs entirely on-device with SQLite. Optional PostgreSQL backend for team mode. No data leaves your machine unless you configure paid Squish Cloud sync.
+- **Local-first by default**: Runs entirely on-device with SQLite. Team workspaces are cloud-managed on Squish Cloud. No data leaves your machine unless you configure paid Squish Cloud sync.
+- **Private-first company memory**: Shared knowledge is promoted explicitly through project/team/global scopes, with promotion history and sharing rationale preserved in the record.
 
 ## Architecture Differences
 
 | Aspect | AgentMemory | Squish |
 |--------|-------------|--------|
 | Memory extraction | LLM-powered (second LLM required) | Signal engine with local embeddings (no LLM required) |
-| Storage | Managed by the plugin | SQLite local / PostgreSQL team mode |
+| Storage | Managed by the plugin | SQLite local / Squish Cloud team workspace |
 | Retrieval | LLM-context injection | Hybrid search (semantic + keyword BM25 + RRF) |
 | Consolidation | LLM-driven summarization | Geometry-aware tiers, Places, graph enrichment |
 | Lifecycle | Recent/archived | Score-based decay with expiration |

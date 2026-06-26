@@ -14,6 +14,12 @@ describe("MCP mode semantics", () => {
     expect(modes.defaultMode).toBe("local");
   });
 
+  it("marks team mode as cloud-only", () => {
+    const modes = readJson(["config", "mcp-mode-semantics.json"]);
+
+    expect(modes.cloudOnlyModes).toContain("team");
+  });
+
   it("maps legacy team mode alias to team", () => {
     const modes = readJson(["config", "mcp-mode-semantics.json"]);
 

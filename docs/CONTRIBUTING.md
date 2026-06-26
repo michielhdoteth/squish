@@ -7,7 +7,7 @@ Thank you for contributing to Squish! This document provides guidelines for deve
 ### Prerequisites
 - Node.js >=18
 - Bun >=1.0
-- Docker (for team mode testing)
+- Docker (for Squish Cloud team mode testing)
 - Git
 
 ### Initial Setup
@@ -65,7 +65,7 @@ DEBUG=squish:* bun run dev:server
 open http://localhost:37777
 ```
 
-### Docker (Team Mode)
+### Docker (Squish Cloud Team Mode)
 
 ```bash
 # Start Docker services

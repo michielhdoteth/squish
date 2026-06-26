@@ -152,7 +152,7 @@ SQUISH_ENCRYPTION_PASSPHRASE=my-secret
 | Mode | Database | Use Case |
 |------|----------|----------|
 | `local` | SQLite | Single user, free |
-| `team` | PostgreSQL | Team/self-hosted |
+| `team` | PostgreSQL | Squish Cloud team workspace only |
 | `remote` | Supabase/Neon | Cloud backend |
 
 ## Example Configurations
@@ -167,10 +167,11 @@ SQUISH_ENCRYPTION_PASSPHRASE=my-secret
 }
 ```
 
-### Team Mode (PostgreSQL)
+### Team Mode (Squish Cloud)
 
 ```json
 {
+  "managed": { "enabled": true },
   "database": { "type": "postgres", "url": "postgres://user:pass@host/db" },
   "embeddings": { "provider": "openai", "models": { "openai": { "model": "<openai-embedding-model>" } } },
   "api": { "openai": { "apiKey": "sk-..." } }

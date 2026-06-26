@@ -17,7 +17,7 @@ import {
   assignMemoryToPlace,
 } from '../core/places/memory-places.js';
 import { findMatchingPlaces } from '../core/places/rules.js';
-import { detectQuestionType, questionPlaceType, getAdjacentPlaces as getQuestionAdjacentPlaces } from '../core/places/question-router.js';
+import { detectQuestionType, questionPlaceType } from '../core/places/question-router.js';
 import { getAdjacentPlaces, ADJACENT_PLACES } from '../core/places/rules.js';
 import {
   calculateCompositeScore,
@@ -776,13 +776,13 @@ describe('8. Cross-module integration', () => {
     expect(score.tagOverlapBoost).toBeGreaterThan(0);
   });
 
-  test('Adjacent places from question-router and rules are consistent', () => {
+  test('getAdjacentPlaces returns valid results for all place types', () => {
     const placeTypes = ['board', 'wip', 'sparks', 'ref', 'inbox', 'sandbox', 'archive'] as const;
 
     for (const pt of placeTypes) {
-      const fromRules = getAdjacentPlaces(pt);
-      const fromRouter = getQuestionAdjacentPlaces(pt);
-      expect(fromRules).toEqual(fromRouter);
+      const adjacent = getAdjacentPlaces(pt);
+      expect(adjacent).toBeArray();
+      expect(adjacent.length).toBeGreaterThan(0);
     }
   });
 

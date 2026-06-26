@@ -37,7 +37,7 @@ Store an explicit memory:
 
 ```bash
 squish remember "User prefers TypeScript" --type preference
-squish remember "Chose PostgreSQL for team mode" --type decision --project /path/to/project
+squish remember "Chose PostgreSQL for Squish Cloud team mode" --type decision --project /path/to/project
 ```
 
 ### squish recall

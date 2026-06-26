@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'bun:test';
-import { detectQuestionType, questionPlaceType, getAdjacentPlaces } from '../core/places/question-router.js';
+import { detectQuestionType, questionPlaceType } from '../core/places/question-router.js';
+import { getAdjacentPlaces } from '../core/places/rules.js';
 
 describe('questionPlaceType', () => {
   it('routes temporal questions to ref', () => {

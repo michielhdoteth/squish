@@ -179,7 +179,7 @@ This installs the Squish CLI, MCP server, and plugin hooks for all detected agen
 Start your coding agent as usual. Squish runs in the background, auto-capturing decisions, constraints, preferences, and context.
 
 ```bash
-squish remember "We chose PostgreSQL for team mode" --type decision
+squish remember "We chose PostgreSQL for Squish Cloud team mode" --type decision
 squish recall "project decisions"
 ```
 
@@ -452,7 +452,7 @@ Bring your own LLM if you want — Squish supports external embeddings and reaso
 
 ### Storage
 
-- SQLite (local, default) or PostgreSQL (team mode)
+- SQLite (local, default) or Squish Cloud team workspaces
 - Hybrid retrieval: keyword + semantic similarity with RRF fusion
 - AES-256-GCM encryption for sensitive memories
 - Places routing: organize memories by project, feature, or context
@@ -463,7 +463,7 @@ Bring your own LLM if you want — Squish supports external embeddings and reaso
 
 Squish uses a 4-stage pipeline to process memories:
 
-1. **Capture** — Filters noisy tool output, promotes what matters (decisions, constraints, preferences)
+1. **Capture** — Filters noisy tool output, keeps new memories private-first, and suggests what should be promoted into project/team/company scopes
 2. **Filter** — Deduplicates, resolves contradictions, scores importance
 3. **Store** — Persists to SQLite/PostgreSQL with graph relationships and embeddings
 4. **Retrieve** — Hybrid search combines keyword, semantic, recency, and importance scoring
@@ -488,7 +488,7 @@ Squish uses a 4-stage pipeline to process memories:
   <thead>
     <tr style="background-color: #f6f8fa; border-bottom: 2px solid #d0d7de;">
       <th style="padding: 10px 14px; text-align: left;">SQLite (default)</th>
-      <th style="padding: 10px 14px; text-align: left;">PostgreSQL (team mode)</th>
+      <th style="padding: 10px 14px; text-align: left;">Squish Cloud Team</th>
     </tr>
   </thead>
   <tbody>
@@ -746,7 +746,7 @@ Yes. In local mode, all data stays on your machine in an encrypted SQLite databa
 
 ### What databases does Squish support?
 
-Squish supports SQLite (default, local) and PostgreSQL (team mode). SQLite requires zero configuration. PostgreSQL is used for team workspaces and shared memory across multiple users.
+Squish supports SQLite (default, local) and Squish Cloud team workspaces backed by PostgreSQL. SQLite requires zero configuration. Team workspaces are only available on Squish Cloud and are used for shared memory across multiple users.
 
 ### What is the difference between recall and sessions?
 

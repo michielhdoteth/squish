@@ -1,6 +1,7 @@
 {
   "canonicalModes": ["local", "team", "remote"],
   "defaultMode": "local",
+  "cloudOnlyModes": ["team"],
   "legacyAliases": {
     "team": "team"
   },

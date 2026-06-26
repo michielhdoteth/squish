@@ -23,4 +23,13 @@ describe("MCP team surface", () => {
     expect(source).toContain('visibilityScope: z.union([');
     expect(source).toContain('visibilityScope,');
   });
+
+  it("exposes memory policy promotion and recommendation actions", () => {
+    const source = readText(["packages", "mcp", "src", "index.ts"]);
+
+    expect(source).toContain('"squish_memory_policy"');
+    expect(source).toContain('private-first memory and company sharing decisions');
+    expect(source).toContain('recommendMemoryScope({');
+    expect(source).toContain('promoteMemoryVisibility(memoryId, targetScope, updateReason)');
+  });
 });

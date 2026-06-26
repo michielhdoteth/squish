@@ -261,9 +261,9 @@ export async function walkFrom(
 }
 
 /**
- * Get a spatial summary of the mempalace (adjacency graph with memory counts)
+ * Get a spatial summary of the places system (adjacency graph with memory counts)
  */
-export async function getMempalaceMap(projectId: string): Promise<{
+export async function getPlacesMap(projectId: string): Promise<{
   places: Array<{
     name: string;
     placeType: string;

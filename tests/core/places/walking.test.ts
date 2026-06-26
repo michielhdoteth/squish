@@ -8,7 +8,7 @@
  * 4. getPlaceContext() - returns compressed context for a place
  * 5. getFullWalkingContext() - distributes budget correctly, skips empty places
  * 6. walkFrom() - adjacency-aware walking (new function)
- * 7. getMempalaceMap() - returns adjacency graph
+ * 7. getPlacesMap() - returns adjacency graph
  */
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -26,7 +26,7 @@ let quickTour: typeof import('../../../core/places/walking.js').quickTour;
 let getPlaceContext: typeof import('../../../core/places/walking.js').getPlaceContext;
 let getFullWalkingContext: typeof import('../../../core/places/walking.js').getFullWalkingContext;
 let walkFrom: typeof import('../../../core/places/walking.js').walkFrom;
-let getMempalaceMap: typeof import('../../../core/places/walking.js').getMempalaceMap;
+let getPlacesMap: typeof import('../../../core/places/walking.js').getPlacesMap;
 let initializeGlobalPlaces: typeof import('../../../core/places/places.js').initializeGlobalPlaces;
 let getProjectPlaces: typeof import('../../../core/places/places.js').getProjectPlaces;
 let getPlaceByType: typeof import('../../../core/places/places.js').getPlaceByType;
@@ -113,7 +113,7 @@ describe('Walking Module', () => {
     getPlaceContext = walkingMod.getPlaceContext;
     getFullWalkingContext = walkingMod.getFullWalkingContext;
     walkFrom = walkingMod.walkFrom;
-    getMempalaceMap = walkingMod.getMempalaceMap;
+    getPlacesMap = walkingMod.getPlacesMap;
     initializeGlobalPlaces = placesMod.initializeGlobalPlaces;
     getProjectPlaces = placesMod.getProjectPlaces;
     getPlaceByType = placesMod.getPlaceByType;
@@ -342,7 +342,7 @@ describe('Walking Module', () => {
     });
   });
 
-  describe('getMempalaceMap()', () => {
+  describe('getPlacesMap()', () => {
     test('returns adjacency graph with memory counts', async () => {
       await initializeGlobalPlaces();
       
@@ -352,7 +352,7 @@ describe('Walking Module', () => {
       await assignMemoryToPlaceType(mem1, 'wip');
       await assignMemoryToPlaceType(mem2, 'ref');
       
-      const map = await getMempalaceMap(globalProjectId);
+      const map = await getPlacesMap(globalProjectId);
       
       expect(map.places).toBeDefined();
       expect(Array.isArray(map.places)).toBe(true);
@@ -369,7 +369,7 @@ describe('Walking Module', () => {
     test('includes all 7 default places', async () => {
       await initializeGlobalPlaces();
       
-      const map = await getMempalaceMap(globalProjectId);
+      const map = await getPlacesMap(globalProjectId);
       
       expect(map.places.length).toBe(7);
       const placeTypes = map.places.map(p => p.placeType).sort();

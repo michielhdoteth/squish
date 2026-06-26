@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { getDbClient } from '../lib/db-client.js';
 import { deserializeMetadata } from './serialization.js';
+import { extractMemoryPolicy } from './policy.js';
 import { getMemorySnapshot } from '../snapshots/retrieval.js';
 import { getMemoryPlace } from '../places/memory-places.js';
 import { getPlace } from '../places/places.js';
@@ -19,6 +20,7 @@ export interface MemoryInspection {
   graphStatus?: string | null;
   content: string;
   legacyMetadata: boolean;
+  memoryPolicy?: Record<string, unknown> | null;
   beliefs?: StoredBelief[];
 }
 
@@ -86,6 +88,7 @@ export async function explainMemory(id: string): Promise<MemoryInspection | null
         ? JSON.stringify(metadata.graph)
         : 'Unavailable for this legacy record';
   const legacyMetadata = rawClassification == null;
+  const memoryPolicy = extractMemoryPolicy(metadata);
 
   const placeId = await getMemoryPlace(id);
   const place = placeId ? await getPlace(placeId) : null;
@@ -107,6 +110,7 @@ export async function explainMemory(id: string): Promise<MemoryInspection | null
     graphStatus,
     content: row.content,
     legacyMetadata,
+    memoryPolicy,
     beliefs,
   };
 }

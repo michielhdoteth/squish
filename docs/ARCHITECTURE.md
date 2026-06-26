@@ -136,7 +136,7 @@ Squish implements multi-layer storage for optimal performance:
 
 **SQLite/PostgreSQL Persistent Storage**
 - **Local Mode**: SQLite database with full durability
-- **Team Mode**: PostgreSQL with pgvector for semantic search
+- **Team Mode**: Squish Cloud-managed PostgreSQL with pgvector for semantic search
 - Drizzle ORM for type-safe database access
 - Full-text search with FTS5 (SQLite) or pg_trgm (Postgres)
 
@@ -145,7 +145,7 @@ Squish implements multi-layer storage for optimal performance:
 - JSON embeddings for vector search fallback
 
 **PostgreSQL Schema** (`db/drizzle/schema.ts`)
-- For team mode
+- For Squish Cloud team mode
 - pgvector for semantic search
 
 ### 5. Storage Modes
@@ -157,7 +157,7 @@ Squish implements multi-layer storage for optimal performance:
 - Embeddings stored as JSON
 
 **Team Mode**
-- PostgreSQL for persistent storage
+- Squish Cloud PostgreSQL for persistent storage
 - Redis for caching
 - pgvector for semantic search
 - Supports concurrent access
@@ -235,7 +235,7 @@ Query → Normalize → Split into:
 - Ollama (local embeddings)
 
 **Caching**
-- Redis (team mode)
+- Redis (Squish Cloud team mode)
 - In-memory (local mode)
 
 **Web**
@@ -257,7 +257,7 @@ SQUISH_EMBEDDINGS_PROVIDER=openai|ollama|none
 SQUISH_OPENAI_API_KEY=sk-...
 SQUISH_OLLAMA_URL=http://localhost:11434
 
-# Database (team mode)
+# Database (Squish Cloud team mode)
 DATABASE_URL=postgres://user:pass@localhost/squish
 REDIS_URL=redis://localhost:6379
 

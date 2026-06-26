@@ -152,6 +152,23 @@ describe('launch config defaults and overrides', () => {
     expect(config.nestedGraphAutoBuild).toBe(true);
   });
 
+  test('postgres alone does not enable team mode locally', () => {
+    const config = readConfig({
+      DATABASE_URL: 'postgres://user:pass@localhost/squish',
+    });
+
+    expect(config.mode).toBe('local');
+  });
+
+  test('managed postgres enables team mode for cloud deployments', () => {
+    const config = readConfig({
+      DATABASE_URL: 'postgres://user:pass@localhost/squish',
+      SQUISH_MANAGED_MODE: 'true',
+    });
+
+    expect(config.mode).toBe('team');
+  });
+
   test('packaged defaults do not hardcode provider model names', () => {
     const config = readConfig({});
 

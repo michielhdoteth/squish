@@ -10,6 +10,7 @@ import { getSchema } from '../../db/schema.js';
 import { config } from '../../config.js';
 import { getEmbedding } from '../embeddings.js';
 import { logger } from '../logger.js';
+import { annotateMemoryMetadata, buildMemoryPolicy, buildVisibilityScopes, serializeVisibilityScopes } from '../memory/policy.js';
 
 export type VisibilityScope = 'private' | 'project' | 'team' | 'global';
 
@@ -48,10 +49,19 @@ export async function storeAgentMemory(
     const visibilityScope = options.visibilityScope || config.defaultVisibilityScope;
 
     // Determine scopes based on visibility
-    const readScope = calculateReadScope(context, visibilityScope);
-    const writeScope = [`agent:${context.agentId}`];
-    const serializedReadScope = serializeScopeList(readScope);
-    const serializedWriteScope = serializeScopeList(writeScope);
+    const scopes = buildVisibilityScopes(visibilityScope, 'agent', context.agentId);
+    const serializedReadScope = serializeVisibilityScopes(scopes.readScope);
+    const serializedWriteScope = serializeVisibilityScopes(scopes.writeScope);
+    const memoryPolicy = buildMemoryPolicy({
+      content,
+      type: options.type as any,
+      tags: options.tags,
+      visibilityScope,
+      importanceScore: 0,
+      accessCount: 0,
+      usageCount: 0,
+      isPinned: false,
+    });
 
     await (db as any).insert(schema.memories).values({
       id: memoryId,
@@ -66,7 +76,7 @@ export async function storeAgentMemory(
       writeScope: serializedWriteScope,
       readScope: serializedReadScope,
       tags: options.tags || [],
-      metadata: options.metadata || null,
+      metadata: serializeMemoryMetadata(annotateMemoryMetadata(options.metadata || null, memoryPolicy)),
       embedding: embedding || null,
       confidence: 100,
       relevanceScore: 50,
@@ -83,33 +93,8 @@ export async function storeAgentMemory(
 
 
 
-
-
-
-
-
-
-
-
-// Helper Functions
-
-function calculateReadScope(context: AgentContext, visibility: VisibilityScope): string[] {
-  switch (visibility) {
-    case 'private':
-      return [`agent:${context.agentId}`];
-    case 'project':
-      return [`agent:${context.agentId}`, `project:${context.projectId || '*'}`];
-    case 'team':
-      return [`agent:${context.agentId}`, 'team:*'];
-    case 'global':
-      return ['*'];
-    default:
-  return [`agent:${context.agentId}`];
-}
-
-function serializeScopeList(scopes: string[]): string[] | string {
-  return config.isTeamMode ? scopes : JSON.stringify(scopes);
-}
+function serializeMemoryMetadata(metadata: Record<string, unknown>): Record<string, unknown> | string {
+  return config.isTeamMode ? metadata : JSON.stringify(metadata);
 }
 
 async function storeStandardMemory(
