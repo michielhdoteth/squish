@@ -161,7 +161,7 @@ export function checkHealth(): {
   const cfg = getContextualConfig();
   return {
     enabled: cfg.enabled,
-    template: cfg.prefixTemplate,
+    template: cfg.template,
   };
 }
 
