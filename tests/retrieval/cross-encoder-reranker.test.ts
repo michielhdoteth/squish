@@ -46,7 +46,7 @@ describe('Cross-Encoder Reranker', () => {
       const cfg = getRerankerConfig();
       expect(cfg.enabled).toBe(false);
       expect(cfg.model).toBe('cross-encoder/ms-marco-MiniLM-L-6-v2');
-      expect(cfg.topK).toBe(100);
+      expect(cfg.topK).toBe(30);
       expect(cfg.returnTopK).toBe(20);
     });
 

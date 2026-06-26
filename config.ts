@@ -566,7 +566,7 @@ function buildConfig() {
       return getString('retrieval.reranker.model', 'SQUISH_RERANKER_MODEL', 'cross-encoder/ms-marco-MiniLM-L-6-v2');
     },
     get rerankerTopK() {
-      return getNumber('retrieval.reranker.topK', 'SQUISH_RERANKER_TOP_K', 100);
+      return getNumber('retrieval.reranker.topK', 'SQUISH_RERANKER_TOP_K', 30);
     },
     get rerankerReturnTopK() {
       return getNumber('retrieval.reranker.returnTopK', 'SQUISH_RERANKER_RETURN_TOP_K', 20);

@@ -50,7 +50,7 @@ export function getRerankerConfig(): RerankerConfig {
   return {
     enabled: process.env.SQUISH_RERANKER_ENABLED === 'true',
     model: process.env.SQUISH_RERANKER_MODEL || 'cross-encoder/ms-marco-MiniLM-L-6-v2',
-    topK: parseInt(process.env.SQUISH_RERANKER_TOP_K ?? '100', 10),
+    topK: parseInt(process.env.SQUISH_RERANKER_TOP_K ?? '30', 10),
     returnTopK: parseInt(process.env.SQUISH_RERANKER_RETURN_TOP_K ?? '20', 10),
     device: 'cpu',
     dtype: 'q8',
