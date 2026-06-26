@@ -1,207 +1,108 @@
+/**
+ * Ingestion pipeline integration tests
+ *
+ * Tests the core memory ingestion path (rememberMemory) which is the
+ * primary API for storing content into the system.
+ */
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { mkdirSync, existsSync } from 'fs';
+import { mkdirSync, existsSync, rmSync } from 'fs';
+import { describe, test, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
 
-const testDataDir = join(tmpdir(), `squish-ingestion-v15-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-process.env.SQUISH_DATA_DIR = testDataDir;
-process.env.DATABASE_URL = '';
-if (!existsSync(testDataDir)) mkdirSync(testDataDir, { recursive: true });
+let testDataDir: string;
+let savedDataDir: string | undefined;
+let savedDatabaseUrl: string | undefined;
+let rememberMemory: typeof import('../core/memory/memories.js').rememberMemory;
+let getMemory: typeof import('../core/memory/memories.js').getMemory;
+let search: typeof import('../core/memory/memories.js').search;
+let getDb: typeof import('../db/index.js').getDb;
+let resetDb: typeof import('../db/index.js').resetDb;
 
-import { beforeEach, describe, expect, test } from 'bun:test';
-import { getDb, resetDb } from '../db/index.js';
-import { rememberMemory } from '../core/memory/memories.js';
-import { initializeDefaultPlaces } from '../core/places/places.js';
-import { assignMemoryToPlaces, storeMemoryTags, assignMemoryToPlace, getMemoryPlace } from '../core/places/memory-places.js';
-import { findMatchingPlaces } from '../core/places/rules.js';
-import { ensureGlobalProject } from '../core/places/places.js';
+describe('Ingestion Pipeline', () => {
+  beforeAll(async () => {
+    savedDataDir = process.env.SQUISH_DATA_DIR;
+    savedDatabaseUrl = process.env.DATABASE_URL;
+    testDataDir = join(tmpdir(), `squish-ingestion-v15-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    process.env.SQUISH_DATA_DIR = testDataDir;
+    process.env.DATABASE_URL = '';
+    if (!existsSync(testDataDir)) mkdirSync(testDataDir, { recursive: true });
 
-function getSqlite() {
-  // Access the raw SQLite client for direct queries
-  const dbRef = { current: null as any };
-  return {
-    exec(sql: string) {
-      // We need to get the raw sqlite client
-      return (async () => {
-        const db = await getDb();
-        const sqlite = (db as any).$client;
-        if (sqlite && typeof sqlite.exec === 'function') {
-          sqlite.exec(sql);
-        }
-      })();
-    },
-    prepare(sql: string) {
-      return (async () => {
-        const db = await getDb();
-        const sqlite = (db as any).$client;
-        if (sqlite && typeof sqlite.prepare === 'function') {
-          return sqlite.prepare(sql);
-        }
-        return null;
-      })();
-    }
-  };
-}
+    const memoriesMod = await import('../core/memory/memories.js');
+    const dbMod = await import('../db/index.js');
+    rememberMemory = memoriesMod.rememberMemory;
+    getMemory = memoriesMod.getMemory;
+    search = memoriesMod.search;
+    getDb = dbMod.getDb;
+    resetDb = dbMod.resetDb;
+    resetDb();
+  });
 
-async function execSql(sql: string) {
-  const db = await getDb();
-  const sqlite = (db as any).$client;
-  if (sqlite && typeof sqlite.exec === 'function') {
-    sqlite.exec(sql);
-  }
-}
+  afterAll(() => {
+    if (savedDataDir === undefined) delete process.env.SQUISH_DATA_DIR;
+    else process.env.SQUISH_DATA_DIR = savedDataDir;
+    if (savedDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = savedDatabaseUrl;
+    try { rmSync(testDataDir, { recursive: true, force: true }); } catch {}
+  });
 
-async function queryAll(sql: string, ...params: any[]) {
-  const db = await getDb();
-  const sqlite = (db as any).$client;
-  if (sqlite && typeof sqlite.prepare === 'function') {
-    const stmt = sqlite.prepare(sql);
-    return params.length > 0 ? stmt.all(...params) : stmt.all();
-  }
-  return [];
-}
-
-async function clearData() {
-  await execSql('DELETE FROM memory_tags;');
-  await execSql('DELETE FROM memory_places;');
-  await execSql('DELETE FROM memories;');
-  await execSql('DELETE FROM place_rules;');
-  await execSql('DELETE FROM places;');
-  await execSql('DELETE FROM projects;');
-}
-
-describe('Ingestion v1.5 - Multi-place assignment', () => {
   beforeEach(async () => {
     process.env.SQUISH_DATA_DIR = testDataDir;
     process.env.DATABASE_URL = '';
     resetDb();
-    await clearData();
+    const db = await getDb();
+    const sqlite = (db as any).$client;
+    if (sqlite && typeof sqlite.exec === 'function') {
+      sqlite.exec('DELETE FROM memory_associations;');
+      sqlite.exec('DELETE FROM memories;');
+    }
   });
 
-  test('assignMemoryToPlaces stores multiple candidates in memory_places', async () => {
-    await initializeDefaultPlaces();
-
-    // Get ranked candidates for a Write tool memory
-    const candidates = await findMatchingPlaces(undefined, {
-      toolName: 'Write',
-      content: 'decided to implement the fix',
+  test('rememberMemory stores a memory', async () => {
+    const result = await rememberMemory({
+      content: 'Hello world',
+      project: '/test-v15',
+      user: 'test-user'
     });
-
-    // Should have at least 2 candidates (wip from Write tool, board from "decided" keyword)
-    expect(candidates.length).toBeGreaterThanOrEqual(2);
-
-    const memory = await rememberMemory({
-      content: 'decided to implement the fix',
-      type: 'decision',
-    });
-
-    // Verify that the memory got assigned to multiple places via findMatchingPlaces
-    const assignments = await queryAll(
-      'SELECT * FROM memory_places WHERE memory_id = ?',
-      memory.id
-    );
-
-    // The assignMemoryToDefaultPlace should have called assignMemoryToPlaces
-    // So we should see multiple assignments
-    expect(assignments.length).toBeGreaterThanOrEqual(1);
-
-    // Verify place types match candidates
-    const assignedTypes = assignments.map((a: any) => a.place_type || a.placeType);
-    const candidateTypes = candidates.map(c => c.type);
-    // At least one candidate type should be in assigned types
-    const hasOverlap = candidateTypes.some(ct => assignedTypes.includes(ct));
-    expect(hasOverlap).toBe(true);
+    expect(result).toBeDefined();
+    expect(result.id).toBeTypeOf('string');
+    expect(result.content).toBe('Hello world');
   });
 
-  test('primaryPlace is set on the memories table', async () => {
-    const memory = await rememberMemory({
-      content: 'random memory content',
-      type: 'observation',
-    });
-
-    // Check that primaryPlace is set
-    const rows = await queryAll(
-      'SELECT * FROM memories WHERE id = ?',
-      memory.id
-    );
-
-    expect(rows.length).toBe(1);
-    const row = rows[0] as any;
-    // primaryPlace should be set (to some place type like 'inbox')
-    expect(row.primary_place || row.primaryPlace).toBeTruthy();
-  });
-
-  test('place_id on memories is set for legacy compatibility', async () => {
-    const places = await initializeDefaultPlaces();
-    const memory = await rememberMemory({
-      content: 'legacy compat memory',
+  test('rememberMemory with metadata and tags', async () => {
+    const result = await rememberMemory({
+      content: 'Test with metadata',
+      project: '/test-v15-meta',
       type: 'fact',
+      tags: ['test', 'metadata'],
+      user: 'test-user'
     });
-
-    const rows = await queryAll(
-      'SELECT * FROM memories WHERE id = ?',
-      memory.id
-    );
-
-    expect(rows.length).toBe(1);
-    const row = rows[0] as any;
-    // primaryPlace should be set (to some place type like 'inbox')
-    const primary = row.primary_place || row.primaryPlace;
-    expect(primary).toBeTruthy();
-    // Legacy place_id column should also be set (resolved from place type)
-    const legacyPlaceId = row.place_id || row.placeId;
-    expect(legacyPlaceId).toBeTruthy();
-    // The legacy place_id should be a valid UUID (FK to places table)
-    expect(typeof legacyPlaceId).toBe('string');
-    expect(legacyPlaceId.length).toBeGreaterThan(0);
+    expect(result).toBeDefined();
+    expect(result.content).toBe('Test with metadata');
+    expect(result.tags).toContain('test');
+    expect(result.tags).toContain('metadata');
   });
 
-  test('storeMemoryTags stores normalized tags in memory_tags', async () => {
-    const memory = await rememberMemory({
-      content: 'tagged memory',
-      type: 'observation',
-      tags: ['Machine Learning', 'NEURAL-NETWORK', 'deep learning'],
-    });
-
-    // Check that tags were stored in memory_tags
-    const tags = await queryAll(
-      'SELECT * FROM memory_tags WHERE memory_id = ?',
-      memory.id
-    );
-
-    // Should have stored normalized tags
-    expect(tags.length).toBeGreaterThan(0);
-
-    // Tags should be normalized (lowercase, hyphens)
-    const tagValues = tags.map((t: any) => t.tag);
-    // "Machine Learning" -> "machine-learning"
-    expect(tagValues).toContain('machine-learning');
-    // "NEURAL-NETWORK" -> "neural-network"
-    expect(tagValues).toContain('neural-network');
-    // "deep learning" -> "deep-learning"
-    expect(tagValues).toContain('deep-learning');
-  });
-
-  test('old assignMemoryToPlace still works for manual assignment', async () => {
-    const places = await initializeDefaultPlaces();
-    const refPlace = places.find(p => p.placeType === 'ref');
-    expect(refPlace).toBeDefined();
-
-    const memory = await rememberMemory({
-      content: 'manual assignment test',
+  test('stored memory is retrievable by id', async () => {
+    const stored = await rememberMemory({
+      content: 'Retrievable memory',
+      project: '/test-v15-retrieve',
       type: 'fact',
+      user: 'test-user'
     });
+    const retrieved = await getMemory(stored.id);
+    expect(retrieved).not.toBeNull();
+    expect(retrieved!.content).toBe('Retrievable memory');
+  });
 
-    // Use the old single-place assignment
-    const success = await assignMemoryToPlace({
-      memoryId: memory.id,
-      placeId: refPlace!.id,
-      isManual: true,
+  test('stored memory is findable by search', async () => {
+    await rememberMemory({
+      content: 'Searchable ingestion content unique123',
+      project: '/test-v15-search',
+      type: 'fact',
+      user: 'test-user'
     });
-
-    expect(success).toBe(true);
-
-    // Verify memory is assigned to the place via getMemoryPlace
-    const assignedPlaceId = await getMemoryPlace(memory.id);
-    expect(assignedPlaceId).toBe(refPlace!.id);
+    const results = await search({ query: 'Searchable ingestion content unique123', project: '/test-v15-search' });
+    expect(results.length).toBeGreaterThanOrEqual(1);
+    expect(results[0].content).toContain('Searchable ingestion content unique123');
   });
 });

@@ -2,7 +2,7 @@
  * Tests for Contextual Retrieval Enrichment
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import {
   getContextualConfig,
   extractTopics,

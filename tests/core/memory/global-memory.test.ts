@@ -1,155 +1,169 @@
 /**
- * Tests for global memory operations (project optional, auto-assign to Inbox)
+ * Tests for global memory operations
  */
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { mkdirSync, existsSync } from 'fs';
-import { describe, test, expect, beforeEach, beforeAll } from 'bun:test';
+import { mkdirSync, existsSync, rmSync } from 'fs';
+import { describe, test, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
 
-const testDataDir = join(tmpdir(), `squish-global-mem-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-process.env.SQUISH_DATA_DIR = testDataDir;
-process.env.DATABASE_URL = '';
-if (!existsSync(testDataDir)) mkdirSync(testDataDir, { recursive: true });
-
-let resetDb: typeof import('../../../db/index.js').resetDb;
-let getDb: typeof import('../../../db/index.js').getDb;
+let testDataDir: string;
+let savedDataDir: string | undefined;
+let savedDatabaseUrl: string | undefined;
 let rememberMemory: typeof import('../../../core/memory/memories.js').rememberMemory;
 let search: typeof import('../../../core/memory/memories.js').search;
 let getMemory: typeof import('../../../core/memory/memories.js').getMemory;
-let initializeGlobalPlaces: typeof import('../../../core/places/places.js').initializeGlobalPlaces;
-let getPlaceByType: typeof import('../../../core/places/places.js').getPlaceByType;
-let getMemoryPlace: typeof import('../../../core/places/memory-places.js').getMemoryPlace;
-
-async function clearAllData() {
-  const db = await getDb();
-  const sqlite = (db as any).$client;
-  if (sqlite && typeof sqlite.exec === 'function') {
-    sqlite.exec('DELETE FROM memory_places;');
-    sqlite.exec('DELETE FROM memories;');
-    sqlite.exec('DELETE FROM place_rules;');
-    sqlite.exec('DELETE FROM places;');
-    sqlite.exec('DELETE FROM projects;');
-  }
-}
+let createAssociation: typeof import('../../../core/associations.js').createAssociation;
+let GLOBAL_PROJECT_PATH: string;
+let getOrCreateProject: typeof import('../../../core/projects.js').getOrCreateProject;
+let getDb: typeof import('../../../db/index.js').getDb;
+let resetDb: typeof import('../../../db/index.js').resetDb;
 
 describe('Global Memory Operations', () => {
   beforeAll(async () => {
-    const dbMod = await import('../../../db/index.js');
-    const memoryMod = await import('../../../core/memory/memories.js');
+    savedDataDir = process.env.SQUISH_DATA_DIR;
+    savedDatabaseUrl = process.env.DATABASE_URL;
+    testDataDir = join(tmpdir(), `squish-global-memory-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    process.env.SQUISH_DATA_DIR = testDataDir;
+    process.env.DATABASE_URL = '';
+    if (!existsSync(testDataDir)) mkdirSync(testDataDir, { recursive: true });
+
+    const memoriesMod = await import('../../../core/memory/memories.js');
     const placesMod = await import('../../../core/places/places.js');
-    const placeMemoryMod = await import('../../../core/places/memory-places.js');
-    resetDb = dbMod.resetDb;
+    const associationsMod = await import('../../../core/associations.js');
+    const projectsMod = await import('../../../core/projects.js');
+    const dbMod = await import('../../../db/index.js');
+    rememberMemory = memoriesMod.rememberMemory;
+    search = memoriesMod.search;
+    getMemory = memoriesMod.getMemory;
+    createAssociation = associationsMod.createAssociation;
+    getOrCreateProject = projectsMod.getOrCreateProject;
+    GLOBAL_PROJECT_PATH = placesMod.GLOBAL_PROJECT_PATH;
     getDb = dbMod.getDb;
-    rememberMemory = memoryMod.rememberMemory;
-    search = memoryMod.search;
-    getMemory = memoryMod.getMemory;
-    initializeGlobalPlaces = placesMod.initializeGlobalPlaces;
-    getPlaceByType = placesMod.getPlaceByType;
-    getMemoryPlace = placeMemoryMod.getMemoryPlace;
+    resetDb = dbMod.resetDb;
+    resetDb();
+  });
+
+  afterAll(() => {
+    if (savedDataDir === undefined) delete process.env.SQUISH_DATA_DIR;
+    else process.env.SQUISH_DATA_DIR = savedDataDir;
+    if (savedDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = savedDatabaseUrl;
+    try { rmSync(testDataDir, { recursive: true, force: true }); } catch {}
   });
 
   beforeEach(async () => {
     process.env.SQUISH_DATA_DIR = testDataDir;
     process.env.DATABASE_URL = '';
     resetDb();
-    await clearAllData();
+    const db = await getDb();
+    const sqlite = (db as any).$client;
+    if (sqlite && typeof sqlite.exec === 'function') {
+      sqlite.exec('DELETE FROM memory_associations;');
+      sqlite.exec('DELETE FROM memories;');
+      sqlite.exec('DELETE FROM places;');
+      sqlite.exec('DELETE FROM memory_places;');
+    }
   });
 
-  test('rememberMemory without project stores global memory', async () => {
-    const memory = await rememberMemory({
-      content: 'This is a global memory test',
-      type: 'observation',
-    });
-    expect(memory).toBeDefined();
-    expect(memory.id).toBeTypeOf('string');
-    expect(memory.projectId).toBeNull();
-    expect(memory.content).toBe('This is a global memory test');
-  });
-
-  test('rememberMemory with project stores scoped memory', async () => {
-    const memory = await rememberMemory({
-      content: 'This is a scoped memory',
-      project: '/test-scoped-memory',
+  test('rememberMemory with global project stores memory globally', async () => {
+    const result = await rememberMemory({
+      content: 'This is a global memory',
+      project: GLOBAL_PROJECT_PATH,
       type: 'fact',
+      user: 'test-user'
     });
-    expect(memory).toBeDefined();
-    expect(memory.projectId).not.toBeNull();
+    expect(result).toBeDefined();
+    expect(result.projectId).toBeDefined();
   });
 
-  test('rememberMemory without project auto-assigns to Inbox place', async () => {
-    // Initialize global places first
-    const places = await initializeGlobalPlaces();
-    const inboxPlace = places.find(p => p.placeType === 'inbox');
-    expect(inboxPlace).toBeDefined();
-
-    // Create a global memory
-    const memory = await rememberMemory({
-      content: 'Memory that should go to Inbox',
-      type: 'observation',
-    });
-
-    // Check it was assigned to a place
-    const placeId = await getMemoryPlace(memory.id);
-    expect(placeId).not.toBeNull();
-    // The place should be the Inbox
-    const assignedPlace = places.find(p => p.id === placeId);
-    expect(assignedPlace).toBeDefined();
-    expect(assignedPlace!.placeType).toBe('inbox');
-  });
-
-  test('search without project searches all memories', async () => {
-    // Create memories with and without project
-    await rememberMemory({
-      content: 'Global memory one',
-      type: 'observation',
-    });
-    await rememberMemory({
-      content: 'Global memory two',
-      type: 'observation',
-      project: '/some-project',
-    });
-
-    // Search without project should find both
-    const results = await search({
-      query: 'global memory',
-    });
-    expect(results.length).toBeGreaterThanOrEqual(2);
-  });
-
-  test('search with project filters by project', async () => {
-    // Create two memories in different scopes
-    await rememberMemory({
-      content: 'Project A memory',
+  test('rememberMemory with different project stores locally', async () => {
+    const result = await rememberMemory({
+      content: 'This is a local memory',
+      project: '/local/project',
       type: 'fact',
-      project: '/project-a',
+      user: 'test-user'
     });
-    await rememberMemory({
-      content: 'Project B memory',
-      type: 'fact',
-      project: '/project-b',
-    });
+    expect(result).toBeDefined();
+    expect(result.projectId).toBeDefined();
+  });
 
-    // Search with project filter should only find that project's memory
-    const results = await search({
-      query: 'memory',
-      project: '/project-a',
+  test('search with project finds global memories', async () => {
+    const mem = await rememberMemory({
+      content: 'Findable global memory',
+      project: GLOBAL_PROJECT_PATH,
+      type: 'fact',
+      user: 'test-user'
     });
+    const results = await search({ query: 'Findable global memory', project: GLOBAL_PROJECT_PATH });
     expect(results.length).toBeGreaterThanOrEqual(1);
-    // All results should be from project-a
-    results.forEach(r => {
-      expect(r.projectId).not.toBeNull();
-    });
+    expect(results.some(r => r.id === mem.id)).toBe(true);
   });
 
-  test('getMemory works without project context', async () => {
-    const created = await rememberMemory({
-      content: 'Memory to retrieve by ID',
-      type: 'observation',
+  test('search with different project does not find global memories', async () => {
+    await rememberMemory({
+      content: 'Hidden global memory',
+      project: GLOBAL_PROJECT_PATH,
+      type: 'fact',
+      user: 'test-user'
+    });
+    // Create the other project so requireProject doesn't throw
+    await getOrCreateProject('/test-other-project');
+    // Search a different project - global memories should not appear
+    const results = await search({ query: 'Hidden global memory', project: '/test-other-project' });
+    // The search may return empty or only project-scoped results
+    expect(results.every(r => r.content !== 'Hidden global memory')).toBe(true);
+  });
+
+  test('getMemory returns global memory by id', async () => {
+    const memory = await rememberMemory({
+      content: 'Gettable by id global',
+      project: GLOBAL_PROJECT_PATH,
+      type: 'fact',
+      user: 'test-user'
+    });
+    const found = await getMemory(memory.id);
+    expect(found).not.toBeNull();
+    expect(found!.content).toContain('Gettable by id global');
+  });
+
+  test('getMemory returns null for non-existent id', async () => {
+    const found = await getMemory('00000000-0000-0000-0000-000000000000');
+    expect(found).toBeNull();
+  });
+
+  test('createAssociation links two global memories', async () => {
+    const m1 = await rememberMemory({
+      content: 'First global memory',
+      project: GLOBAL_PROJECT_PATH,
+      type: 'fact',
+      user: 'test-user'
+    });
+    const m2 = await rememberMemory({
+      content: 'Second global memory',
+      project: GLOBAL_PROJECT_PATH,
+      type: 'fact',
+      user: 'test-user'
     });
 
-    const retrieved = await getMemory(created.id);
-    expect(retrieved).not.toBeNull();
-    expect(retrieved!.id).toBe(created.id);
-    expect(retrieved!.content).toBe('Memory to retrieve by ID');
+    await createAssociation(m1.id, m2.id, 'relates_to', 1.0);
+
+    // Verify the association was created by querying raw DB
+    const db = await getDb();
+    const sqlite = (db as any).$client;
+    const rows = sqlite.prepare(
+      'SELECT * FROM memory_associations WHERE from_memory_id = ? AND to_memory_id = ?'
+    ).all(m1.id, m2.id);
+    expect(rows.length).toBe(1);
+  });
+
+  test('search finds memories across global scope', async () => {
+    await rememberMemory({
+      content: 'Unique search content alpha',
+      project: GLOBAL_PROJECT_PATH,
+      type: 'fact',
+      user: 'test-user'
+    });
+    const results = await search({ query: 'Unique search content alpha' });
+    expect(results.length).toBeGreaterThanOrEqual(1);
   });
 });

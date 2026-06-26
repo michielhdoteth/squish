@@ -3,24 +3,20 @@
  */
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { mkdirSync, existsSync } from 'fs';
-import { describe, test, expect, beforeAll, beforeEach, afterEach } from 'bun:test';
+import { mkdirSync, existsSync, rmSync } from 'fs';
+import { describe, test, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
 
-const testDataDir = join(tmpdir(), `squish-places-global-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-process.env.SQUISH_DATA_DIR = testDataDir;
-process.env.DATABASE_URL = '';
-if (!existsSync(testDataDir)) mkdirSync(testDataDir, { recursive: true });
-
+let testDataDir: string;
+let savedDataDir: string | undefined;
+let savedDatabaseUrl: string | undefined;
 let initializeGlobalPlaces: typeof import('../../../core/places/places.js').initializeGlobalPlaces;
 let initializeDefaultPlaces: typeof import('../../../core/places/places.js').initializeDefaultPlaces;
 let getProjectPlaces: typeof import('../../../core/places/places.js').getProjectPlaces;
 let getGlobalPlaces: typeof import('../../../core/places/places.js').getGlobalPlaces;
 let getPlaceByType: typeof import('../../../core/places/places.js').getPlaceByType;
-let getPlace: typeof import('../../../core/places/places.js').getPlace;
 let DEFAULT_PLACES: typeof import('../../../core/places/places.js').DEFAULT_PLACES;
 let GLOBAL_PROJECT_PATH: typeof import('../../../core/places/places.js').GLOBAL_PROJECT_PATH;
 let getOrCreateProject: typeof import('../../../core/projects.js').getOrCreateProject;
-let requireProject: typeof import('../../../core/projects.js').requireProject;
 let getDb: typeof import('../../../db/index.js').getDb;
 let resetDb: typeof import('../../../db/index.js').resetDb;
 
@@ -37,6 +33,13 @@ async function clearAllPlaces() {
 
 describe('Global Places', () => {
   beforeAll(async () => {
+    savedDataDir = process.env.SQUISH_DATA_DIR;
+    savedDatabaseUrl = process.env.DATABASE_URL;
+    testDataDir = join(tmpdir(), `squish-places-global-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    process.env.SQUISH_DATA_DIR = testDataDir;
+    process.env.DATABASE_URL = '';
+    if (!existsSync(testDataDir)) mkdirSync(testDataDir, { recursive: true });
+
     const placesMod = await import('../../../core/places/places.js');
     const projectsMod = await import('../../../core/projects.js');
     const dbMod = await import('../../../db/index.js');
@@ -45,13 +48,20 @@ describe('Global Places', () => {
     getProjectPlaces = placesMod.getProjectPlaces;
     getGlobalPlaces = placesMod.getGlobalPlaces;
     getPlaceByType = placesMod.getPlaceByType;
-    getPlace = placesMod.getPlace;
     DEFAULT_PLACES = placesMod.DEFAULT_PLACES;
     GLOBAL_PROJECT_PATH = placesMod.GLOBAL_PROJECT_PATH;
     getOrCreateProject = projectsMod.getOrCreateProject;
-    requireProject = projectsMod.requireProject;
     getDb = dbMod.getDb;
     resetDb = dbMod.resetDb;
+    resetDb();
+  });
+
+  afterAll(() => {
+    if (savedDataDir === undefined) delete process.env.SQUISH_DATA_DIR;
+    else process.env.SQUISH_DATA_DIR = savedDataDir;
+    if (savedDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = savedDatabaseUrl;
+    try { rmSync(testDataDir, { recursive: true, force: true }); } catch {}
   });
 
   beforeEach(async () => {
@@ -82,7 +92,6 @@ describe('Global Places', () => {
     const first = await initializeGlobalPlaces();
     const second = await initializeGlobalPlaces();
     expect(second.length).toBe(7);
-    // IDs should match (same places returned)
     expect(second.map(p => p.id).sort()).toEqual(first.map(p => p.id).sort());
   });
 
@@ -106,8 +115,6 @@ describe('Global Places', () => {
   test('getProjectPlaces with projectId returns that project places', async () => {
     const project = await getOrCreateProject('/test-project');
     if (!project) throw new Error('Failed to create project');
-
-    // Create places for this specific project
     await initializeDefaultPlaces(project.id);
     const places = await getProjectPlaces(project.id);
     expect(places.length).toBe(7);

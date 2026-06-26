@@ -1,44 +1,57 @@
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, test, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
 import { join } from 'path';
-import { mkdirSync, existsSync, unlinkSync, rmdirSync, readdirSync } from 'fs';
-import { randomUUID } from 'crypto';
+import { mkdirSync, existsSync, rmSync } from 'fs';
 
-// Setup test environment BEFORE any imports
-const testDataDir = join(process.cwd(), '.test-data');
-process.env.SQUISH_DATA_DIR = testDataDir;
-process.env.DATABASE_URL = ''; // Ensure SQLite mode
+let testDataDir: string;
+let savedDataDir: string | undefined;
+let savedDatabaseUrl: string | undefined;
+let getProjectByPath: typeof import('../../core/projects.js').getProjectByPath;
+let requireProject: typeof import('../../core/projects.js').requireProject;
+let getOrCreateProject: typeof import('../../core/projects.js').getOrCreateProject;
+let ProjectNotFoundError: typeof import('../../core/projects.js').ProjectNotFoundError;
+let getAllProjects: typeof import('../../core/projects.js').getAllProjects;
+let getDb: typeof import('../../db/index.js').getDb;
+let resetDb: typeof import('../../db/index.js').resetDb;
 
-// Ensure test data directory exists
-if (!existsSync(testDataDir)) {
-  mkdirSync(testDataDir, { recursive: true });
-}
-
-// Now import the functions
-import { 
-  getProjectByPath, 
-  requireProject, 
-  getOrCreateProject, 
-  ProjectNotFoundError,
-  getAllProjects 
-} from '../../core/projects.js';
-import { getDb } from '../../db/index.js';
-
-// Helper to clear projects table
 async function clearProjects() {
   const db = await getDb();
-  // Access the underlying SQLite client
   const sqlite = (db as any).$client;
   if (sqlite && typeof sqlite.exec === 'function') {
     sqlite.exec('DELETE FROM projects;');
-    // Also reset auto-increment if needed (not for SQLite with TEXT PK)
   } else {
     throw new Error('Could not access SQLite client');
   }
 }
 
 describe('Project Resolution Helpers', () => {
+  beforeAll(async () => {
+    savedDataDir = process.env.SQUISH_DATA_DIR;
+    savedDatabaseUrl = process.env.DATABASE_URL;
+    testDataDir = join(process.cwd(), '.test-data');
+    process.env.SQUISH_DATA_DIR = testDataDir;
+    process.env.DATABASE_URL = '';
+    if (!existsSync(testDataDir)) mkdirSync(testDataDir, { recursive: true });
+
+    const projectsMod = await import('../../core/projects.js');
+    const dbMod = await import('../../db/index.js');
+    getProjectByPath = projectsMod.getProjectByPath;
+    requireProject = projectsMod.requireProject;
+    getOrCreateProject = projectsMod.getOrCreateProject;
+    ProjectNotFoundError = projectsMod.ProjectNotFoundError;
+    getAllProjects = projectsMod.getAllProjects;
+    getDb = dbMod.getDb;
+    resetDb = dbMod.resetDb;
+    resetDb();
+  });
+
+  afterAll(() => {
+    if (savedDataDir === undefined) delete process.env.SQUISH_DATA_DIR;
+    else process.env.SQUISH_DATA_DIR = savedDataDir;
+    if (savedDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = savedDatabaseUrl;
+  });
+
   beforeEach(() => {
-    // Clear projects before each test
     clearProjects();
   });
 
@@ -47,8 +60,7 @@ describe('Project Resolution Helpers', () => {
       await expect(requireProject('/nonexistent/project'))
         .rejects
         .toThrow(ProjectNotFoundError);
-      
-      // Check error message contains path
+
       try {
         await requireProject('/nonexistent/project');
         throw new Error('Should have thrown');
@@ -63,12 +75,10 @@ describe('Project Resolution Helpers', () => {
     });
 
     test('should return project when it exists', async () => {
-      // First create a project
       const existing = await getOrCreateProject('/existing/project');
       if (!existing) throw new Error('Failed to create project');
       expect(existing.path).toBe('/existing/project');
 
-      // Now requireProject should return it
       const required = await requireProject('/existing/project');
       expect(required).toBeDefined();
       expect(required.id).toBe(existing.id);
@@ -84,7 +94,7 @@ describe('Project Resolution Helpers', () => {
 
       const second = await getOrCreateProject('/test/project');
       if (!second) throw new Error('Failed to get existing project');
-      expect(second.id).toBe(first.id); // Same ID
+      expect(second.id).toBe(first.id);
     });
 
     test('should create and return new project when it does not exist', async () => {
@@ -92,7 +102,7 @@ describe('Project Resolution Helpers', () => {
       if (!result) throw new Error('Failed to create project');
       expect(result.id).toBeTypeOf('string');
       expect(result.path).toBe('/new/project');
-      expect(result.name).toBe('project'); // basename of path
+      expect(result.name).toBe('project');
     });
 
     test('should return null for undefined or null path', async () => {
@@ -121,11 +131,3 @@ describe('Project Resolution Helpers', () => {
     });
   });
 });
-
-// Cleanup after all tests
-afterEach(async () => {
-  // Could clear between tests, already done in beforeEach
-});
-
-// Optional: clean up test data directory after all tests
-// But keep it for inspection if tests fail

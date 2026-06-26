@@ -2,7 +2,7 @@
  * Tests for MMR Diversity Injection
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import {
   getMMRConfig,
   applyMMR,

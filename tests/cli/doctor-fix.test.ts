@@ -2,13 +2,32 @@
  * Tests for squish doctor --fix command
  */
 import { describe, test, expect } from 'bun:test';
-import { spawnSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { mkdirSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Database } from 'bun:sqlite';
 
 const repoRoot = join(import.meta.dir, '..', '..');
+
+function runSquish(args: string[], env: Record<string, string>, timeoutMs = 30000): { status: number; stdout: string } {
+  try {
+    const stdout = execFileSync('bun', ['run', 'packages/cli/src/index.ts', ...args], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      env,
+      timeout: timeoutMs,
+      windowsHide: true,
+    });
+    return { status: 0, stdout };
+  } catch (err: any) {
+    // execFileSync throws on non-zero exit — extract status and stdout
+    return {
+      status: err.status ?? 1,
+      stdout: err.stdout ?? '',
+    };
+  }
+}
 
 function makeTempDir(prefix: string): string {
   const dir = join(tmpdir(), `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`);
@@ -78,22 +97,14 @@ describe('squish doctor --fix', () => {
 
     try {
       // First verify doctor detects issues
-      const doctorDetect = spawnSync(
-        'bun',
-        ['run', 'packages/cli/src/index.ts', 'doctor', '--json'],
-        { cwd: repoRoot, encoding: 'utf8', env, timeout: 30000 }
-      );
+      const doctorDetect = runSquish(['doctor', '--json'], env);
       expect(doctorDetect.status).toBe(1);
       const detectJson = JSON.parse(doctorDetect.stdout);
       expect(detectJson.schemaStatus).toBe('drifted');
       expect(detectJson.missingTables.length).toBeGreaterThan(0);
 
       // Now fix with --fix
-      const doctorFix = spawnSync(
-        'bun',
-        ['run', 'packages/cli/src/index.ts', 'doctor', '--json', '--fix'],
-        { cwd: repoRoot, encoding: 'utf8', env, timeout: 30000 }
-      );
+      const doctorFix = runSquish(['doctor', '--json', '--fix'], env);
 
       // After fix, it should report fixed status
       expect(doctorFix.status).toBe(0);
@@ -103,11 +114,7 @@ describe('squish doctor --fix', () => {
       expect(fixJson.schemaStatus).toBe('ok');
 
       // Verify we can write memories now
-      const remember = spawnSync(
-        'bun',
-        ['run', 'packages/cli/src/index.ts', 'remember', 'Fixed schema test', '--type', 'decision'],
-        { cwd: repoRoot, encoding: 'utf8', env, timeout: 30000 }
-      );
+      const remember = runSquish(['remember', 'Fixed schema test', '--type', 'decision'], env);
       expect(remember.status).toBe(0);
       const remembered = JSON.parse(remember.stdout);
       expect(remembered.ok).toBe(true);
@@ -130,18 +137,10 @@ describe('squish doctor --fix', () => {
 
     try {
       // Run fix twice
-      const firstFix = spawnSync(
-        'bun',
-        ['run', 'packages/cli/src/index.ts', 'doctor', '--json', '--fix'],
-        { cwd: repoRoot, encoding: 'utf8', env, timeout: 30000 }
-      );
+      const firstFix = runSquish(['doctor', '--json', '--fix'], env);
       expect(firstFix.status).toBe(0);
 
-      const secondFix = spawnSync(
-        'bun',
-        ['run', 'packages/cli/src/index.ts', 'doctor', '--json', '--fix'],
-        { cwd: repoRoot, encoding: 'utf8', env, timeout: 30000 }
-      );
+      const secondFix = runSquish(['doctor', '--json', '--fix'], env);
       expect(secondFix.status).toBe(0);
 
       const secondJson = JSON.parse(secondFix.stdout);
@@ -164,11 +163,7 @@ describe('squish doctor --fix', () => {
 
     try {
       // Run migrate first to get full schema
-      const migrate = spawnSync(
-        'bun',
-        ['run', 'packages/cli/src/index.ts', 'doctor', '--json', '--migrate'],
-        { cwd: repoRoot, encoding: 'utf8', env, timeout: 30000 }
-      );
+      const migrate = runSquish(['doctor', '--json', '--migrate'], env);
       expect(migrate.status).toBe(0);
 
       // Drop some indexes manually using bun:sqlite
@@ -179,11 +174,7 @@ describe('squish doctor --fix', () => {
       db.close();
 
       // Run doctor --fix
-      const doctorFix = spawnSync(
-        'bun',
-        ['run', 'packages/cli/src/index.ts', 'doctor', '--json', '--fix'],
-        { cwd: repoRoot, encoding: 'utf8', env, timeout: 30000 }
-      );
+      const doctorFix = runSquish(['doctor', '--json', '--fix'], env);
       expect(doctorFix.status).toBe(0);
 
       // Verify indexes were recreated
@@ -212,11 +203,7 @@ describe('squish doctor --fix', () => {
 
     try {
       // Setup schema
-      const migrate = spawnSync(
-        'bun',
-        ['run', 'packages/cli/src/index.ts', 'doctor', '--json', '--migrate'],
-        { cwd: repoRoot, encoding: 'utf8', env, timeout: 30000 }
-      );
+      const migrate = runSquish(['doctor', '--json', '--migrate'], env);
       expect(migrate.status).toBe(0);
 
       // Corrupt FTS
@@ -228,11 +215,7 @@ describe('squish doctor --fix', () => {
       db.close();
 
       // Run doctor --fix
-      const doctorFix = spawnSync(
-        'bun',
-        ['run', 'packages/cli/src/index.ts', 'doctor', '--json', '--fix'],
-        { cwd: repoRoot, encoding: 'utf8', env, timeout: 30000 }
-      );
+      const doctorFix = runSquish(['doctor', '--json', '--fix'], env);
       expect(doctorFix.status).toBe(0);
 
       // Verify FTS was repaired
@@ -259,11 +242,7 @@ describe('squish doctor --fix', () => {
 
     try {
       // Non-JSON mode should show fix messages
-      const doctorFix = spawnSync(
-        'bun',
-        ['run', 'packages/cli/src/index.ts', 'doctor', '--fix'],
-        { cwd: repoRoot, encoding: 'utf8', env, timeout: 30000 }
-      );
+      const doctorFix = runSquish(['doctor', '--fix'], env);
       expect(doctorFix.status).toBe(0);
       // Should contain info about what was fixed or that schema is ok
       expect(doctorFix.stdout.length).toBeGreaterThan(0);
