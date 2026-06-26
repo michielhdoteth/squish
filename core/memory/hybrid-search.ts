@@ -32,6 +32,11 @@ import { rerankResults } from '../retrieval/cross-encoder-reranker.js';
 import { enrichContent } from '../retrieval/contextual-enrichment.js';
 import { smartMMR } from '../retrieval/mmr-diversity.js';
 
+// SOTA retrieval modules (Phase D)
+import { expandQuery } from '../retrieval/query-expansion.js';
+import { extractQueryEntities, entityBoost } from '../retrieval/entity-aware-retrieval.js';
+import { detectTemporalReferences, isLikelyStale } from '../retrieval/temporal-validity.js';
+
 /**
  * Detect if query asks about time (temporal queries)
  */
@@ -441,6 +446,27 @@ export async function hybridSearch(
   const isTemporal = isTemporalQuery(input.query);
   const traceEnabled = input.trace === true;
 
+  // SOTA Retrieval: Query Expansion (Phase D)
+  // Expand query with synonyms before searching if enabled
+  const queryExpansionEnabled = process.env.SQUISH_QUERY_EXPANSION === 'true';
+  let sotaExpandedQueries: string[] = [input.query || ''];
+  
+  if (queryExpansionEnabled && input.query && input.query.trim().length > 0) {
+    sotaExpandedQueries = expandQuery(input.query, { enabled: true, maxExpansions: 3 });
+    logger.debug(`[HybridSearch] Query expanded to ${sotaExpandedQueries.length} variants`);
+  }
+
+  // SOTA Retrieval: Entity Extraction (Phase D)
+  // Extract entities from query for entity-aware boosting
+  const entityRetrievalEnabled = process.env.SQUISH_ENTITY_RETRIEVAL === 'true';
+  const queryEntities = entityRetrievalEnabled && input.query
+    ? extractQueryEntities(input.query)
+    : [];
+  
+  if (queryEntities.length > 0) {
+    logger.debug(`[HybridSearch] Extracted ${queryEntities.length} entities: ${queryEntities.join(', ')}`);
+  }
+
   // Pre-compute query embedding once to avoid redundant API calls.
   // This embedding is used by vectorSearch and MMR diversity.
   const isEmptyQuery = !input.query || input.query.trim() === '';
@@ -498,6 +524,31 @@ export async function hybridSearch(
   } else if (isTemporal) {
     // Temporal: fetch more results
     vectorResults = await vectorSearch(input, { ...options, limit: limit * 4 }, queryEmbedding, searchCtx);
+  } else if (queryExpansionEnabled && sotaExpandedQueries.length > 1) {
+    // SOTA Query Expansion: search with expanded queries and merge results
+    const allResults: SearchResult[] = [];
+    
+    for (const expQuery of sotaExpandedQueries) {
+      const expEmbedding = await getEmbedding(expQuery);
+      const expResults = await vectorSearch(
+        { ...input, query: expQuery },
+        { ...options, limit: Math.ceil(limit * 1.5) },
+        expEmbedding,
+        searchCtx
+      );
+      allResults.push(...expResults);
+    }
+    
+    // Merge results, keeping highest similarity for each memory
+    const byId = new Map<string, SearchResult>();
+    for (const r of allResults) {
+      const existing = byId.get(r.id);
+      if (!existing || (r.similarity ?? 0) > (existing.similarity ?? 0)) {
+        byId.set(r.id, r);
+      }
+    }
+    vectorResults = Array.from(byId.values());
+    vectorResults.sort((a, b) => (b.similarity ?? 0) - (a.similarity ?? 0));
   } else {
     // Regular query
     vectorResults = await vectorSearch(input, { ...options, limit: limit * 2 }, queryEmbedding, searchCtx);
@@ -556,6 +607,13 @@ export async function hybridSearch(
     }));
   }
 
+  // SOTA Retrieval: Entity-Aware Boost (Phase D)
+  // Boost results that share entities with the query
+  if (entityRetrievalEnabled && queryEntities.length > 0) {
+    vectorResults = entityBoost(vectorResults, queryEntities);
+    logger.debug(`[HybridSearch] Entity boost applied with ${queryEntities.length} entities`);
+  }
+
   // Graph boost
   const graphWeight = config.scoringWeights.graphBoost;
   const candidateIds = vectorResults.map(r => r.id);
@@ -569,6 +627,41 @@ export async function hybridSearch(
   );
   trace.supersededFiltered = supersededCount;
   results = supersededResults;
+
+  // SOTA Retrieval: Temporal Validity (Phase D)
+  // Downrank or filter stale memories based on temporal references
+  const temporalValidityEnabled = process.env.SQUISH_TEMPORAL_VALIDITY === 'true';
+  if (temporalValidityEnabled) {
+    const stalePenalty = 0.3; // Penalty for stale memories
+    let staleCount = 0;
+    
+    results = results.map(r => {
+      // Check if memory content has temporal references and is likely stale
+      if (r.content && r.createdAt) {
+        const stale = isLikelyStale({
+          content: r.content,
+          createdAt: r.createdAt,
+          lastAccessedAt: r.lastAccessedAt as string | undefined,
+        });
+        
+        if (stale) {
+          staleCount++;
+          return {
+            ...r,
+            similarity: Math.max(0, (r.similarity ?? 0) - stalePenalty),
+          };
+        }
+      }
+      return r;
+    });
+    
+    // Re-sort after applying staleness penalty
+    results.sort((a, b) => (b.similarity ?? 0) - (a.similarity ?? 0));
+    
+    if (staleCount > 0) {
+      logger.debug(`[HybridSearch] Temporal validity: ${staleCount} stale memories downranked`);
+    }
+  }
 
   // Expand with associated memories for better coverage
   if (options.includeAssociations !== false) {
