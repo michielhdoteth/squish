@@ -423,6 +423,11 @@ export async function hybridSearch(
   const isTemporal = isTemporalQuery(input.query);
   const traceEnabled = input.trace === true;
 
+  // Pre-compute query embedding once to avoid redundant API calls.
+  // This embedding is used by vectorSearch and MMR diversity.
+  const isEmptyQuery = !input.query || input.query.trim() === '';
+  const queryEmbedding = isEmptyQuery ? null : await getEmbedding(input.query);
+
   // Initialize trace object for debugging (Phase 8)
   const trace: RetrievalTrace = {
     selectedPlace: input.placeType ?? questionPlaceType(input.query) ?? null,
@@ -446,9 +451,12 @@ export async function hybridSearch(
     const allResults: SearchResult[] = [];
 
     for (const expQuery of expandedQueries) {
+      // For expanded queries, compute embedding per expansion (query text changes)
+      const expEmbedding = await getEmbedding(expQuery);
       const expResults = await vectorSearch(
         { ...input, query: expQuery },
-        { ...options, limit: Math.ceil(limit * 2) }
+        { ...options, limit: Math.ceil(limit * 2) },
+        expEmbedding
       );
       allResults.push(...expResults);
     }
@@ -463,10 +471,10 @@ export async function hybridSearch(
     vectorResults = Array.from(byId.values());
   } else if (isTemporal) {
     // Temporal: fetch more results
-    vectorResults = await vectorSearch(input, { ...options, limit: limit * 4 });
+    vectorResults = await vectorSearch(input, { ...options, limit: limit * 4 }, queryEmbedding);
   } else {
     // Regular query
-    vectorResults = await vectorSearch(input, { ...options, limit: limit * 2 });
+    vectorResults = await vectorSearch(input, { ...options, limit: limit * 2 }, queryEmbedding);
   }
 
   // Record total candidates for trace
@@ -600,10 +608,9 @@ export async function hybridSearch(
   }
 
   // MMR Diversity: inject diversity to prevent redundant results
-  if (config.mmrEnabled && results.length > 0) {
+  if (config.mmrEnabled && results.length > 0 && queryEmbedding) {
     try {
-      // Get query embedding for MMR
-      const queryEmbedding = await getEmbedding(input.query);
+      // Use pre-computed query embedding (avoids redundant API call)
       results = smartMMR(queryEmbedding, results, {
         lambda: config.mmrLambda,
         topK: limit,
@@ -863,7 +870,8 @@ export function rrfFusion(
 }
 async function vectorSearch(
   input: SearchInput,
-  options: HybridSearchOptions
+  options: HybridSearchOptions,
+  precomputedEmbedding?: number[] | null
 ): Promise<SearchResult[]> {
   try {
     const db = createDatabaseClient(await getDb());
@@ -874,9 +882,11 @@ async function vectorSearch(
     // Check for empty query
     const isEmptyQuery = !input.query || input.query.trim() === '';
 
-    // Get query embedding (only for non-empty queries)
+    // Use pre-computed embedding if provided, otherwise compute it
     let queryEmbedding: number[] | null = null;
-    if (!isEmptyQuery) {
+    if (precomputedEmbedding !== undefined) {
+      queryEmbedding = precomputedEmbedding;
+    } else if (!isEmptyQuery) {
       queryEmbedding = await getEmbedding(input.query);
     }
 
