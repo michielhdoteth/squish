@@ -107,4 +107,21 @@ jobs:
         run: bun install
 
       - name: MCP tests
-        run: bun test tests/mcp/recall-surface.test.ts --pass-with-no-tests
+        run: |
+          bun test \
+            tests/mcp/stdio-e2e.test.ts \
+            tests/mcp/http-e2e.test.ts \
+            tests/mcp/tool-handlers.test.ts \
+            tests/mcp/schema-validation.test.ts \
+            tests/mcp/console-redirect.test.ts \
+            tests/mcp/stdio-pipe.test.ts \
+            tests/mcp/background-services.test.ts \
+            tests/mcp/universal-contract.test.ts \
+            tests/mcp/team-surface.test.ts \
+            tests/mcp/remote-auth-contract.test.ts \
+            tests/mcp/recall-surface.test.ts \
+            tests/mcp/mode-semantics.test.ts \
+            --pass-with-no-tests
+        env:
+          SQUISH_MODE: local
+          SQUISH_QUIET: "1"

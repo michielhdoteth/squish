@@ -6,12 +6,12 @@
     "url": "https://github.com/4m-labs/squish",
     "source": "github"
   },
-  "version": "1.6.0",
+  "version": "1.8.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "squish-memory",
-      "version": "1.6.0",
+      "version": "1.8.0",
       "transport": {
         "type": "stdio"
       }
@@ -19,7 +19,7 @@
     {
       "registryType": "npm",
       "identifier": "squish-memory",
-      "version": "1.6.0",
+      "version": "1.8.0",
       "transport": {
         "type": "streamable-http",
         "url": "https://api.squishplugin.dev/mcp"

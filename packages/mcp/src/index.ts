@@ -1,10 +1,5 @@
 #!/usr/bin/env node
 
-// CRITICAL: Redirect console.log to stderr to prevent JSON-RPC stream corruption
-// MCP stdio requires stdout to contain ONLY valid JSON-RPC messages
-console.log = console.error;
-console.info = console.error;
-
 // Load .env file for config
 import 'dotenv/config';
 
@@ -12,7 +7,9 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import express from "express";
-import { z } from "zod";
+// Use zod/v3 for MCP SDK compatibility - the SDK's toJsonSchemaCompat uses
+// z4mini.toJSONSchema which crashes with Zod v4 classic schemas (schema._zod.def mismatch)
+import { z } from "zod/v3";
 import { config, detectProjectScope } from "../../../config.js";
 import { getDb } from "../../../db/index.js";
 import { getSchema } from "../../../db/schema.js";
@@ -34,6 +31,8 @@ import { createAssociation, getRelatedMemories, type AssociationType } from "../
 import { createLearning } from "../../../core/ingestion/learnings.js";
 import { getAllProjects, requireProject } from "../../../core/projects.js";
 import { logger } from "../../../core/logger.js";
+import { extractMemoryPolicy, promoteMemoryVisibility, recommendMemoryScope } from "../../../core/memory/policy.js";
+import { deserializeMetadata } from "../../../core/memory/serialization.js";
 
 // Strategy imports
 import { createStrategy, listStrategies, searchStrategies, supersedeStrategy, getStrategyStats } from "../../../core/strategies/store.js";
@@ -42,8 +41,14 @@ import type { StrategyType, StrategyStatus } from "../../../core/strategies/type
 // Team imports
 import { createTeamMember, getTeamMember, getTeamMembers, removeTeamMember, updateLastActive, updateMemberRole } from "../../../core/team/workspace.js";
 
+// CRITICAL: Redirect console.log to stderr AFTER all imports
+// MCP stdio requires stdout to contain ONLY valid JSON-RPC messages
+// Must be after imports because ESM hoists imports above this assignment
+console.log = console.error;
+console.info = console.error;
+
 const SERVER_NAME = "squish-memory";
-const SERVER_VERSION = "1.5.0";
+const SERVER_VERSION = "1.8.0";
 
 // Create server instance ONCE (not per-session)
 const { server: SQUISH_SERVER, toolCount: SQUISH_TOOL_COUNT } = createSquishServer();
@@ -746,6 +751,115 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
     }
   )) toolCount++;
 
+  // squish_memory_policy - Inspect or change memory sharing policy
+  if (safeRegisterTool(
+    server,
+    "squish_memory_policy",
+    {
+      description: "Inspect, recommend, promote, or demote a memory sharing policy. Captures private-first memory and company sharing decisions.",
+      inputSchema: {
+        action: z.enum(["inspect", "recommend", "promote", "demote"]).describe("Policy action"),
+        memoryId: z.string().uuid().optional().describe("Memory ID for inspect/promote/demote"),
+        content: z.string().optional().describe("Content to analyze for a recommendation"),
+        type: z.enum(["observation", "fact", "decision", "context", "preference", "note", "task"]).optional().describe("Memory type for recommendation"),
+        tags: z.array(z.string()).optional().describe("Tags to include in recommendation"),
+        visibilityScope: z.enum(["private", "project", "team", "global"]).optional().describe("Desired visibility scope"),
+        reason: z.string().optional().describe("Reason for manual promote/demote"),
+      }
+    },
+    async ({ action, memoryId, content, type, tags = [], visibilityScope, reason }: {
+      action: "inspect" | "recommend" | "promote" | "demote";
+      memoryId?: string;
+      content?: string;
+      type?: "observation" | "fact" | "decision" | "context" | "preference" | "note" | "task";
+      tags?: string[];
+      visibilityScope?: "private" | "project" | "team" | "global";
+      reason?: string;
+    }) => {
+      if (action === "recommend") {
+        if (!content) {
+          return { content: [{ type: "text", text: "Error: content is required for recommend action" }], isError: true };
+        }
+
+        const recommendation = recommendMemoryScope({
+          content,
+          type,
+          tags,
+          visibilityScope,
+        });
+
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              ok: true,
+              privateFirst: true,
+              recommendation,
+            }, null, 2),
+          }],
+        };
+      }
+
+      if (!memoryId) {
+        return { content: [{ type: "text", text: "Error: memoryId is required for inspect/promote/demote actions" }], isError: true };
+      }
+
+      if (action === "inspect") {
+        const db = await getDb();
+        const schema = await getSchema();
+        const row = await (db as any)
+          .select()
+          .from(schema.memories)
+          .where(eq(schema.memories.id, memoryId))
+          .limit(1)
+          .then((rows: any[]) => rows[0] || null);
+
+        if (!row) {
+          return { content: [{ type: "text", text: `Memory not found: ${memoryId}` }], isError: true };
+        }
+
+        const metadata = deserializeMetadata(row.metadata ?? null);
+        const policy = extractMemoryPolicy(metadata);
+
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              ok: true,
+              memoryId,
+              visibilityScope: row.visibilityScope ?? row.visibility_scope ?? null,
+              policy,
+              metadata,
+            }, null, 2),
+          }],
+        };
+      }
+
+      const targetScope = action === "demote" ? "private" : (visibilityScope ?? "team");
+      const updateReason = reason ?? (action === "demote"
+        ? "manual demotion to personal memory"
+        : `manual promotion to ${targetScope} scope`);
+      const updated = await promoteMemoryVisibility(memoryId, targetScope, updateReason);
+
+      if (!updated) {
+        return { content: [{ type: "text", text: `Memory not found or update failed: ${memoryId}` }], isError: true };
+      }
+
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            ok: true,
+            action,
+            memoryId,
+            visibilityScope: updated.visibilityScope,
+            policy: updated.policy,
+          }, null, 2),
+        }],
+      };
+    }
+  )) toolCount++;
+
   // squish_recent - Get recent memories by period
   if (safeRegisterTool(
     server,
@@ -1074,20 +1188,16 @@ async function runStdio(server: McpServer, toolCount: number): Promise<void> {
   await server.connect(transport);
   console.error(`[MCP] Connected via stdio. ${toolCount} tools available.`);
 
-  // Keep process alive - wait for stdin to close or process signals
+  // Keep process alive - wait for stdin to close
+  // SIGINT/SIGTERM are handled by main()'s shutdown function
   await new Promise<void>((resolve) => {
     process.stdin.on('close', () => {
       console.error(`[MCP] STDIO stdin closed, shutting down`);
       resolve();
     });
 
-    process.on('SIGINT', () => {
-      console.error(`[MCP] Received SIGINT, shutting down`);
-      resolve();
-    });
-
-    process.on('SIGTERM', () => {
-      console.error(`[MCP] Received SIGTERM, shutting down`);
+    process.stdin.on('error', (error) => {
+      console.error(`[MCP] STDIO stdin error:`, error.message);
       resolve();
     });
   });

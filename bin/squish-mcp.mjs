@@ -44,9 +44,19 @@ const runtime = resolveRuntimeLaunch({
 });
 
 const child = spawn(runtime.command, runtime.args, {
-  stdio: ['inherit', 'pipe', 'pipe'],
+  stdio: ['pipe', 'pipe', 'pipe'],
   cwd: rootDir
 });
+
+// Relay stdin from OpenCode (or parent) to child MCP server
+// Without this, the inherited pipe handle closes on Windows because
+// squish-mcp never holds an active listener on stdin.
+process.stdin.pipe(child.stdin);
+process.stdin.resume();
+
+// Handle pipe errors gracefully (parent stdin closed, etc.)
+child.stdin.on('error', () => {});
+process.stdin.on('error', () => {});
 
 const logFile = process.env.SQUISH_LOG_FILE || getDefaultLogFile('mcp');
 attachChildLogging(child, logFile);
