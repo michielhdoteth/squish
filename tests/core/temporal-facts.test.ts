@@ -1,31 +1,46 @@
-import { describe, test, expect, beforeEach, mock } from 'bun:test';
+import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+// Create a temp directory before any DB operations so getDb() targets an
+// isolated SQLite file.  process.env.SQUISH_DATA_DIR is read at DB-init
+// time (inside createSqliteDb → getDataDir), so setting it here before
+// calling any exported function is sufficient.
+const tempDir = mkdtempSync(join(tmpdir(), 'squish-temporal-'));
+process.env.SQUISH_DATA_DIR = tempDir;
+
 import {
   checkTemporalValidity,
   supersedeOldTemporalFacts,
   cleanupExpiredTemporalFacts,
   getTemporalFactsStats,
 } from '../../core/memory/temporal-facts.js';
-
-// Mock database
-mock.module('../../db/index.js', () => ({
-  getDb: async () => null,
-}));
-
-mock.module('../../db/schema.js', () => ({
-  getSchema: async () => ({
-    memories: {},
-  }),
-}));
+import { resetDb } from '../../db/index.js';
+import { clearSchemaCache } from '../../db/schema.js';
 
 describe('Temporal Facts', () => {
+  beforeAll(() => {
+    // Ensure any cached DB / schema references are discarded so the new
+    // SQUISH_DATA_DIR is picked up.
+    resetDb();
+    clearSchemaCache();
+  });
+
+  afterAll(() => {
+    // Clean up the temp directory
+    try {
+      rmSync(tempDir, { recursive: true, force: true });
+    } catch {}
+    delete process.env.SQUISH_DATA_DIR;
+  });
+
   describe('checkTemporalValidity', () => {
-    test('should return valid for memory without expiry', async () => {
-      // This test will hit the database mock which returns null
-      // So we test the error handling path
+    test('should return invalid for non-existent memory', async () => {
       const result = await checkTemporalValidity('nonexistent-memory');
-      // Graceful fallback returns valid on error
-      expect(result.isValid).toBe(true);
-      expect(result.confidence).toBe(0.5);
+      // Real DB: memory not found → isValid false, confidence 0
+      expect(result.isValid).toBe(false);
+      expect(result.confidence).toBe(0);
     });
   });
 
