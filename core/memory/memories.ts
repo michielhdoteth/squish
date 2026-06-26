@@ -4,6 +4,7 @@ import { config } from '../../config.js';
 import { logger } from '../../core/logger.js';
 import { getOrCreateProject, requireProject } from '../../core/projects.js';
 import { getEmbedding } from '../../core/embeddings.js';
+import { enrichContent } from '../retrieval/contextual-enrichment.js';
 import { normalizeTags, serializeTags, deserializeTags, serializeMetadata, deserializeMetadata } from '../../core/memory/serialization.js';
 import { normalizeTimestamp, clampLimit, prepareEmbedding } from '../lib/utils.js';
 import { validateUuid, requireUuid } from '../lib/validation.js';
@@ -135,7 +136,14 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
     agentId: input.actorAgent,
   });
   const accessUser = input.actorUser ?? input.user;
-  const embedding = await getEmbedding(input.content);
+  // Enrich content for embedding when contextual retrieval is enabled
+  // The database stores original content; enriched version is only for embedding
+  const enriched = enrichContent(input.content, {
+    type: input.type,
+    project: input.project,
+    tags: tags,
+  });
+  const embedding = await getEmbedding(enriched.enriched);
   const id = randomUUID();
   const signals = detectMemorySignals(input.content);
   const type = input.type ?? signals.suggestedType;
