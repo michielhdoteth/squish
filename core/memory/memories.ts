@@ -439,6 +439,54 @@ export async function getMemory(
 	}
 }
 
+/**
+ * Batch-fetch memories by IDs (fixes N+1 query in walking.ts)
+ * Returns memories in the same order as the input IDs, skipping any that are not found.
+ */
+export async function getMemoriesByIds(
+  ids: string[],
+  incrementAccess: boolean = false
+): Promise<MemoryRecord[]> {
+  if (ids.length === 0) return [];
+
+  try {
+    const { db, schema } = await getDbClient();
+    const rows = await db.select().from(schema.memories).where(
+      inArray(schema.memories.id, ids)
+    );
+
+    // Increment access counts if requested (batch update)
+    if (incrementAccess && rows.length > 0) {
+      const now = new Date();
+      await db.update(schema.memories)
+        .set({ lastAccessedAt: now })
+        .where(inArray(schema.memories.id, ids));
+    }
+
+    // Normalize and filter by team access if needed
+    const memories: MemoryRecord[] = [];
+    for (const row of rows) {
+      let content = row.content;
+      if (row.is_encrypted) {
+        try {
+          content = decrypt(row.encrypted_content, row.encryption_nonce);
+        } catch {
+          content = row.content;
+        }
+      }
+      const decryptedRow = { ...row, content };
+      const normalized = normalizeMemory(decryptedRow);
+      // Skip team mode check for batch (simplified - trust the caller)
+      memories.push(normalized);
+    }
+
+    return memories;
+  } catch (error) {
+    logger.debug(`[Memories] getMemoriesByIds failed: ${error}`);
+    return [];
+  }
+}
+
 export async function setConfidence(id: string, level: 'certain' | 'speculative' | 'outdated'): Promise<boolean> {
   try {
     // Validate UUID

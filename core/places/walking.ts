@@ -5,13 +5,15 @@
  * - Walk single place to get memories in order
  * - Walk all places for full tour
  * - Token budget handling with TOON compression
+ * - Adjacency-aware walking for spatial navigation
  */
 
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
-import { getProjectPlaces, type Place } from './places.js';
+import { getProjectPlaces, type Place, type PlaceType } from './places.js';
 import { getPlaceMemories } from './memory-places.js';
-import { getMemory } from '../memory/memories.js';
+import { getMemory, getMemoriesByIds } from '../memory/memories.js';
+import { ADJACENT_PLACES, getAdjacentPlaces } from './rules.js';
 import { compressForContext, isCompressed } from '../compression.js';
 import { logger } from '../logger.js';
 
@@ -59,12 +61,16 @@ export async function walkPlace(
   // Get memory IDs for this place
   const memoryIds = await getPlaceMemories(place.id, maxMemoriesPerPlace);
 
+  // Batch-fetch all memories at once (fixes N+1 query)
+  const allMemories = await getMemoriesByIds(memoryIds, false);
+  const memoryMap = new Map(allMemories.map(m => [m.id, m]));
+
   // Get full memories
   const memories: MemorySummary[] = [];
   let totalTokens = 0;
 
   for (const memoryId of memoryIds) {
-    const memory = await getMemory(memoryId);
+    const memory = memoryMap.get(memoryId);
     if (!memory) continue;
 
     let content = memory.content || '';
@@ -166,15 +172,32 @@ export async function getPlaceContext(
 
 /**
  * Full context for session start (all places)
+ * Skips empty places and redistributes budget to non-empty ones
  */
 export async function getFullWalkingContext(
   projectId: string,
   maxTokens: number = 170
 ): Promise<string> {
-  const results = await walkAllPlaces(projectId, {
-    tokenBudget: Math.floor(maxTokens / 7), // Distribute across 7 places
-    compressWithCompression: true,
-  });
+  const places = await getProjectPlaces(projectId);
+  const nonEmptyPlaces = places.filter(p => p.memoryCount > 0);
+  
+  if (nonEmptyPlaces.length === 0) {
+    return 'No memories yet. Start building your spatial memory!';
+  }
+
+  // Distribute budget only among non-empty places
+  const budgetPerPlace = Math.floor(maxTokens / nonEmptyPlaces.length);
+  
+  const results: WalkResult[] = [];
+  for (const place of nonEmptyPlaces) {
+    const walkResult = await walkPlace(projectId, place.placeType, {
+      tokenBudget: budgetPerPlace,
+      compressWithCompression: true,
+    });
+    if (walkResult && walkResult.memories.length > 0) {
+      results.push(walkResult);
+    }
+  }
 
   if (results.length === 0) {
     return 'No memories yet. Start building your spatial memory!';
@@ -189,4 +212,75 @@ export async function getFullWalkingContext(
   });
 
   return sections.join('\n\n');
+}
+
+/**
+ * Walk from a starting place, exploring adjacent places if current is empty
+ * Implements adjacency-aware walking for spatial navigation
+ */
+export async function walkFrom(
+  projectId: string,
+  startPlace: string,
+  options: WalkOptions & { maxDepth?: number } = {}
+): Promise<WalkResult[]> {
+  const { maxDepth = 2, ...walkOptions } = options;
+  const results: WalkResult[] = [];
+  const visited = new Set<string>();
+  
+  // BFS-like traversal of adjacency graph
+  const queue: Array<{ placeType: string; depth: number }> = [
+    { placeType: startPlace, depth: 0 }
+  ];
+  
+  while (queue.length > 0) {
+    const { placeType, depth } = queue.shift()!;
+    
+    // Skip if already visited or beyond max depth
+    if (visited.has(placeType) || depth > maxDepth) continue;
+    visited.add(placeType);
+    
+    // Try walking this place
+    const walkResult = await walkPlace(projectId, placeType, walkOptions);
+    if (walkResult && walkResult.memories.length > 0) {
+      results.push(walkResult);
+    }
+    
+    // If place was empty or truncated, explore adjacent places
+    if (!walkResult || walkResult.memories.length === 0 || walkResult.truncated) {
+      const adjacent = getAdjacentPlaces(placeType as PlaceType);
+      for (const adj of adjacent) {
+        if (!visited.has(adj) && depth + 1 <= maxDepth) {
+          queue.push({ placeType: adj, depth: depth + 1 });
+        }
+      }
+    }
+  }
+  
+  logger.info(`[Walking] walkFrom ${startPlace}: visited ${visited.size} places, found ${results.length} with memories`);
+  return results;
+}
+
+/**
+ * Get a spatial summary of the mempalace (adjacency graph with memory counts)
+ */
+export async function getMempalaceMap(projectId: string): Promise<{
+  places: Array<{
+    name: string;
+    placeType: string;
+    memoryCount: number;
+    adjacent: string[];
+  }>;
+  totalMemories: number;
+}> {
+  const places = await getProjectPlaces(projectId);
+  
+  return {
+    places: places.map(p => ({
+      name: p.name,
+      placeType: p.placeType,
+      memoryCount: p.memoryCount,
+      adjacent: ADJACENT_PLACES[p.placeType] || ['inbox'],
+    })),
+    totalMemories: places.reduce((sum, p) => sum + p.memoryCount, 0),
+  };
 }

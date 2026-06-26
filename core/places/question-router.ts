@@ -80,20 +80,3 @@ export function questionPlaceType(query: string): PlaceType {
   
   return mapping[qType];
 }
-
-/**
- * Get adjacent places for fallback search
- */
-export function getAdjacentPlaces(place: PlaceType): PlaceType[] {
-  const adjacencyMap: Record<PlaceType, PlaceType[]> = {
-    board: ['wip', 'ref'],
-    wip: ['board', 'ref'],
-    sparks: ['board', 'wip'],
-    ref: ['board', 'wip'],
-    inbox: ['board', 'wip', 'sparks', 'ref'],
-    sandbox: ['wip', 'inbox'],
-    archive: ['inbox'],
-  };
-  
-  return adjacencyMap[place] || ['inbox'];
-}
