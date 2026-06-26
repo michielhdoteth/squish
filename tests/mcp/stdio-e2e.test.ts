@@ -6,7 +6,7 @@ import { join } from "node:path";
 
 const SERVER_VERSION = "1.8.0";
 const SERVER_NAME = "squish-memory";
-const EXPECTED_TOOL_COUNT = 19;
+const EXPECTED_TOOL_COUNT = 20;
 
 const EXPECTED_TOOLS = [
   "squish_remember",
@@ -28,6 +28,7 @@ const EXPECTED_TOOLS = [
   "squish_on_tool_use",
   "squish_on_session_end",
   "squish_strategy",
+  "squish_consolidate",
 ];
 
 function resolveServerCommand(): { command: string; args: string[] } {
@@ -201,7 +202,7 @@ describe("MCP STDIO e2e", () => {
     }
   }, 30_000);
 
-  it("MCP STDIO tools/list returns all 19 tools", async () => {
+  it("MCP STDIO tools/list returns all 20 tools", async () => {
     const server = await spawnServer(tmpDir);
     try {
       await initializeServer(server);
