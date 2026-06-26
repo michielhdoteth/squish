@@ -5,8 +5,6 @@
  * All values have sensible defaults and can be overridden via config or env vars.
  */
 
-import config from '../../config.js';
-
 export interface RetrievalScoringConfig {
   /** Boost for memories matching the query's place type */
   placeBoost: number;
@@ -81,20 +79,20 @@ export function getEnvRetrievalConfig(): Partial<SquishRetrievalConfig> {
   
   const scoring: Partial<RetrievalScoringConfig> = {};
   
-  if (env.SQUISH_PLACE_BOOST) scoring.placeBoost = Number(env.SQUISH_PLACE_BOOST);
-  if (env.SQUISH_TAG_OVERLAP_BOOST) scoring.tagOverlapBoost = Number(env.SQUISH_TAG_OVERLAP_BOOST);
-  if (env.SQUISH_GRAPH_NEIGHBOR_BOOST) scoring.graphNeighborBoost = Number(env.SQUISH_GRAPH_NEIGHBOR_BOOST);
-  if (env.SQUISH_RECENCY_BOOST) scoring.recencyBoost = Number(env.SQUISH_RECENCY_BOOST);
-  if (env.SQUISH_USAGE_BOOST) scoring.usageBoost = Number(env.SQUISH_USAGE_BOOST);
-  if (env.SQUISH_SUPERSEDED_PENALTY) scoring.supersededPenalty = Number(env.SQUISH_SUPERSEDED_PENALTY);
-  if (env.SQUISH_CONTRADICTION_RISK_PENALTY) scoring.contradictionRiskPenalty = Number(env.SQUISH_CONTRADICTION_RISK_PENALTY);
+  if (env.SQUISH_PLACE_BOOST !== undefined && Number.isFinite(Number(env.SQUISH_PLACE_BOOST))) scoring.placeBoost = Number(env.SQUISH_PLACE_BOOST);
+  if (env.SQUISH_TAG_OVERLAP_BOOST !== undefined && Number.isFinite(Number(env.SQUISH_TAG_OVERLAP_BOOST))) scoring.tagOverlapBoost = Number(env.SQUISH_TAG_OVERLAP_BOOST);
+  if (env.SQUISH_GRAPH_NEIGHBOR_BOOST !== undefined && Number.isFinite(Number(env.SQUISH_GRAPH_NEIGHBOR_BOOST))) scoring.graphNeighborBoost = Number(env.SQUISH_GRAPH_NEIGHBOR_BOOST);
+  if (env.SQUISH_RECENCY_BOOST !== undefined && Number.isFinite(Number(env.SQUISH_RECENCY_BOOST))) scoring.recencyBoost = Number(env.SQUISH_RECENCY_BOOST);
+  if (env.SQUISH_USAGE_BOOST !== undefined && Number.isFinite(Number(env.SQUISH_USAGE_BOOST))) scoring.usageBoost = Number(env.SQUISH_USAGE_BOOST);
+  if (env.SQUISH_SUPERSEDED_PENALTY !== undefined && Number.isFinite(Number(env.SQUISH_SUPERSEDED_PENALTY))) scoring.supersededPenalty = Number(env.SQUISH_SUPERSEDED_PENALTY);
+  if (env.SQUISH_CONTRADICTION_RISK_PENALTY !== undefined && Number.isFinite(Number(env.SQUISH_CONTRADICTION_RISK_PENALTY))) scoring.contradictionRiskPenalty = Number(env.SQUISH_CONTRADICTION_RISK_PENALTY);
   
   const result: Partial<SquishRetrievalConfig> = {};
   
-  if (env.SQUISH_PLACE_MIN_WEIGHT) result.placeMinWeight = Number(env.SQUISH_PLACE_MIN_WEIGHT);
-  if (env.SQUISH_MIN_RESULTS) result.minResults = Number(env.SQUISH_MIN_RESULTS);
+  if (env.SQUISH_PLACE_MIN_WEIGHT !== undefined && Number.isFinite(Number(env.SQUISH_PLACE_MIN_WEIGHT))) result.placeMinWeight = Number(env.SQUISH_PLACE_MIN_WEIGHT);
+  if (env.SQUISH_MIN_RESULTS !== undefined && Number.isFinite(Number(env.SQUISH_MIN_RESULTS))) result.minResults = Number(env.SQUISH_MIN_RESULTS);
   if (env.SQUISH_INCLUDE_SUPERSEDED) result.includeSuperseded = env.SQUISH_INCLUDE_SUPERSEDED === 'true';
-  if (env.SQUISH_TAG_CAP) result.tagCap = Number(env.SQUISH_TAG_CAP);
+  if (env.SQUISH_TAG_CAP !== undefined && Number.isFinite(Number(env.SQUISH_TAG_CAP))) result.tagCap = Number(env.SQUISH_TAG_CAP);
   
   if (Object.keys(scoring).length > 0) {
     result.scoring = scoring as RetrievalScoringConfig;

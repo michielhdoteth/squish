@@ -595,7 +595,7 @@ export async function hybridSearch(
   // Higher quality than LLM reranking, runs locally
   if (config.rerankerEnabled && input.query && input.query.trim().length > 5) {
     try {
-      results = await rerankResults(results, input.query, {
+      results = await rerankResults(input.query, results, {
         topK: config.rerankerTopK,
         returnTopK: limit,
         blendWeight: 0.7,

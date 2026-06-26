@@ -15,7 +15,6 @@
  *   Set SQUISH_CONTEXTUAL_RETRIEVAL=true
  */
 
-import { config } from '../../config.js';
 import { logger } from '../logger.js';
 
 export interface ContextualEnrichmentConfig {
