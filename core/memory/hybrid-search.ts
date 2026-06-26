@@ -32,7 +32,7 @@ import { rerankResults } from '../retrieval/cross-encoder-reranker.js';
 import { enrichContent } from '../retrieval/contextual-enrichment.js';
 import { smartMMR } from '../retrieval/mmr-diversity.js';
 
-// SOTA retrieval modules (Phase D)
+// Advanced retrieval modules
 import { expandQuery } from '../retrieval/query-expansion.js';
 import { extractQueryEntities, entityBoost } from '../retrieval/entity-aware-retrieval.js';
 import { detectTemporalReferences, isLikelyStale } from '../retrieval/temporal-validity.js';
@@ -446,17 +446,17 @@ export async function hybridSearch(
   const isTemporal = isTemporalQuery(input.query);
   const traceEnabled = input.trace === true;
 
-  // SOTA Retrieval: Query Expansion (Phase D)
+  // Advanced Retrieval: Query Expansion
   // Expand query with synonyms before searching if enabled
   const queryExpansionEnabled = process.env.SQUISH_QUERY_EXPANSION === 'true';
-  let sotaExpandedQueries: string[] = [input.query || ''];
+  let expandedQueries: string[] = [input.query || ''];
   
   if (queryExpansionEnabled && input.query && input.query.trim().length > 0) {
-    sotaExpandedQueries = expandQuery(input.query, { enabled: true, maxExpansions: 3 });
-    logger.debug(`[HybridSearch] Query expanded to ${sotaExpandedQueries.length} variants`);
+    expandedQueries = expandQuery(input.query, { enabled: true, maxExpansions: 3 });
+    logger.debug(`[HybridSearch] Query expanded to ${expandedQueries.length} variants`);
   }
 
-  // SOTA Retrieval: Entity Extraction (Phase D)
+  // Advanced Retrieval: Entity Extraction
   // Extract entities from query for entity-aware boosting
   const entityRetrievalEnabled = process.env.SQUISH_ENTITY_RETRIEVAL === 'true';
   const queryEntities = entityRetrievalEnabled && input.query
@@ -524,11 +524,11 @@ export async function hybridSearch(
   } else if (isTemporal) {
     // Temporal: fetch more results
     vectorResults = await vectorSearch(input, { ...options, limit: limit * 4 }, queryEmbedding, searchCtx);
-  } else if (queryExpansionEnabled && sotaExpandedQueries.length > 1) {
-    // SOTA Query Expansion: search with expanded queries and merge results
+  } else if (queryExpansionEnabled && expandedQueries.length > 1) {
+    // Advanced Query Expansion: search with expanded queries and merge results
     const allResults: SearchResult[] = [];
     
-    for (const expQuery of sotaExpandedQueries) {
+    for (const expQuery of expandedQueries) {
       const expEmbedding = await getEmbedding(expQuery);
       const expResults = await vectorSearch(
         { ...input, query: expQuery },
@@ -607,7 +607,7 @@ export async function hybridSearch(
     }));
   }
 
-  // SOTA Retrieval: Entity-Aware Boost (Phase D)
+  // Advanced Retrieval: Entity-Aware Boost
   // Boost results that share entities with the query
   if (entityRetrievalEnabled && queryEntities.length > 0) {
     vectorResults = entityBoost(vectorResults, queryEntities);
@@ -628,7 +628,7 @@ export async function hybridSearch(
   trace.supersededFiltered = supersededCount;
   results = supersededResults;
 
-  // SOTA Retrieval: Temporal Validity (Phase D)
+  // Advanced Retrieval: Temporal Validity
   // Downrank or filter stale memories based on temporal references
   const temporalValidityEnabled = process.env.SQUISH_TEMPORAL_VALIDITY === 'true';
   if (temporalValidityEnabled) {

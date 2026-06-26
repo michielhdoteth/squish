@@ -1,5 +1,5 @@
 /**
- * Tests for SOTA Retrieval Features
+ * Tests for Advanced Retrieval Features
  * 
  * Tests the three advanced retrieval modules:
  * 1. Query Expansion - synonym mapping and compound queries

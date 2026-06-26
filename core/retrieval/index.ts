@@ -5,9 +5,9 @@
  * - Cross-encoder reranking for precision
  * - Contextual enrichment for better disambiguation
  * - MMR diversity injection to reduce redundancy
- * - Query expansion with synonyms (SOTA retrieval)
- * - Entity-aware retrieval with boost scoring (SOTA retrieval)
- * - Temporal validity tracking (SOTA retrieval)
+ * - Query expansion with synonyms (advanced retrieval)
+ * - Entity-aware retrieval with boost scoring (advanced retrieval)
+ * - Temporal validity tracking (advanced retrieval)
  */
 
 export {
