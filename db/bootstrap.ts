@@ -431,6 +431,21 @@ CREATE INDEX IF NOT EXISTS maintenance_jobs_next_run_idx ON maintenance_jobs(nex
 CREATE INDEX IF NOT EXISTS maintenance_jobs_type_idx ON maintenance_jobs(job_type);
 CREATE INDEX IF NOT EXISTS maintenance_jobs_enabled_idx ON maintenance_jobs(enabled);
 
+CREATE TABLE IF NOT EXISTS maintenance_job_history (
+  id TEXT PRIMARY KEY,
+  job_id TEXT NOT NULL REFERENCES maintenance_jobs(id) ON DELETE CASCADE,
+  started_at INTEGER NOT NULL,
+  completed_at INTEGER,
+  duration INTEGER,
+  status TEXT NOT NULL DEFAULT 'success',
+  error TEXT,
+  records_processed INTEGER DEFAULT 0,
+  result_summary TEXT
+);
+CREATE INDEX IF NOT EXISTS maintenance_job_history_job_idx ON maintenance_job_history(job_id);
+CREATE INDEX IF NOT EXISTS maintenance_job_history_started_idx ON maintenance_job_history(started_at);
+CREATE INDEX IF NOT EXISTS maintenance_job_history_status_idx ON maintenance_job_history(status);
+
 -- Places table (v1.1.5) - Spatial memory organization
 CREATE TABLE IF NOT EXISTS places (
   id TEXT PRIMARY KEY,
@@ -943,6 +958,20 @@ const postgresStatements = [
   `CREATE INDEX IF NOT EXISTS maintenance_jobs_next_run_idx ON maintenance_jobs(next_run_at);`,
   `CREATE INDEX IF NOT EXISTS maintenance_jobs_type_idx ON maintenance_jobs(job_type);`,
   `CREATE INDEX IF NOT EXISTS maintenance_jobs_enabled_idx ON maintenance_jobs(enabled);`,
+  `CREATE TABLE IF NOT EXISTS maintenance_job_history (
+    id TEXT PRIMARY KEY,
+    job_id TEXT NOT NULL REFERENCES maintenance_jobs(id) ON DELETE CASCADE,
+    started_at INTEGER NOT NULL,
+    completed_at INTEGER,
+    duration INTEGER,
+    status TEXT NOT NULL DEFAULT 'success',
+    error TEXT,
+    records_processed INTEGER DEFAULT 0,
+    result_summary TEXT
+  );`,
+  `CREATE INDEX IF NOT EXISTS maintenance_job_history_job_idx ON maintenance_job_history(job_id);`,
+  `CREATE INDEX IF NOT EXISTS maintenance_job_history_started_idx ON maintenance_job_history(started_at);`,
+  `CREATE INDEX IF NOT EXISTS maintenance_job_history_status_idx ON maintenance_job_history(status);`,
   // places table (v1.1.5) - Spatial memory organization
   `CREATE TABLE IF NOT EXISTS places (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -65,4 +65,38 @@ export async function runMaintenanceMigrations(sqlite: Database): Promise<void> 
       }
     }
   }
+
+  // Create maintenance_job_history table if it doesn't exist
+  const historyTableCheck = sqlite.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='maintenance_job_history'"
+  ).get() as { name: string } | undefined;
+
+  if (!historyTableCheck) {
+    try {
+      sqlite.exec(`
+        CREATE TABLE IF NOT EXISTS maintenance_job_history (
+          id TEXT PRIMARY KEY,
+          job_id TEXT NOT NULL REFERENCES maintenance_jobs(id) ON DELETE CASCADE,
+          started_at INTEGER NOT NULL,
+          completed_at INTEGER,
+          duration INTEGER,
+          status TEXT NOT NULL DEFAULT 'success',
+          error TEXT,
+          records_processed INTEGER DEFAULT 0,
+          result_summary TEXT
+        );
+        CREATE INDEX IF NOT EXISTS maintenance_job_history_job_idx ON maintenance_job_history(job_id);
+        CREATE INDEX IF NOT EXISTS maintenance_job_history_started_idx ON maintenance_job_history(started_at);
+        CREATE INDEX IF NOT EXISTS maintenance_job_history_status_idx ON maintenance_job_history(status);
+      `);
+      logger.info('Created maintenance_job_history table');
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (msg.includes('already exists')) {
+        logger.debug('maintenance_job_history table already exists');
+      } else {
+        logger.error('Failed to create maintenance_job_history table:', error);
+      }
+    }
+  }
 }
