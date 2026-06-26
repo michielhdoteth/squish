@@ -210,6 +210,100 @@ describe('RetrievalTrace interface (Phase 8)', () => {
   });
 });
 
+describe('getRetrievalConfig with env vars', () => {
+  const origEnv = { ...process.env };
+
+  afterEach(() => {
+    process.env = { ...origEnv };
+  });
+
+  it('env var SQUISH_INCLUDE_SUPERSEDED overrides default', () => {
+    process.env.SQUISH_INCLUDE_SUPERSEDED = 'true';
+    const cfg = getRetrievalConfig();
+    expect(cfg.includeSuperseded).toBe(true);
+  });
+
+  it('env var SQUISH_PLACE_BOOST overrides default scoring', () => {
+    process.env.SQUISH_PLACE_BOOST = '0.99';
+    const cfg = getRetrievalConfig();
+    expect(cfg.scoring.placeBoost).toBe(0.99);
+    // other scoring defaults still intact
+    expect(cfg.scoring.tagOverlapBoost).toBe(0.10);
+  });
+
+  it('env var SQUISH_TAG_CAP overrides default', () => {
+    process.env.SQUISH_TAG_CAP = '20';
+    const cfg = getRetrievalConfig();
+    expect(cfg.tagCap).toBe(20);
+  });
+
+  it('env var SQUISH_MIN_RESULTS overrides default', () => {
+    process.env.SQUISH_MIN_RESULTS = '7';
+    const cfg = getRetrievalConfig();
+    expect(cfg.minResults).toBe(7);
+  });
+
+  it('env var SQUISH_PLACE_MIN_WEIGHT overrides default', () => {
+    process.env.SQUISH_PLACE_MIN_WEIGHT = '0.6';
+    const cfg = getRetrievalConfig();
+    expect(cfg.placeMinWeight).toBe(0.6);
+  });
+
+  it('env var SQUISH_SUPERSEDED_PENALTY overrides default scoring', () => {
+    process.env.SQUISH_SUPERSEDED_PENALTY = '0.85';
+    const cfg = getRetrievalConfig();
+    expect(cfg.scoring.supersededPenalty).toBe(0.85);
+  });
+
+  it('env var SQUISH_CONTRADICTION_RISK_PENALTY overrides default scoring', () => {
+    process.env.SQUISH_CONTRADICTION_RISK_PENALTY = '0.45';
+    const cfg = getRetrievalConfig();
+    expect(cfg.scoring.contradictionRiskPenalty).toBe(0.45);
+  });
+
+  it('explicit overrides take priority over env vars', () => {
+    process.env.SQUISH_PLACE_BOOST = '0.99';
+    process.env.SQUISH_TAG_CAP = '20';
+    const cfg = getRetrievalConfig({
+      scoring: { placeBoost: 0.01, tagOverlapBoost: 0.10, graphNeighborBoost: 0.05, recencyBoost: 0.03, usageBoost: 0.02, supersededPenalty: 0.50, contradictionRiskPenalty: 0.20 },
+      tagCap: 5,
+    });
+    expect(cfg.scoring.placeBoost).toBe(0.01); // explicit wins over env
+    expect(cfg.tagCap).toBe(5); // explicit wins over env
+  });
+
+  it('without env vars, defaults are returned', () => {
+    // Make sure no env vars are set
+    delete process.env.SQUISH_PLACE_BOOST;
+    delete process.env.SQUISH_TAG_CAP;
+    delete process.env.SQUISH_MIN_RESULTS;
+    delete process.env.SQUISH_INCLUDE_SUPERSEDED;
+    const cfg = getRetrievalConfig();
+    expect(cfg.scoring.placeBoost).toBe(0.15);
+    expect(cfg.tagCap).toBe(12);
+    expect(cfg.minResults).toBe(3);
+    expect(cfg.includeSuperseded).toBe(false);
+  });
+
+  it('multiple env vars override simultaneously', () => {
+    process.env.SQUISH_PLACE_BOOST = '0.50';
+    process.env.SQUISH_TAG_OVERLAP_BOOST = '0.25';
+    process.env.SQUISH_GRAPH_NEIGHBOR_BOOST = '0.15';
+    process.env.SQUISH_RECENCY_BOOST = '0.10';
+    process.env.SQUISH_USAGE_BOOST = '0.08';
+    process.env.SQUISH_INCLUDE_SUPERSEDED = 'true';
+    process.env.SQUISH_TAG_CAP = '15';
+    const cfg = getRetrievalConfig();
+    expect(cfg.scoring.placeBoost).toBe(0.50);
+    expect(cfg.scoring.tagOverlapBoost).toBe(0.25);
+    expect(cfg.scoring.graphNeighborBoost).toBe(0.15);
+    expect(cfg.scoring.recencyBoost).toBe(0.10);
+    expect(cfg.scoring.usageBoost).toBe(0.08);
+    expect(cfg.includeSuperseded).toBe(true);
+    expect(cfg.tagCap).toBe(15);
+  });
+});
+
 describe('SearchInput trace field (Phase 8)', () => {
   it('has optional trace field', () => {
     // Type-checking test: SearchInput accepts trace boolean

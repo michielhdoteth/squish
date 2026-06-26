@@ -59,11 +59,14 @@ const DEFAULT_CONFIG: SquishRetrievalConfig = {
  * Get retrieval config, merging defaults with any overrides
  */
 export function getRetrievalConfig(overrides?: Partial<SquishRetrievalConfig>): SquishRetrievalConfig {
+  const envConfig = getEnvRetrievalConfig();
   return {
     ...DEFAULT_CONFIG,
+    ...envConfig,
     ...overrides,
     scoring: {
       ...DEFAULT_CONFIG.scoring,
+      ...envConfig.scoring,
       ...overrides?.scoring,
     },
   };
@@ -84,6 +87,7 @@ export function getEnvRetrievalConfig(): Partial<SquishRetrievalConfig> {
   if (env.SQUISH_RECENCY_BOOST) scoring.recencyBoost = Number(env.SQUISH_RECENCY_BOOST);
   if (env.SQUISH_USAGE_BOOST) scoring.usageBoost = Number(env.SQUISH_USAGE_BOOST);
   if (env.SQUISH_SUPERSEDED_PENALTY) scoring.supersededPenalty = Number(env.SQUISH_SUPERSEDED_PENALTY);
+  if (env.SQUISH_CONTRADICTION_RISK_PENALTY) scoring.contradictionRiskPenalty = Number(env.SQUISH_CONTRADICTION_RISK_PENALTY);
   
   const result: Partial<SquishRetrievalConfig> = {};
   
