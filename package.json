@@ -1,7 +1,7 @@
 {
   "name": "squish-memory",
   "version": "1.8.0",
-  "author": "4m-labs <michiel@4mlabs.io>",
+  "author": "4m-labs",
   "repository": {
     "type": "git",
     "url": "https://github.com/michielhdoteth/squish.git"
