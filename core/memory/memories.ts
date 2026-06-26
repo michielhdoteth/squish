@@ -18,6 +18,7 @@ import { getDbClient } from '../lib/db-client.js';
 import { extractBeliefsFromMemory } from '../beliefs/extractor.js';
 import { upsertBeliefsForMemory } from '../beliefs/store.js';
 import { extractEntityNames } from './entity-extractor.js';
+import { buildMemoryPolicy, buildVisibilityScopes, serializeVisibilityScopes, recommendMemoryScope } from './policy.js';
 import { autoLinkByEntities } from '../associations.js';
 import { addMemoryToGraph } from '../graph/graph-builder.js';
 import { MemoryRecord, MemoryType } from '../lib/types.js';
@@ -139,10 +140,32 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
   const signals = detectMemorySignals(input.content);
   const type = input.type ?? signals.suggestedType;
   const visibilityScope = input.visibilityScope ?? config.defaultVisibilityScope;
-  const readScope = buildReadScope(visibilityScope, accessUser);
-  const writeScope = buildWriteScope(visibilityScope, accessUser);
-  const serializedReadScope = serializeScopeList(readScope);
-  const serializedWriteScope = serializeScopeList(writeScope);
+  const policyRecommendation = recommendMemoryScope({
+    content: input.content,
+    type,
+    tags,
+    visibilityScope,
+    importanceScore: 0,
+    accessCount: 0,
+    usageCount: 0,
+    isPinned: false,
+    signals,
+  });
+  const memoryPolicy = buildMemoryPolicy({
+    content: input.content,
+    type,
+    tags,
+    visibilityScope,
+    importanceScore: 0,
+    accessCount: 0,
+    usageCount: 0,
+    isPinned: false,
+    signals,
+  });
+  memoryPolicy.recommendation = policyRecommendation;
+  const readWriteScopes = buildVisibilityScopes(visibilityScope, 'user', accessUser);
+  const serializedReadScope = serializeVisibilityScopes(readWriteScopes.readScope);
+  const serializedWriteScope = serializeVisibilityScopes(readWriteScopes.writeScope);
 
   if (config.isTeamMode && project && !actor) {
     logger.warn('[TeamMode] Writing memory without actor identity; falling back to legacy project-scoped write');
@@ -202,6 +225,7 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
       toolName: input.toolName,
     },
   };
+  enrichedMetadata.memoryPolicy = memoryPolicy;
   let metadataValue = serializeMetadata(enrichedMetadata);
 
   // Prepare fields for insertion, handling optional encryption
@@ -600,183 +624,6 @@ async function isMemoryReadableByTeamContext(
 
 // parseEmbedding imported from ../lib/parse-embedding.js
 
-async function searchMemoriesSqlite(input: SearchInput, tags: string[], limit: number): Promise<SearchResult[]> {
-  const { db } = await getDbClient();
-  const sqlite = db.$client as any;
-  
-  // Get embedding for the query (for semantic search)
-  const queryEmbedding = await getEmbedding(input.query);
-  
-  // Build the base query
-  const conditions: string[] = [];
-  const params: any[] = [];
-  
-  if (input.type) {
-    conditions.push('m.type = ?');
-    params.push(input.type);
-  }
-  
-  if (tags.length) {
-    conditions.push('m.tags IS NOT NULL AND (' + tags.map(() => 'm.tags LIKE ?').join(' OR ') + ')');
-    params.push(...tags.map((tag) => `%${tag}%`));
-  }
-  
-   let projectId: string | null = null;
-   if (input.project) {
-     const project = await requireProject(input.project);
-     projectId = project.id;
-     conditions.push('m.project_id = ?');
-     params.push(project.id);
-   }
-  
-  const whereClause = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
-  
-  // Fetch memories with embeddings for semantic search
-  const fetchLimit = Math.max(limit * 3, 50); // Fetch more for re-ranking
-  
-  const statement = sqlite.prepare(`
-    SELECT
-      m.id as id,
-      m.project_id as projectId,
-      m.type as type,
-      m.content as content,
-      m.summary as summary,
-      m.tags as tags,
-      m.metadata as metadata,
-      m.embedding as embedding,
-      m.embedding_json as embeddingJson,
-      m.created_at as createdAt
-    FROM memories m
-    ${whereClause}
-    ORDER BY m.created_at DESC
-    LIMIT ?
-  `);
-  
-  const rows = statement.all(...params, fetchLimit) as Array<{
-    id: string;
-    projectId: string | null;
-    type: string;
-    content: string;
-    summary: string | null;
-    tags: string | null;
-    metadata: string | null;
-    embedding: any;
-    embeddingJson: any;
-    createdAt: string | null;
-  }>;
-  
-  if (rows.length === 0) return [];
-  
-  // If we have query embedding, do semantic ranking
-  if (queryEmbedding) {
-    const scored = rows.map((row) => {
-      let embedding = parseEmbedding(row.embedding);
-      
-      // Fallback to embedding_json if embedding blob is null
-      if (!embedding && row.embeddingJson) {
-        embedding = parseEmbedding(row.embeddingJson);
-      }
-      
-      const score = embedding ? cosineSimilarity(queryEmbedding, embedding) : 0;
-      return { row, score };
-    });
-    
-    // Sort by similarity score (descending)
-    scored.sort((a, b) => b.score - a.score);
-    
-    // Return top results WITH their similarity scores
-    return scored.slice(0, limit).map((item): SearchResult => ({
-      ...normalizeMemory(item.row),
-      similarity: item.score,
-    }));
-  }
-  
-  // No embeddings available, return results with 0 similarity
-  return rows.slice(0, limit).map((row, i): SearchResult => ({
-    ...normalizeMemory(row),
-    similarity: 0,
-  }));
-}
-
-async function searchMemoriesPostgres(input: SearchInput, tags: string[], limit: number): Promise<SearchResult[]> {
-  const { db } = await getDbClient();
-  const values: Array<string | string[] | number[] | null> = [];
-  const whereParts: string[] = [];
-
-  values.push(`%${input.query}%`);
-  whereParts.push(`content ILIKE $1`);
-
-  if (input.type) {
-    values.push(input.type);
-    whereParts.push(`type = $${values.length}`);
-  }
-
-  if (tags.length) {
-    values.push(tags);
-    whereParts.push(`tags && $${values.length}::text[]`);
-  }
-
-   if (input.project) {
-     const project = await requireProject(input.project);
-     values.push(project.id);
-     whereParts.push(`project_id = $${values.length}`);
-   }
-
-  const whereClause = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
-  const embedding = await getEmbedding(input.query);
-
-  if (embedding) {
-   const rows = await (db.$client as any).query(
-     `SELECT
-       id,
-       project_id as "projectId",
-       type,
-       content,
-       summary,
-       tags,
-       metadata,
-       created_at as "createdAt",
-       valid_from as "validFrom",
-       valid_to as "validTo",
-       recorded_at as "recordedAt"
-     FROM memories
-     ${whereClause}
-     ORDER BY created_at DESC
-     LIMIT $${values.length + 1}`,
-     [...values, limit]
-   );
-    return rows.rows.map((row: any): SearchResult => ({
-      ...normalizeMemory(row),
-      similarity: row.similarity ?? 0,
-    }));
-  }
-
-   const rows = await (db.$client as any).query(
-     `SELECT
-       id,
-       project_id as "projectId",
-       type,
-       content,
-       summary,
-       tags,
-       metadata,
-       created_at as "createdAt",
-       valid_from as "validFrom",
-       valid_to as "validTo",
-       recorded_at as "recordedAt"
-     FROM memories
-     ${whereClause}
-     ORDER BY created_at DESC
-     LIMIT $${values.length + 1}`,
-     [...values, limit]
-   );
-
-   return rows.rows.map((row: any): SearchResult => ({
-     ...normalizeMemory(row),
-     similarity: 0,
-   }));
-}
-
 function normalizeMemory(row: any): MemoryRecord {
   const tags = deserializeTags(row.tags ?? null);
   const metadata = deserializeMetadata(row.metadata ?? null);
@@ -798,36 +645,6 @@ function normalizeMemory(row: any): MemoryRecord {
     recordedAt: row.recordedAt ?? row.recorded_at ?? null,
     confidenceLevel: row.confidenceLevel ?? row.confidence_level ?? null,
   };
-}
-
-function buildReadScope(scope: VisibilityScope, user?: string): string[] {
-  switch (scope) {
-    case 'private':
-      return user ? [`user:${user}`] : ['private'];
-    case 'project':
-      return user ? [`user:${user}`, 'project:*'] : ['project:*'];
-    case 'team':
-      return user ? [`user:${user}`, 'team:*'] : ['team:*'];
-    case 'global':
-      return ['*'];
-  }
-}
-
-function buildWriteScope(scope: VisibilityScope, user?: string): string[] {
-  switch (scope) {
-    case 'private':
-      return user ? [`user:${user}`] : ['private'];
-    case 'project':
-      return user ? [`user:${user}`, 'project:*'] : ['project:*'];
-    case 'team':
-      return user ? [`user:${user}`, 'team:*'] : ['team:*'];
-    case 'global':
-      return ['*'];
-  }
-}
-
-function serializeScopeList(scopes: string[]): string[] | string {
-  return config.isTeamMode ? scopes : JSON.stringify(scopes);
 }
 
 /**
