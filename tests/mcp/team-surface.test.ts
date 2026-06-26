@@ -7,13 +7,12 @@ function readText(pathParts: string[]) {
 }
 
 describe("MCP team surface", () => {
-  it("registers a dedicated team management tool", () => {
+  it("does NOT register team management tools in OSS", () => {
     const source = readText(["packages", "mcp", "src", "index.ts"]);
 
-    expect(source).toContain('"squish_team"');
-    expect(source).toContain('Actions: add, list, member, role, touch, remove.');
-    expect(source).toContain('createTeamMember({');
-    expect(source).toContain('getTeamMembers(projectId)');
+    expect(source).not.toContain('"squish_team"');
+    expect(source).not.toContain('createTeamMember({');
+    expect(source).not.toContain('getTeamMembers(projectId)');
   });
 
   it("lets remember and recall carry visibility scope metadata", () => {
@@ -24,12 +23,11 @@ describe("MCP team surface", () => {
     expect(source).toContain('visibilityScope,');
   });
 
-  it("exposes memory policy promotion and recommendation actions", () => {
+  it("does NOT register memory policy tools in OSS", () => {
     const source = readText(["packages", "mcp", "src", "index.ts"]);
 
-    expect(source).toContain('"squish_memory_policy"');
-    expect(source).toContain('private-first memory and company sharing decisions');
-    expect(source).toContain('recommendMemoryScope({');
-    expect(source).toContain('promoteMemoryVisibility(memoryId, targetScope, updateReason)');
+    expect(source).not.toContain('"squish_memory_policy"');
+    expect(source).not.toContain('recommendMemoryScope({');
+    expect(source).not.toContain('promoteMemoryVisibility(memoryId, targetScope, updateReason)');
   });
 });

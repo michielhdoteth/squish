@@ -54,12 +54,11 @@ async function spawnServer(tmpDir: string): Promise<ServerHandle> {
   const child = spawn(command, args, {
     stdio: ["pipe", "pipe", "pipe"],
     cwd: rootDir,
-    env: {
-      ...process.env,
-      SQUISH_DATA_DIR: tmpDir,
-      SQUISH_QUIET: "1",
-      SQUISH_MODE: "local",
-    },
+      env: {
+        ...process.env,
+        SQUISH_DATA_DIR: tmpDir,
+        SQUISH_QUIET: "1",
+      },
   });
 
   let stdoutBuf = "";
@@ -466,157 +465,6 @@ describe("MCP Tool Handlers", () => {
         } else {
           expect(parsed.ok).toBeDefined();
         }
-      },
-      TEST_TIMEOUT
-    );
-  });
-
-  describe("squish_team", () => {
-    const uniqueUser = `test-user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-
-    beforeAll(async () => {
-      // Ensure a project exists by storing a memory first
-      await sharedServer.callTool(
-        "squish_remember",
-        { content: "Seed memory for team project" },
-        TEST_TIMEOUT
-      );
-    });
-
-    afterAll(async () => {
-      // Try to remove the test member (ignore errors)
-      try {
-        await sharedServer.callTool(
-          "squish_team",
-          { action: "remove", user: uniqueUser },
-          5_000
-        );
-      } catch {
-        // Ignore cleanup errors
-      }
-    });
-
-    it(
-      "list returns team members",
-      async () => {
-        const resp = await sharedServer.callTool(
-          "squish_team",
-          { action: "list" },
-          TEST_TIMEOUT
-        );
-        expect(resp.result).toBeDefined();
-        const parsed = parseToolResult(resp);
-        expect(parsed.ok).toBe(true);
-        expect(typeof parsed.count).toBe("number");
-        expect(Array.isArray(parsed.members)).toBe(true);
-      },
-      TEST_TIMEOUT
-    );
-
-    it(
-      "add creates a member",
-      async () => {
-        const resp = await sharedServer.callTool(
-          "squish_team",
-          { action: "add", user: uniqueUser, role: "member" },
-          TEST_TIMEOUT
-        );
-        expect(resp.result).toBeDefined();
-        const parsed = parseToolResult(resp);
-        // Accept both success and error responses (e.g. FK constraint)
-        if (parsed._raw !== undefined) {
-          expect(typeof parsed._raw).toBe("string");
-        } else {
-          expect(parsed.ok).toBe(true);
-          expect(parsed.member).toBeDefined();
-        }
-      },
-      TEST_TIMEOUT
-    );
-
-    it(
-      "role updates member role",
-      async () => {
-        const resp = await sharedServer.callTool(
-          "squish_team",
-          { action: "role", user: uniqueUser, role: "admin" },
-          TEST_TIMEOUT
-        );
-        expect(resp.result).toBeDefined();
-        const parsed = parseToolResult(resp);
-        if (parsed._raw !== undefined) {
-          expect(typeof parsed._raw).toBe("string");
-        } else {
-          expect(parsed.ok).toBe(true);
-        }
-      },
-      TEST_TIMEOUT
-    );
-
-    it(
-      "remove removes member",
-      async () => {
-        const resp = await sharedServer.callTool(
-          "squish_team",
-          { action: "remove", user: uniqueUser },
-          TEST_TIMEOUT
-        );
-        expect(resp.result).toBeDefined();
-        const parsed = parseToolResult(resp);
-        expect(parsed.ok).toBe(true);
-        expect(parsed.removed).toBe(true);
-      },
-      TEST_TIMEOUT
-    );
-  });
-
-  describe("squish_memory_policy", () => {
-    let memoryId: string;
-
-    beforeAll(async () => {
-      // Create a memory to inspect
-      const resp = await sharedServer.callTool(
-        "squish_remember",
-        { content: "Policy test memory for inspection" },
-        TEST_TIMEOUT
-      );
-      const text = resp.result.content[0].text;
-      const idMatch = text.match(/Remembered: ([0-9a-f-]+)/);
-      memoryId = idMatch![1];
-    });
-
-    it(
-      "inspect returns policy for a memory",
-      async () => {
-        const resp = await sharedServer.callTool(
-          "squish_memory_policy",
-          { action: "inspect", memoryId },
-          TEST_TIMEOUT
-        );
-        expect(resp.result).toBeDefined();
-        const parsed = parseToolResult(resp);
-        expect(parsed.ok).toBe(true);
-        expect(parsed.memoryId).toBe(memoryId);
-      },
-      TEST_TIMEOUT
-    );
-
-    it(
-      "recommend suggests visibility scope",
-      async () => {
-        const resp = await sharedServer.callTool(
-          "squish_memory_policy",
-          {
-            action: "recommend",
-            content: "This is a shared decision about the architecture",
-            type: "decision",
-          },
-          TEST_TIMEOUT
-        );
-        expect(resp.result).toBeDefined();
-        const parsed = parseToolResult(resp);
-        expect(parsed.ok).toBe(true);
-        expect(parsed.recommendation).toBeDefined();
       },
       TEST_TIMEOUT
     );

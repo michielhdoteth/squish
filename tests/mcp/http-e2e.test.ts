@@ -229,7 +229,7 @@ describe("MCP HTTP server e2e", () => {
       expect(body).toHaveProperty("result");
       expect(body.result).toHaveProperty("tools");
       expect(Array.isArray(body.result.tools)).toBe(true);
-      expect(body.result.tools.length).toBe(20);
+      expect(body.result.tools.length).toBe(18);
     },
     15_000,
   );

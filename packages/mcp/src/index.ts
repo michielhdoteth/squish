@@ -29,17 +29,13 @@ import { rememberMemory, search as searchMemories, getMemory, getRecent, type Me
 import { getQMDClient } from "../../../core/embeddings/qmd-client.js";
 import { createAssociation, getRelatedMemories, type AssociationType } from "../../../core/associations.js";
 import { createLearning } from "../../../core/ingestion/learnings.js";
-import { getAllProjects, requireProject } from "../../../core/projects.js";
+import { getAllProjects } from "../../../core/projects.js";
 import { logger } from "../../../core/logger.js";
-import { extractMemoryPolicy, promoteMemoryVisibility, recommendMemoryScope } from "../../../core/memory/policy.js";
-import { deserializeMetadata } from "../../../core/memory/serialization.js";
-
 // Strategy imports
 import { createStrategy, listStrategies, searchStrategies, supersedeStrategy, getStrategyStats } from "../../../core/strategies/store.js";
 import type { StrategyType, StrategyStatus } from "../../../core/strategies/types.js";
 
-// Team imports
-import { createTeamMember, getTeamMember, getTeamMembers, removeTeamMember, updateLastActive, updateMemberRole } from "../../../core/team/workspace.js";
+// CRITICAL: Redirect console.log to stderr AFTER all imports
 
 // CRITICAL: Redirect console.log to stderr AFTER all imports
 // MCP stdio requires stdout to contain ONLY valid JSON-RPC messages
@@ -142,27 +138,6 @@ function schemaProbeErrorResult(probe: SchemaProbeResult) {
 function resolveProjectPath(projectArg?: string): string | null | undefined {
   if (projectArg) return projectArg;
   return detectProjectScope();
-}
-
-async function resolveProjectId(projectArg?: string): Promise<string | null> {
-  const resolvedPath = resolveProjectPath(projectArg);
-  if (!resolvedPath) return null;
-  const project = await requireProject(resolvedPath);
-  return project.id;
-}
-
-function formatTeamMember(member: Awaited<ReturnType<typeof getTeamMember>>): Record<string, unknown> | null {
-  if (!member) return null;
-  return {
-    id: member.id,
-    projectId: member.projectId,
-    userId: member.userId,
-    agentId: member.agentId,
-    role: member.role,
-    joinedAt: member.joinedAt,
-    lastActiveAt: member.lastActiveAt,
-    metadata: member.metadata,
-  };
 }
 
 function createSquishServer(): { server: McpServer; toolCount: number } {
@@ -406,84 +381,6 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
       });
 
       return { content: [{ type: "text", text: JSON.stringify({ ok: true, count: results.length, results }, null, 2) }] };
-    }
-  )) toolCount++;
-
-  // squish_team - Manage team membership and roles
-  if (safeRegisterTool(
-    server,
-    "squish_team",
-    {
-      description: "Manage team workspace membership. Actions: add, list, member, role, touch, remove.",
-      inputSchema: {
-        action: z.enum(["add", "list", "member", "role", "touch", "remove"]).describe("Action to perform"),
-        project: z.string().optional().describe("Project path (auto-detected if omitted)"),
-        user: z.string().optional().describe("User identifier (name or email)"),
-        agent: z.string().optional().describe("Agent identifier"),
-        role: z.enum(["owner", "admin", "member", "viewer"]).optional().describe("Team role (add/role actions)"),
-        metadata: z.record(z.unknown()).optional().describe("Optional member metadata"),
-      }
-    },
-    async ({ action, project, user, agent, role, metadata }: {
-      action: "add" | "list" | "member" | "role" | "touch" | "remove";
-      project?: string;
-      user?: string;
-      agent?: string;
-      role?: "owner" | "admin" | "member" | "viewer";
-      metadata?: Record<string, unknown>;
-    }) => {
-      const projectId = await resolveProjectId(project);
-      if (!projectId) {
-        return { content: [{ type: "text", text: "Error: project is required for team actions" }], isError: true };
-      }
-
-      if (action === "list") {
-        const members = await getTeamMembers(projectId);
-        return { content: [{ type: "text", text: JSON.stringify({ ok: true, count: members.length, members: members.map((member) => formatTeamMember(member)) }, null, 2) }] };
-      }
-
-      if (action === "add") {
-        if (!user && !agent) {
-          return { content: [{ type: "text", text: "Error: user or agent is required for add action" }], isError: true };
-        }
-        const member = await createTeamMember({
-          projectId,
-          userId: user,
-          agentId: agent,
-          role,
-          metadata,
-        });
-        return { content: [{ type: "text", text: JSON.stringify({ ok: true, member }, null, 2) }] };
-      }
-
-      if (action === "member") {
-        const member = await getTeamMember(projectId, user, agent);
-        return { content: [{ type: "text", text: JSON.stringify({ ok: true, member: formatTeamMember(member), exists: Boolean(member), role: member?.role ?? null }, null, 2) }] };
-      }
-
-      if (action === "role") {
-        if (!user || !role) {
-          return { content: [{ type: "text", text: "Error: user and role are required for role action" }], isError: true };
-        }
-        const updated = await updateMemberRole(projectId, user, role);
-        return { content: [{ type: "text", text: JSON.stringify({ ok: true, member: updated }, null, 2) }] };
-      }
-
-      if (action === "touch") {
-        await updateLastActive(projectId, user, agent);
-        const member = await getTeamMember(projectId, user, agent);
-        return { content: [{ type: "text", text: JSON.stringify({ ok: true, touched: true, member: formatTeamMember(member) }, null, 2) }] };
-      }
-
-      if (action === "remove") {
-        if (!user && !agent) {
-          return { content: [{ type: "text", text: "Error: user or agent is required for remove action" }], isError: true };
-        }
-        await removeTeamMember(projectId, user, agent);
-        return { content: [{ type: "text", text: JSON.stringify({ ok: true, removed: true, projectId, user: user ?? null, agent: agent ?? null }, null, 2) }] };
-      }
-
-      return { content: [{ type: "text", text: "Error: invalid team action. Use add, list, member, role, touch, or remove." }], isError: true };
     }
   )) toolCount++;
 
@@ -748,115 +645,6 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
         .where(eq(schema.memories.id, memoryId));
 
       return { content: [{ type: "text", text: `Memory ${memoryId} ${pinned ? 'pinned' : 'unpinned'}` }] };
-    }
-  )) toolCount++;
-
-  // squish_memory_policy - Inspect or change memory sharing policy
-  if (safeRegisterTool(
-    server,
-    "squish_memory_policy",
-    {
-      description: "Inspect, recommend, promote, or demote a memory sharing policy. Captures private-first memory and company sharing decisions.",
-      inputSchema: {
-        action: z.enum(["inspect", "recommend", "promote", "demote"]).describe("Policy action"),
-        memoryId: z.string().uuid().optional().describe("Memory ID for inspect/promote/demote"),
-        content: z.string().optional().describe("Content to analyze for a recommendation"),
-        type: z.enum(["observation", "fact", "decision", "context", "preference", "note", "task"]).optional().describe("Memory type for recommendation"),
-        tags: z.array(z.string()).optional().describe("Tags to include in recommendation"),
-        visibilityScope: z.enum(["private", "project", "team", "global"]).optional().describe("Desired visibility scope"),
-        reason: z.string().optional().describe("Reason for manual promote/demote"),
-      }
-    },
-    async ({ action, memoryId, content, type, tags = [], visibilityScope, reason }: {
-      action: "inspect" | "recommend" | "promote" | "demote";
-      memoryId?: string;
-      content?: string;
-      type?: "observation" | "fact" | "decision" | "context" | "preference" | "note" | "task";
-      tags?: string[];
-      visibilityScope?: "private" | "project" | "team" | "global";
-      reason?: string;
-    }) => {
-      if (action === "recommend") {
-        if (!content) {
-          return { content: [{ type: "text", text: "Error: content is required for recommend action" }], isError: true };
-        }
-
-        const recommendation = recommendMemoryScope({
-          content,
-          type,
-          tags,
-          visibilityScope,
-        });
-
-        return {
-          content: [{
-            type: "text",
-            text: JSON.stringify({
-              ok: true,
-              privateFirst: true,
-              recommendation,
-            }, null, 2),
-          }],
-        };
-      }
-
-      if (!memoryId) {
-        return { content: [{ type: "text", text: "Error: memoryId is required for inspect/promote/demote actions" }], isError: true };
-      }
-
-      if (action === "inspect") {
-        const db = await getDb();
-        const schema = await getSchema();
-        const row = await (db as any)
-          .select()
-          .from(schema.memories)
-          .where(eq(schema.memories.id, memoryId))
-          .limit(1)
-          .then((rows: any[]) => rows[0] || null);
-
-        if (!row) {
-          return { content: [{ type: "text", text: `Memory not found: ${memoryId}` }], isError: true };
-        }
-
-        const metadata = deserializeMetadata(row.metadata ?? null);
-        const policy = extractMemoryPolicy(metadata);
-
-        return {
-          content: [{
-            type: "text",
-            text: JSON.stringify({
-              ok: true,
-              memoryId,
-              visibilityScope: row.visibilityScope ?? row.visibility_scope ?? null,
-              policy,
-              metadata,
-            }, null, 2),
-          }],
-        };
-      }
-
-      const targetScope = action === "demote" ? "private" : (visibilityScope ?? "team");
-      const updateReason = reason ?? (action === "demote"
-        ? "manual demotion to personal memory"
-        : `manual promotion to ${targetScope} scope`);
-      const updated = await promoteMemoryVisibility(memoryId, targetScope, updateReason);
-
-      if (!updated) {
-        return { content: [{ type: "text", text: `Memory not found or update failed: ${memoryId}` }], isError: true };
-      }
-
-      return {
-        content: [{
-          type: "text",
-          text: JSON.stringify({
-            ok: true,
-            action,
-            memoryId,
-            visibilityScope: updated.visibilityScope,
-            policy: updated.policy,
-          }, null, 2),
-        }],
-      };
     }
   )) toolCount++;
 
