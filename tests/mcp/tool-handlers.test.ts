@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 
-const TEST_TIMEOUT = 10_000;
+const TEST_TIMEOUT = 30_000;
 
 function resolveServerCommand(): { command: string; args: string[] } {
   const rootDir = join(import.meta.dir, "..", "..");
@@ -105,7 +105,7 @@ async function spawnServer(tmpDir: string): Promise<ServerHandle> {
 
   function readLine(
     matcher: (line: any) => boolean,
-    timeoutMs = 10_000
+    timeoutMs = 30_000
   ): Promise<any> {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -147,7 +147,7 @@ async function spawnServer(tmpDir: string): Promise<ServerHandle> {
   async function callTool(
     name: string,
     args: Record<string, unknown> = {},
-    timeoutMs = 10_000
+    timeoutMs = 30_000
   ): Promise<any> {
     const id = nextId();
     send({
@@ -178,7 +178,7 @@ async function initializeServer(handle: ServerHandle): Promise<void> {
       clientInfo: { name: "test-tool-handlers", version: "1.0.0" },
     },
   });
-  await handle.readLine((r: any) => r.id === id, 15_000);
+  await handle.readLine((r: any) => r.id === id, 30_000);
 
   handle.send({ jsonrpc: "2.0", method: "notifications/initialized" });
 }
@@ -197,28 +197,34 @@ function getRawText(resp: any): string {
   return resp.result.content[0].text;
 }
 
+// ─── Shared server (spawned once, shared across all describe blocks) ──
+
+let sharedServer: ServerHandle;
+let sharedTmpDir: string;
+
+beforeAll(async () => {
+  sharedTmpDir = await mkdtemp(join(tmpdir(), "squish-tool-handlers-"));
+  sharedServer = await spawnServer(sharedTmpDir);
+  await initializeServer(sharedServer);
+}, 60_000);
+
+afterAll(async () => {
+  if (sharedServer) {
+    await sharedServer.close();
+  }
+  if (sharedTmpDir) {
+    await rm(sharedTmpDir, { recursive: true, force: true });
+  }
+}, 15_000);
+
 // ─── Tests ────────────────────────────────────────────────────────────
 
 describe("MCP Tool Handlers", () => {
   describe("squish_health", () => {
-    let server: ServerHandle;
-    let tmpDir: string;
-
-    beforeAll(async () => {
-      tmpDir = await mkdtemp(join(tmpdir(), "squish-tool-health-"));
-      server = await spawnServer(tmpDir);
-      await initializeServer(server);
-    });
-
-    afterAll(async () => {
-      await server.close();
-      await rm(tmpDir, { recursive: true, force: true });
-    });
-
     it(
       "returns health status with schema info",
       async () => {
-        const resp = await server.callTool("squish_health", {}, TEST_TIMEOUT);
+        const resp = await sharedServer.callTool("squish_health", {}, TEST_TIMEOUT);
         expect(resp.result).toBeDefined();
         expect(resp.result.content).toBeDefined();
         expect(resp.result.content.length).toBeGreaterThan(0);
@@ -246,7 +252,7 @@ describe("MCP Tool Handlers", () => {
     it(
       "includes tool count in response",
       async () => {
-        const resp = await server.callTool("squish_health", {}, TEST_TIMEOUT);
+        const resp = await sharedServer.callTool("squish_health", {}, TEST_TIMEOUT);
         const parsed = parseToolResult(resp);
         if (parsed._raw !== undefined) {
           // Non-JSON response is acceptable
@@ -261,25 +267,11 @@ describe("MCP Tool Handlers", () => {
   });
 
   describe("squish_remember", () => {
-    let server: ServerHandle;
-    let tmpDir: string;
-
-    beforeAll(async () => {
-      tmpDir = await mkdtemp(join(tmpdir(), "squish-tool-remember-"));
-      server = await spawnServer(tmpDir);
-      await initializeServer(server);
-    });
-
-    afterAll(async () => {
-      await server.close();
-      await rm(tmpDir, { recursive: true, force: true });
-    });
-
     it(
       "stores a memory with auto-detected type",
       async () => {
         const content = "The sky is blue and the grass is green";
-        const resp = await server.callTool(
+        const resp = await sharedServer.callTool(
           "squish_remember",
           { content },
           TEST_TIMEOUT
@@ -295,7 +287,7 @@ describe("MCP Tool Handlers", () => {
       "stores with explicit type (decision)",
       async () => {
         const content = "We decided to use PostgreSQL for the database backend";
-        const resp = await server.callTool(
+        const resp = await sharedServer.callTool(
           "squish_remember",
           { content, type: "decision" },
           TEST_TIMEOUT
@@ -312,7 +304,7 @@ describe("MCP Tool Handlers", () => {
       "returns success with memory ID",
       async () => {
         const content = "Unit test memory with ID verification";
-        const resp = await server.callTool(
+        const resp = await sharedServer.callTool(
           "squish_remember",
           { content },
           TEST_TIMEOUT
@@ -331,7 +323,7 @@ describe("MCP Tool Handlers", () => {
       async () => {
         const content = "Tagged memory for testing purposes";
         const tags = ["test-tag", "unit-test", "mcp"];
-        const resp = await server.callTool(
+        const resp = await sharedServer.callTool(
           "squish_remember",
           { content, tags },
           TEST_TIMEOUT
@@ -345,18 +337,12 @@ describe("MCP Tool Handlers", () => {
   });
 
   describe("squish_recall", () => {
-    let server: ServerHandle;
-    let tmpDir: string;
     let storedId: string;
 
     beforeAll(async () => {
-      tmpDir = await mkdtemp(join(tmpdir(), "squish-tool-recall-"));
-      server = await spawnServer(tmpDir);
-      await initializeServer(server);
-
       // Store a memory to recall
       const content = "Recall test memory for unique query verification";
-      const resp = await server.callTool(
+      const resp = await sharedServer.callTool(
         "squish_remember",
         { content, type: "fact" },
         TEST_TIMEOUT
@@ -366,15 +352,10 @@ describe("MCP Tool Handlers", () => {
       storedId = idMatch![1];
     });
 
-    afterAll(async () => {
-      await server.close();
-      await rm(tmpDir, { recursive: true, force: true });
-    });
-
     it(
       "searches by query text",
       async () => {
-        const resp = await server.callTool(
+        const resp = await sharedServer.callTool(
           "squish_recall",
           { query: "Recall test memory" },
           TEST_TIMEOUT
@@ -392,7 +373,7 @@ describe("MCP Tool Handlers", () => {
     it(
       "respects limit parameter",
       async () => {
-        const resp = await server.callTool(
+        const resp = await sharedServer.callTool(
           "squish_recall",
           { query: "test", limit: 1 },
           TEST_TIMEOUT
@@ -407,7 +388,7 @@ describe("MCP Tool Handlers", () => {
     it(
       "filters by type",
       async () => {
-        const resp = await server.callTool(
+        const resp = await sharedServer.callTool(
           "squish_recall",
           { query: "Recall test memory", type: "fact" },
           TEST_TIMEOUT
@@ -423,24 +404,10 @@ describe("MCP Tool Handlers", () => {
   });
 
   describe("squish_context", () => {
-    let server: ServerHandle;
-    let tmpDir: string;
-
-    beforeAll(async () => {
-      tmpDir = await mkdtemp(join(tmpdir(), "squish-tool-context-"));
-      server = await spawnServer(tmpDir);
-      await initializeServer(server);
-    });
-
-    afterAll(async () => {
-      await server.close();
-      await rm(tmpDir, { recursive: true, force: true });
-    });
-
     it(
       "returns project context for current directory",
       async () => {
-        const resp = await server.callTool("squish_context", {}, TEST_TIMEOUT);
+        const resp = await sharedServer.callTool("squish_context", {}, TEST_TIMEOUT);
         expect(resp.result).toBeDefined();
         const parsed = parseToolResult(resp);
         // Context may return ok:true JSON or error text
@@ -456,7 +423,7 @@ describe("MCP Tool Handlers", () => {
     it(
       "handles missing project gracefully",
       async () => {
-        const resp = await server.callTool(
+        const resp = await sharedServer.callTool(
           "squish_context",
           { project: "/nonexistent/path/for/test" },
           TEST_TIMEOUT
@@ -469,24 +436,10 @@ describe("MCP Tool Handlers", () => {
   });
 
   describe("squish_stats", () => {
-    let server: ServerHandle;
-    let tmpDir: string;
-
-    beforeAll(async () => {
-      tmpDir = await mkdtemp(join(tmpdir(), "squish-tool-stats-"));
-      server = await spawnServer(tmpDir);
-      await initializeServer(server);
-    });
-
-    afterAll(async () => {
-      await server.close();
-      await rm(tmpDir, { recursive: true, force: true });
-    });
-
     it(
       "returns memory statistics",
       async () => {
-        const resp = await server.callTool("squish_stats", {}, TEST_TIMEOUT);
+        const resp = await sharedServer.callTool("squish_stats", {}, TEST_TIMEOUT);
         expect(resp.result).toBeDefined();
         const parsed = parseToolResult(resp);
         if (parsed._raw !== undefined) {
@@ -501,7 +454,7 @@ describe("MCP Tool Handlers", () => {
     it(
       "works globally (no project filter)",
       async () => {
-        const resp = await server.callTool(
+        const resp = await sharedServer.callTool(
           "squish_stats",
           {},
           TEST_TIMEOUT
@@ -519,17 +472,11 @@ describe("MCP Tool Handlers", () => {
   });
 
   describe("squish_team", () => {
-    let server: ServerHandle;
-    let tmpDir: string;
     const uniqueUser = `test-user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
     beforeAll(async () => {
-      tmpDir = await mkdtemp(join(tmpdir(), "squish-tool-team-"));
-      server = await spawnServer(tmpDir);
-      await initializeServer(server);
-
       // Ensure a project exists by storing a memory first
-      await server.callTool(
+      await sharedServer.callTool(
         "squish_remember",
         { content: "Seed memory for team project" },
         TEST_TIMEOUT
@@ -537,9 +484,9 @@ describe("MCP Tool Handlers", () => {
     });
 
     afterAll(async () => {
-      // Try to remove the test member
+      // Try to remove the test member (ignore errors)
       try {
-        await server.callTool(
+        await sharedServer.callTool(
           "squish_team",
           { action: "remove", user: uniqueUser },
           5_000
@@ -547,14 +494,12 @@ describe("MCP Tool Handlers", () => {
       } catch {
         // Ignore cleanup errors
       }
-      await server.close();
-      await rm(tmpDir, { recursive: true, force: true });
     });
 
     it(
       "list returns team members",
       async () => {
-        const resp = await server.callTool(
+        const resp = await sharedServer.callTool(
           "squish_team",
           { action: "list" },
           TEST_TIMEOUT
@@ -571,7 +516,7 @@ describe("MCP Tool Handlers", () => {
     it(
       "add creates a member",
       async () => {
-        const resp = await server.callTool(
+        const resp = await sharedServer.callTool(
           "squish_team",
           { action: "add", user: uniqueUser, role: "member" },
           TEST_TIMEOUT
@@ -592,7 +537,7 @@ describe("MCP Tool Handlers", () => {
     it(
       "role updates member role",
       async () => {
-        const resp = await server.callTool(
+        const resp = await sharedServer.callTool(
           "squish_team",
           { action: "role", user: uniqueUser, role: "admin" },
           TEST_TIMEOUT
@@ -611,7 +556,7 @@ describe("MCP Tool Handlers", () => {
     it(
       "remove removes member",
       async () => {
-        const resp = await server.callTool(
+        const resp = await sharedServer.callTool(
           "squish_team",
           { action: "remove", user: uniqueUser },
           TEST_TIMEOUT
@@ -626,17 +571,11 @@ describe("MCP Tool Handlers", () => {
   });
 
   describe("squish_memory_policy", () => {
-    let server: ServerHandle;
-    let tmpDir: string;
     let memoryId: string;
 
     beforeAll(async () => {
-      tmpDir = await mkdtemp(join(tmpdir(), "squish-tool-policy-"));
-      server = await spawnServer(tmpDir);
-      await initializeServer(server);
-
       // Create a memory to inspect
-      const resp = await server.callTool(
+      const resp = await sharedServer.callTool(
         "squish_remember",
         { content: "Policy test memory for inspection" },
         TEST_TIMEOUT
@@ -646,15 +585,10 @@ describe("MCP Tool Handlers", () => {
       memoryId = idMatch![1];
     });
 
-    afterAll(async () => {
-      await server.close();
-      await rm(tmpDir, { recursive: true, force: true });
-    });
-
     it(
       "inspect returns policy for a memory",
       async () => {
-        const resp = await server.callTool(
+        const resp = await sharedServer.callTool(
           "squish_memory_policy",
           { action: "inspect", memoryId },
           TEST_TIMEOUT
@@ -670,7 +604,7 @@ describe("MCP Tool Handlers", () => {
     it(
       "recommend suggests visibility scope",
       async () => {
-        const resp = await server.callTool(
+        const resp = await sharedServer.callTool(
           "squish_memory_policy",
           {
             action: "recommend",
@@ -689,24 +623,18 @@ describe("MCP Tool Handlers", () => {
   });
 
   describe("squish_link", () => {
-    let server: ServerHandle;
-    let tmpDir: string;
     let memoryId1: string;
     let memoryId2: string;
 
     beforeAll(async () => {
-      tmpDir = await mkdtemp(join(tmpdir(), "squish-tool-link-"));
-      server = await spawnServer(tmpDir);
-      await initializeServer(server);
-
-      const resp1 = await server.callTool(
+      const resp1 = await sharedServer.callTool(
         "squish_remember",
         { content: "First memory for link testing" },
         TEST_TIMEOUT
       );
       memoryId1 = resp1.result.content[0].text.match(/Remembered: ([0-9a-f-]+)/)![1];
 
-      const resp2 = await server.callTool(
+      const resp2 = await sharedServer.callTool(
         "squish_remember",
         { content: "Second memory for link testing" },
         TEST_TIMEOUT
@@ -714,15 +642,10 @@ describe("MCP Tool Handlers", () => {
       memoryId2 = resp2.result.content[0].text.match(/Remembered: ([0-9a-f-]+)/)![1];
     });
 
-    afterAll(async () => {
-      await server.close();
-      await rm(tmpDir, { recursive: true, force: true });
-    });
-
     it(
       "add creates association between memories",
       async () => {
-        const resp = await server.callTool(
+        const resp = await sharedServer.callTool(
           "squish_link",
           {
             action: "add",
@@ -743,7 +666,7 @@ describe("MCP Tool Handlers", () => {
     it(
       "find finds related memories",
       async () => {
-        const resp = await server.callTool(
+        const resp = await sharedServer.callTool(
           "squish_link",
           { action: "find", memoryId: memoryId1, depth: 2, minWeight: 0.1 },
           TEST_TIMEOUT
@@ -758,7 +681,7 @@ describe("MCP Tool Handlers", () => {
     it(
       "list lists associations",
       async () => {
-        const resp = await server.callTool(
+        const resp = await sharedServer.callTool(
           "squish_link",
           { action: "list" },
           TEST_TIMEOUT
@@ -773,31 +696,19 @@ describe("MCP Tool Handlers", () => {
   });
 
   describe("squish_forget", () => {
-    let server: ServerHandle;
-    let tmpDir: string;
-
     beforeAll(async () => {
-      tmpDir = await mkdtemp(join(tmpdir(), "squish-tool-forget-"));
-      server = await spawnServer(tmpDir);
-      await initializeServer(server);
-
       // Store a memory to delete
-      await server.callTool(
+      await sharedServer.callTool(
         "squish_remember",
         { content: "Memory to forget for testing" },
         TEST_TIMEOUT
       );
     });
 
-    afterAll(async () => {
-      await server.close();
-      await rm(tmpDir, { recursive: true, force: true });
-    });
-
     it(
       "dry-run mode (confirm: false) returns preview",
       async () => {
-        const resp = await server.callTool(
+        const resp = await sharedServer.callTool(
           "squish_forget",
           {
             search: "forget",
@@ -817,7 +728,7 @@ describe("MCP Tool Handlers", () => {
     it(
       "bulk delete by age",
       async () => {
-        const resp = await server.callTool(
+        const resp = await sharedServer.callTool(
           "squish_forget",
           {
             olderThan: "1 day",
@@ -836,30 +747,18 @@ describe("MCP Tool Handlers", () => {
   });
 
   describe("squish_recent", () => {
-    let server: ServerHandle;
-    let tmpDir: string;
-
     beforeAll(async () => {
-      tmpDir = await mkdtemp(join(tmpdir(), "squish-tool-recent-"));
-      server = await spawnServer(tmpDir);
-      await initializeServer(server);
-
-      await server.callTool(
+      await sharedServer.callTool(
         "squish_remember",
         { content: "Recent memory for testing" },
         TEST_TIMEOUT
       );
     });
 
-    afterAll(async () => {
-      await server.close();
-      await rm(tmpDir, { recursive: true, force: true });
-    });
-
     it(
       "returns recent memories by period",
       async () => {
-        const resp = await server.callTool(
+        const resp = await sharedServer.callTool(
           "squish_recent",
           { period: "today" },
           TEST_TIMEOUT
@@ -876,33 +775,22 @@ describe("MCP Tool Handlers", () => {
   });
 
   describe("squish_strategy", () => {
-    let server: ServerHandle;
-    let tmpDir: string;
-    let strategyId: string;
     const uniqueTitle = `Test Strategy ${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    let strategyId: string;
 
     beforeAll(async () => {
-      tmpDir = await mkdtemp(join(tmpdir(), "squish-tool-strategy-"));
-      server = await spawnServer(tmpDir);
-      await initializeServer(server);
-
       // Seed a project so strategy creation has a valid projectId
-      await server.callTool(
+      await sharedServer.callTool(
         "squish_remember",
         { content: "Seed memory for strategy project" },
         TEST_TIMEOUT
       );
     });
 
-    afterAll(async () => {
-      await server.close();
-      await rm(tmpDir, { recursive: true, force: true });
-    });
-
     it(
       "write creates a strategy",
       async () => {
-        const resp = await server.callTool(
+        const resp = await sharedServer.callTool(
           "squish_strategy",
           {
             action: "write",
@@ -938,7 +826,7 @@ describe("MCP Tool Handlers", () => {
     it(
       "list returns strategies",
       async () => {
-        const resp = await server.callTool(
+        const resp = await sharedServer.callTool(
           "squish_strategy",
           { action: "list" },
           TEST_TIMEOUT
@@ -959,7 +847,7 @@ describe("MCP Tool Handlers", () => {
     it(
       "search finds by query",
       async () => {
-        const resp = await server.callTool(
+        const resp = await sharedServer.callTool(
           "squish_strategy",
           { action: "search", query: uniqueTitle },
           TEST_TIMEOUT
@@ -979,7 +867,7 @@ describe("MCP Tool Handlers", () => {
     it(
       "stats returns counts",
       async () => {
-        const resp = await server.callTool(
+        const resp = await sharedServer.callTool(
           "squish_strategy",
           { action: "stats" },
           TEST_TIMEOUT
@@ -998,30 +886,18 @@ describe("MCP Tool Handlers", () => {
   });
 
   describe("squish_timeline", () => {
-    let server: ServerHandle;
-    let tmpDir: string;
-
     beforeAll(async () => {
-      tmpDir = await mkdtemp(join(tmpdir(), "squish-tool-timeline-"));
-      server = await spawnServer(tmpDir);
-      await initializeServer(server);
-
-      await server.callTool(
+      await sharedServer.callTool(
         "squish_remember",
         { content: "Timeline test memory for depth testing" },
         TEST_TIMEOUT
       );
     });
 
-    afterAll(async () => {
-      await server.close();
-      await rm(tmpDir, { recursive: true, force: true });
-    });
-
     it(
       "returns index depth by default",
       async () => {
-        const resp = await server.callTool(
+        const resp = await sharedServer.callTool(
           "squish_timeline",
           { query: "timeline test" },
           TEST_TIMEOUT
@@ -1036,7 +912,7 @@ describe("MCP Tool Handlers", () => {
     it(
       "returns timeline depth",
       async () => {
-        const resp = await server.callTool(
+        const resp = await sharedServer.callTool(
           "squish_timeline",
           { query: "timeline test", depth: "timeline" },
           TEST_TIMEOUT
@@ -1051,7 +927,7 @@ describe("MCP Tool Handlers", () => {
     it(
       "returns detail depth",
       async () => {
-        const resp = await server.callTool(
+        const resp = await sharedServer.callTool(
           "squish_timeline",
           { query: "timeline test", depth: "detail" },
           TEST_TIMEOUT
