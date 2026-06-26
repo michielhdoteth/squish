@@ -1165,6 +1165,56 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
     }
   )) toolCount++;
 
+  // squish_consolidate - Run background consolidation
+  if (safeRegisterTool(
+    server,
+    "squish_consolidate",
+    {
+      description: "Run background consolidation - dedup, summarize, invalidate stale memories",
+      inputSchema: {
+        projectId: z.string().optional().describe("Project path (auto-detected if not provided)"),
+        enabled: z.boolean().optional().describe("Enable/disable consolidation (default: true)"),
+        deduplicationThreshold: z.number().min(0).max(1).optional().describe("Cosine similarity threshold for dedup (default: 0.92)"),
+        stalenessDays: z.number().min(1).optional().describe("Days before memory is stale (default: 90)"),
+        maxConsolidationsPerRun: z.number().min(1).optional().describe("Max operations per run (default: 50)"),
+      }
+    },
+    async ({ projectId, enabled, deduplicationThreshold, stalenessDays, maxConsolidationsPerRun }: {
+      projectId?: string;
+      enabled?: boolean;
+      deduplicationThreshold?: number;
+      stalenessDays?: number;
+      maxConsolidationsPerRun?: number;
+    }) => {
+      const { runConsolidation } = await import('../../../core/memory/sleep-consolidation.js');
+      const resolvedProject = resolveProjectPath(projectId);
+      const proj = resolvedProject || 'default';
+
+      const config: Record<string, unknown> = {};
+      if (enabled !== undefined) config.enabled = enabled;
+      if (deduplicationThreshold !== undefined) config.deduplicationThreshold = deduplicationThreshold;
+      if (stalenessDays !== undefined) config.stalenessDays = stalenessDays;
+      if (maxConsolidationsPerRun !== undefined) config.maxConsolidationsPerRun = maxConsolidationsPerRun;
+
+      const result = await runConsolidation(proj, config);
+
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            ok: true,
+            project: proj,
+            deduplicated: result.deduplicated,
+            summarized: result.summarized,
+            invalidated: result.invalidated,
+            decayed: result.decayed,
+            errors: result.errors,
+          }, null, 2)
+        }]
+      };
+    }
+  )) toolCount++;
+
   console.error(`[MCP] Tool registration complete. Registered ${toolCount} tools.`);
 
   return { server, toolCount };
