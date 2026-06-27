@@ -1,12 +1,12 @@
 /**
- * Tests for Kuzu Graph Backend
+ * Tests for Graph Backend
  *
  * These tests verify the GraphBackend interface implementation
- * using both in-memory (default) and Kuzu backends.
+ * using the in-memory backend.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { GraphBackend, KuzuBackend, InMemoryGraphBackend } from '../../../core/graph/backend.js';
+import { GraphBackend, InMemoryGraphBackend } from '../../../core/graph/backend.js';
 import { GraphNode } from '../../../core/graph/backend.js';
 
 describe('InMemoryGraphBackend', () => {
@@ -131,72 +131,6 @@ describe('GraphBackend Interface', () => {
 
     for (const method of requiredMethods) {
       expect(typeof (mockBackend as any)[method]).toBe('function');
-    }
-  });
-});
-
-describe('KuzuBackend', () => {
-  // These tests only run if Kuzu is installed and we're not on Bun/Windows
-  const isBunWindows = typeof Bun !== 'undefined' && process.platform === 'win32';
-  const canRunKuzu = !isBunWindows;
-
-  it.skipIf(!canRunKuzu)('should handle missing Kuzu gracefully', async () => {
-    // Mock the import to simulate missing Kuzu
-    const originalRequire = globalThis.require;
-    try {
-      // Test that the backend can be instantiated
-      const testBackend = new KuzuBackend(':memory:');
-      expect(testBackend).toBeInstanceOf(KuzuBackend);
-    } finally {
-      globalThis.require = originalRequire;
-    }
-  });
-
-  it.skipIf(!canRunKuzu)('should connect to Kuzu database', async () => {
-    const backend = new KuzuBackend(':memory:'); // Use in-memory mode for testing
-    await backend.connect();
-
-    // If we get here, Kuzu is available
-    expect(backend).toBeDefined();
-
-    await backend.close();
-  });
-
-  it.skipIf(!canRunKuzu)('should create and query nodes in Kuzu', async () => {
-    const backend = new KuzuBackend(':memory:');
-    await backend.connect();
-
-    await backend.createNode('mem-1', {
-      type: 'memory',
-      content: 'Test memory',
-    });
-
-    const node = await backend.getNode('mem-1');
-    expect(node).not.toBeNull();
-    expect(node?.id).toBe('mem-1');
-
-    await backend.close();
-  });
-});
-
-describe('Graph Backend Factory', () => {
-  it('should create InMemory backend by default', () => {
-    const { createGraphBackend } = require('../../../core/graph/backend.js');
-    const backend = createGraphBackend('memory');
-    expect(backend).toBeInstanceOf(InMemoryGraphBackend);
-  });
-
-  it('should create Kuzu backend when specified', () => {
-    const { createGraphBackend } = require('../../../core/graph/backend.js');
-    try {
-      const backend = createGraphBackend('kuzu', ':memory:');
-      expect(backend).toBeInstanceOf(KuzuBackend);
-    } catch (e: any) {
-      if (e.message?.includes('Cannot find module')) {
-        console.warn('Kuzu not installed, skipping test');
-      } else {
-        throw e;
-      }
     }
   });
 });

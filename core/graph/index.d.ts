@@ -16,6 +16,6 @@ export { multiHopSearch, needsMultiHop, explainRetrievalPath } from './multi-hop
 export type { MultiHopResult, MultiHopSearchOptions } from './multi-hop-retrieval.js';
 export { buildGraphForProject, addMemoryToGraph, getGraphStats } from './graph-builder.js';
 export type { GraphBuildStats, GraphAddStats } from './graph-builder.js';
-export { InMemoryGraphBackend, KuzuBackend, createGraphBackend } from './backend.js';
+export { InMemoryGraphBackend } from './backend.js';
 export type { GraphBackend, BFSResult } from './backend.js';
 //# sourceMappingURL=index.d.ts.map

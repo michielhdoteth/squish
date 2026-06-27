@@ -622,12 +622,6 @@ function buildConfig() {
     get graphMaxContentLength() {
       return buildGraphConfig().maxContentLength;
     },
-    get graphBackend() {
-      return getEnum('graph.backend', 'SQUISH_GRAPH_BACKEND', ['memory', 'kuzu'] as const, 'memory');
-    },
-    get kuzuPath() {
-      return getString('graph.kuzuPath', 'SQUISH_KUZU_PATH', './squish.graph');
-    },
     get graph() {
       return buildGraphConfig();
     },

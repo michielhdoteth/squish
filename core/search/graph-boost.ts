@@ -11,14 +11,13 @@
  * - Recency bonus (1.5x today, 1.2x yesterday, 1.0x after)
  * - Boost capping at 3.0x to prevent dominance
  * - Proper error handling and logging
- * - Supports multiple graph backends (memory, kuzu)
+ * - Supports in-memory graph backend
  */
 
 import { getDbClient } from '../lib/db-client.js';
 import { logger } from '../logger.js';
 import { eq, and, or, inArray } from 'drizzle-orm';
-import { config } from '../../config.js';
-import { createGraphBackend, GraphBackend } from '../graph/backend.js';
+import { InMemoryGraphBackend, GraphBackend } from '../graph/backend.js';
 
 export interface GraphBoostParams {
   memoryId: string;
@@ -43,8 +42,7 @@ let graphBackendInstance: GraphBackend | null = null;
  */
 export async function getGraphBackend(): Promise<GraphBackend> {
   if (!graphBackendInstance) {
-    const backendType = config.graphBackend || 'memory';
-    graphBackendInstance = createGraphBackend(backendType, config.kuzuPath);
+    graphBackendInstance = new InMemoryGraphBackend();
     await graphBackendInstance.connect();
   }
   return graphBackendInstance;

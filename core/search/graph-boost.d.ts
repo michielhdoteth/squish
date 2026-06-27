@@ -11,7 +11,7 @@
  * - Recency bonus (1.5x today, 1.2x yesterday, 1.0x after)
  * - Boost capping at 3.0x to prevent dominance
  * - Proper error handling and logging
- * - Supports multiple graph backends (memory, kuzu)
+ * - Supports in-memory graph backend
  */
 import { GraphBackend } from '../graph/backend.js';
 export interface GraphBoostParams {

@@ -24,6 +24,5 @@ export { buildGraphForProject, addMemoryToGraph, getGraphStats } from './graph-b
 export type { GraphBuildStats, GraphAddStats } from './graph-builder.js';
 
 // Export graph backend abstraction
-// Note: GraphBackend is an interface (types only, erased at runtime)
-export { InMemoryGraphBackend, KuzuBackend, createGraphBackend } from './backend.js';
+export { InMemoryGraphBackend } from './backend.js';
 export type { GraphBackend, BFSResult } from './backend.js';
