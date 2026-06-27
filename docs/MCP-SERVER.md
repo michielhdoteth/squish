@@ -4,7 +4,7 @@ Universal memory layer for AI agents via Model Context Protocol (MCP).
 
 ## Features
 
-- **16 MCP Tools**: universal memory operations across recall, health, graph, recency, lifecycle, and maintenance flows
+- **18 MCP Tools**: universal memory operations across recall, health, graph, recency, lifecycle, and maintenance flows
 - **Local Embeddings**: TF-IDF based, 768-dim vectors
 - **QMD Integration**: Local markdown search with BM25 + vector
 - **Hybrid Search**: Semantic + recency + importance scoring
@@ -330,6 +330,46 @@ Trigger session end - performs cleanup and signals session completion.
 }
 ```
 
+### 17. `squish_strategy`
+
+Manage actionable strategies. Actions: read (before task), write (after task), list, search, supersede, stats.
+
+```json
+{
+  "name": "squish_strategy",
+  "arguments": {
+    "action": "read",
+    "tags": ["architecture"],
+    "type": "procedure",
+    "limit": 10
+  }
+}
+```
+
+Actions:
+- `read`: Get strategies before starting a task
+- `write`: Store a strategy after completing a task
+- `list`: List strategies with optional filters
+- `search`: Search strategies by query
+- `supersede`: Mark a strategy as superseded by another
+- `stats`: Get strategy statistics
+
+### 18. `squish_consolidate`
+
+Run background consolidation - dedup, summarize, invalidate stale memories.
+
+```json
+{
+  "name": "squish_consolidate",
+  "arguments": {
+    "enabled": true,
+    "deduplicationThreshold": 0.92,
+    "stalenessDays": 90,
+    "maxConsolidationsPerRun": 50
+  }
+}
+```
+
 ## Configuration
 
 ### Environment Variables
@@ -379,10 +419,11 @@ SQUISH_QMD_FALLBACK=hybrid          # Fallback mode: qmd-only|cloud-first|hybrid
 ┌───────────────────────────────────��─────────┐
 │         Squish MCP Server (port 8767)        │
 │  ┌──────────────────────────────────────┐ │
-│  │  16 Tools: remember, recall, timeline, forget,    │ │
+│  │  18 Tools: remember, recall, timeline, forget,    │ │
 │  │  link, context, health, stats, inspect, pin,      │ │
 │  │  recent, stale, list_pinned, on_session_start,    │ │
-│  │  on_tool_use, on_session_end                      │ │
+│  │  on_tool_use, on_session_end, strategy,           │ │
+│  │  consolidate                                      │ │
 │  └──────────────────────────────────────┘ │
 │  ┌──────────────────────────────────────┐ │
 │  │  Embeddings: Local, QMD, Multimodal  │ │

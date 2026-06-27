@@ -28,7 +28,7 @@ squish/
 ```
 📄 index.ts (644 lines)
 ├── MCP Server Setup (Model Context Protocol)
-├── Tool Definitions (16+ tools)
+├── Tool Definitions (18+ tools)
 ├── Request Routing & Error Handling
 └── Background Services (Web UI)
 ```
@@ -153,7 +153,7 @@ Result Ranking & Filtering
 Response Formatting
 ```
 
-## 🛠️ **MCP Tools (16 Total)**
+## 🛠️ **MCP Tools (18 Total)**
 
 ### **Memory Management**
 - `remember` - Store new memories
@@ -182,8 +182,10 @@ Response Formatting
 - `on_session_start` - Trigger session start and context injection
 - `on_session_end` - Trigger session end and cleanup
 
-### **System (1 tool)**
+### **System (3 tools)**
 - `health` - Service status checks
+- `strategy` - Manage actionable strategies (read, write, list, search, supersede)
+- `consolidate` - Run background consolidation (dedup, summarize, invalidate stale memories)
 
 ## 🔐 **Security & Privacy Components**
 

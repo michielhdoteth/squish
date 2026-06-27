@@ -25,6 +25,39 @@ Squish 1.5 made memory adaptive. Squish 1.6 makes agent history searchable.
 
 - **CLI `squish sessions status`** now shows status for all available agent stores (OpenCode, Claude Code, Codex)
 
+## [1.8.0] - 2026-06-20
+
+### Summary
+
+Removed team tools and Kuzu backend from open-source distribution. Local-only MCP surface now at 18 tools.
+
+### Removed
+
+- **Team tools removed from OSS**: `squish_team_create_workspace`, `squish_team_invite`, `squish_team_list_members`, `squish_team_delete_workspace` no longer included in open-source builds
+- **Kuzu backend removed**: Graph database dependency dropped; knowledge graph now uses SQLite-only adjacency lists
+
+### Changed
+
+- **MCP tool count**: 18 local-only tools (down from 22 with team tools)
+- **Documentation updated**: All references now reflect 18-tool surface
+
+## [1.7.0] - 2026-06-14
+
+### Summary
+
+MCP tool count updated to 18, mode switching improvements, team CLI commands added.
+
+### Added
+
+- **MCP tools**: `squish_strategy` (manage actionable strategies) and `squish_consolidate` (background dedup/summarize)
+- **Mode switching**: `squish mode` command to switch between local and cloud modes
+- **Team CLI commands**: `squish team create`, `squish team invite`, `squish team list`, `squish team leave`
+
+### Changed
+
+- **MCP tool count**: 18 tools (was 16)
+- **Documentation**: All tool count references updated across README, architecture docs, install guides
+
 ## [1.5.5] - 2026-06-01
 
 ### BREAKING
@@ -469,7 +502,7 @@ None - fully backward compatible with 0.9.x
 - Core Memory: 2KB always-visible 4-section memory
 - Context Paging: Token budgeting (8KB budget)
 - CLI fallback mode when MCP fails
-- 16 MCP tools for Claude Code integration
+- 18 MCP tools for Claude Code integration
 
 ### Technical
 - SQLite with FTS5 for local mode

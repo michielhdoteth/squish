@@ -378,7 +378,7 @@ Bring your own LLM if you want — Squish supports external embeddings and reaso
     </tr>
     <tr style="border-bottom: 1px solid #d0d7de; background-color: #f6f8fa;">
       <td style="padding: 10px 14px;">MCP tools</td>
-      <td style="padding: 10px 14px;">15</td>
+      <td style="padding: 10px 14px;">18</td>
       <td style="padding: 10px 14px;">0</td>
       <td style="padding: 10px 14px;">53</td>
       <td style="padding: 10px 14px;">9</td>
@@ -446,7 +446,7 @@ Bring your own LLM if you want — Squish supports external embeddings and reaso
 ### Interfaces
 
 - **CLI**: `squish remember`, `recall`, `inspect`, `context`, `stats`, `search`, `sessions`
-- **MCP Server**: 15 tools for any MCP client — recall, health, graph, recency, maintenance
+- **MCP Server**: 18 tools for any MCP client — recall, health, graph, recency, maintenance
 - **Web UI**: Local dashboard at `localhost:37777` for visualizing memories
 - **Cloud Dashboard**: Paid analytics and management at [squishplugin.dev](https://squishplugin.dev)
 
@@ -679,7 +679,7 @@ Full benchmark details: [docs/BENCHMARK.md](docs/BENCHMARK.md)
     </tr>
     <tr style="border-bottom: 1px solid #d0d7de; background-color: #f6f8fa;">
       <td style="padding: 10px 14px;"><a href="docs/MCP-SERVER.md">MCP Server</a></td>
-      <td style="padding: 10px 14px;">15 MCP tools and configuration</td>
+      <td style="padding: 10px 14px;">18 MCP tools and configuration</td>
     </tr>
     <tr style="border-bottom: 1px solid #d0d7de;">
       <td style="padding: 10px 14px;"><a href="docs/ARCHITECTURE.md">Architecture</a></td>

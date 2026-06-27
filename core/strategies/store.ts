@@ -12,6 +12,7 @@ import type {
 
 /**
  * Ensure strategy tables exist by checking and creating if needed.
+ * Follows the same pattern as runBeliefMigrations() in db/migrations/beliefs.ts.
  */
 async function ensureStrategyTables(): Promise<void> {
   const { raw } = await getDbClient();
@@ -21,10 +22,94 @@ async function ensureStrategyTables(): Promise<void> {
     const tableCheck = sqlite.prepare(
       "SELECT name FROM sqlite_master WHERE type='table' AND name='strategies'"
     ).get() as { name: string } | undefined;
+
     if (!tableCheck) {
-      // Tables should be created by bootstrap/migrations
-      logger.warn('Strategies table not found; assuming migrations will create it');
+      // Create strategies table for existing databases upgrading to strategies support
+      logger.info('Migration: Creating strategies tables for existing database');
+      try {
+        sqlite.exec(`
+          CREATE TABLE IF NOT EXISTS strategies (
+            id TEXT PRIMARY KEY,
+            project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+            user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+            agent_id TEXT,
+            strategy_type TEXT NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL,
+            context TEXT,
+            steps TEXT,
+            success_criteria TEXT,
+            failure_indicators TEXT,
+            confidence REAL DEFAULT 0.5,
+            usage_count INTEGER DEFAULT 0,
+            success_count INTEGER DEFAULT 0,
+            failure_count INTEGER DEFAULT 0,
+            last_used_at INTEGER,
+            last_success_at INTEGER,
+            last_failure_at INTEGER,
+            status TEXT DEFAULT 'active',
+            superseded_by TEXT,
+            tags TEXT,
+            metadata TEXT,
+            visibility_scope TEXT DEFAULT 'private',
+            created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL,
+            updated_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL
+          )
+        `);
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        logger.warn(`Migration: Could not create strategies table: ${msg}`);
+      }
     }
+
+    // Ensure strategy_edges table exists
+    const edgesCheck = sqlite.prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='strategy_edges'"
+    ).get() as { name: string } | undefined;
+
+    if (!edgesCheck) {
+      try {
+        sqlite.exec(`
+          CREATE TABLE IF NOT EXISTS strategy_edges (
+            id TEXT PRIMARY KEY,
+            from_strategy_id TEXT REFERENCES strategies(id) ON DELETE CASCADE,
+            to_strategy_id TEXT REFERENCES strategies(id) ON DELETE CASCADE,
+            edge_type TEXT NOT NULL,
+            metadata TEXT,
+            created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL,
+            UNIQUE(from_strategy_id, to_strategy_id, edge_type)
+          )
+        `);
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        logger.warn(`Migration: Could not create strategy_edges table: ${msg}`);
+      }
+    }
+
+    // Ensure strategy_belief_edges table exists
+    const beliefEdgesCheck = sqlite.prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='strategy_belief_edges'"
+    ).get() as { name: string } | undefined;
+
+    if (!beliefEdgesCheck) {
+      try {
+        sqlite.exec(`
+          CREATE TABLE IF NOT EXISTS strategy_belief_edges (
+            id TEXT PRIMARY KEY,
+            strategy_id TEXT REFERENCES strategies(id) ON DELETE CASCADE,
+            belief_id TEXT REFERENCES beliefs(id) ON DELETE CASCADE,
+            edge_type TEXT NOT NULL,
+            metadata TEXT,
+            created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL,
+            UNIQUE(strategy_id, belief_id, edge_type)
+          )
+        `);
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        logger.warn(`Migration: Could not create strategy_belief_edges table: ${msg}`);
+      }
+    }
+
     return;
   }
 

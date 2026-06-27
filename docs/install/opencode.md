@@ -39,12 +39,11 @@ Once installed, Squish provides:
 - Memory Runtime with hot/cold lifecycle and automatic decay
 
 ### Standard MCP Memory Tools
-- **memory_search**: Search memories using hybrid search
-- **memory_get**: Retrieve specific memory by ID
-- **memory_remember**: Store new memories
-- **memory_core**: Access always-visible core memory
-- **memory_context**: Get project-relevant memories
-- **memory_observe**: Record tool usage patterns and observations
+- **squish_recall**: Search memories using hybrid search, or retrieve a specific memory by ID
+- **squish_remember**: Store new memories (auto-detects type, supports upsert)
+- **squish_forget**: Delete memory by ID or bulk delete with filters
+- **squish_context**: Get project-relevant memories and context
+- **squish_on_tool_use**: Capture tool use events for memory
 
 ## Usage
 
