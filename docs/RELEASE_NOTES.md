@@ -1,5 +1,41 @@
 # Squish Release Notes
 
+## v1.9.0
+
+### Summary
+
+Advanced retrieval pipeline, sleep-time consolidation, and repo security hardening. 18-tool MCP surface unchanged.
+
+### Highlights
+
+#### Advanced Retrieval Pipeline
+- Query expansion, entity-aware reranking, contextual enrichment, MMR diversity
+- Cross-encoder reranking with tuned defaults (topK 100 -> 30 for interactive use)
+- Unified `hybridSearch` with per-stage latency tracking
+
+#### Sleep-Time Consolidation
+- `squish_consolidate` tool: background dedup, summarize, invalidate stale memories, decay
+- Strategies table auto-creates on first use
+
+#### Performance
+- Batch graph boost BFS, parallelized association loading, cached DB results
+- Query embedding cache avoids redundant API calls
+
+#### Security Cleanup
+- Removed internal PLAN.md (297-line implementation plan), test data salt, and launch readiness doc from git
+- Gitignore hardened: `.test-data*/`, `PLAN.md`, `plans/`, `wiki/`, `~/`
+
+### User-Facing Impact
+
+#### CLI
+- No new commands; 18-tool surface unchanged
+
+#### MCP
+- `squish_consolidate` — run background consolidation on demand
+- `squish_strategy` — manage actionable strategies (auto-creates table)
+
+---
+
 ## v1.6.0
 
 ### Summary

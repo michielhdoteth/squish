@@ -74,6 +74,20 @@ temp/
 *.db
 *.db-journal
 
+# Test data directories (never commit test artifacts)
+.test-data/
+.test-data-*/
+
+# Planning docs (internal only, do not commit)
+PLAN.md
+plans/
+
+# Wiki
+wiki/
+
+# Home directory artifacts
+~/
+
 # References and opencode directories
 references/
 opencode/
@@ -105,6 +119,6 @@ benchmark/
 benchmarks/
 
 # Release artifacts
-squish-v1.1.5-*.tar.gz
-squish-v1.1.5-*.zip
+squish-v*-*.tar.gz
+squish-v*-*.zip
 release-assets/

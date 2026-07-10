@@ -25,6 +25,41 @@ Squish 1.5 made memory adaptive. Squish 1.6 makes agent history searchable.
 
 - **CLI `squish sessions status`** now shows status for all available agent stores (OpenCode, Claude Code, Codex)
 
+## [1.9.0] - 2026-07-01
+
+### Summary
+
+Advanced retrieval pipeline, sleep-time consolidation, and repo security hardening. 18-tool MCP surface unchanged.
+
+### Added
+
+- **Advanced retrieval pipeline**: Query expansion, entity-aware reranking, contextual enrichment, MMR diversity, and cross-encoder reranking in a unified `hybridSearch` function
+- **Sleep-time consolidation** (`squish_consolidate`): Background dedup, summarize, invalidate stale memories, and run decay on a schedule
+- **Strategies table auto-creation**: Strategies layer schema created on first use if missing
+- **Agent store type definitions**: Full TypeScript types for `AgentSessionStore` interface and `SessionGroup`/`Chunk` shapes
+
+### Changed
+
+- **Retrieval pipeline refactored**: `core/memory/hybrid-search.ts` rewritten from 800+ lines to clean modular pipeline with per-stage latency tracking
+- **Cross-encoder defaults tuned**: Reduced `topK` from 100 to 30 for interactive use
+- **Graph boost optimized**: Batch BFS traversal, parallelized association loading, cached DB results
+- **Schema columns added**: `contextual_summary`, `entities`, `retrieval_priority`, `quality_score`, and `confidence` columns on memories table
+- **MCP tool count**: Remains at 18 local-only tools
+
+### Fixed
+
+- **Scheduler**: Handle step cron expressions like `*/6` in `getNextRunTime`
+- **Database bootstrap**: Added missing `maintenance_job_history` table
+- **Places system**: Fixed N+1 queries, duplicate functions, adjacency-aware walking
+- **Embeddings**: NaN guards, fixed swapped `rerankResults` args, dead import removal
+- **Test suite**: Removed vitest imports, fixed `spawnSync` hang, fixed env cleanup, removed `mock.module` pollution
+
+### Security
+
+- **Removed internal files from git**: `PLAN.md` (297-line implementation plan), `.test-data-db-client/salt` (cryptographic test artifact), `docs/superpowers/plans/2026-06-20-launch-readiness.md` (internal launch plan)
+- **Gitignore hardened**: Added rules for `.test-data*/`, `PLAN.md`, `plans/`, `wiki/`, `~/` directories
+- **Deleted `~/` artifact**: Removed misplaced home directory artifact from repo root
+
 ## [1.8.0] - 2026-06-20
 
 ### Summary

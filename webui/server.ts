@@ -14,7 +14,7 @@ import { validateLimit } from '../core/lib/validation.js';
 
 const app = express();
 const PORT = Number(process.env.SQUISH_WEB_PORT || 37777);
-const VERSION = '1.2.0';
+const VERSION = '1.9.0';
 
 const allowedOrigins = process.env.SQUISH_CORS_ORIGINS?.split(',').map(s => s.trim()) || ['http://localhost:*', 'http://127.0.0.1:*'];
 const appCors = cors({
@@ -361,7 +361,7 @@ app.get('/', (req, res) => {
 <span class="text-xs font-bold uppercase tracking-widest text-text-muted" id="server-status">Server: Online</span>
 </div>
 <div class="bg-card-bg px-3 py-1 rounded-full text-xs font-medium text-text-muted" id="server-version">
-v1.2.0
+v1.9.0
 </div>
 </div>
 </div>
@@ -531,7 +531,7 @@ v1.2.0
                     updateStatus(data.memories && data.observations ? 'ok' : 'error');
                     
                     // Update server status based on health
-                    updateServerStatus(true, data.version || '1.2.0', data.project?.name);
+                    updateServerStatus(true, data.version || '1.9.0', data.project?.name);
 
                     renderMemories(data.memories || []);
                     renderObservations(data.observations || []);
