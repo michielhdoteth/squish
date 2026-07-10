@@ -271,7 +271,7 @@ bun run bench
 1. **Update version**
    ```bash
    # In root package.json
-   "version": "1.6.0"
+   "version": "X.Y.Z"
    ```
 
 2. **Update CHANGELOG.md** with notable changes for this release
@@ -279,13 +279,13 @@ bun run bench
 3. **Create commit**
    ```bash
    git add .
-   git commit -m "chore: release v1.6.0"
+   git commit -m "chore: release vX.Y.Z"
    ```
 
 4. **Create git tag**
    ```bash
-   git tag v1.6.0
-   git push origin v1.6.0
+   git tag vX.Y.Z
+   git push origin vX.Y.Z
    ```
 
 5. **Automated Release**
