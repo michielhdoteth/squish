@@ -11,9 +11,11 @@
  * Download models automatically on first use. Models cached in HuggingFace cache directory.
  */
 
-import { pipeline, Pipeline } from '@huggingface/transformers';
+import { pipeline } from '@huggingface/transformers';
 import { logger } from '../logger.js';
 import { config } from '../../config.js';
+
+type Pipeline = Awaited<ReturnType<typeof pipeline>>;
 
 export interface TransformersLocalConfig {
   model: string;
@@ -106,8 +108,8 @@ export async function getEmbedding(text: string): Promise<number[] | null> {
   }
 
   try {
-    const pipeline = await getPipeline();
-    if (!pipeline) {
+    const embedPipeline = await getPipeline();
+    if (!embedPipeline) {
       return null;
     }
 
@@ -115,13 +117,13 @@ export async function getEmbedding(text: string): Promise<number[] | null> {
     const truncatedText = text.slice(0, 512);
 
     // Run feature extraction with pooling
-    const output = await pipeline(truncatedText, {
+    const output = await (embedPipeline as any)(truncatedText, {
       pooling: 'mean',
       normalize: true,
     });
 
     // Convert tensor to array
-    const embedding = Array.from(output.data);
+    const embedding = Array.from(output.data) as number[];
 
     return embedding;
   } catch (error) {
@@ -151,8 +153,8 @@ export async function getBatchEmbeddings(
     const indices = [...Array(batch.length).keys()].map(j => i + j);
 
     try {
-      const pipeline = await getPipeline();
-      if (!pipeline) {
+      const embedPipeline = await getPipeline();
+      if (!embedPipeline) {
         continue;
       }
 
@@ -162,7 +164,7 @@ export async function getBatchEmbeddings(
       // Process batch
       const outputs = await Promise.all(
         truncatedBatch.map(text =>
-          pipeline(text, { pooling: 'mean', normalize: true })
+          (embedPipeline as any)(text, { pooling: 'mean', normalize: true })
         )
       );
 

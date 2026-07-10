@@ -75,7 +75,7 @@ Respond in JSON:
       suggestedResolution: result.suggestedResolution,
     };
     */
-  } catch (e) {
+  } catch (e: any) {
     logger.warn('LLM contradiction detection failed, falling back to keyword', e);
     return detectContradictionKeyword(memory1, memory2);
   }

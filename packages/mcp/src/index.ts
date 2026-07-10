@@ -44,7 +44,7 @@ console.log = console.error;
 console.info = console.error;
 
 const SERVER_NAME = "squish-memory";
-const SERVER_VERSION = "1.8.0";
+const SERVER_VERSION = "1.9.0";
 
 // Create server instance ONCE (not per-session)
 const { server: SQUISH_SERVER, toolCount: SQUISH_TOOL_COUNT } = createSquishServer();
@@ -135,9 +135,9 @@ function schemaProbeErrorResult(probe: SchemaProbeResult) {
  * Resolve the effective project path for an MCP tool.
  * Priority: explicit project argument > auto-detected from env/cwd > null (global)
  */
-function resolveProjectPath(projectArg?: string): string | null | undefined {
+function resolveProjectPath(projectArg?: string): string | undefined {
   if (projectArg) return projectArg;
-  return detectProjectScope();
+  return detectProjectScope() ?? undefined;
 }
 
 function createSquishServer(): { server: McpServer; toolCount: number } {
@@ -693,7 +693,7 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
         }
       }
 
-      const results = await getRecent(proj, 100, {
+      const results = await getRecent(proj ?? '', 100, {
         userId: actorUser,
         agentId: actorAgent,
       });
@@ -720,7 +720,7 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
     async ({ days = 30, limit = 20, project, actorUser, actorAgent }: { days?: number; limit?: number; project?: string; actorUser?: string; actorAgent?: string }) => {
       const proj = resolveProjectPath(project); // auto-detect if undefined
       const cutoffDate = new Date(Date.now() - days * 86400000);
-      const results = await getRecent(proj, 500, {
+      const results = await getRecent(proj ?? '', 500, {
         userId: actorUser,
         agentId: actorAgent,
       });
@@ -775,7 +775,7 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
       const { handleSessionStart } = await import('../../../core/hooks/agent-hooks.js');
       const resolvedProjectPath = resolveProjectPath(projectPath);
       const result = await handleSessionStart({
-        projectPath: resolvedProjectPath,
+        projectPath: resolvedProjectPath ?? '',
         mode,
         agentType: 'opencode'
       });
@@ -802,19 +802,19 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
       }
     },
     async ({ toolName, toolInput, toolResult, projectPath }: { toolName: string; toolInput: Record<string, any>; toolResult?: any; projectPath?: string }) => {
-      const { handleToolUse } = await import('../../../core/hooks/agent-hooks.js');
+      const { handlePostToolUse } = await import('../../../core/hooks/agent-hooks.js');
       const resolvedProjectPath = resolveProjectPath(projectPath);
-      const result = await handleToolUse({
+      const result = await handlePostToolUse({
         toolName,
         toolInput,
         toolResult,
-        projectPath: resolvedProjectPath,
+        projectPath: resolvedProjectPath ?? '',
         agentType: 'opencode'
       });
       return {
         content: [{
           type: "text",
-          text: `Tool use captured: ${toolName}\nObservation stored: ${result.observationId}\nMemory ID: ${result.memoryId || 'N/A'}`
+          text: `Tool use captured: ${toolName}\nCaptured: ${result.captured}\nMemory ID: ${result.memoryId || 'N/A'}${result.reason ? '\nReason: ' + result.reason : ''}`
         }]
       };
     }
@@ -834,13 +834,13 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
       const { handleSessionEnd } = await import('../../../core/hooks/agent-hooks.js');
       const resolvedProjectPath = resolveProjectPath(projectPath);
       const result = await handleSessionEnd({
-        projectPath: resolvedProjectPath,
+        projectPath: resolvedProjectPath ?? '',
         agentType: 'opencode'
       });
       return {
         content: [{
           type: "text",
-          text: `Session ended: ${result.sessionId}\nConsolidated: ${result.consolidatedCount} memories\nCleaned up: ${result.cleanedUpCount} stale entries`
+          text: `Session ended\nSnapshot: ${result.snapshotId || 'none'}\nMemories saved: ${result.memoriesSaved}`
         }]
       };
     }

@@ -2,6 +2,7 @@
 export * from './storage/cache';
 export * from './context/context';
 export * from './storage/database';
+export * from './storage/index';
 export * from './embeddings';
 export * from './ingestion/learnings';
 export * from './security/privacy';

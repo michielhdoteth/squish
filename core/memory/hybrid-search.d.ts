@@ -1,10 +1,17 @@
 /**
- * Vector Search - Pure semantic search with optional graph boosting + multi-session support
+ * Hybrid Search Orchestrator
  *
- * Uses cosine similarity on embeddings + optional graph boost
- * BM25 removed - use qmd-client for BM25 + vectors + reranking
+ * Coordinates vector search, keyword search, scoring, and ranking.
+ * The individual components are in separate modules:
+ * - vector-search.ts: Vector similarity search
+ * - keyword-search.ts: FTS5 keyword search + RRF fusion
+ * - search-scoring.ts: All scoring/ranking/filtering helpers
  */
 import type { SearchResult, SearchInput } from './memories.js';
+export type { SearchResult } from './memories.js';
+export { keywordSearch, rrfFusion } from './keyword-search.js';
+export { vectorSearch, type SearchDbContext } from './vector-search.js';
+export { applyMultiPlaceScoring, applyTagOverlapBoost, applySessionBoost, applyTemporalBoost, applySupersessionFilter, applyGraphBoostWithWeight, expandWithAssociations, scoreWithHeuristics, getMemoryPlacesByType, getMemoriesByIndexedTags, getSupersededMemoryIds, } from './search-scoring.js';
 export interface HybridSearchOptions {
     limit?: number;
     project?: string;
@@ -20,18 +27,6 @@ export interface HybridSearchOptions {
  * Unified search integrating Places, Graph, and Memory
  */
 export declare function hybridSearch(input: SearchInput, options?: HybridSearchOptions): Promise<SearchResult[]>;
-/**
- * FTS5 keyword search using SQLite's built-in FTS5.
- * Squish already has memories_fts table - this connects it to hybrid search.
- * Provides keyword-based retrieval as a second signal alongside vector similarity.
- */
-export declare function keywordSearch(input: SearchInput, limit: number): Promise<SearchResult[]>;
-/**
- * Reciprocal Rank Fusion (RRF) for combining multiple search signals.
- * Fuses vector similarity results with FTS5 keyword results.
- * This is the industry standard approach (Mem0, TrueMemory, etc.).
- */
-export declare function rrfFusion(vectorResults: SearchResult[], keywordResults: SearchResult[], limit: number, k?: number): SearchResult[];
 /**
  * Optional LLM reranking of search results.
  * Uses LLM to score top results against the query.

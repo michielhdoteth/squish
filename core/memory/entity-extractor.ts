@@ -7,7 +7,7 @@
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
 import { eq, and } from 'drizzle-orm';
-import { logger } from '../../core/logger.js';
+import { logger } from '../logger.js';
 
 export type EntityType =
   | 'person'
@@ -60,6 +60,9 @@ const PATTERNS = {
 
   // ISO dates
   date: /\b(\d{4}-\d{2}-\d{2})(?:T\d{2}:\d{2}:\d{2})?\b/g,
+
+  // Quoted concepts (single or double quoted phrases)
+  quotedConcept: /(?:['"])([^'"]{3,})(?:['"])/g,
 };
 
 /**
@@ -72,7 +75,7 @@ export function extractEntityNames(content: string): string[] {
   const namePattern = /(?:^|[^.\w])\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b(?![^.\w])/g;
   let match;
   while ((match = namePattern.exec(content)) !== null) {
-    names.add(match[1].toLowerCase());
+    if (match[1]) names.add(match[1].toLowerCase());
   }
 
   // Extract capitalized concepts
@@ -114,6 +117,7 @@ export async function extractEntities(content: string): Promise<ExtractedEntity[
   const functionCalls = Array.from(content.matchAll(PATTERNS.functionCall));
   for (const match of functionCalls) {
     const name = match[1];
+    if (!name) continue;
     const key = `function:${name}`;
     if (!seenKeys.has(key) && name.length > 2) {
       entities.push({
@@ -132,6 +136,7 @@ export async function extractEntities(content: string): Promise<ExtractedEntity[
   const classNames = Array.from(content.matchAll(PATTERNS.className));
   for (const match of classNames) {
     const name = match[1];
+    if (!name) continue;
     const key = `class:${name}`;
     if (!seenKeys.has(key)) {
       entities.push({
@@ -222,6 +227,7 @@ export async function extractEntities(content: string): Promise<ExtractedEntity[
   const quotedConcepts = Array.from(content.matchAll(PATTERNS.quotedConcept));
   for (const match of quotedConcepts) {
     const name = match[1];
+    if (!name) continue;
     const key = `concept:${name}`;
     if (!seenKeys.has(key) && name.length > 2) {
       entities.push({

@@ -8,7 +8,7 @@
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
 import { eq } from 'drizzle-orm';
-import { logger } from '../../core/logger.js';
+import { logger } from '../logger.js';
 
 export interface BridgePath {
   route: string[]; // Memory IDs in path

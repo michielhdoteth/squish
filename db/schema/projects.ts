@@ -1,4 +1,4 @@
-import type { TableSchema } from '../generator.js';
+import type { TableSchema } from './generator.js';
 
 export const projectsSchema: TableSchema = {
   name: 'projects',

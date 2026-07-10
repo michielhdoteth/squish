@@ -56,8 +56,17 @@ opencode/
 
 # Squish runtime data
 .squish/
+.opencode/
+.test-data/
+.test-data-*/
 *.db
 *.db-journal
+
+# Internal planning / wiki
+PLAN.md
+plans/
+wiki/
+~/
 
 # Generated files during development
 generated/
@@ -66,7 +75,5 @@ nul
 NUL
 
 # Source maps - not needed for consumers (reduces package size by ~1.3MB)
-*.map
-dist/**/*.map
-*.d.ts.map
-dist/**/*.d.ts.map
+**/*.map
+**/*.d.ts.map

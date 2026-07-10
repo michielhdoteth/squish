@@ -363,6 +363,9 @@ export const entities = sqliteTable('entities', {
 
   embeddingJson: text('embedding_json'),
   properties: text('properties').$type<Record<string, unknown>>(),
+  mentionCount: integer('mention_count').default(0),
+  lastMentionedAt: integer('last_mentioned_at'),
+  aliases: text('aliases').$type<string[]>(),
 
   createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),

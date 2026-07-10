@@ -8,7 +8,7 @@ import { createAssociation } from '../../core/associations.js';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
 import { eq } from 'drizzle-orm';
-import { logger } from '../../core/logger.js';
+import { logger } from '../logger.js';
 
 export type TemporalExpressionType = 'absolute' | 'relative' | 'duration' | 'frequency';
 

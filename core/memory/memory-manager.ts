@@ -1,5 +1,5 @@
 import { config } from '../../config.js';
-import { logger } from '../../core/logger.js';
+import { logger } from '../logger.js';
 
 // Memory monitoring and optimization
 class MemoryManager {

@@ -67,20 +67,21 @@ export async function explainMemory(id: string): Promise<MemoryInspection | null
   const row = rows[0];
   if (!row) return null;
 
-  const metadata = deserializeMetadata(row.metadata ?? null) as Record<string, unknown> | null;
-  const rawClassification = metadata?.signal?.classification ?? metadata?.classification ?? null;
-  const classification = typeof rawClassification === 'string' && rawClassification.trim().length > 0
+  const metadata = deserializeMetadata(row.metadata ?? null) as Record<string, any> | null;
+  const signal = (metadata?.signal ?? {}) as Record<string, any>;
+  const rawClassification = signal.classification ?? metadata?.classification ?? null;
+  const classification: string = typeof rawClassification === 'string' && rawClassification.trim().length > 0
     ? rawClassification
     : 'legacy-durable';
-  const reasons = Array.isArray(metadata?.signal?.reasons)
-    ? (metadata?.signal?.reasons as string[])
+  const reasons: string[] = Array.isArray(signal.reasons)
+    ? (signal.reasons as string[])
     : Array.isArray(metadata?.reasons)
       ? (metadata?.reasons as string[])
       : ['This record predates signal tracking, so detailed ingestion metadata is unavailable.'];
   const rawFallbackSnapshotId = typeof metadata?.rawFallbackSnapshotId === 'string'
     ? metadata.rawFallbackSnapshotId
     : null;
-  const nuanceSuppressed = Boolean(metadata?.signal?.nuanceSuppressed ?? metadata?.nuanceSuppressed);
+  const nuanceSuppressed: boolean = Boolean(signal.nuanceSuppressed ?? metadata?.nuanceSuppressed);
   const graphStatus =
     typeof metadata?.graphStatus === 'string'
       ? metadata.graphStatus
@@ -88,7 +89,7 @@ export async function explainMemory(id: string): Promise<MemoryInspection | null
         ? JSON.stringify(metadata.graph)
         : 'Unavailable for this legacy record';
   const legacyMetadata = rawClassification == null;
-  const memoryPolicy = extractMemoryPolicy(metadata);
+  const memoryPolicy = extractMemoryPolicy(metadata) as Record<string, unknown> | null;
 
   const placeId = await getMemoryPlace(id);
   const place = placeId ? await getPlace(placeId) : null;

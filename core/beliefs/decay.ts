@@ -1,5 +1,5 @@
 import { getDbClient } from '../lib/db-client.js';
-import { logger } from './logger.js';
+import { logger } from '../logger.js';
 
 /**
  * Belief Decay Engine

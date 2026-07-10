@@ -234,6 +234,9 @@ CREATE TABLE IF NOT EXISTS entities (
   description TEXT,
   embedding_json TEXT,
   properties TEXT,
+  mention_count INTEGER DEFAULT 0,
+  last_mentioned_at INTEGER,
+  aliases TEXT,
   created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL,
   updated_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL
 );
@@ -808,6 +811,9 @@ const postgresStatements = [
     description TEXT,
     embedding vector(1536),
     properties JSONB,
+    mention_count INTEGER DEFAULT 0,
+    last_mentioned_at TIMESTAMPTZ,
+    aliases JSONB,
     created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
     updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
   );`,

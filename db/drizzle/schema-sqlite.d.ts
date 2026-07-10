@@ -1423,6 +1423,60 @@ export declare const entities: import("drizzle-orm/sqlite-core").SQLiteTableWith
             length: number | undefined;
             $type: Record<string, unknown>;
         }>;
+        mentionCount: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+            name: "mention_count";
+            tableName: "entities";
+            dataType: "number";
+            columnType: "SQLiteInteger";
+            data: number;
+            driverParam: number;
+            notNull: false;
+            hasDefault: true;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        lastMentionedAt: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+            name: "last_mentioned_at";
+            tableName: "entities";
+            dataType: "number";
+            columnType: "SQLiteInteger";
+            data: number;
+            driverParam: number;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        aliases: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+            name: "aliases";
+            tableName: "entities";
+            dataType: "string";
+            columnType: "SQLiteText";
+            data: string[];
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {
+            length: number | undefined;
+            $type: string[];
+        }>;
         createdAt: import("drizzle-orm/sqlite-core").SQLiteColumn<{
             name: "created_at";
             tableName: "entities";

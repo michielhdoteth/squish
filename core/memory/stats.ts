@@ -10,6 +10,7 @@ import { config } from '../../config.js';
 import { getProjectByPath } from '../../core/projects.js';
 import { createDatabaseClient } from '../storage/database.js';
 import { getProjectSignalStats } from '../session/working-set.js';
+import { logger } from '../logger.js';
 
 export interface MemoryStats {
   totalMemories: number;
@@ -172,10 +173,10 @@ export async function getMemoryStats(projectPath?: string): Promise<MemoryStats>
 
   } catch (error) {
     // Return empty stats on error
-    console.error('Error getting memory stats:', error);
+    logger.error('Error getting memory stats:', error);
   }
 
-  stats.signal = await getProjectSignalStats(projectPath);
+  stats.signal = await getProjectSignalStats(resolvedPath);
 
   return stats;
 }

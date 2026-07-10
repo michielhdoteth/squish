@@ -9,6 +9,7 @@ import { decrypt } from '../security/encrypt.js';
 import { normalizeMemory, type MemoryRecord } from './normalization.js';
 import { requireUuid } from '../lib/validation.js';
 import { withDatabaseErrorHandling } from '../lib/utils.js';
+import { logger } from '../logger.js';
 
 export interface LoadMemoryOptions {
   incrementAccess?: boolean;
@@ -54,8 +55,8 @@ export async function loadMemory(
   if (shouldDecrypt && row.is_encrypted) {
     try {
       content = decrypt(encryptedContent, encryptionNonce);
-    } catch (e) {
-      console.warn('Failed to decrypt memory', e);
+    } catch (e: any) {
+      logger.warn('Failed to decrypt memory', e);
       content = row.content; // fallback to stored content (encrypted)
     }
   }
@@ -134,8 +135,8 @@ export async function loadMemories(
     if (shouldDecrypt && row.is_encrypted) {
       try {
         content = decrypt(encryptedContent, encryptionNonce);
-      } catch (e) {
-        console.warn('Failed to decrypt memory', e);
+      } catch (e: any) {
+        logger.warn('Failed to decrypt memory', e);
         content = row.content;
       }
     }

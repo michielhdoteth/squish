@@ -4,7 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const SERVER_VERSION = "1.8.0";
+const SERVER_VERSION = "1.9.0";
 const SERVER_NAME = "squish-memory";
 const EXPECTED_TOOL_COUNT = 18;
 

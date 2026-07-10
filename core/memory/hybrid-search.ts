@@ -1,30 +1,26 @@
 /**
- * Vector Search - Pure semantic search with optional graph boosting + multi-session support
+ * Hybrid Search Orchestrator
  *
- * Uses cosine similarity on embeddings + optional graph boost
- * BM25 removed - use qmd-client for BM25 + vectors + reranking
+ * Coordinates vector search, keyword search, scoring, and ranking.
+ * The individual components are in separate modules:
+ * - vector-search.ts: Vector similarity search
+ * - keyword-search.ts: FTS5 keyword search + RRF fusion
+ * - search-scoring.ts: All scoring/ranking/filtering helpers
  */
 
 import type { SearchResult, SearchInput } from './memories.js';
+export type { SearchResult } from './memories.js';
 import { getDb } from '../../db/index.js';
 import { createDatabaseClient } from '../storage/database.js';
 import { getEmbedding } from '../../core/embeddings.js';
-import { requireProject } from '../../core/projects.js';
-import { deserializeTags, deserializeMetadata, normalizeTags } from './serialization.js';
-import { computeGraphBoost } from '../search/graph-boost.js';
-import { normalizeTimestamp } from '../lib/utils.js';
-import { parseEmbedding } from '../lib/parse-embedding.js';
-import { cosineSimilarity } from '../utils/vector-operations.js';
 import config from '../../config.js';
-import { getRelatedMemories } from '../associations.js';
 import { multiHopSearch } from '../graph/multi-hop-retrieval.js';
 import { callLLM } from '../llm/client.js';
 import { logger } from '../logger.js';
-import { getRetrievalConfig, type SquishRetrievalConfig, type RetrievalScoringConfig, type RetrievalTrace, type ScoreBreakdown } from '../retrieval/config.js';
+import { getRetrievalConfig, type SquishRetrievalConfig, type RetrievalScoringConfig, type RetrievalTrace } from '../retrieval/config.js';
 import { questionPlaceType } from '../places/question-router.js';
 import { getAdjacentPlaces as getQuestionAdjacentPlaces } from '../places/rules.js';
-import { getSchema } from '../../db/schema.js';
-import { eq, and, gte, inArray } from 'drizzle-orm';
+import { normalizeVisibilityScopes } from '../lib/utils.js';
 import type { VisibilityScope } from '../team/types.js';
 
 // Enhanced retrieval modules
@@ -36,6 +32,65 @@ import { smartMMR } from '../retrieval/mmr-diversity.js';
 import { expandQuery } from '../retrieval/query-expansion.js';
 import { extractQueryEntities, entityBoost } from '../retrieval/entity-aware-retrieval.js';
 import { detectTemporalReferences, isLikelyStale } from '../retrieval/temporal-validity.js';
+
+/**
+ * Merge results by ID, keeping the one with the highest similarity.
+ */
+function deduplicateById(results: SearchResult[]): SearchResult[] {
+  const seen = new Map<string, SearchResult>();
+  for (const r of results) {
+    const existing = seen.get(r.id);
+    if (!existing || (r.similarity ?? 0) > (existing.similarity ?? 0)) {
+      seen.set(r.id, r);
+    }
+  }
+  return Array.from(seen.values());
+}
+
+// Graph boost
+import { computeGraphBoost } from '../search/graph-boost.js';
+
+// Imports from split modules
+import { vectorSearch, type SearchDbContext } from './vector-search.js';
+import { keywordSearch, rrfFusion } from './keyword-search.js';
+import {
+  applyMultiPlaceScoring,
+  applyTagOverlapBoost,
+  applySessionBoost,
+  applyTemporalBoost,
+  applySupersessionFilter,
+  applyGraphBoostWithWeight,
+  expandWithAssociations,
+  scoreWithHeuristics,
+} from './search-scoring.js';
+
+// Re-export from sub-modules for backward compatibility
+export { keywordSearch, rrfFusion } from './keyword-search.js';
+export { vectorSearch, type SearchDbContext } from './vector-search.js';
+export {
+  applyMultiPlaceScoring,
+  applyTagOverlapBoost,
+  applySessionBoost,
+  applyTemporalBoost,
+  applySupersessionFilter,
+  applyGraphBoostWithWeight,
+  expandWithAssociations,
+  scoreWithHeuristics,
+  getMemoryPlacesByType,
+  getMemoriesByIndexedTags,
+  getSupersededMemoryIds,
+} from './search-scoring.js';
+
+export interface HybridSearchOptions {
+  limit?: number;
+  project?: string;
+  type?: string;
+  tags?: string[];
+  enableMultiSession?: boolean; // Enable multi-session expansion
+  enableGraphTraversal?: boolean; // Enable multi-hop graph traversal (Task 4)
+  enableHeuristics?: boolean;
+  includeAssociations?: boolean;
+}
 
 /**
  * Detect if query asks about time (temporal queries)
@@ -62,29 +117,6 @@ function isMultiSessionQuery(query: string): boolean {
   ];
   const lower = query.toLowerCase();
   return multiSessionIndicators.some(w => lower.includes(w));
-}
-
-function normalizeVisibilityScopes(
-  visibilityScope?: SearchInput['visibilityScope']
-): VisibilityScope[] | null {
-  if (!visibilityScope) return null;
-  return Array.isArray(visibilityScope) ? visibilityScope : [visibilityScope];
-}
-
-/**
- * Check if content contains date/time references
- */
-function hasDateReference(content: string): boolean {
-  const datePatterns = [
-    /\b\d{4}\b/,                    // Years: 2023, 2022
-    /\b\d{1,2}\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/i, // Month dates
-    /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+\d{1,2}\b/i,
-    /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/, // Dates: 5/7/2023
-    /\b(yesterday|today|tomorrow|last week|last month|last year)\b/i,
-    /\b(\d+)\s+(day|week|month|year)s?\s+(ago|before)\b/i,
-  ];
-  const lower = content.toLowerCase();
-  return datePatterns.some(p => p.test(content) || p.test(lower));
 }
 
 /**
@@ -140,295 +172,6 @@ function expandQueryForTemporal(query: string): string[] {
   }
 
   return [...new Set(expansions.filter(e => e.length > 2))];
-}
-
-export interface HybridSearchOptions {
-  limit?: number;
-  project?: string;
-  type?: string;
-  tags?: string[];
-  enableMultiSession?: boolean; // Enable multi-session expansion
-  enableGraphTraversal?: boolean; // Enable multi-hop graph traversal (Task 4)
-  enableHeuristics?: boolean;
-  includeAssociations?: boolean;
-}
-
-/**
- * Cached DB context for a single search operation.
- * Avoids redundant getDb()/createDatabaseClient() calls across
- * vectorSearch, keywordSearch, and helper functions.
- */
-interface SearchDbContext {
-  dbClient: ReturnType<typeof createDatabaseClient>;
-  /** Raw drizzle DB instance for direct query builder usage */
-  db: Awaited<ReturnType<typeof getDb>>;
-}
-
-/**
- * Score with recency + similarity + entity boost (NO LLM required)
- */
-function scoreWithHeuristics(
-  result: SearchResult,
-  query: string,
-  now: number
-): number {
-  let score = result.similarity ?? 0;
-
-  // 1. Recency boost: Recent = higher (up to +0.1)
-  if (result.createdAt) {
-    const created = new Date(result.createdAt).getTime();
-    const ageHours = (now - created) / (1000 * 60 * 60);
-    const recencyScore = Math.max(0, 0.1 * Math.exp(-ageHours / 720)); // Decay over 30 days
-    score += recencyScore;
-  }
-
-  // 2. Entity overlap: Query words appearing in content = boost
-  const queryWords = new Set(query.toLowerCase().split(/\s+/).filter(w => w.length > 3));
-  const contentWords = new Set((result.content ?? "").toLowerCase().split(/\s+/));
-  const overlap = [...queryWords].filter(w => contentWords.has(w)).length;
-  score += overlap * 0.02; // Small boost per matching word
-
-  return score;
-}
-
-/**
- * Query memory_places indexed table by placeType with weight threshold
- */
-async function getMemoryPlacesByType(
-  placeType: string,
-  minWeight: number,
-  limit: number,
-  ctx?: SearchDbContext
-): Promise<Array<{ memoryId: string; weight: number; isPrimary: boolean }>> {
-  const db = ctx?.db ?? await getDb();
-  if (!db) return [];
-  const schema = await getSchema();
-  const sqliteDb = db as any;
-
-  try {
-    const results = await sqliteDb.select({
-      memoryId: schema.memoryPlaces.memoryId,
-      weight: schema.memoryPlaces.weight,
-      isPrimary: schema.memoryPlaces.isPrimary,
-    })
-      .from(schema.memoryPlaces)
-      .where(and(
-        eq(schema.memoryPlaces.placeType, placeType),
-        gte(schema.memoryPlaces.weight, minWeight)
-      ))
-      .orderBy(schema.memoryPlaces.weight)
-      .limit(limit);
-
-    return results;
-  } catch (e) {
-    logger.debug(`[HybridSearch] getMemoryPlacesByType failed: ${e}`);
-    return [];
-  }
-}
-
-/**
- * Query memory_tags indexed table for tag overlap
- */
-async function getMemoriesByIndexedTags(
-  tags: string[],
-  limit: number,
-  ctx?: SearchDbContext
-): Promise<Array<{ memoryId: string; tag: string }>> {
-  if (tags.length === 0) return [];
-  const db = ctx?.db ?? await getDb();
-  if (!db) return [];
-  const schema = await getSchema();
-  const sqliteDb = db as any;
-
-  try {
-    const results = await sqliteDb.select({
-      memoryId: schema.memoryTags.memoryId,
-      tag: schema.memoryTags.tag,
-    })
-      .from(schema.memoryTags)
-      .where(inArray(schema.memoryTags.tag, tags))
-      .limit(limit * tags.length);
-
-    return results;
-  } catch (e) {
-    logger.debug(`[HybridSearch] getMemoriesByIndexedTags failed: ${e}`);
-    return [];
-  }
-}
-
-/**
- * Get IDs of superseded memories to filter from results
- */
-async function getSupersededMemoryIds(projectId?: string, ctx?: SearchDbContext): Promise<Set<string>> {
-  const db = ctx?.db ?? await getDb();
-  if (!db) return new Set();
-  const schema = await getSchema();
-  const sqliteDb = db as any;
-
-  try {
-    const conditions: any[] = [inArray(schema.memories.status, ['superseded', 'merged'])];
-    if (projectId) {
-      conditions.push(eq(schema.memories.projectId, projectId));
-    }
-
-    const results = await sqliteDb.select({ id: schema.memories.id })
-      .from(schema.memories)
-      .where(and(...conditions))
-      .limit(1000);
-
-    return new Set(results.map((r: any) => r.id));
-  } catch (e) {
-    logger.debug(`[HybridSearch] getSupersededMemoryIds failed: ${e}`);
-    return new Set();
-  }
-}
-
-/**
- * Apply place-aware scoring using indexed memory_places queries.
- * Replaces the old applyPlaceFilterAndBoost for v1.5.0.
- */
-async function applyMultiPlaceScoring(
-  results: SearchResult[],
-  input: SearchInput,
-  limit: number,
-  retrievalConfig: SquishRetrievalConfig,
-  ctx?: SearchDbContext
-): Promise<SearchResult[]> {
-  if (!input.project) return results;
-
-  try {
-    const project = await requireProject(input.project);
-
-    // Determine query place from question routing or explicit placeType
-    const queryPlace = input.placeType || questionPlaceType(input.query || '');
-
-    // Get memory IDs for the primary place via indexed query
-    const primaryMatches = await getMemoryPlacesByType(
-      queryPlace,
-      retrievalConfig.placeMinWeight,
-      limit * 3,
-      ctx
-    );
-    const primaryIds = new Set(primaryMatches.map(m => m.memoryId));
-    const primaryWeightMap = new Map(primaryMatches.map(m => [m.memoryId, m.weight]));
-
-    // Get adjacent places for fallback
-    const adjacentPlaces = getQuestionAdjacentPlaces(queryPlace as any);
-    const adjacentMatchesArrays = await Promise.all(
-      adjacentPlaces.map(p => getMemoryPlacesByType(p, retrievalConfig.placeMinWeight, limit * 2, ctx))
-    );
-    const adjacentIds = new Set(adjacentMatchesArrays.flat().map(m => m.memoryId));
-
-    // Apply place boost to results
-    const boosted = results.map(r => {
-      const isPrimary = primaryIds.has(r.id);
-      const isAdjacent = adjacentIds.has(r.id);
-      const primaryWeight = primaryWeightMap.get(r.id) ?? 0;
-
-      let placeBoost = 0;
-      if (isPrimary) {
-        placeBoost = retrievalConfig.scoring.placeBoost * Math.min(primaryWeight, 1.0);
-      } else if (isAdjacent) {
-        placeBoost = retrievalConfig.scoring.placeBoost * 0.5;
-      }
-
-      return {
-        ...r,
-        similarity: (r.similarity ?? 0) + placeBoost,
-      };
-    });
-
-    boosted.sort((a, b) => (b.similarity ?? 0) - (a.similarity ?? 0));
-    return boosted.slice(0, limit * 2);
-  } catch (e) {
-    logger.debug(`[HybridSearch] applyMultiPlaceScoring failed: ${e}`);
-    return results;
-  }
-}
-
-/**
- * Apply tag overlap boost using indexed memory_tags queries
- */
-async function applyTagOverlapBoost(
-  results: SearchResult[],
-  queryTags: string[],
-  scoring: RetrievalScoringConfig,
-  ctx?: SearchDbContext
-): Promise<SearchResult[]> {
-  if (!queryTags || queryTags.length === 0) return results;
-
-  // Normalize query tags for matching
-  const normalizedQueryTags = queryTags.map(t => t.toLowerCase().trim().replace(/\s+/g, '-'));
-
-  const tagMatches = await getMemoriesByIndexedTags(normalizedQueryTags, results.length * 5, ctx);
-
-  // Count overlapping tags per memory
-  const overlapCounts = new Map<string, number>();
-  for (const m of tagMatches) {
-    overlapCounts.set(m.memoryId, (overlapCounts.get(m.memoryId) ?? 0) + 1);
-  }
-
-  return results.map(r => ({
-    ...r,
-    similarity: (r.similarity ?? 0) +
-      Math.min((overlapCounts.get(r.id) ?? 0) * scoring.tagOverlapBoost, 0.30),
-  }));
-}
-
-/**
- * Filter or penalize superseded memories from results
- * When includeSuperseded=false: filter them out entirely
- * When includeSuperseded=true: include them but apply supersededPenalty
- */
-async function applySupersessionFilter(
-  results: SearchResult[],
-  projectId: string | undefined,
-  includeSuperseded: boolean,
-  retrievalConfig: SquishRetrievalConfig,
-  ctx?: SearchDbContext
-): Promise<{ filtered: SearchResult[]; supersededCount: number }> {
-  const supersededIds = await getSupersededMemoryIds(projectId, ctx);
-  if (supersededIds.size === 0) return { filtered: results, supersededCount: 0 };
-
-  let supersededCount = 0;
-
-  if (includeSuperseded) {
-    // When including superseded: apply supersededPenalty from scoring config
-    const filtered = results.map(r => {
-      if (supersededIds.has(r.id)) {
-        supersededCount++;
-        return {
-          ...r,
-          similarity: Math.max(0, (r.similarity ?? 0) - retrievalConfig.scoring.supersededPenalty),
-        };
-      }
-      return r;
-    });
-
-    // Re-sort after penalty
-    filtered.sort((a, b) => (b.similarity ?? 0) - (a.similarity ?? 0));
-
-    if (supersededCount > 0) {
-      logger.debug(`[HybridSearch] Applied supersededPenalty to ${supersededCount} memories (includeSuperseded=true)`);
-    }
-
-    return { filtered, supersededCount };
-  }
-
-  // Default: filter out superseded memories entirely
-  const filtered = results.filter(r => {
-    if (supersededIds.has(r.id)) {
-      supersededCount++;
-      return false;
-    }
-    return true;
-  });
-
-  if (supersededCount > 0) {
-    logger.debug(`[HybridSearch] Filtered ${supersededCount} superseded memories`);
-  }
-
-  return { filtered, supersededCount };
 }
 
 /**
@@ -513,14 +256,7 @@ export async function hybridSearch(
       allResults.push(...expResults);
     }
 
-    const byId = new Map<string, SearchResult>();
-    for (const r of allResults) {
-      const existing = byId.get(r.id);
-      if (!existing || (r.similarity ?? 0) > (existing.similarity ?? 0)) {
-        byId.set(r.id, r);
-      }
-    }
-    vectorResults = Array.from(byId.values());
+    vectorResults = deduplicateById(allResults);
   } else if (isTemporal) {
     // Temporal: fetch more results
     vectorResults = await vectorSearch(input, { ...options, limit: limit * 4 }, queryEmbedding, searchCtx);
@@ -540,14 +276,7 @@ export async function hybridSearch(
     }
     
     // Merge results, keeping highest similarity for each memory
-    const byId = new Map<string, SearchResult>();
-    for (const r of allResults) {
-      const existing = byId.get(r.id);
-      if (!existing || (r.similarity ?? 0) > (existing.similarity ?? 0)) {
-        byId.set(r.id, r);
-      }
-    }
-    vectorResults = Array.from(byId.values());
+    vectorResults = deduplicateById(allResults);
     vectorResults.sort((a, b) => (b.similarity ?? 0) - (a.similarity ?? 0));
   } else {
     // Regular query
@@ -641,7 +370,7 @@ export async function hybridSearch(
         const stale = isLikelyStale({
           content: r.content,
           createdAt: r.createdAt,
-          lastAccessedAt: r.lastAccessedAt as string | undefined,
+          lastAccessedAt: (r as any).lastAccessedAt as string | undefined,
         });
         
         if (stale) {
@@ -770,367 +499,6 @@ export async function hybridSearch(
 }
 
 /**
- * Task 3: Boost memories from the same session (temporal)
- */
-function applySessionBoost(
-  results: SearchResult[],
-  sessionId: string
-): SearchResult[] {
-  const SESSION_BOOST = 0.1;
-
-  const boosted = results.map(r => {
-    // Check if memory's session matches query's session
-    const memSession = r.metadata?.sessionMetadata?.sessionId as string | undefined;
-    if (memSession === sessionId) {
-      return {
-        ...r,
-        similarity: (r.similarity ?? 0) + SESSION_BOOST
-      };
-    }
-    return r;
-  });
-
-  // Re-sort with session boost
-  boosted.sort((a, b) => (b.similarity ?? 0) - (a.similarity ?? 0));
-
-  return boosted;
-}
-
-/**
- * TEMPORAL FIX: Boost memories that contain date references for "when" questions
- * Also boost by date RECENCY - closer to today = higher for temporal queries
- */
-function applyTemporalBoost(results: SearchResult[]): SearchResult[] {
-  const TEMPORAL_BOOST = 0.25; // Moderate boost for date-containing memories
-
-  const boosted = results.map(r => {
-    let boost = 0;
-
-    // Boost 1: Has date reference - high priority for temporal
-    if (hasDateReference(r.content ?? "")) {
-      boost += TEMPORAL_BOOST;
-    }
-
-    return {
-      ...r,
-      similarity: (r.similarity ?? 0) + boost
-    };
-  });
-
-  // Re-sort with temporal boost
-  boosted.sort((a, b) => (b.similarity ?? 0) - (a.similarity ?? 0));
-
-  return boosted;
-}
-
-/**
- * Expand results with directly associated memories
- */
-async function expandWithAssociations(
-  results: SearchResult[],
-  limit: number
-): Promise<SearchResult[]> {
-  const allIds = new Set(results.map(r => r.id));
-  const expanded: SearchResult[] = [...results];
-
-  // Parallel: fetch related memories for all top results at once
-  const topResults = results.slice(0, 3);
-  const relatedArrays = await Promise.all(
-    topResults.map(async (r) => {
-      try {
-        return await getRelatedMemories(r.id, 5);
-      } catch {
-        return [];
-      }
-    })
-  );
-
-  for (const related of relatedArrays) {
-    for (const rel of related) {
-      if (!allIds.has(rel.id)) {
-        allIds.add(rel.id);
-        expanded.push({
-          ...rel,
-          similarity: (rel.similarity ?? 0) * 0.8 // Slightly lower weight
-        });
-      }
-    }
-  }
-
-  // Re-sort and return top results
-  expanded.sort((a, b) => (b.similarity ?? 0) - (a.similarity ?? 0));
-  return expanded.slice(0, limit);
-}
-
-/**
- * FTS5 keyword search using SQLite's built-in FTS5.
- * Squish already has memories_fts table - this connects it to hybrid search.
- * Provides keyword-based retrieval as a second signal alongside vector similarity.
- */
-export async function keywordSearch(
-  input: SearchInput,
-  limit: number,
-  ctx?: SearchDbContext
-): Promise<SearchResult[]> {
-  try {
-    const dbClient = ctx?.dbClient ?? createDatabaseClient(await getDb());
-    const sqlite = dbClient.$client as any;
-
-    // Sanitize query for FTS5: remove special chars, keep meaningful words
-    const ftsQuery = (input.query || '')
-      .replace(/[^\w\s]/g, ' ')
-      .split(/\s+/)
-      .filter(w => w.length > 2)
-      .map(w => `"${w}"`)
-      .join(' OR ');
-
-    if (!ftsQuery) return [];
-
-    const conditions: string[] = ['memories_fts MATCH ?'];
-    const params: any[] = [ftsQuery];
-
-    if (input.project) {
-      const project = await requireProject(input.project);
-      conditions.push('m.project_id = ?');
-      params.push(project.id);
-    }
-
-    if (input.type) {
-      conditions.push('m.type = ?');
-      params.push(input.type);
-    }
-
-    const whereClause = 'WHERE ' + conditions.join(' AND ');
-
-    const query = `
-      SELECT
-        m.id as id,
-        m.project_id as projectId,
-        m.type as type,
-        m.content as content,
-        m.summary as summary,
-        m.tags as tags,
-        m.metadata as metadata,
-        m.created_at as createdAt,
-        rank as similarity
-      FROM memories_fts
-      JOIN memories m ON memories_fts.rowid = m.rowid
-      ${whereClause}
-      ORDER BY rank
-      LIMIT ?
-    `;
-
-    const rows = sqlite.prepare(query).all(...params, limit) as Array<{
-      id: string;
-      projectId: string | null;
-      type: string;
-      content: string;
-      summary: string | null;
-      tags: string | null;
-      metadata: string | null;
-      createdAt: string | null;
-      similarity: number;
-    }>;
-
-    return rows.map(item => ({
-      id: item.id,
-      projectId: item.projectId,
-      type: item.type as any,
-      content: item.content,
-      summary: item.summary ?? undefined,
-      tags: deserializeTags(item.tags ?? null),
-      metadata: deserializeMetadata(item.metadata ?? null),
-      createdAt: item.createdAt ? (normalizeTimestamp(Number(item.createdAt)) ?? undefined) : undefined,
-      similarity: -item.similarity, // FTS5 rank is negative (lower = better), negate for consistency
-    }));
-  } catch (error: any) {
-    // FTS5 may fail if no content table or malformed query
-    logger.debug(`[FTS5] Keyword search failed: ${error.message}`);
-    return [];
-  }
-}
-
-/**
- * Reciprocal Rank Fusion (RRF) for combining multiple search signals.
- * Fuses vector similarity results with FTS5 keyword results.
- * This is the industry standard approach (Mem0, TrueMemory, etc.).
- */
-export function rrfFusion(
-  vectorResults: SearchResult[],
-  keywordResults: SearchResult[],
-  limit: number,
-  k: number = 60
-): SearchResult[] {
-  const scores = new Map<string, { result: SearchResult; score: number }>();
-
-  // Add vector results with RRF score
-  vectorResults.forEach((result, index) => {
-    const rank = index + 1;
-    const rrfScore = 1.0 / (k + rank);
-    scores.set(result.id, { result, score: rrfScore });
-  });
-
-  // Add keyword results with RRF score (fused)
-  keywordResults.forEach((result, index) => {
-    const rank = index + 1;
-    const rrfScore = 1.0 / (k + rank);
-    const existing = scores.get(result.id);
-    if (existing) {
-      existing.score += rrfScore;
-    } else {
-      scores.set(result.id, { result, score: rrfScore });
-    }
-  });
-
-  // Sort by fused RRF score descending
-  const fused = Array.from(scores.values())
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit);
-
-  // Normalize similarity to [0, 1] for consistency with existing pipeline
-  const maxScore = fused.length > 0 ? fused[0].score : 1;
-  return fused.map(item => ({
-    ...item.result,
-    similarity: maxScore > 0 ? item.score / maxScore : 0,
-  }));
-}
-async function vectorSearch(
-  input: SearchInput,
-  options: HybridSearchOptions,
-  precomputedEmbedding?: number[] | null,
-  ctx?: SearchDbContext
-): Promise<SearchResult[]> {
-  try {
-    const dbClient = ctx?.dbClient ?? createDatabaseClient(await getDb());
-    const sqlite = dbClient.$client as any;
-    const limit = options.limit ?? 10;
-    const tags = normalizeTags(options.tags ?? input.tags);
-
-    // Check for empty query
-    const isEmptyQuery = !input.query || input.query.trim() === '';
-
-    // Use pre-computed embedding if provided, otherwise compute it
-    let queryEmbedding: number[] | null = null;
-    if (precomputedEmbedding !== undefined) {
-      queryEmbedding = precomputedEmbedding;
-    } else if (!isEmptyQuery) {
-      queryEmbedding = await getEmbedding(input.query);
-    }
-
-    // Build WHERE conditions
-    const conditions: string[] = [];
-    const params: any[] = [];
-
-    if (input.type) {
-      conditions.push('m.type = ?');
-      params.push(input.type);
-    }
-
-    if (tags.length) {
-      conditions.push('(' + tags.map(() => 'm.tags LIKE ?').join(' OR ') + ')');
-      params.push(...tags.map((tag) => `%${tag}%`));
-    }
-
-    let projectId: string | null = null;
-    if (input.project) {
-      const project = await requireProject(input.project);
-      projectId = project.id;
-      conditions.push('m.project_id = ?');
-      params.push(project.id);
-    }
-
-    const whereClause = conditions.length > 0
-      ? 'WHERE ' + conditions.join(' AND ')
-      : '';
-
-    // Fetch candidates for vector search
-    const statement = sqlite.prepare(`
-      SELECT
-        m.id as id,
-        m.project_id as projectId,
-        m.type as type,
-        m.content as content,
-        m.summary as summary,
-        m.tags as tags,
-        m.metadata as metadata,
-        m.embedding as embedding,
-        m.embedding_json as embeddingJson,
-        m.created_at as createdAt
-      FROM memories m
-      ${whereClause}
-      ORDER BY m.created_at DESC
-      LIMIT ?
-    `);
-
-    const rows = statement.all(...params, limit * 3) as Array<{
-      id: string;
-      projectId: string | null;
-      type: string;
-      content: string;
-      summary: string | null;
-      tags: string | null;
-      metadata: string | null;
-      embedding: any;
-      embeddingJson: any;
-      createdAt: string | null;
-    }>;
-
-    // If no embedding available, return results ordered by recency
-    if (!queryEmbedding) {
-      return rows.slice(0, limit * 2).map((item) => ({
-        id: item.id,
-        projectId: item.projectId,
-        type: item.type as any,
-        content: item.content,
-        summary: item.summary ?? undefined,
-        tags: deserializeTags(item.tags ?? null),
-        metadata: deserializeMetadata(item.metadata ?? null),
-        createdAt: item.createdAt ? (normalizeTimestamp(Number(item.createdAt)) ?? undefined) : undefined,
-        similarity: 0,
-      }));
-    }
-
-    // Calculate cosine similarity for each result
-    const scored = rows
-      .map((row) => {
-        const embedding = parseEmbedding(row.embedding) ?? parseEmbedding(row.embeddingJson);
-        if (!embedding) return null;
-
-        const similarity = cosineSimilarity(queryEmbedding!, embedding);
-        return {
-          id: row.id,
-          projectId: row.projectId,
-          type: row.type,
-          content: row.content,
-          summary: row.summary,
-          tags: row.tags,
-          metadata: row.metadata,
-          createdAt: row.createdAt,
-          similarity,
-        };
-      })
-      .filter((item): item is NonNullable<typeof item> => item !== null);
-
-    // Sort by similarity (descending) and return
-    scored.sort((a, b) => b.similarity - a.similarity);
-
-    return scored.slice(0, limit * 2).map((item) => ({
-      id: item.id,
-      projectId: item.projectId,
-      type: item.type as any,
-      content: item.content,
-      summary: item.summary ?? undefined,
-      tags: deserializeTags(item.tags ?? null),
-      metadata: deserializeMetadata(item.metadata ?? null),
-      createdAt: item.createdAt ? (normalizeTimestamp(Number(item.createdAt)) ?? undefined) : undefined,
-      similarity: item.similarity,
-    }));
-  } catch (error: any) {
-    throw error;
-  }
-}
-
-/**
  * Optional LLM reranking of search results.
  * Uses LLM to score top results against the query.
  * Falls back silently on any error - never blocks search.
@@ -1185,29 +553,4 @@ Scores:`;
 
   const remaining = results.slice(TOP_K);
   return [...blended, ...remaining].slice(0, limit);
-}
-
-/**
- * Apply small graph boost to results
- * Graph boost is ADDITIVE (not dominating)
- */
-function applyGraphBoostWithWeight(
-  results: SearchResult[],
-  graphBoostMap: Record<string, number>,
-  limit: number,
-  graphWeight: number
-): SearchResult[] {
-  // Apply SMALL additive boost to each result
-  // graphWeight should be 0.1-0.3, not > 1
-  const boosted = results.map(result => {
-    const boost = graphBoostMap[result.id] ?? 0;
-    // Add small nudge, don't replace similarity
-    const boostedSimilarity = (result.similarity ?? 0) + (boost * graphWeight);
-    return { ...result, similarity: boostedSimilarity };
-  });
-
-  // Re-sort by boosted similarity
-  boosted.sort((a, b) => (b.similarity ?? 0) - (a.similarity ?? 0));
-
-  return boosted.slice(0, limit);
 }

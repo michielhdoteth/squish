@@ -409,15 +409,15 @@ async function processConversation(
         if (extracted.sourceType === 'belief' && extracted.sourceId) {
           try {
             await createStrategyBeliefEdge(strategy.id, extracted.sourceId, 'informed_by');
-          } catch (edgeError) {
+          } catch (edgeError: any) {
             logger.debug('[SelfIteration] Failed to create belief-strategy edge:', edgeError);
           }
         }
-      } catch (strategyCreateError) {
+      } catch (strategyCreateError: any) {
         logger.debug('[SelfIteration] Failed to create strategy:', strategyCreateError);
       }
     }
-  } catch (strategyError) {
+  } catch (strategyError: any) {
     logger.warn('[SelfIteration] Strategy extraction failed:', strategyError);
   }
 
@@ -503,7 +503,7 @@ const selfIterationHandler: JobHandler = async (
       if (deprecatedIds.length > 0) {
         logger.info(`[SelfIteration] Deprecated ${deprecatedIds.length} unused strategies`);
       }
-    } catch (decayError) {
+    } catch (decayError: any) {
       logger.debug('[SelfIteration] Strategy decay check failed:', decayError);
     }
 

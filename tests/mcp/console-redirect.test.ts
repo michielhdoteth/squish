@@ -172,7 +172,11 @@ describe("stdout contains only valid JSON-RPC messages", () => {
   });
 
   afterAll(async () => {
-    await rm(tmpDir, { recursive: true, force: true });
+    // Windows may hold a lock briefly after child exits — retry cleanup
+    for (let i = 0; i < 3; i++) {
+      try { await rm(tmpDir, { recursive: true, force: true }); return; } catch {}
+      await new Promise(r => setTimeout(r, 500));
+    }
   });
 
   it(

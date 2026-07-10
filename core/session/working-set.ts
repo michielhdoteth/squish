@@ -100,7 +100,7 @@ async function getOrCreateContextSession(sessionId: string, projectPath: string)
 
   const sqlite = (raw as any).$client;
   const id = randomUUID();
-  const metadata = serializeMetadata(EMPTY_WORKING_SET(sessionId, projectPath));
+  const metadata = serializeMetadata(EMPTY_WORKING_SET(sessionId, projectPath) as unknown as Record<string, unknown>);
   sqlite.prepare(`
     INSERT INTO context_sessions (
       id, session_id, project_id, metadata, token_budget, tokens_used, core_memory_tokens, loaded_memories_tokens, created_at, updated_at
@@ -193,7 +193,7 @@ export async function recordSessionSignal(input: {
   await db
     .update(schema.contextSessions)
     .set({
-      metadata: serializeMetadata(next),
+      metadata: serializeMetadata(next as unknown as Record<string, unknown>),
       updatedAt: new Date(),
     })
     .where(eq(schema.contextSessions.sessionId, input.sessionId));
@@ -242,7 +242,7 @@ export async function getProjectSignalStats(projectPath: string) {
     .from(schema.contextSessions)
     .where(eq(schema.contextSessions.projectId, project.id));
 
-  return rows.reduce((acc, row) => {
+  return rows.reduce((acc: any, row: any) => {
     const workingSet = normalizeSessionMetadata(deserializeMetadata(row.metadata ?? null), row.sessionId, projectPath);
     acc.captured += workingSet.signalStats.captured;
     acc.suppressed += workingSet.signalStats.suppressed;
@@ -264,7 +264,7 @@ export async function getLatestProjectWorkingSetSummary(projectPath: string): Pr
     .from(schema.contextSessions)
     .where(eq(schema.contextSessions.projectId, project.id));
 
-  const latest = rows.sort((a, b) => {
+  const latest = rows.sort((a: any, b: any) => {
     const left = new Date(a.updatedAt ?? a.createdAt ?? 0).getTime();
     const right = new Date(b.updatedAt ?? b.createdAt ?? 0).getTime();
     return right - left;

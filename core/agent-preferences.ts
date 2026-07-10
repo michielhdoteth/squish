@@ -49,7 +49,7 @@ export async function updateAgentPreference(
   if (!preference) return;
   
   try {
-    const db = getDb();
+    const db = await getDb();
     
     // Check if preference exists
     const existing = await db.query.agentPreferences?.findFirst(
@@ -106,7 +106,7 @@ export async function updateAgentPreference(
         });
       logger.info(`[AgentPrefs] Created preference: ${preference.key} = ${preference.value}`);
     }
-  } catch (error) {
+  } catch (error: any) {
     logger.warn(`[AgentPrefs] Failed to update preference:`, error);
   }
 }
@@ -116,13 +116,13 @@ export async function updateAgentPreference(
  */
 export async function getAgentPreferences(projectId: string): Promise<Array<{key: string; value: string}>> {
   try {
-    const db = getDb();
+    const db = await getDb();
     const results = await db.query.agentPreferences?.findMany({
       where: eq(db.schema.agentPreferences.projectId, projectId)
     }).catch(() => []);
     
     if (results && results.length > 0) {
-      return results.map(p => ({ key: p.key, value: p.value }));
+      return results.map((p: any) => ({ key: p.key, value: p.value }));
     }
     
     // Fallback for SQLite
@@ -133,7 +133,7 @@ export async function getAgentPreferences(projectId: string): Promise<Array<{key
     }
     
     return [];
-  } catch (error) {
+  } catch (error: any) {
     logger.warn(`[AgentPrefs] Failed to get preferences:`, error);
     return [];
   }

@@ -1,27 +1,17 @@
-# Squish - One command. Memory everywhere.
+# Squish - AI Memory System for Coding Agents
 
 [![npm version](https://img.shields.io/npm/v/squish-memory)](https://www.npmjs.com/package/squish-memory)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![GitHub stars](https://img.shields.io/github/stars/michielhdoteth/squish?style=social)](https://github.com/michielhdoteth/squish/stargazers)
+[![Downloads](https://img.shields.io/npm/dm/squish-memory)](https://www.npmjs.com/package/squish-memory)
 
-> Local-first memory runtime for Claude Code, Codex, ChatGPT, MCP workflows, and local agents.
->
-> Works locally for free. Squish Cloud is available for cross-device sync.
+> **Connect your sources. Click ingest. Your AI remembers everything.**
 
-**Squish gives agents stable orientation, durable memory, and searchable session history across runs.** Use it locally with no cloud dependency, or connect Squish Cloud for sync across machines.
+Squish is an AI memory system for coding agents. Local-first MCP runtime with connectors, knowledge graphs, and multi-tier deployment. Free locally, paid Cloud for sync and teams.
 
 ```bash
 npm i -g squish-memory && squish install --all
 ```
-
-Squish provides AI agent memory that persists between sessions, across agents, and across machines. It is a free local-first MCP server with built-in embeddings, a knowledge graph, and hybrid retrieval. Squish Cloud is the paid managed tier for sync, dashboard, and team features.
-
-Cloud pricing:
-
-- Local Free: $0
-- Cloud Solo: $9/mo
-- Cloud Pro: $29/mo
-- Founder Pass: $49-$99
 
 <p align="center">
   <img src="assets/demo/squish-demo.gif" width="780" alt="Squish Demo" />
@@ -525,6 +515,44 @@ Squish uses a 4-stage pipeline to process memories:
 
 ---
 
+## Connectors
+
+Squish connects to your existing tools and ingests context automatically:
+
+| Connector | What It Ingests |
+|-----------|----------------|
+| Google Drive | Documents, sheets, slides, and files |
+| GitHub | Issues, PRs, discussions, code context, and repo metadata |
+| Slack | Messages, threads, channel context, and decisions |
+| Notion | Pages, databases, docs, and wikis |
+
+Connectors are available on Cloud tiers. Install with:
+
+```bash
+squish connect google-drive
+squish connect github
+squish connect slack
+squish connect notion
+```
+
+---
+
+## Ingestion Pipeline
+
+Squish uses a 4-stage pipeline to process content from your connectors:
+
+1. **Chunk** -- Splits documents into meaningful segments
+2. **Embed** -- Generates TF-IDF or external embeddings (768-dimensional vectors)
+3. **Store** -- Persists to SQLite/PostgreSQL with graph relationships
+4. **Extract** -- Builds knowledge graph with entity resolution and relationship mapping
+
+Optional LLM-powered features (bring your own key):
+- Entity extraction and relationship mapping
+- Automatic memory organization and tagging
+- Summarization and consolidation
+
+---
+
 ## Squish Cloud
 
 Persistent memory across ChatGPT, Claude Desktop, Claude Code, and local agents. One account, synchronized everywhere.
@@ -542,53 +570,34 @@ Persistent memory across ChatGPT, Claude Desktop, Claude Code, and local agents.
     <tr style="background-color: #f6f8fa; border-bottom: 2px solid #d0d7de;">
       <th style="padding: 10px 14px; text-align: left;">Tier</th>
       <th style="padding: 10px 14px; text-align: left;">Price</th>
-      <th style="padding: 10px 14px; text-align: left;">Storage</th>
-      <th style="padding: 10px 14px; text-align: left;">Users</th>
       <th style="padding: 10px 14px; text-align: left;">Features</th>
     </tr>
   </thead>
   <tbody>
     <tr style="border-bottom: 1px solid #d0d7de;">
-      <td style="padding: 10px 14px;">Local</td>
-      <td style="padding: 10px 14px;">Free</td>
-      <td style="padding: 10px 14px;">Local SQLite</td>
-      <td style="padding: 10px 14px;">1</td>
-      <td style="padding: 10px 14px;">Full memory, CLI, MCP, Web UI</td>
+      <td style="padding: 10px 14px;"><strong>Local</strong></td>
+      <td style="padding: 10px 14px;">Free forever</td>
+      <td style="padding: 10px 14px;">SQLite, 15+ MCP tools, offline, knowledge graph, decay scoring</td>
     </tr>
     <tr style="border-bottom: 1px solid #d0d7de; background-color: #f6f8fa;">
-      <td style="padding: 10px 14px;">Cloud Solo</td>
+      <td style="padding: 10px 14px;"><strong>Cloud Solo</strong></td>
       <td style="padding: 10px 14px;">$9/mo</td>
-      <td style="padding: 10px 14px;">50 MB synced</td>
-      <td style="padding: 10px 14px;">1</td>
-      <td style="padding: 10px 14px;">Cloud sync, OAuth, dashboard</td>
+      <td style="padding: 10px 14px;">Everything in Local + cloud sync, 1 connector, 10K requests/mo</td>
     </tr>
     <tr style="border-bottom: 1px solid #d0d7de;">
-      <td style="padding: 10px 14px;">Cloud Pro</td>
+      <td style="padding: 10px 14px;"><strong>Cloud Pro</strong></td>
       <td style="padding: 10px 14px;">$29/mo</td>
-      <td style="padding: 10px 14px;">250 MB synced</td>
-      <td style="padding: 10px 14px;">1</td>
-      <td style="padding: 10px 14px;">Pro features, priority support</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de; background-color: #f6f8fa;">
-      <td style="padding: 10px 14px;">Team</td>
-      <td style="padding: 10px 14px;">$99/mo</td>
-      <td style="padding: 10px 14px;">1 GB shared</td>
-      <td style="padding: 10px 14px;">Up to 10</td>
-      <td style="padding: 10px 14px;">Shared workspaces, admin</td>
+      <td style="padding: 10px 14px;">Cross-tool sync, 3 connectors, 50K requests/mo, shared workspaces</td>
     </tr>
     <tr>
-      <td style="padding: 10px 14px;">Founder Pass</td>
-      <td style="padding: 10px 14px;">$99/yr</td>
-      <td style="padding: 10px 14px;">Pro features</td>
-      <td style="padding: 10px 14px;">1</td>
-      <td style="padding: 10px 14px;">Launch-only annual pricing</td>
+      <td style="padding: 10px 14px;"><strong>Cloud Team</strong></td>
+      <td style="padding: 10px 14px;">$99/mo</td>
+      <td style="padding: 10px 14px;">Unlimited seats, all connectors, 200K requests/mo, RBAC, audit logs</td>
     </tr>
   </tbody>
 </table>
 
-[Sign up at squishplugin.dev](https://squishplugin.dev) — 30 seconds, no credit card needed.
-
-> **Founder Pass** is a launch-only offer. $99/year instead of $348/year (Pro monthly).
+[Sign up at squishplugin.dev](https://squishplugin.dev) -- 30 seconds, no credit card needed.
 
 ---
 
@@ -762,13 +771,14 @@ See [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) for guidelines on how to contri
 
 ## License
 
-MIT — see [LICENSE](LICENSE) for details.
+MIT -- see [LICENSE](LICENSE) for details.
 
 ---
 
 <p align="center">
   <a href="https://squishplugin.dev">Website</a> &middot;
   <a href="https://squishplugin.dev">Cloud Dashboard</a> &middot;
-  <a href="docs/">Documentation</a> &middot;
-  <a href="https://api.squishplugin.dev/.well-known/oauth-authorization-server">OAuth Metadata</a>
+  <a href="https://docs.squishplugin.dev">Documentation</a> &middot;
+  <a href="https://github.com/michielhdoteth/squish">GitHub</a> &middot;
+  <a href="https://www.npmjs.com/package/squish-memory">npm</a>
 </p>

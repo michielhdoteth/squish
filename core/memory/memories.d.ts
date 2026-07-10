@@ -1,4 +1,5 @@
 import { MemoryRecord, MemoryType } from '../lib/types.js';
+export type { MemoryRecord, MemoryType };
 import type { VisibilityScope } from '../team/types.js';
 import type { TeamAccessContext } from '../team/types.js';
 export interface RememberInput {
@@ -49,6 +50,11 @@ export interface SearchResult extends MemoryRecord {
 }
 export declare function rememberMemory(input: RememberInput): Promise<MemoryRecord>;
 export declare function getMemory(id: string, incrementAccess?: boolean, actor?: TeamAccessContext): Promise<MemoryRecord | null>;
+/**
+ * Batch-fetch memories by IDs (fixes N+1 query in walking.ts)
+ * Returns memories in the same order as the input IDs, skipping any that are not found.
+ */
+export declare function getMemoriesByIds(ids: string[], incrementAccess?: boolean): Promise<MemoryRecord[]>;
 export declare function setConfidence(id: string, level: 'certain' | 'speculative' | 'outdated'): Promise<boolean>;
 export declare function getRecent(projectPath: string, limit: number, actor?: TeamAccessContext): Promise<MemoryRecord[]>;
 export declare function search(input: SearchInput): Promise<SearchResult[]>;

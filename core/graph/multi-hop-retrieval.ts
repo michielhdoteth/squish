@@ -14,7 +14,6 @@ import { extractEntityNames } from '../memory/entity-extractor.js';
 import { findEntitiesByName, findPaths, traverse, type GraphNode, type TraversalPath } from './graph-traversal.js';
 import { logger } from '../logger.js';
 import { config } from '../../config.js';
-import { extractEntityNames } from '../memory/entity-extractor.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 

@@ -11,6 +11,7 @@ export interface MemoryInspection {
     graphStatus?: string | null;
     content: string;
     legacyMetadata: boolean;
+    memoryPolicy?: Record<string, unknown> | null;
     beliefs?: StoredBelief[];
 }
 export declare function summarizeInspection(input: MemoryInspection): string;

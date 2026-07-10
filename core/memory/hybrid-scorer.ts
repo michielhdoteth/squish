@@ -1,6 +1,6 @@
 /** Hybrid Scorer - Multi-factor relevance scoring for memory ranking */
 
-import { logger } from '../../core/logger.js';
+import { logger } from '../logger.js';
 import { cosineSimilarity } from '../utils/vector-operations.js';
 
 export interface ScoredMemory {

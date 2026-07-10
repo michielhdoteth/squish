@@ -373,6 +373,9 @@ export const entities = pgTable('entities', {
   embedding: vector('embedding', { dimensions: 1536 }),
 
   properties: jsonb('properties').$type<Record<string, unknown>>(),
+  mentionCount: integer('mention_count').default(0),
+  lastMentionedAt: timestamp('last_mentioned_at'),
+  aliases: jsonb('aliases').$type<string[]>(),
 
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
@@ -444,6 +447,22 @@ export const memoryPlaces: any = pgTable('memory_places', {
 }, (table) => [
   index('memory_places_memory_idx').on(table.memoryId),
   index('memory_places_place_idx').on(table.placeId),
+]);
+
+/**
+ * Memory Tags (v1.5.0: Tag-aware retrieval)
+ */
+export const memoryTags: any = pgTable('memory_tags', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  memoryId: uuid('memory_id').references(() => memories.id, { onDelete: 'cascade' }).notNull(),
+  tag: text('tag').notNull(),
+  source: text('source').default('heuristic').notNull(),
+  confidence: real('confidence'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => [
+  index('memory_tags_tag_idx').on(table.tag),
+  index('memory_tags_memory_idx').on(table.memoryId),
+  index('memory_tags_tag_memory_idx').on(table.tag, table.memoryId),
 ]);
 
 /**

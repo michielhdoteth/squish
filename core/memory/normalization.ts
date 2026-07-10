@@ -6,6 +6,7 @@
 import { deserializeTags, deserializeMetadata } from './serialization.js';
 import { normalizeTimestamp } from '../lib/utils.js';
 import type { MemoryRecord } from '../lib/types.js';
+export type { MemoryRecord };
 
 export function normalizeMemory(row: any): MemoryRecord {
   const tags = deserializeTags(row.tags ?? null);

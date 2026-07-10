@@ -18,6 +18,7 @@ import { runIndexMigrations } from './indexes.js';
 import { runFtsMigrations } from './fts.js';
 import { runMaintenanceMigrations } from './maintenance.js';
 import { runBeliefMigrations } from './beliefs.js';
+import { runEntitiesMigrations } from './entities.js';
 
 /**
  * Run all v1.2.0 migrations in order
@@ -28,6 +29,7 @@ export async function runAllMigrations(sqlite: Database): Promise<void> {
   await runPlacesMigrations(sqlite);
   await runMemoriesMigrations(sqlite);
   await runLearningsMigrations(sqlite);
+  await runEntitiesMigrations(sqlite);
   await runCoreMemoryMigrations(sqlite);
   await runAssociationsMigrations(sqlite);
   await runMemoryPlacesMigrations(sqlite);
@@ -49,3 +51,4 @@ export { runIndexMigrations } from './indexes.js';
 export { runFtsMigrations } from './fts.js';
 export { runMaintenanceMigrations } from './maintenance.js';
 export { runBeliefMigrations } from './beliefs.js';
+export { runEntitiesMigrations } from './entities.js';

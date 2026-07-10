@@ -8,6 +8,7 @@
  * - Query expansion with synonyms (advanced retrieval)
  * - Entity-aware retrieval with boost scoring (advanced retrieval)
  * - Temporal validity tracking (advanced retrieval)
+ * - Query router for intent classification and strategy selection
  */
 
 export {
@@ -58,3 +59,15 @@ export {
   isLikelyStale,
   type TemporalConfig,
 } from './temporal-validity.js';
+
+export {
+  autoRoute,
+  classifyQuery,
+  getRoutingStats,
+  type QueryIntent,
+  type RetrievalStrategy,
+  type QueryClassification,
+  type AutoRouteOptions,
+  type RouteResult,
+  type RoutingStats,
+} from './query-router.js';

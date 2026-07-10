@@ -130,7 +130,7 @@ export async function handleSessionStart(params: {
   } catch {}
 
   const workingSetContext = compactedWorkingSet.summary ? `Session working set:\n${compactedWorkingSet.summary}\n\n` : '';
-  const allContent = workingSetContext + formatted + pinnedSection + placesContext;
+  let allContent = workingSetContext + formatted + pinnedSection + placesContext;
 
   // Get agent preferences for context injection
   let preferences: Array<{key: string; value: string}> = [];
@@ -143,8 +143,8 @@ export async function handleSessionStart(params: {
       // This is the "state reconstruction" - active beliefs shape next actions
       const [failures, constraints, decisions] = await Promise.all([
         getRecentFailures(project.id, 5),
-        getActiveConstraints(project.id, 10),
-        getActiveDecisions(project.id, 10),
+        getActiveConstraints(project.id),
+        getActiveDecisions(project.id),
       ]);
 
       // Format beliefs into context

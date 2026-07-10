@@ -14,5 +14,4 @@ export declare function detectQuestionType(query: string): QuestionType;
  * Map question type to primary place type
  */
 export declare function questionPlaceType(query: string): PlaceType;
-
 //# sourceMappingURL=question-router.d.ts.map

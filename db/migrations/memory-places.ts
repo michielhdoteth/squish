@@ -12,7 +12,7 @@ export async function runMemoryPlacesMigrations(sqlite: Database): Promise<void>
 
   if (!memoryPlacesTableCheck) return;
 
-  const memoryPlacesInfo = sqlite.prepare("PRAGMA table_info(memory_places)").all() as Array<{ name: string }>;
+  const memoryPlacesInfo = sqlite.prepare("PRAGMA table_info(memory_places)").all() as Array<{ name: string; notnull: number }>;
   const existingMemoryPlacesColumns = new Set(memoryPlacesInfo.map(col => col.name));
 
   // v1.5.0: Check if place_id is NOT NULL - if so, we need to recreate the table

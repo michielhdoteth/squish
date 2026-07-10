@@ -10,6 +10,7 @@
  *
  * Falls back to extractive summary if geometry is disabled.
  */
+import { type GACDecision } from '../clustering/gac-strategy.js';
 export interface ConsolidationOptions {
     projectId: string;
     minAge?: number;
@@ -17,6 +18,7 @@ export interface ConsolidationOptions {
     minClusterSize?: number;
     similarityThreshold?: number;
     limit?: number;
+    preConsolidationReduction?: boolean;
 }
 export interface ConsolidationResult {
     consolidatedMemoryId: string;
@@ -26,6 +28,8 @@ export interface ConsolidationResult {
     geometrySafe?: boolean;
     dBar?: number;
     dEff?: number;
+    gacStrategy?: string;
+    gacDecision?: GACDecision;
 }
 export interface ClusterResult {
     memories: any[];
@@ -36,6 +40,16 @@ export interface ClusterResult {
  * Main consolidation function - consolidates low-importance old memories
  */
 export declare function consolidateMemories(options: ConsolidationOptions): Promise<ConsolidationResult[]>;
+/**
+ * Pre-consolidation dimensionality reduction.
+ * Randomly reduces dimensions by 50% before clustering for efficiency.
+ * Safe per Takeshita et al. (EMNLP 2025) - 50% random removal retains 90%+ performance.
+ *
+ * @param vectors - Array of embedding vectors
+ * @param reductionRatio - Fraction of dimensions to remove (default 0.5)
+ * @returns Array of reduced-dimension vectors
+ */
+export declare function preConsolidationReduction(vectors: number[][], reductionRatio?: number): number[][];
 /**
  * Generate extractive summary from a cluster of memories
  * Uses text processing without requiring an LLM

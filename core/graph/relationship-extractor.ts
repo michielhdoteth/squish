@@ -127,7 +127,7 @@ export async function extractAndStoreRelations(
   const extraction = await extractEntitiesAndRelations(content, options);
 
   if (extraction.entities.length === 0 && extraction.relations.length === 0) {
-    return { entities: 0, relations: 0, source: extraction.source };
+    return { entities: 0, relations: 0, source: extraction.source === 'none' ? 'fallback' : extraction.source };
   }
 
   // Step 2: Store entities and get their IDs

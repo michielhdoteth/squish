@@ -23,6 +23,7 @@ import { registerPinCommand } from './commands/pin.js';
 import { registerSessionsCommand } from './commands/sessions.js';
 import { registerCloudCommand } from './commands/cloud.js';
 import { registerStatusCommand } from './commands/status.js';
+import { registerGraphCommand } from './commands/graph.js';
 
 export function createProgram(): Command {
   const program = new Command();
@@ -101,6 +102,7 @@ export function createProgram(): Command {
   registerSessionsCommand(program);
   registerCloudCommand(program);
   registerStatusCommand(program);
+  registerGraphCommand(program);
 
   return program;
 }

@@ -5,6 +5,7 @@
 import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 import { config } from '../../config.js';
 import { toSqliteJson } from '../memory/serialization.js';
+import type { VisibilityScope } from '../team/types.js';
 
 export function normalizeTimestamp(value: any): string | null {
   if (!value) return null;
@@ -148,4 +149,11 @@ export function filterByDateRange<T extends { createdAt?: string | null }>(
     if (untilDate && created > untilDate) return false;
     return true;
   });
+}
+
+export function normalizeVisibilityScopes(
+  visibilityScope?: VisibilityScope | VisibilityScope[] | null
+): string[] | null {
+  if (!visibilityScope) return null;
+  return Array.isArray(visibilityScope) ? visibilityScope : [visibilityScope];
 }

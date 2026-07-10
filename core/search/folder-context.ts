@@ -6,7 +6,7 @@
 import { promises as fs } from 'fs';
 import path from 'path';
 import { getRecentConversations } from './conversations.js';
-import { logger } from '../../core/logger.js';
+import { logger } from '../logger.js';
 
 interface FolderContextData {
   projectPath: string;

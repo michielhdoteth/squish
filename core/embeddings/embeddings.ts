@@ -3,7 +3,7 @@ import { getGoogleMultimodalEmbedding, isMultimodalInput, MultimodalInput } from
 import { logger } from '../logger.js';
 
 // Lazy-import transformers to avoid loading unless requested
-let transformersLocal: typeof import('./transformers-local.js') | null = null;
+let transformersLocal: Promise<typeof import('./transformers-local.js')> | null = null;
 async function getTransformersLocal() {
   if (!transformersLocal) {
     transformersLocal = import('./transformers-local.js');
@@ -183,12 +183,14 @@ export async function getEmbedding(input: string | MultimodalInput): Promise<num
          result = await getLmStudioEmbedding(textInput);
        } else if (provider === 'transformers') {
          requireModel('transformers', 'SQUISH_LOCAL_MODEL', config.transformersLocalModel);
-         try {
-           const mod = await getTransformersLocal();
-           result = await mod.getEmbedding(textInput);
-         } catch (error) {
-           logger.debug(`Transformers not available, falling back to TF-IDF: ${error}`);
-         }
+          try {
+            const mod = await getTransformersLocal();
+            if (mod) {
+              result = await mod.getEmbedding(textInput);
+            }
+          } catch (error) {
+            logger.debug(`Transformers not available, falling back to TF-IDF: ${error}`);
+          }
          // If transformers failed, use TF-IDF
          if (!result) {
            result = getLocalEmbedding(textInput);
@@ -210,14 +212,16 @@ export async function getEmbedding(input: string | MultimodalInput): Promise<num
            result = await getLmStudioEmbedding(textInput);
          }
          // Step 4: Try Transformers.js local
-         if (!result && config.transformersLocalModel) {
-           try {
-             const mod = await getTransformersLocal();
-             result = await mod.getEmbedding(textInput);
-           } catch {
-             // Transformers not available, continue to fallback
-           }
-         }
+          if (!result && config.transformersLocalModel) {
+            try {
+              const mod = await getTransformersLocal();
+              if (mod) {
+                result = await mod.getEmbedding(textInput);
+              }
+            } catch {
+              // Transformers not available, continue to fallback
+            }
+          }
          // Step 5: Fall back to TF-IDF (always works)
          if (!result) {
            result = getLocalEmbedding(textInput);
@@ -558,8 +562,10 @@ export async function checkEmbeddingProviderHealth(): Promise<Map<string, { avai
   const transformersHealth = async () => {
     try {
       const mod = await getTransformersLocal();
-      const health = await mod.checkHealth();
-      return health;
+      if (mod) {
+        return await mod.checkHealth();
+      }
+      return { available: false, error: 'Transformers module not loaded' };
     } catch (error) {
       return { available: false, error: (error as Error).message };
     }
@@ -574,13 +580,20 @@ export async function checkEmbeddingProviderHealth(): Promise<Map<string, { avai
   } else try {
     const start = Date.now();
     const mod = await getTransformersLocal();
-    const health = await mod.checkHealth();
-    const latency = Date.now() - start;
-    results.set('transformers', {
-      available: health.available,
-      latencyMs: latency,
-      error: health.error,
-    });
+    if (!mod) {
+      results.set('transformers', {
+        available: false,
+        error: 'Transformers module not loaded',
+      });
+    } else {
+      const health = await mod.checkHealth();
+      const latency = Date.now() - start;
+      results.set('transformers', {
+        available: health.available,
+        latencyMs: latency,
+        error: health.error,
+      });
+    }
   } catch (error) {
     results.set('transformers', {
       available: false,

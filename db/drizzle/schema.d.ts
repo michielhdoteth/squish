@@ -1567,6 +1567,59 @@ export declare const entities: import("drizzle-orm/pg-core").PgTableWithColumns<
         }, {}, {
             $type: Record<string, unknown>;
         }>;
+        mentionCount: import("drizzle-orm/pg-core").PgColumn<{
+            name: "mention_count";
+            tableName: "entities";
+            dataType: "number";
+            columnType: "PgInteger";
+            data: number;
+            driverParam: string | number;
+            notNull: false;
+            hasDefault: true;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        lastMentionedAt: import("drizzle-orm/pg-core").PgColumn<{
+            name: "last_mentioned_at";
+            tableName: "entities";
+            dataType: "date";
+            columnType: "PgTimestamp";
+            data: Date;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        aliases: import("drizzle-orm/pg-core").PgColumn<{
+            name: "aliases";
+            tableName: "entities";
+            dataType: "json";
+            columnType: "PgJsonb";
+            data: string[];
+            driverParam: unknown;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {
+            $type: string[];
+        }>;
         createdAt: import("drizzle-orm/pg-core").PgColumn<{
             name: "created_at";
             tableName: "entities";
@@ -1616,6 +1669,10 @@ export declare const places: any;
  * Memory-Place assignments
  */
 export declare const memoryPlaces: any;
+/**
+ * Memory Tags (v1.5.0: Tag-aware retrieval)
+ */
+export declare const memoryTags: any;
 /**
  * Place auto-assignment rules
  */

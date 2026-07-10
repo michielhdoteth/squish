@@ -88,7 +88,7 @@ export async function calculateGraphBoost(
           // Cap boost at 3.0x to prevent dominance
           const cappedBoost = Math.min(totalBoost, 3.0);
           return { memoryId, boost: Math.max(0, cappedBoost), totalNodes: nodes.length, rawBoost: totalBoost };
-        } catch (e) {
+        } catch (e: any) {
           logger.warn(`Graph boost calculation failed for ${memoryId}:`, e);
           return { memoryId, boost: 0, totalNodes: 0, rawBoost: 0 };
         }
@@ -106,7 +106,7 @@ export async function calculateGraphBoost(
         });
       }
     }
-  } catch (e) {
+  } catch (e: any) {
     logger.warn('Graph backend initialization failed, falling back to DB query method:', e);
     // Fallback to original DB-based method
     return calculateGraphBoostFallback(memoryIds, projectId, options);
@@ -142,7 +142,7 @@ async function calculateGraphBoostFallback(
 
         const cappedBoost = Math.min(totalBoost, 3.0);
         return { memoryId, boost: Math.max(0, cappedBoost) };
-      } catch (e) {
+      } catch (e: any) {
         logger.warn(`Graph boost fallback failed for ${memoryId}:`, e);
         return { memoryId, boost: 0 };
       }
@@ -260,7 +260,7 @@ async function bfsTraverseFallback(
           }
         }
       }
-    } catch (e) {
+    } catch (e: any) {
       logger.warn(`Error batch traversing associations:`, e);
     }
   }

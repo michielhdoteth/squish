@@ -7,6 +7,7 @@ import { sql, eq } from 'drizzle-orm';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
 import { logger } from '../logger.js';
+import { bridgeSessionToGraph } from '../bridge/session-bridge.js';
 
 /**
  * Called when a session ends
@@ -28,6 +29,11 @@ export async function onSessionEnd(sessionId: string): Promise<void> {
   await sqliteDb.update(schema.conversations)
     .set({ endedAt: new Date() })
     .where(eq(schema.conversations.sessionId, sessionId));
+
+  // Bridge durable session memories to the permanent knowledge graph (non-blocking)
+  bridgeSessionToGraph(sessionId).catch((error) => {
+    logger.debug(`[SessionHooks] Session bridge failed for ${sessionId}: ${error}`);
+  });
 
   logger.info(`[SessionHooks] Session ${sessionId} marked as ended`);
 }

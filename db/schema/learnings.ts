@@ -3,7 +3,7 @@
  * Column definitions for ALTER TABLE migrations
  */
 
-import type { TableSchema } from '../generator.js';
+import type { TableSchema } from './generator.js';
 
 export const learningsSchema: TableSchema = {
   name: 'learnings',

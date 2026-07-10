@@ -93,7 +93,7 @@ function getDb(opts: CodexStoreOptions = {}): Database | null {
       try { cached.db.close(); } catch { /* ignore */ }
       cached = null;
     }
-    const db = new Database(dbPath, readonly ? { readonly: true } : undefined);
+    const db = new (Database as any)(dbPath, readonly ? { readonly: true } : undefined);
     cached = { db, dbPath, readonly, mtimeMs };
     return db;
   } catch (err) {

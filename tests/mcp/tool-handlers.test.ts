@@ -258,7 +258,7 @@ describe("MCP Tool Handlers", () => {
           expect(typeof parsed._raw).toBe("string");
         } else {
           expect(parsed.ok).toBeDefined();
-          expect(parsed.version).toBe("1.8.0");
+          expect(parsed.version).toBe("1.9.0");
         }
       },
       TEST_TIMEOUT

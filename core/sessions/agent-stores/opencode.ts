@@ -108,7 +108,7 @@ function getDb(opts: OpenCodeStoreOptions = {}): Database | null {
       try { cached.db.close(); } catch { /* ignore */ }
       cached = null;
     }
-    const db = new Database(dbPath, readonly ? { readonly: true } : undefined);
+    const db = new (Database as any)(dbPath, readonly ? { readonly: true } : undefined);
     cached = { db, dbPath, readonly, mtimeMs };
     return db;
   } catch (err) {
@@ -726,7 +726,7 @@ export function ensureSidecarFts(opts: OpenCodeStoreOptions = {}): string | null
   let srcDb: Database;
   let destDb: Database;
   try {
-    srcDb = new Database(src, { readonly: true });
+    srcDb = new (Database as any)(src, { readonly: true });
     destDb = new Database(dest);
   } catch (err) {
     logger.debug(`[opencode-store] ensureSidecarFts open error: ${err}`);
@@ -746,7 +746,7 @@ export function ensureSidecarFts(opts: OpenCodeStoreOptions = {}): string | null
       );
     `);
 
-    const insert = destDb.prepare(
+    const insert = (destDb as any).prepare(
       `INSERT INTO part_fts (session_id, message_id, part_id, ptype, text)
        VALUES (?, ?, ?, ?, ?)`
     );
@@ -811,7 +811,7 @@ export function searchOpenCodeSessionsFts(
 
   let destDb: Database;
   try {
-    destDb = new Database(sidecar, { readonly: true });
+    destDb = new (Database as any)(sidecar, { readonly: true });
   } catch {
     return searchOpenCodeSessions(input, opts);
   }

@@ -563,7 +563,7 @@ export async function fixSchemaIssues(options: FixOptions = {}): Promise<RepairA
     // 1c. Run v1.5.0 backfill if columns were just added (backfill memory_places and memory_tags)
     if (actions.some(a => a.type === 'add_column' && a.detail.includes('primary_place'))) {
       try {
-        const { backfillV1_5_0 } = await import('../backfill-v1.5.0.js');
+        const { backfillV1_5_0 } = await import('./backfill-v1.5.0.js');
         const result = await backfillV1_5_0();
         actions.push({ type: 'run_migration', detail: `Backfilled ${result.memoriesUpdated} memories, ${result.placesCreated} places, ${result.tagsCreated} tags` });
         if (verbose) console.log(`  Backfilled ${result.memoriesUpdated} memories for v1.5.0`);

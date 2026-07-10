@@ -7,6 +7,7 @@ import Database from 'better-sqlite3';
 import { randomUUID } from 'crypto';
 import { existsSync } from 'fs';
 import { join } from 'path';
+import { logger } from '../logger.js';
 
 export interface MigrateOptions {
   dryRun?: boolean;
@@ -107,7 +108,7 @@ export async function migrateMemories(
       const newProjectId = projectIdMap.get(mem.project_id);
 
       if (!newProjectId) {
-        console.warn(`Skipping memory ${mem.id}: no project mapping found`);
+        logger.warn(`Skipping memory ${mem.id}: no project mapping found`);
         continue;
       }
 
@@ -170,12 +171,12 @@ export async function migrateMemories(
     let associationsCopied = 0;
 
     if (!dryRun && sourceAssoc.length > 0) {
-      console.warn(`Note: ${sourceAssoc.length} associations not migrated (requires ID mapping)`);
+      logger.warn(`Note: ${sourceAssoc.length} associations not migrated (requires ID mapping)`);
     }
 
     let sourceDeleted = false;
     if (!dryRun && deleteSource && memoriesCopied > 0) {
-      console.warn('Source deletion not implemented - requires manual removal');
+      logger.warn('Source deletion not implemented - requires manual removal');
     }
 
     return {

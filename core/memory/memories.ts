@@ -1,12 +1,12 @@
 import { randomUUID } from 'crypto';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { config } from '../../config.js';
-import { logger } from '../../core/logger.js';
+import { logger } from '../logger.js';
 import { getOrCreateProject, requireProject } from '../../core/projects.js';
 import { getEmbedding } from '../../core/embeddings.js';
 import { enrichContent } from '../retrieval/contextual-enrichment.js';
 import { normalizeTags, serializeTags, deserializeTags, serializeMetadata, deserializeMetadata } from '../../core/memory/serialization.js';
-import { normalizeTimestamp, clampLimit, prepareEmbedding } from '../lib/utils.js';
+import { normalizeTimestamp, clampLimit, prepareEmbedding, normalizeVisibilityScopes } from '../lib/utils.js';
 import { validateUuid, requireUuid } from '../lib/validation.js';
 import { cosineSimilarity } from '../utils/vector-operations.js';
 import { hybridSearch as hybridSearchImpl } from './hybrid-search.js';
@@ -21,8 +21,10 @@ import { upsertBeliefsForMemory } from '../beliefs/store.js';
 import { extractEntityNames } from './entity-extractor.js';
 import { buildMemoryPolicy, buildVisibilityScopes, serializeVisibilityScopes, recommendMemoryScope } from './policy.js';
 import { autoLinkByEntities } from '../associations.js';
-import { addMemoryToGraph } from '../graph/graph-builder.js';
+import { autoRoute } from '../retrieval/query-router.js';
+import { onMemoryStored } from '../graph/incremental-sync.js';
 import { MemoryRecord, MemoryType } from '../lib/types.js';
+export type { MemoryRecord, MemoryType };
 import { parseEmbedding } from '../lib/parse-embedding.js';
 import { findOrCreateCluster, updateClusterStats } from '../clustering/cluster-engine.js';
 import { evaluateCluster, shouldConsolidate, shouldSplit } from '../clustering/consolidation-check.js';
@@ -95,7 +97,7 @@ export async function getOrCreateUser(identifier: string, existingDb?: any, exis
     });
 
     return { id };
-  } catch (error) {
+  } catch (error: any) {
     logger.warn(`[User] Failed to resolve user "${identifier}":`, error);
     return null;
   }
@@ -264,7 +266,7 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
       if (userRecord) {
         insertValues.userId = userRecord.id;
       }
-    } catch (e) {
+    } catch (e: any) {
       logger.warn('[User] Failed to attach user:', e);
     }
   }
@@ -316,17 +318,17 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
    }
 
    // Build graph for this memory (auto-build if enabled)
-   // This populates the entity_entities and entity_relations tables
+   // Uses incremental sync which tracks entity counts and runs periodic dedup
    if (config.graphAutoBuild && project?.id) {
      try {
-       const graphResult = await addMemoryToGraph(id, {
-         preferLLM: config.llmEnabled,
+       const syncResult = await onMemoryStored(id, {
+         project: input.project,
        });
-       if (graphResult.entitiesCreated > 0 || graphResult.relationsCreated > 0) {
-         logger.debug(`[Graph] Built graph for memory ${id}: ${graphResult.entitiesCreated} entities, ${graphResult.relationsCreated} relations`);
+       if (syncResult.entitiesCreated > 0 || syncResult.relationsCreated > 0) {
+         logger.debug(`[Graph] Synced memory ${id}: ${syncResult.entitiesCreated} entities, ${syncResult.relationsCreated} relations${syncResult.dedupRan ? ' (dedup ran)' : ''}`);
        }
      } catch (graphError) {
-       logger.debug(`[Graph] Failed to build graph for memory ${id}: ${graphError}`);
+       logger.debug(`[Graph] Failed to sync memory ${id}: ${graphError}`);
      }
    }
 
@@ -427,8 +429,8 @@ export async function getMemory(
   if (row.is_encrypted) {
 		  try {
 		    content = decrypt(row.encrypted_content, row.encryption_nonce);
-		  } catch (e) {
-		    console.warn('Failed to decrypt memory', e);
+		  } catch (e: any) {
+		    logger.warn('Failed to decrypt memory', e);
 		    content = row.content; // fall back to stored content
 		  }
 		}
@@ -539,6 +541,22 @@ export async function search(input: SearchInput): Promise<SearchResult[]> {
   const limit = clampLimit(input.limit, 10, 1, 500);
   const tags = normalizeTags(input.tags);
 
+  // Classify query intent and select optimal retrieval strategy
+  let routeResult;
+  try {
+    routeResult = await autoRoute(input.query, {
+      projectId: input.project,
+      preferGraph: true,
+    });
+    logger.debug('[Search] Query routed', {
+      intent: routeResult.classification.intent,
+      strategy: routeResult.recommendedStrategy,
+      confidence: routeResult.classification.confidence,
+    });
+  } catch {
+    // Routing failure is non-fatal; fall through to default hybrid search
+  }
+
   // Resolve user filter if provided
   let userId: string | null = null;
   if (input.user) {
@@ -560,9 +578,13 @@ export async function search(input: SearchInput): Promise<SearchResult[]> {
       })
     : null;
 
-  // Always use hybrid search for both SQLite and PostgreSQL
-  // Omitted project means truly global search.
-  let dbResults = await hybridSearchImpl(input, { limit });
+  // Pass routing hints to hybrid search for strategy-aware retrieval
+  const searchOptions: Record<string, unknown> = { limit };
+  if (routeResult?.recommendedStrategy) {
+    searchOptions.preferredStrategy = routeResult.recommendedStrategy;
+    searchOptions.queryIntent = routeResult.classification.intent;
+  }
+  let dbResults = await hybridSearchImpl(input, searchOptions);
 
   if (dbResults.length === 0) {
     dbResults = await fallbackSearchByRecency(input, limit);
@@ -627,11 +649,6 @@ async function fallbackSearchByRecency(input: SearchInput, limit: number): Promi
   } catch {
     return [];
   }
-}
-
-function normalizeVisibilityScopes(visibilityScope?: SearchInput['visibilityScope']): string[] | null {
-  if (!visibilityScope) return null;
-  return Array.isArray(visibilityScope) ? visibilityScope : [visibilityScope];
 }
 
 async function resolveTeamAccessMember(projectId: string | null | undefined, actor?: TeamAccessContext): Promise<TeamMember | null> {
@@ -760,7 +777,7 @@ async function evaluateAndConsolidate(
     }
   } catch (err) {
     // Non-blocking: never fail the memory write
-    logger.debug('evaluateAndConsolidate error', err instanceof Error ? err : String(err));
+    logger.debug('evaluateAndConsolidate error', { error: err instanceof Error ? err.message : String(err) });
   }
 }
 

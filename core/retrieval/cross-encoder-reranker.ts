@@ -14,10 +14,12 @@
  *   Set SQUISH_RERANKER_MODEL=cross-encoder/ms-marco-MiniLM-L-6-v2
  */
 
-import { pipeline, Pipeline } from '@huggingface/transformers';
+import { pipeline } from '@huggingface/transformers';
 import { logger } from '../logger.js';
 import { config } from '../../config.js';
 import type { SearchResult } from '../memory/memories.js';
+
+type Pipeline = Awaited<ReturnType<typeof pipeline>>;
 
 export interface RerankerConfig {
   enabled: boolean;
@@ -136,7 +138,7 @@ export async function scorePair(
     // Cross-encoder expects concatenated input: "[CLS] query [SEP] document [SEP]"
     const input = `${truncatedQuery} [SEP] ${truncatedDoc}`;
 
-    const result = await pipeline(input, {
+    const result = await (pipeline as any)(input, {
       topk: 1,
     });
 
@@ -181,7 +183,7 @@ export async function scoreBatch(
     });
 
     // Process batch
-    const results = await pipeline(inputs, {
+    const results = await (pipeline as any)(inputs, {
       topk: 1,
     });
 
