@@ -80,6 +80,10 @@ export const memoriesSchema: TableSchema = {
     // v1.5.0: Multi-place routing
     primary_place: { type: 'TEXT' },
     memory_type: { type: 'TEXT' },
+    // v2.0.0: Multimodal ingestion
+    media_type: { type: 'TEXT' },
+    media_path: { type: 'TEXT' },
+    media_metadata: { type: 'TEXT' },
     created_at: { type: 'INTEGER' },
     updated_at: { type: 'INTEGER' },
   },

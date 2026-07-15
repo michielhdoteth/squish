@@ -1,10 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { sql } from 'drizzle-orm';
-import { config } from '../config.js';
 import { getDataDir } from '../config.js';
 import { getDb } from './index.js';
-import { ensureSqliteSchema, ensurePostgresSchema } from './bootstrap.js';
+import { ensureSqliteSchema } from './bootstrap.js';
 
 const REQUIRED_TABLES = [
   'memories',
@@ -66,6 +64,9 @@ const REQUIRED_INDEXES = [
 const REQUIRED_COLUMNS: Array<{ table: string; column: string }> = [
   { table: 'memories', column: 'primary_place' },
   { table: 'memories', column: 'memory_type' },
+  { table: 'memories', column: 'media_type' },
+  { table: 'memories', column: 'media_path' },
+  { table: 'memories', column: 'media_metadata' },
 ];
 
 export type SchemaProbeStatus = 'ok' | 'drifted' | 'unavailable';
@@ -118,11 +119,6 @@ export function getSchemaRemediationCommand(): string {
 }
 
 function describeBackend(): string {
-  const databaseUrl = process.env.DATABASE_URL || '';
-  const supabaseUrl = process.env.SUPABASE_URL || '';
-  const neonProjectId = process.env.NEON_PROJECT_ID || '';
-  if (supabaseUrl || neonProjectId) return `remote:${config.remoteBackend}`;
-  if (databaseUrl.startsWith('postgres')) return `team:${config.teamBackend}`;
   return 'local:sqlite';
 }
 
@@ -134,23 +130,6 @@ function getRawClient(db: any): any {
   return db?.$client ?? db;
 }
 
-async function listTablesFromDrizzle(db: any): Promise<string[]> {
-  const result = await db.execute(sql`
-    SELECT tablename
-    FROM pg_tables
-    WHERE schemaname = 'public'
-  `);
-
-  const rows = Array.isArray((result as any)?.rows)
-    ? (result as any).rows
-    : Array.isArray(result)
-      ? result
-      : [];
-  return rows
-    .map((row: any) => row.tablename ?? row.table_name ?? row.name)
-    .filter((value: unknown): value is string => typeof value === 'string');
-}
-
 async function listExistingTables(db: any): Promise<string[]> {
   const raw = getRawClient(db);
 
@@ -159,21 +138,12 @@ async function listExistingTables(db: any): Promise<string[]> {
     return rows.map((row) => row.name);
   }
 
-  if (raw && typeof raw.query === 'function') {
-    const result = await raw.query("SELECT tablename FROM pg_tables WHERE schemaname = 'public'");
-    return Array.isArray(result?.rows) ? result.rows.map((row: any) => row.tablename).filter(Boolean) : [];
-  }
-
-  if (db && typeof db.execute === 'function') {
-    return listTablesFromDrizzle(db);
-  }
-
-  throw new Error('Unable to inspect database schema with the active driver');
+  throw new Error('Unable to inspect database schema - unsupported driver');
 }
 
 /**
  * List column names for a given table.
- * For SQLite, uses PRAGMA table_info(). For PostgreSQL, queries information_schema.
+ * Uses PRAGMA table_info() for SQLite.
  */
 async function listTableColumns(db: any, tableName: string): Promise<string[]> {
   const raw = getRawClient(db);
@@ -181,14 +151,6 @@ async function listTableColumns(db: any, tableName: string): Promise<string[]> {
   if (raw && typeof raw.prepare === 'function') {
     const rows = raw.prepare(`PRAGMA table_info("${tableName}")`).all() as Array<{ name: string }>;
     return rows.map((row) => row.name);
-  }
-
-  if (raw && typeof raw.query === 'function') {
-    const result = await raw.query(
-      `SELECT column_name FROM information_schema.columns WHERE table_name = $1 AND table_schema = 'public'`,
-      [tableName]
-    );
-    return Array.isArray(result?.rows) ? result.rows.map((row: any) => row.column_name).filter(Boolean) : [];
   }
 
   return [];
@@ -209,11 +171,6 @@ export function isSchemaDriftError(error: unknown): error is SchemaDriftError {
 }
 
 function isLocalMode(): boolean {
-  const databaseUrl = process.env.DATABASE_URL || '';
-  const supabaseUrl = process.env.SUPABASE_URL || '';
-  const neonProjectId = process.env.NEON_PROJECT_ID || '';
-  if (supabaseUrl || neonProjectId) return false;
-  if (databaseUrl.startsWith('postgres')) return false;
   return true;
 }
 
@@ -347,16 +304,6 @@ export async function checkGraphEntitiesTable(): Promise<CheckResult> {
       return { name: 'graph entities table', status: 'ok', message: 'entities and entity_relations tables exist' };
     }
 
-    // Fallback for non-sqlite
-    if (raw && typeof raw.query === 'function') {
-      const result = await raw.query("SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename IN ('entity_relations','entities')");
-      const tables = (result?.rows ?? []).map((r: any) => r.tablename);
-      if (!tables.includes('entity_relations')) {
-        return { name: 'graph entities table', status: 'degraded', message: 'entity_relations table is missing (needs schema migration)' };
-      }
-      return { name: 'graph entities table', status: 'ok', message: 'entities and entity_relations tables exist' };
-    }
-
     return { name: 'graph entities table', status: 'degraded', message: 'Cannot inspect graph entities - unsupported database driver' };
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
@@ -483,28 +430,24 @@ export async function fixSchemaIssues(options: FixOptions = {}): Promise<RepairA
     const db = await getDb();
     const raw = getRawClient(db);
 
-    if (!raw || (typeof raw.prepare !== 'function' && typeof raw.query !== 'function')) {
+    if (!raw || typeof raw.prepare !== 'function') {
       if (verbose) console.error('Unsupported database driver for repair');
       return actions;
     }
 
-    const isSqlite = typeof raw.prepare === 'function';
+    const isSqlite = true;
 
     // 1. Fix missing tables by running full schema bootstrap
     if (fixMissingTables && probe.missingTables.length > 0) {
       if (verbose) console.log(`Running schema migration to create missing tables (${probe.missingTables.length} missing)...`);
       try {
-        if (isSqlite) {
-          // Run ensureSqliteSchema which handles both creation and migrations.
-          // The second (non-tolerant) pass may throw on existing tables with
-          // incomplete column sets, but the first pass already created new tables.
-          await ensureSqliteSchema(raw).catch(() => {
-            // Second pass failure is acceptable - tables from first pass committed
-            if (verbose) console.log('  Schema bootstrap completed with deferred warnings (tables created)');
-          });
-        } else if (typeof raw.query === 'function') {
-          await ensurePostgresSchema(raw);
-        }
+        // Run ensureSqliteSchema which handles both creation and migrations.
+        // The second (non-tolerant) pass may throw on existing tables with
+        // incomplete column sets, but the first pass already created new tables.
+        await ensureSqliteSchema(raw).catch(() => {
+          // Second pass failure is acceptable - tables from first pass committed
+          if (verbose) console.log('  Schema bootstrap completed with deferred warnings (tables created)');
+        });
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
         if (verbose) console.warn(`  First-pass schema bootstrap warning: ${msg}`);
@@ -537,13 +480,9 @@ export async function fixSchemaIssues(options: FixOptions = {}): Promise<RepairA
       const colDesc = probe.missingColumns.map((c) => `${c.table}.${c.column}`).join(', ');
       if (verbose) console.log(`Running schema migration to add missing columns (${colDesc})...`);
       try {
-        if (isSqlite) {
-          await ensureSqliteSchema(raw).catch(() => {
-            if (verbose) console.log('  Column migration completed with deferred warnings');
-          });
-        } else if (typeof raw.query === 'function') {
-          await ensurePostgresSchema(raw);
-        }
+        await ensureSqliteSchema(raw).catch(() => {
+          if (verbose) console.log('  Column migration completed with deferred warnings');
+        });
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
         if (verbose) console.warn(`  Column migration warning: ${msg}`);

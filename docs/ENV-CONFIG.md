@@ -68,6 +68,20 @@ Main configuration file with all available options:
     "consolidationEnabled": false
   },
 
+  "multimodal": {
+    "enabled": true,
+    "inboxDir": "./inbox",
+    "pollIntervalMs": 5000,
+    "maxFileSizeBytes": 104857600
+  },
+
+  "consolidation": {
+    "llmEnabled": false,
+    "batchSize": 50,
+    "minAgeDays": 7,
+    "minConnections": 2
+  },
+
   "lifecycle": {
     "interval": 3600000,
     "decay": {
@@ -132,6 +146,18 @@ SQUISH_MCP_PORT=9000
 
 # Enable encryption passphrase
 SQUISH_ENCRYPTION_PASSPHRASE=my-secret
+
+# Multimodal Ingestion
+SQUISH_MULTIMODAL_ENABLED=true           # Enable/disable multimodal (default: true)
+SQUISH_MULTIMODAL_INBOX_DIR=./inbox      # Inbox directory for file watcher
+SQUISH_MULTIMODAL_POLL_INTERVAL_MS=5000  # Watcher poll interval in ms
+SQUISH_MULTIMODAL_MAX_FILE_SIZE_BYTES=104857600  # Max file size (default: 100MB)
+
+# LLM Consolidation
+SQUISH_LLM_CONSOLIDATION_ENABLED=false   # Enable LLM cross-connection finding
+SQUISH_LLM_CONSOLIDATION_BATCH_SIZE=50   # Batch size for analysis
+SQUISH_LLM_CONSOLIDATION_MIN_AGE_DAYS=7  # Min memory age before consolidation
+SQUISH_LLM_CONSOLIDATION_MIN_CONNECTIONS=2  # Min existing connections threshold
 ```
 
 ## Quick Reference

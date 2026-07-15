@@ -2,6 +2,30 @@
 
 All notable changes to Squish will be documented in this file.
 
+## [2.0.0] - 2026-07-15
+
+### Summary
+
+Multimodal ingestion, LLM cross-connection consolidation, and enhanced 7-tool MCP surface.
+
+### Added
+
+- Multimodal ingestion pipeline with 27+ file types across images, audio, video, and documents
+- File watcher for automatic inbox directory monitoring and ingestion
+- LLM consolidation engine for cross-connection finding between memory clusters
+- Supported image types: JPEG, PNG, GIF, WebP, SVG, BMP, TIFF, ICO, HEIC, HEIF
+- Supported audio types: MP3, WAV, OGG, FLAC, M4A, AAC, WMA, Opus
+- Supported video types: MP4, WebM, AVI, MOV, MKV, WMV, FLV
+- Supported document types: PDF, DOC, DOCX, XLS, XLSX, PPT, PPTX, TXT, MD, CSV, TSV, JSON, JSONL, XML, YAML, YML, TOML, HTML, RTF
+- New config options: `multimodal.*` and `consolidation.*` sections in settings.json
+- 8 new environment variables for multimodal and consolidation configuration
+
+### Changed
+
+- Enhanced `squish_remember` with `filePath` parameter for multimodal file ingestion (27+ file types) and optional `content` (was required)
+- Enhanced `squish_stats` with `action` parameter for watcher control (`start_watcher`, `stop_watcher`) and LLM consolidation (`consolidate`)
+- Server version: 2.0.0
+
 ## [1.6.0] - 2026-06-08
 
 ### Summary
@@ -24,6 +48,40 @@ Squish 1.5 made memory adaptive. Squish 1.6 makes agent history searchable.
 ### Improved
 
 - **CLI `squish sessions status`** now shows status for all available agent stores (OpenCode, Claude Code, Codex)
+
+## [Landing Site] - 2026-07-13
+
+### Summary
+
+SEO, AI search optimization (AEO/GEO/GSO), structured data, and pricing accuracy improvements across the squishplugin.dev landing site.
+
+### Added
+
+- **Structured data (JSON-LD)**: `aggregateRating` + `review` schema on SoftwareApplication markup in `index.html`
+- **BreadcrumbList schema**: JSON-LD breadcrumbs (Home > Documentation > Privacy Policy > Terms of Service) for richer search results
+- **Per-route SEO hooks**: `hooks/useSEO.ts` provides unique `<title>`, `<meta description>`, and canonical URLs for Documentation (`/docs`), Privacy Policy (`/privacy`), and Terms of Service (`/terms`) pages
+- **Competitor comparison section**: New `CompetitorComparison` component on the marketing page (placed between Differentiator and Pricing sections)
+- **Twitter/X metadata**: Added `twitter:site` handle (`@4mlabs_io`) and fixed `twitter:*` tags to use `name` attribute instead of `property` for compliance with Twitter card spec
+- **Cache-Control header**: Added to `vercel.json` for root page to improve page load performance
+
+### Changed
+
+- **Open Graph image**: Switched `og:image` from SVG to PNG (`og-image.png`) for broader platform compatibility
+- **Sitemap updated**: Added `/privacy` and `/terms` URLs; updated `lastmod` dates across all entries
+- **Pricing consistency**: Fixed pricing across 4 documentation/manifest files (`llms.txt`, `llms-full.txt`, `.well-known/ucp`, `.well-known/acp.json`) to match actual site pricing: Free/$0, Solo/$9/mo, Pro/$29/mo, Team/$99/mo
+
+### Files Modified
+
+- `index.html` -- aggregateRating/review schema, BreadcrumbList schema, Twitter metadata, og:image
+- `hooks/useSEO.ts` -- new file for per-route meta tags
+- `sitemap.xml` -- added /privacy, /terms URLs; updated lastmod
+- `vercel.json` -- Cache-Control header for root page
+- `llms.txt` -- pricing correction
+- `llms-full.txt` -- pricing correction
+- `.well-known/ucp` -- pricing correction
+- `.well-known/acp.json` -- pricing correction
+
+---
 
 ## [1.9.0] - 2026-07-01
 
@@ -80,17 +138,18 @@ Removed team tools and Kuzu backend from open-source distribution. Local-only MC
 
 ### Summary
 
-MCP tool count updated to 18, mode switching improvements, team CLI commands added.
+MCP tool count updated to 17, mode switching improvements, team CLI commands added.
 
 ### Added
 
-- **MCP tools**: `squish_strategy` (manage actionable strategies) and `squish_consolidate` (background dedup/summarize)
+- **MCP tools**: `squish_consolidate` (background dedup/summarize)
+- **Strategy integration**: Strategies now auto-extract during remember, auto-recall during recall, and auto-load in session context
 - **Mode switching**: `squish mode` command to switch between local and cloud modes
 - **Team CLI commands**: `squish team create`, `squish team invite`, `squish team list`, `squish team leave`
 
 ### Changed
 
-- **MCP tool count**: 18 tools (was 16)
+- **MCP tool count**: 17 tools (was 18)
 - **Documentation**: All tool count references updated across README, architecture docs, install guides
 
 ## [1.5.5] - 2026-06-01

@@ -10,11 +10,17 @@ Any AI Agent
 MCP (stdio/Streamable HTTP) / CLI
      ↓
 packages/mcp/src/index.ts
-   ├─ MCP Tools (18 tools)
+   ├─ MCP Tools (7 tools)
    ├─ Core Services
    │   ├─ Signal Engine
    │   ├─ Session Working Set
    │   └─ Raw Fallback Snapshotting
+   ├─ Multimodal Pipeline
+   │   ├─ MIME Detection (27+ types)
+   │   ├─ Extractors (image, audio, video, document)
+   │   └─ File Watcher
+   ├─ LLM Consolidation Engine
+   │   └─ Cross-connection finding
    ├─ Durable Storage
    │   ├─ QMD Search Tier (fast hybrid BM25+vector)
    │   └─ SQLite/Postgres Tier
@@ -30,7 +36,9 @@ squish/
 ├── packages/
 │   ├── mcp/                 # MCP server package
 │   │   ├── src/
-│   │   │   └── index.ts      # Main MCP entry point (18 tools)
+│   │   │   ├── index.ts      # Main MCP entry point (7 tools)
+│   │   │   ├── multimodal-tools.ts   # Multimodal ingestion tools
+│   │   │   └── consolidation-tools.ts # LLM consolidation tools
 │   │   └── package.json
 │   └── cli/                  # CLI package
 │       ├── src/
@@ -43,36 +51,39 @@ squish/
 │   ├── memory/              # Memory management
 │   ├── graph/               # Knowledge graph
 │   ├── search/             # Search algorithms
+│   ├── multimodal/          # Multimodal ingestion pipeline
+│   │   ├── types.ts         # Media type definitions
+│   │   ├── mime-detector.ts # MIME type detection (27+ types)
+│   │   ├── ingest-pipeline.ts # Ingestion orchestration
+│   │   ├── watcher.ts       # File watcher for inbox monitoring
+│   │   └── extractors/      # Per-type extractors
+│   │       ├── base.ts
+│   │       ├── image-extractor.ts
+│   │       ├── audio-extractor.ts
+│   │       ├── video-extractor.ts
+│   │       └── document-extractor.ts
+│   ├── consolidation/       # LLM consolidation engine
+│   │   └── llm-consolidator.ts
 │   └── ...
-├─��� docs/                   # Documentation
+├── docs/                   # Documentation
+├── config.ts              # Configuration with multimodal/consolidation options
 ├── package.json           # Root workspace
 └── bun.lock                # Lock file
 ```
 
 ## Architecture Layers
 
-### 1. MCP Server (18 Tools)
+### 1. MCP Server (7 Tools)
 
-The main entry point (`packages/mcp/src/index.ts`) defines 18 MCP tools covering memory management, recall, timeline, context, lifecycle, and system operations.
+The main entry point (`packages/mcp/src/index.ts`) defines 7 MCP tools covering memory management, recall, graph linking, context, inspection, multimodal ingestion, and LLM consolidation.
 
-- **timeline** - Progressive disclosure over retrieved memory
-- **remember** - Store memories with embeddings
+- **remember** - Store memories with auto-detection (supports multimodal file ingestion via `filePath`)
 - **recall** - Query memories or get a specific memory by ID
-- **forget** - Delete memory by ID or bulk delete with filters
+- **forget** - Delete memory by ID or search
 - **link** - Manage memory associations for graph-based reasoning
 - **context** - Retrieve project context
-- **health** - Service status checks
-- **stats** - Get memory statistics
+- **stats** - Get memory statistics, system health, watcher control, and consolidation trigger (via `action` param)
 - **inspect** - Explain why a memory was retained
-- **pin** - Pin or unpin a memory
-- **recent** - Get recent memories
-- **stale** - Show stale memories
-- **list_pinned** - List all pinned memories
-- **on_session_start** - Trigger session start
-- **on_tool_use** - Capture tool use events
-- **on_session_end** - Trigger session end
-- **strategy** - Manage actionable strategies (read, write, list, search, supersede)
-- **consolidate** - Run background consolidation (dedup, summarize, invalidate stale memories)
 
 ### 2. Services Layer
 
@@ -126,7 +137,50 @@ The same stage also emits:
 - graph-enrichment hints so only durable signal feeds relationship extraction
 - wake-up priority so session context is compact but relevant
 
-### 4. Durable Storage Layer
+### 4. Multimodal Pipeline
+
+Squish ingests images, audio, video, and documents through a modular pipeline:
+
+```
+File Drop (inbox/) ─or─ squish_remember (with filePath)
+         ↓
+    MIME Detection (27+ extensions)
+         ↓
+    Category Routing: image | audio | video | document
+         ↓
+    Extractor (per-type):
+      ├─ Image: metadata extraction (dimensions, format)
+      ├─ Audio: speech-to-text transcript
+      ├─ Video: keyframe extraction + speech-to-text
+      └─ Document: text extraction (PDF, DOCX, CSV, etc.)
+         ↓
+    LLM Description Generation
+         ↓
+    Embedding Generation
+         ↓
+    Memory Record + Search Index
+```
+
+**Supported file types (27+):**
+- Images: JPEG, PNG, GIF, WebP, SVG, BMP, TIFF, ICO, HEIC, HEIF
+- Audio: MP3, WAV, OGG, FLAC, M4A, AAC, WMA, Opus
+- Video: MP4, WebM, AVI, MOV, MKV, WMV, FLV
+- Documents: PDF, DOC, DOCX, XLS, XLSX, PPT, PPTX, TXT, MD, CSV, TSV, JSON, JSONL, XML, YAML, YML, TOML, HTML, RTF
+
+The file watcher monitors the inbox directory at a configurable poll interval and automatically processes new files.
+
+### 5. LLM Consolidation Engine
+
+LLM consolidation finds cross-connections between memory clusters that algorithmic consolidation would miss:
+
+1. **Batch selection**: Memories older than `minAgeDays` with fewer than `minConnections` existing edges
+2. **LLM analysis**: Sends memory clusters to the configured LLM provider (OpenAI, Anthropic, or Gemini)
+3. **Connection creation**: Creates knowledge edges for identified cross-connections
+4. **Status tracking**: Reports connections found, created, and errors
+
+Enabled via `SQUISH_LLM_CONSOLIDATION_ENABLED=true` and requires an LLM API key.
+
+### 6. Durable Storage Layer
 
 Squish implements multi-layer storage for optimal performance:
 
@@ -150,7 +204,7 @@ Squish implements multi-layer storage for optimal performance:
 - For Squish Cloud team mode
 - pgvector for semantic search
 
-### 5. Storage Modes
+### 7. Storage Modes
 
 **Local Mode (Default)**
 - Single SQLite database
@@ -192,16 +246,30 @@ Squish integrates with Claude Code via plugin hooks:
 ### Memory Storage
 
 ```
-User Input / Tool Output
-        ↓
-Signal Distillation
-        ├─ discard
-        ├─ session-only → context_sessions working set + active place / graph cues
-        └─ durable → write gate → memory record
-                                  ├─ place assignment
-                                  ├─ graph enrichment
-                                  ├─ optional raw fallback snapshot
-                                  └─ database + search index
+User Input / Tool Output / Media File
+         ↓
+Signal Distillation / MIME Detection
+         ├─ discard
+         ├─ session-only → context_sessions working set + active place / graph cues
+         └─ durable → write gate → memory record
+                                   ├─ place assignment
+                                   ├─ graph enrichment
+                                   ├─ optional raw fallback snapshot
+                                   └─ database + search index
+```
+
+### Multimodal Ingestion
+
+```
+File in inbox/ ─or─ squish_remember (with filePath)
+         ↓
+MIME Detection → Category (image/audio/video/document)
+         ↓
+Per-type Extractor (text, transcript, metadata)
+         ↓
+LLM Description + Embedding
+         ↓
+Memory Record → database + search index
 ```
 
 ### Search
@@ -269,6 +337,18 @@ SQUISH_WEB_PORT=37777
 # Memory
 SQUISH_MAX_MEMORIES=10000
 SQUISH_CACHE_TTL=300
+
+# Multimodal Ingestion
+SQUISH_MULTIMODAL_ENABLED=true
+SQUISH_MULTIMODAL_INBOX_DIR=./inbox
+SQUISH_MULTIMODAL_POLL_INTERVAL_MS=5000
+SQUISH_MULTIMODAL_MAX_FILE_SIZE_BYTES=104857600
+
+# LLM Consolidation
+SQUISH_LLM_CONSOLIDATION_ENABLED=false
+SQUISH_LLM_CONSOLIDATION_BATCH_SIZE=50
+SQUISH_LLM_CONSOLIDATION_MIN_AGE_DAYS=7
+SQUISH_LLM_CONSOLIDATION_MIN_CONNECTIONS=2
 ```
 
 ## Debugging

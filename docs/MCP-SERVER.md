@@ -4,11 +4,13 @@ Universal memory layer for AI agents via Model Context Protocol (MCP).
 
 ## Features
 
-- **18 MCP Tools**: universal memory operations across recall, health, graph, recency, lifecycle, and maintenance flows
+- **7 MCP Tools**: universal memory operations across recall, graph, context, inspection, multimodal ingestion, and LLM consolidation
 - **Local Embeddings**: TF-IDF based, 768-dim vectors
 - **QMD Integration**: Local markdown search with BM25 + vector
 - **Hybrid Search**: Semantic + recency + importance scoring
 - **SQLite Storage**: Free, local, no API calls
+- **Multimodal Ingestion**: 27+ file types across images, audio, video, and documents
+- **LLM Consolidation**: Cross-connection finding via LLM-powered knowledge analysis
 
 ## Quick Start
 
@@ -38,30 +40,9 @@ Server runs on `http://localhost:8767` by default.
 
 ## Tools
 
-### 1. `squish_timeline`
+### 1. `squish_remember`
 
-3-layer progressive disclosure for memory exploration.
-
-```json
-{
-  "name": "squish_timeline",
-  "arguments": {
-    "query": "feature implementation",
-    "depth": "timeline",
-    "limit": 10,
-    "project": "/path/to/project"
-  }
-}
-```
-
-Depth options:
-- `index`: ~50 tokens per result (overview)
-- `timeline`: ~200 tokens per result (moderate detail)
-- `detail`: ~2000 tokens per result (full context)
-
-### 2. `squish_remember`
-
-Store a new memory or learning. Auto-detects type and routes appropriately.
+Store any memory or learning. Auto-detects type and routes appropriately. Supports multimodal ingestion via file path.
 
 ```json
 {
@@ -69,19 +50,38 @@ Store a new memory or learning. Auto-detects type and routes appropriately.
   "arguments": {
     "content": "Implemented OAuth2 flow with PKCE for better security",
     "type": "decision",
-    "tags": ["auth", "security"],
-    "pin": false,
-    "project": "/path/to/project"
+    "tags": ["auth", "security"]
   }
 }
 ```
+
+Multimodal ingestion (image, audio, video, document):
+
+```json
+{
+  "name": "squish_remember",
+  "arguments": {
+    "filePath": "/absolute/path/to/file.pdf",
+    "description": "Architecture diagram for the auth service",
+    "tags": ["architecture", "auth"]
+  }
+}
+```
+
+Parameters:
+- `content` (optional): Text content to store as a memory. Provide either `content` or `filePath`.
+- `filePath` (optional): Absolute path to a media file (image, audio, video, document) to ingest. When provided, the multimodal pipeline extracts content and creates a memory. Provide either `content` or `filePath`.
+- `type` (optional): Memory type hint (auto-detected if omitted)
+- `tags` (optional): Array of tags for organization
+- `description` (optional): Description or context for file ingestion
 
 Auto-detection:
 - Detects learning patterns (success, failure, fix, insight)
 - Detects TODO patterns
 - Routes to memory, learning, or note storage automatically
+- When `filePath` is provided, detects MIME type and routes to the appropriate extractor (27+ supported file types)
 
-### 3. `squish_recall`
+### 2. `squish_recall`
 
 Recall memories by query, or retrieve a specific memory by ID.
 
@@ -107,44 +107,39 @@ Retrieve by ID:
 }
 ```
 
-### 4. `squish_forget`
+### 3. `squish_forget`
 
-Delete memory by ID or bulk delete with filters.
+Delete a memory by ID, or bulk delete with search filters.
 
 ```json
 {
   "name": "squish_forget",
   "arguments": {
-    "memoryId": "uuid-string",
-    "confirm": true
+    "memoryId": "uuid-string"
   }
 }
 ```
 
-Bulk delete:
+Bulk delete by search:
 ```json
 {
   "name": "squish_forget",
   "arguments": {
-    "olderThan": "30 days",
-    "confirm": true,
-    "limit": 100
+    "search": "old debug notes"
   }
 }
 ```
 
-### 5. `squish_link`
+### 4. `squish_link`
 
-Manage memory associations for graph-based reasoning.
+Manage memory associations: find related memories or add links between them.
 
 ```json
 {
   "name": "squish_link",
   "arguments": {
     "action": "find",
-    "memoryId": "uuid-string",
-    "depth": 2,
-    "minWeight": 0.3
+    "memoryId": "uuid-string"
   }
 }
 ```
@@ -152,9 +147,8 @@ Manage memory associations for graph-based reasoning.
 Actions:
 - `find`: Get related memories (graph traversal)
 - `add`: Create association between two memories
-- `list`: List all associations
 
-### 6. `squish_context`
+### 5. `squish_context`
 
 Get project context or list registered projects.
 
@@ -168,52 +162,29 @@ Get project context or list registered projects.
 }
 ```
 
-List all projects:
-```json
-{
-  "name": "squish_context",
-  "arguments": {
-    "listProjects": true
-  }
-}
-```
+### 6. `squish_stats`
 
-### 7. `squish_health`
-
-Check Squish health status.
-
-```json
-{
-  "name": "squish_health",
-  "arguments": {}
-}
-```
-
-Returns:
-```json
-{
-  "ok": true,
-  "version": "1.2.0",
-  "qmd": "available",
-  "timestamp": "2026-04-19T...",
-  "severity": "ok"
-}
-```
-
-### 8. `squish_stats`
-
-Get memory statistics for a project.
+Get memory statistics, system health, and control the file watcher and consolidation engine.
 
 ```json
 {
   "name": "squish_stats",
   "arguments": {
-    "project": "/path/to/project"
+    "project": "/path/to/project",
+    "action": "status"
   }
 }
 ```
 
-### 9. `squish_inspect`
+Parameters:
+- `project` (optional): Project path filter
+- `action` (optional, default: `"status"`): One of:
+  - `"status"` -- Returns memory counts, health status, watcher state, consolidation config, embedding availability, and version info
+  - `"start_watcher"` -- Starts the file watcher for multimodal ingestion from the inbox directory
+  - `"stop_watcher"` -- Stops the file watcher
+  - `"consolidate"` -- Runs LLM cross-connection finding between memory clusters
+
+### 7. `squish_inspect`
 
 Explain why a memory was retained, where it was routed, and whether raw fallback exists.
 
@@ -222,150 +193,6 @@ Explain why a memory was retained, where it was routed, and whether raw fallback
   "name": "squish_inspect",
   "arguments": {
     "memoryId": "uuid-string"
-  }
-}
-```
-
-### 10. `squish_pin`
-
-Pin or unpin a memory to prevent consolidation/pruning.
-
-```json
-{
-  "name": "squish_pin",
-  "arguments": {
-    "memoryId": "uuid-string",
-    "pinned": true
-  }
-}
-```
-
-### 11. `squish_recent`
-
-Get recent memories by period.
-
-```json
-{
-  "name": "squish_recent",
-  "arguments": {
-    "period": "7days",
-    "limit": 10,
-    "project": "/path/to/project"
-  }
-}
-```
-
-Period options: `today`, `yesterday`, `thisweek`, `7days`, `14days`, `30days`, `90days`
-
-### 12. `squish_stale`
-
-Show stale memories (old, low-confidence, or rarely accessed).
-
-```json
-{
-  "name": "squish_stale",
-  "arguments": {
-    "days": 30,
-    "limit": 20,
-    "project": "/path/to/project"
-  }
-}
-```
-
-### 13. `squish_list_pinned`
-
-List all pinned memories (pinned memories are always preserved).
-
-```json
-{
-  "name": "squish_list_pinned",
-  "arguments": {
-    "project": "/path/to/project"
-  }
-}
-```
-
-### 14. `squish_on_session_start`
-
-Trigger session start - injects context from previous sessions, initializes session tracking.
-
-```json
-{
-  "name": "squish_on_session_start",
-  "arguments": {
-    "projectPath": "/path/to/project",
-    "mode": "startup"
-  }
-}
-```
-
-Mode options: `startup`, `resume`, `compact`
-
-### 15. `squish_on_tool_use`
-
-Capture a tool use event for memory - stores observation about tool execution.
-
-```json
-{
-  "name": "squish_on_tool_use",
-  "arguments": {
-    "toolName": "write",
-    "toolInput": { "filePath": "src/index.ts" },
-    "toolResult": { "success": true },
-    "projectPath": "/path/to/project"
-  }
-}
-```
-
-### 16. `squish_on_session_end`
-
-Trigger session end - performs cleanup and signals session completion.
-
-```json
-{
-  "name": "squish_on_session_end",
-  "arguments": {
-    "projectPath": "/path/to/project"
-  }
-}
-```
-
-### 17. `squish_strategy`
-
-Manage actionable strategies. Actions: read (before task), write (after task), list, search, supersede, stats.
-
-```json
-{
-  "name": "squish_strategy",
-  "arguments": {
-    "action": "read",
-    "tags": ["architecture"],
-    "type": "procedure",
-    "limit": 10
-  }
-}
-```
-
-Actions:
-- `read`: Get strategies before starting a task
-- `write`: Store a strategy after completing a task
-- `list`: List strategies with optional filters
-- `search`: Search strategies by query
-- `supersede`: Mark a strategy as superseded by another
-- `stats`: Get strategy statistics
-
-### 18. `squish_consolidate`
-
-Run background consolidation - dedup, summarize, invalidate stale memories.
-
-```json
-{
-  "name": "squish_consolidate",
-  "arguments": {
-    "enabled": true,
-    "deduplicationThreshold": 0.92,
-    "stalenessDays": 90,
-    "maxConsolidationsPerRun": 50
   }
 }
 ```
@@ -396,6 +223,20 @@ GOOGLE_CLOUD_API_KEY=xxx              # Or use service account
 SQUISH_QMD_ENABLED=true             # Enable QMD search
 SQUISH_QMD_COLLECTIONS=/path/to/colls # QMD collections path
 SQUISH_QMD_FALLBACK=hybrid          # Fallback mode: qmd-only|cloud-first|hybrid|local-only
+
+# Multimodal Ingestion
+SQUISH_MULTIMODAL_ENABLED=true       # Enable multimodal ingestion (default: true)
+SQUISH_MULTIMODAL_INBOX_DIR=./inbox  # Inbox directory for file watcher (default: ./inbox)
+SQUISH_MULTIMODAL_POLL_INTERVAL_MS=5000  # File watcher poll interval in ms (default: 5000)
+SQUISH_MULTIMODAL_MAX_FILE_SIZE_BYTES=104857600  # Max file size in bytes (default: 100MB)
+
+# LLM Consolidation
+SQUISH_LLM_CONSOLIDATION_ENABLED=false  # Enable LLM cross-connection finding (default: false)
+SQUISH_LLM_CONSOLIDATION_BATCH_SIZE=50  # Batch size for consolidation analysis (default: 50)
+SQUISH_LLM_CONSOLIDATION_MIN_AGE_DAYS=7  # Minimum memory age in days before consolidation (default: 7)
+SQUISH_LLM_CONSOLIDATION_MIN_CONNECTIONS=2  # Minimum existing connections before consolidation (default: 2)
+SQUISH_LLM_API_KEY=xxx                # LLM API key for consolidation (falls back to OPENAI_API_KEY)
+SQUISH_LLM_PROVIDER=openai            # LLM provider: openai|anthropic|gemini (default: openai)
 ```
 
 ### Embedding Providers
@@ -416,21 +257,24 @@ SQUISH_QMD_FALLBACK=hybrid          # Fallback mode: qmd-only|cloud-first|hybrid
 └────────────────┬────────────────────────────┘
                  │ MCP Protocol
                  ▼
-┌───────────────────────────────────��─────────┐
+┌─────────────────────────────────────────────┐
 │         Squish MCP Server (port 8767)        │
-│  ┌──────────────────────────────────────┐ │
-│  │  18 Tools: remember, recall, timeline, forget,    │ │
-│  │  link, context, health, stats, inspect, pin,      │ │
-│  │  recent, stale, list_pinned, on_session_start,    │ │
-│  │  on_tool_use, on_session_end, strategy,           │ │
-│  │  consolidate                                      │ │
-│  └──────────────────────────────────────┘ │
-│  ┌──────────────────────────────────────┐ │
-│  │  Embeddings: Local, QMD, Multimodal  │ │
-│  └──────────────────────────────────────┘ │
-│  ┌──────────────────────────────────────┐ │
-│  │  Storage: SQLite / PostgreSQL       │ │
-│  └──────────────────────────────────────┘ │
+│  ┌──────────────────────────────────────┐   │
+│  │  7 Tools: remember, recall, forget,  │   │
+│  │  link, context, stats, inspect       │   │
+│  └──────────────────────────────────────┘   │
+│  ┌──────────────────────────────────────┐   │
+│  │  Embeddings: Local, QMD, Multimodal  │   │
+│  └──────────────────────────────────────┘   │
+│  ┌──────────────────────────────────────┐   │
+│  │  Multimodal Pipeline (27+ types)     │   │
+│  └──────────────────────────────────────┘   │
+│  ┌──────────────────────────────────────┐   │
+│  │  LLM Consolidation Engine            │   │
+│  └──────────────────────────────────────┘   │
+│  ┌──────────────────────────────────────┐   │
+│  │  Storage: SQLite / PostgreSQL        │   │
+│  └──────────────────────────────────────┘   │
 └─────────────────────────────────────────────┘
 ```
 

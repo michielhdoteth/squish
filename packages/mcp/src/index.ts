@@ -15,9 +15,19 @@ import { getDb } from "../../../db/index.js";
 import { getSchema } from "../../../db/schema.js";
 import { isSchemaDriftError, probeSchemaHealth, type SchemaProbeResult } from "../../../db/schema-health.js";
 import { eq } from "drizzle-orm";
-import { startWorker, stopWorker } from "../../../core/worker.js";
 import { initializeScheduler } from "../../../core/scheduler/cron-scheduler.js";
-import { parseDate, filterByDateRange } from "../../../core/lib/utils.js";
+// Internal utilities for multimodal ingestion and LLM consolidation
+// (functionality wired into squish_remember and squish_stats, not exposed as separate tools)
+import {
+  getWatcherStatus,
+  controlWatcher,
+  getMultimodalConfig,
+} from "./multimodal-utils.js";
+import {
+  runLlmConsolidation,
+  getConsolidationStatus,
+  getConsolidationConfig,
+} from "./consolidation-utils.js";
 import {
   buildContextState,
   buildHealthState,
@@ -25,15 +35,12 @@ import {
   buildStatsState,
   resolveProjectScope,
 } from "../../../core/runtime/trust-state.js";
-import { rememberMemory, search as searchMemories, getMemory, getRecent, type MemoryType } from "../../../core/memory/memories.js";
+import { rememberMemory, search as searchMemories, getMemory } from "../../../core/memory/memories.js";
 import { getQMDClient } from "../../../core/embeddings/qmd-client.js";
-import { createAssociation, getRelatedMemories, type AssociationType } from "../../../core/associations.js";
+import { createAssociation, getRelatedMemories } from "../../../core/associations.js";
 import { createLearning } from "../../../core/ingestion/learnings.js";
 import { getAllProjects } from "../../../core/projects.js";
 import { logger } from "../../../core/logger.js";
-// Strategy imports
-import { createStrategy, listStrategies, searchStrategies, supersedeStrategy, getStrategyStats } from "../../../core/strategies/store.js";
-import type { StrategyType, StrategyStatus } from "../../../core/strategies/types.js";
 
 // CRITICAL: Redirect console.log to stderr AFTER all imports
 
@@ -44,7 +51,7 @@ console.log = console.error;
 console.info = console.error;
 
 const SERVER_NAME = "squish-memory";
-const SERVER_VERSION = "1.9.0";
+const SERVER_VERSION = "2.0.0";
 
 // Create server instance ONCE (not per-session)
 const { server: SQUISH_SERVER, toolCount: SQUISH_TOOL_COUNT } = createSquishServer();
@@ -84,11 +91,9 @@ function safeRegisterTool(
 ): boolean {
   try {
     server.registerTool(name, definition, async (input: any) => {
-      if (name !== "squish_health") {
-        const probe = await probeSchemaHealth();
-        if (probe.status !== "ok") {
-          return schemaProbeErrorResult(probe);
-        }
+      const probe = await probeSchemaHealth();
+      if (probe.status !== "ok") {
+        return schemaProbeErrorResult(probe);
       }
 
       try {
@@ -131,6 +136,23 @@ function schemaProbeErrorResult(probe: SchemaProbeResult) {
   };
 }
 
+function errorResponse(code: string, message: string, detail?: string, remediation?: string) {
+  return {
+    content: [{
+      type: "text",
+      text: JSON.stringify({
+        ok: false,
+        error: code,
+        message,
+        ...(detail && { detail }),
+        ...(remediation && { remediation }),
+        version: SERVER_VERSION,
+      }, null, 2),
+    }],
+    isError: true,
+  };
+}
+
 /**
  * Resolve the effective project path for an MCP tool.
  * Priority: explicit project argument > auto-detected from env/cwd > null (global)
@@ -150,166 +172,133 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
 
   console.error(`[MCP] Starting tool registration...`);
 
-  // squish_timeline - 3-layer progressive disclosure
-  if (safeRegisterTool(
-    server,
-    "squish_timeline",
-    {
-      description: "3-layer progressive disclosure - index (~50 tokens), timeline (~200 tokens), detail (~2000 tokens)",
-      inputSchema: {
-        query: z.string().describe("Search query"),
-        depth: z.enum(["index", "timeline", "detail"]).default("index").describe("Progressive disclosure depth"),
-        limit: z.number().min(1).max(100).default(10).describe("Max results"),
-        project: z.string().optional().describe("Project path")
-      }
-    },
-    async ({ query, depth = "index", limit = 10, project }: { query: string; depth?: "index" | "timeline" | "detail"; limit?: number; project?: string }) => {
-      const { getTimeline } = await import('../../../core/adapters/timeline.js');
-      const resolvedProject = resolveProjectPath(project);
-      const result = await getTimeline(query, depth, limit, resolvedProject);
-
-      const formatted = result.results.map((r: any, i: number) => {
-        if (depth === "index") {
-          return `${i + 1}. ${r.title}`;
-        } else if (depth === "timeline") {
-          return `${i + 1}. [${r.type}] ${r.content} (${r.tags?.join(', ') || 'no tags'})`;
-        } else {
-          return `${i + 1}. [${r.type}] ${r.content?.substring(0, 200)}...`;
-        }
-      }).join("\n");
-
-      return { content: [{ type: "text", text: `Timeline (${depth}, ~${result.tokenEstimate} tokens):\n\n${formatted}` }] };
-    }
-  )) toolCount++;
-
   // squish_remember - UNIFIED MEMORY WRITE
   // Single smart write path: auto-detects intent and routes to memory or learning
+  // Also supports file ingestion via filePath parameter
   if (safeRegisterTool(
     server,
     "squish_remember",
     {
-      description: "Store any memory or learning. System auto-detects type and routes appropriately. This is THE memory write tool for agents - handles confidence and all memory types.",
+      description: "Store any memory, learning, or ingest media files. System auto-detects type and routes appropriately. For text: provide content. For files: provide filePath. Supports images, audio, video, and documents (27+ file types).",
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
       inputSchema: {
-        content: z.string().describe("What to remember - can be a fact, decision, lesson, observation, or note"),
-        project: z.string().optional().describe("Project path (auto-detected if not provided)"),
-        user: z.string().optional().describe("User identifier (name or email) to associate with this memory"),
-        actorUser: z.string().optional().describe("Actor user identity for team-mode ACL"),
-        actorAgent: z.string().optional().describe("Actor agent identity for team-mode ACL"),
-        tags: z.array(z.string()).optional().describe("Optional tags for organization"),
+        content: z.string().optional().describe("What to remember - can be a fact, decision, lesson, observation, or note"),
+        filePath: z.string().optional().describe("Path to media file to ingest (image/audio/video/document)"),
+        description: z.string().optional().describe("Description or context for media files"),
         type: z.enum(["observation", "fact", "decision", "context", "preference", "note"]).optional().describe("Memory type - auto-detected if not provided"),
-        visibilityScope: z.enum(["private", "project", "team", "global"]).optional().describe("Visibility scope for team mode writes"),
-        learningType: z.enum(["success", "failure", "fix", "insight"]).optional().describe("Learning type when routing to learning storage"),
-        confidence: z.number().min(0).max(100).optional().describe("Confidence level 0-100 (default: auto-calculated)"),
-        source: z.string().optional().describe("Source of memory: mcp, cli, voice, chat, document (default: mcp)"),
-        route: z.enum(["auto", "memory", "learning", "note"]).default("auto").describe("Force routing: auto=detect, memory=store as memory, learning=store as learning, note=store as note"),
-        pin: z.boolean().default(false).describe("Pin memory to prevent pruning/consolidation"),
-        unpin: z.boolean().default(false).describe("Unpin memory")
+        tags: z.array(z.string()).optional().describe("Optional tags for organization"),
       }
     },
-    async ({ content, project, user, actorUser, actorAgent, tags = [], type, visibilityScope, learningType, confidence, source, route = "auto", pin = false, unpin = false }: {
-      content: string;
-      project?: string;
-      user?: string;
-      actorUser?: string;
-      actorAgent?: string;
+    async ({ content, filePath, description, tags = [], type }: {
+      content?: string;
+      filePath?: string;
+      description?: string;
       tags?: string[];
       type?: "observation" | "fact" | "decision" | "context" | "preference" | "note";
-      visibilityScope?: "private" | "project" | "team" | "global";
-      learningType?: "success" | "failure" | "fix" | "insight";
-      confidence?: number;
-      source?: string;
-      route?: "auto" | "memory" | "learning" | "note";
-      pin?: boolean;
-      unpin?: boolean;
     }) => {
+      const resolvedProject = resolveProjectPath();
+
+      // File ingestion mode: ingest media file into memory
+      if (filePath) {
+        const { ingestFile } = await import('./multimodal-utils.js');
+        const result = await ingestFile(filePath, resolvedProject, description || content, tags);
+        
+        if (result.success) {
+          return {
+            content: [{
+              type: "text",
+              text: JSON.stringify({
+                ok: true,
+                memoryId: result.memoryId,
+                mediaType: result.mediaType,
+                message: `Ingested ${result.mediaType} file into memory`
+              }, null, 2)
+            }]
+          };
+        } else {
+          return {
+            content: [{
+              type: "text",
+              text: JSON.stringify({
+                ok: false,
+                error: result.error,
+                message: `Failed to ingest file: ${result.error}`
+              }, null, 2)
+            }]
+          };
+        }
+      }
+
+      // Text memory mode: require content
+      if (!content) {
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              ok: false,
+              error: "Either content or filePath is required",
+              message: "Provide content for text memory or filePath for media ingestion"
+            }, null, 2)
+          }]
+        };
+      }
+
       // Import detection function
       const { detectMemorySignals } = await import('../../../core/memory/trigger-detector.js');
       const signals = detectMemorySignals(content);
-      const resolvedProject = resolveProjectPath(project);
+      const user = undefined;
 
       let routing: "memory" | "learning" | "note" = "memory";
       let inferredType = type || signals.suggestedType;
       let routingReason = "";
 
-      // Check for learning patterns if auto mode
-      if (route === "auto") {
-        const hasLessonPattern = /(\bfailed\s+because\b|\blesson\s+learned\b|\bnext\s+time\b|\broot\s+cause\b|\bsuccess\b.*\bbecause\b|\bi\s+learned\b|\binsight\b)/i.test(content);
-        const hasLearningType = /(\bsuccess\b|\bfailure\b|\bfix\b|\binsight\b)/i.test(content);
+      // Auto-detect routing from content patterns
+      const hasLessonPattern = /(\bfailed\s+because\b|\blesson\s+learned\b|\bnext\s+time\b|\broot\s+cause\b|\bsuccess\b.*\bbecause\b|\bi\s+learned\b|\binsight\b)/i.test(content);
+      const hasLearningType = /(\bsuccess\b|\bfailure\b|\bfix\b|\binsight\b)/i.test(content);
+      const hasHackPattern = /(\bHACK\b|\bworkaround\b|\btemporary\s+fix\b)/i.test(content);
+      const hasFixmePattern = /(\bFIXME\b|\bXXX\b|\bbug\b.*\bfix\b)/i.test(content);
 
-        // Enhanced learning detection from rationale patterns
-        const hasHackPattern = /(\bHACK\b|\bworkaround\b|\btemporary\s+fix\b)/i.test(content);
-        const hasFixmePattern = /(\bFIXME\b|\bXXX\b|\bbug\b.*\bfix\b)/i.test(content);
-
-        if (hasLessonPattern || hasLearningType || hasHackPattern || hasFixmePattern) {
-          routing = "learning";
-          if (hasHackPattern || hasFixmePattern) {
-            routingReason = "Detected code pattern (HACK/FIXME)";
-          } else {
-            routingReason = "Detected learning pattern in content";
-          }
-        } else if (signals.suggestedType === 'task') {
-          routing = "memory";
-          routingReason = "Detected TODO pattern";
-        } else if (signals.suggestedType === 'observation' && /\b(note|note\s+that|log|remember)\b/i.test(content)) {
-          routing = "note";
-          routingReason = "Detected note pattern";
-        } else {
-          routing = "memory";
-          routingReason = `Detected as ${inferredType}`;
-        }
-      } else if (route === "learning") {
+      if (hasLessonPattern || hasLearningType || hasHackPattern || hasFixmePattern) {
         routing = "learning";
-        routingReason = "Override: forced to learning";
-      } else if (route === "note") {
+        routingReason = hasHackPattern || hasFixmePattern ? "Detected code pattern (HACK/FIXME)" : "Detected learning pattern in content";
+      } else if (signals.suggestedType === 'task') {
+        routing = "memory";
+        routingReason = "Detected TODO pattern";
+      } else if (signals.suggestedType === 'observation' && /\b(note|note\s+that|log|remember)\b/i.test(content)) {
         routing = "note";
-        routingReason = "Override: forced to note";
+        routingReason = "Detected note pattern";
       } else {
         routing = "memory";
-        routingReason = "Override: forced to memory";
+        routingReason = `Detected as ${inferredType}`;
       }
 
       let result: any;
 
       if (routing === "learning") {
-        // Determine learning type from content or override
-        let finalLearningType = learningType || "insight";
-        if (!learningType) {
-          if (/(\bsuccess\b|\bworked\b|\bfinished\b)/i.test(content)) finalLearningType = "success";
-          else if (/(\bfailed\b|\berror\b|\bbroke\b)/i.test(content)) finalLearningType = "failure";
-          else if (/(\bfix\b|\b workaround\b|\bsolved\b)/i.test(content)) finalLearningType = "fix";
-        }
+        // Determine learning type from content
+        let finalLearningType = "insight";
+        if (/(\bsuccess\b|\bworked\b|\bfinished\b)/i.test(content)) finalLearningType = "success";
+        else if (/(\bfailed\b|\berror\b|\bbroke\b)/i.test(content)) finalLearningType = "failure";
+        else if (/(\bfix\b|\b workaround\b|\bsolved\b)/i.test(content)) finalLearningType = "fix";
 
         const learning = await createLearning({
-          type: finalLearningType,
+          type: finalLearningType as "success" | "failure" | "fix" | "insight",
           content,
           project: resolvedProject,
           autoLink: true
         });
         result = { id: learning.id, type: "learning", learningType: finalLearningType, content };
       } else {
-        // Store as memory with all options
-          const memory = await rememberMemory({
-            content,
-            type: inferredType as any,
-            tags,
-            project: resolvedProject,
-            user,
-            actorUser: actorUser ?? user,
-            actorAgent,
-            source: source || 'mcp',
-            visibilityScope,
-          });
+        const memory = await rememberMemory({
+          content,
+          type: inferredType as any,
+          tags,
+          project: resolvedProject,
+          user,
+          source: 'mcp',
+        });
 
-        // Handle pin/unpin after creation
-        if (pin) {
-          const { pinMemory } = await import('../../../core/security/governance.js');
-          await pinMemory(memory.id);
-        } else if (unpin) {
-          const { unpinMemory } = await import('../../../core/security/governance.js');
-          await unpinMemory(memory.id);
-        }
-
-        result = { id: memory.id, type: "memory", memoryType: inferredType, content, pinned: pin };
+        result = { id: memory.id, type: "memory", memoryType: inferredType, content, pinned: false };
 
         // Auto-update knowledge graph (fire-and-forget)
         const { addMemoryToGraph } = await import('../../../core/graph/graph-builder.js');
@@ -325,7 +314,16 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
       return {
         content: [{
           type: "text",
-          text: `Remembered: ${result.id}\nRouting: ${routing}\nType: ${routing === "learning" ? result.learningType : result.memoryType}\nPriority: ${signals.priority}\nConfidence: ${signals.confidence}\nPinned: ${(result as any).pinned}\nReason: ${routingReason}\n\n${content.substring(0, 100)}${content.length > 100 ? '...' : ''}`
+          text: JSON.stringify({
+            ok: true,
+            id: result.id,
+            routing,
+            type: routing === "learning" ? result.learningType : result.memoryType,
+            priority: signals.priority,
+            confidence: signals.confidence,
+            reason: routingReason,
+            preview: content.substring(0, 100) + (content.length > 100 ? '...' : '')
+          }, null, 2)
         }]
       };
     }
@@ -337,50 +335,32 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
     "squish_recall",
     {
       description: "Recall memories by query, or retrieve a specific memory by ID",
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
       inputSchema: {
         query: z.string().describe("Query text or memory ID to recall"),
         limit: z.number().min(1).max(100).default(5).describe("Maximum results for query recall"),
         project: z.string().optional().describe("Project path filter"),
-        user: z.string().optional().describe("Filter by user (name or email)"),
-        actorUser: z.string().optional().describe("Actor user identity for team-mode ACL"),
-        actorAgent: z.string().optional().describe("Actor agent identity for team-mode ACL"),
-        type: z.enum(["observation", "fact", "decision", "context", "preference", "note", "task"]).optional().describe("Filter by memory type"),
-        visibilityScope: z.union([
-          z.enum(["private", "project", "team", "global"]),
-          z.array(z.enum(["private", "project", "team", "global"]))
-        ]).optional().describe("Filter by visibility scope(s)"),
-        place: z.string().optional().describe("Filter by place (inbox, ref, wip, sandbox, board, sparks, archive)")
       }
     },
-    async ({ query, limit = 5, project, user, actorUser, actorAgent, type, place, visibilityScope }: { query: string; limit?: number; project?: string; user?: string; actorUser?: string; actorAgent?: string; type?: MemoryType; place?: string; visibilityScope?: "private" | "project" | "team" | "global" | ("private" | "project" | "team" | "global")[] }) => {
+    async ({ query, limit = 5, project }: { query: string; limit?: number; project?: string }) => {
       const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(query);
       const resolvedProject = resolveProjectPath(project);
-      const actor = {
-        userId: actorUser ?? user,
-        agentId: actorAgent,
-      };
 
       if (isUuid) {
-        const memory = await getMemory(query, true, actor);
+        const memory = await getMemory(query, true);
         if (!memory) {
-          return { content: [{ type: "text", text: `Memory not found: ${query}` }], isError: true };
+          return errorResponse("not_found", "Memory not found", query, "Check the memory ID or try a different query");
         }
-        return { content: [{ type: "text", text: JSON.stringify({ ok: true, count: 1, results: [memory] }, null, 2) }] };
+        return { content: [{ type: "text", text: JSON.stringify({ ok: true, count: 1, results: [memory], version: SERVER_VERSION }, null, 2) }] };
       }
 
       const results = await searchMemories({
         query,
         limit,
         project: resolvedProject,
-        user,
-        actorUser: actor.userId ?? undefined,
-        actorAgent: actor.agentId ?? undefined,
-        type,
-        visibilityScope,
-        placeType: place
       });
 
-      return { content: [{ type: "text", text: JSON.stringify({ ok: true, count: results.length, results }, null, 2) }] };
+      return { content: [{ type: "text", text: JSON.stringify({ ok: true, count: results.length, results, version: SERVER_VERSION }, null, 2) }] };
     }
   )) toolCount++;
 
@@ -389,129 +369,90 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
     server,
     "squish_forget",
     {
-      description: "Delete a memory by ID, or bulk delete with filters (older-than, search, type)",
+      description: "Delete a memory by ID, or bulk delete with search query",
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
       inputSchema: {
         memoryId: z.string().optional().describe("Memory ID to delete (single)"),
-        olderThan: z.string().optional().describe("Bulk delete memories older than (e.g., '30 days', '6 months')"),
-        search: z.string().optional().describe("Search query to match specific memories"),
-        type: z.string().optional().describe("Filter by memory type"),
-        confirm: z.boolean().optional().describe("Actually delete (default is dry-run)"),
-        limit: z.number().optional().describe("Max memories to delete"),
-        project: z.string().optional().describe("Project path (defaults to current)"),
-        actorUser: z.string().optional().describe("Actor user identity for team-mode ACL"),
-        actorAgent: z.string().optional().describe("Actor agent identity for team-mode ACL")
+        search: z.string().optional().describe("Search query to match specific memories for bulk delete"),
       }
     },
-    async ({ memoryId, olderThan, search, type, confirm = false, limit = 100, project, actorUser, actorAgent }: { memoryId?: string; olderThan?: string; search?: string; type?: string; confirm?: boolean; limit?: number; project?: string; actorUser?: string; actorAgent?: string }) => {
+    async ({ memoryId, search }: { memoryId?: string; search?: string }) => {
       const db = await getDb();
       const schema = await getSchema();
       const sqliteDb = db as any;
-      // Auto-detect project if not provided, but allow truly global (null) scope
-      const resolvedProject = resolveProjectPath(project);
-      const proj = resolvedProject || undefined;
+      const resolvedProject = resolveProjectPath();
 
-      // Single memory deletion
+      // Single memory deletion (auto-confirm)
       if (memoryId) {
-        const actor = { userId: actorUser, agentId: actorAgent };
-        const memory = await getMemory(memoryId, false, actor);
+        const memory = await getMemory(memoryId, false);
         if (!memory) {
-          return { content: [{ type: "text", text: `Memory not found or not accessible: ${memoryId}` }], isError: true };
+          return errorResponse("not_found", "Memory not found or not accessible", memoryId);
         }
         await sqliteDb.delete(schema.memories).where(eq(schema.memories.id, memoryId));
-        return { content: [{ type: "text", text: `Memory deleted: ${memoryId}` }] };
+        return { content: [{ type: "text", text: JSON.stringify({ ok: true, deleted: 1, memoryId, version: SERVER_VERSION }) }] };
       }
 
       // Bulk deletion
-      if (!olderThan && !search) {
-        return { content: [{ type: "text", text: "Error: Provide memoryId or use --older-than / --search for bulk delete" }], isError: true };
+      if (!search) {
+        return errorResponse("invalid_args", "Provide memoryId or search query for bulk delete");
       }
 
       const results = await searchMemories({
-        query: search || '',
-        type: type as MemoryType,
-        limit,
-        project: proj,
-        actorUser,
-        actorAgent,
+        query: search,
+        limit: 10,
+        project: resolvedProject,
       });
 
-      let filtered = results;
-      if (olderThan) {
-        filtered = filterByDateRange(results, '', olderThan);
-      }
-
-      const deleted = [];
-      if (confirm) {
-        for (const mem of filtered) {
-          await sqliteDb.delete(schema.memories).where(eq(schema.memories.id, mem.id));
-          deleted.push(mem.id);
-        }
-      }
-
-      return { content: [{ type: "text", text: JSON.stringify({ ok: true, matched: filtered.length, deleted: deleted.length, dryRun: !confirm }, null, 2) }] };
+      return { content: [{ type: "text", text: JSON.stringify({ ok: true, matched: results.length, deleted: 0, dryRun: true, message: "Dry run. Re-call with confirm=true to execute.", version: SERVER_VERSION }, null, 2) }] };
     }
   )) toolCount++;
 
 
-  // squish_link - Unified graph operations (find related, add links, list)
+  // squish_link - Unified graph operations (find related, add links)
   if (safeRegisterTool(
     server,
     "squish_link",
     {
-      description: "Manage memory associations: find related memories, add links, or list associations",
+      description: "Manage memory associations: find related memories or add a link between two memories",
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
       inputSchema: {
-        action: z.enum(["find", "add", "list"]).describe("Action: find, add, or list"),
-        memoryId: z.string().optional().describe("Memory ID (for find action)"),
-        fromMemoryId: z.string().optional().describe("Source memory ID (for add action)"),
-        toMemoryId: z.string().optional().describe("Target memory ID (for add action)"),
-        type: z.string().optional().describe("Association type (for add action): relates_to, supports, contradicts, supersedes, duplicate"),
-        weight: z.number().min(0).max(1).default(0.5).describe("Association strength (0-1)"),
-        depth: z.number().min(1).max(5).default(2).describe("Graph traversal depth (for find action)"),
-        minWeight: z.number().min(0).max(1).default(0.3).describe("Minimum weight (for find action)")
+        action: z.enum(["find", "add"]).describe("Action: find related memories or add a link"),
+        memoryId: z.string().optional().describe("Memory ID (required for find action)"),
+        fromId: z.string().optional().describe("Source memory ID (required for add action)"),
+        toId: z.string().optional().describe("Target memory ID (required for add action)"),
       }
     },
-    async ({ action, memoryId, fromMemoryId, toMemoryId, type = "relates_to", weight = 0.5, depth = 2, minWeight = 0.3 }: { action: "find" | "add" | "list"; memoryId?: string; fromMemoryId?: string; toMemoryId?: string; type?: string; weight?: number; depth?: number; minWeight?: number }) => {
+    async ({ action, memoryId, fromId, toId }: { action: "find" | "add"; memoryId?: string; fromId?: string; toId?: string }) => {
       if (action === "find") {
         if (!memoryId) {
-          return { content: [{ type: "text", text: "Error: memoryId required for find action" }], isError: true };
+          return errorResponse("invalid_args", "memoryId required for find action");
         }
-        const related = await getRelatedMemories(memoryId, depth * 5);
-        const filtered = related.filter((r: any) => r.weight >= minWeight);
-        const formatted = filtered.map((r: any, i: number) =>
+        const related = await getRelatedMemories(memoryId, 10);
+        const formatted = related.map((r: any, i: number) =>
           `${i + 1}. [${r.type || "memory"}] ${r.content?.substring(0, 100)}... (weight: ${r.weight?.toFixed(2)})`
         ).join("\n");
-        return { content: [{ type: "text", text: `Found ${filtered.length} related memories:\n\n${formatted}` }] };
+        return { content: [{ type: "text", text: `Found ${related.length} related memories:\n\n${formatted}` }] };
       }
 
       if (action === "add") {
-        if (!fromMemoryId || !toMemoryId) {
-          return { content: [{ type: "text", text: "Error: fromMemoryId and toMemoryId required for add action" }], isError: true };
+        if (!fromId || !toId) {
+          return errorResponse("invalid_args", "fromId and toId required for add action");
         }
-        await createAssociation(fromMemoryId, toMemoryId, type as AssociationType, weight);
+        await createAssociation(fromId, toId, "relates_to", 0.5);
 
-        // Auto-update knowledge graph (fire-and-forget)
+        // Auto-update knowledge graph
         try {
           const { addMemoryToGraph } = await import('../../../core/graph/graph-builder.js');
           await Promise.all([
-            addMemoryToGraph(fromMemoryId).catch(() => null),
-            addMemoryToGraph(toMemoryId).catch(() => null)
+            addMemoryToGraph(fromId).catch(() => null),
+            addMemoryToGraph(toId).catch(() => null)
           ]);
-        } catch (e) {
-          // Ignore graph errors
-        }
+        } catch (e) { /* Ignore graph errors */ }
 
-        return { content: [{ type: "text", text: `Association created: ${fromMemoryId} -> ${toMemoryId} (${type})` }] };
+        return { content: [{ type: "text", text: `Association created: ${fromId} -> ${toId} (relates_to)` }] };
       }
 
-      if (action === "list") {
-        const db = await getDb();
-        const schema = await getSchema();
-        const sqliteDb = db as any;
-        const associations = await sqliteDb.select().from(schema.memoryAssociations).limit(100);
-        return { content: [{ type: "text", text: JSON.stringify({ ok: true, count: associations.length, associations }, null, 2) }] };
-      }
-
-      return { content: [{ type: "text", text: "Error: invalid action. Use find, add, or list" }], isError: true };
+      return errorResponse("invalid_action", "Invalid action. Use find or add");
     }
   )) toolCount++;
 
@@ -521,15 +462,14 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
     "squish_context",
     {
       description: "Get project context or list registered projects",
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
       inputSchema: {
         project: z.string().optional().describe("Project path"),
         limit: z.number().min(1).max(50).default(10).describe("Maximum memories to return"),
-        listProjects: z.boolean().optional().describe("List registered projects instead of loading context"),
-        actorUser: z.string().optional().describe("Actor user identity for team-mode ACL"),
-        actorAgent: z.string().optional().describe("Actor agent identity for team-mode ACL")
+        listProjects: z.boolean().optional().describe("List registered projects instead of loading context")
       }
     },
-    async ({ project, limit = 10, listProjects = false, actorUser, actorAgent }: { project?: string; limit?: number; listProjects?: boolean; actorUser?: string; actorAgent?: string }) => {
+    async ({ project, limit = 10, listProjects = false }: { project?: string; limit?: number; listProjects?: boolean }) => {
       const resolvedProject = resolveProjectPath(project);
       if (listProjects) {
         const projects = await getAllProjects();
@@ -549,59 +489,76 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
                 resolution: entry.path === '.' ? 'legacy-placeholder' : (entry.metadata?.source === 'mcp' ? 'auto-created' : 'inferred'),
               })),
               nextStep: scope.nextStep,
+              version: SERVER_VERSION,
             }, null, 2),
           }],
         };
       }
 
-      const context = await buildContextState(resolvedProject, limit, {
-        userId: actorUser,
-        agentId: actorAgent,
-      });
-      return { content: [{ type: "text", text: JSON.stringify({ ok: true, ...context }, null, 2) }] };
+      const context = await buildContextState(resolvedProject, limit);
+      return { content: [{ type: "text", text: JSON.stringify({ ok: true, ...context, version: SERVER_VERSION }, null, 2) }] };
     }
   )) toolCount++;
 
-  // squish_health - Check Squish system health status
-  if (safeRegisterTool(
-    server,
-    "squish_health",
-    {
-      description: "Check Squish system health status",
-      inputSchema: {
-        project: z.string().optional().describe("Project path")
-      }
-    },
-    async ({ project }: { project?: string }): Promise<{ content: Array<{ type: string; text: string }> }> => {
-      const qmdClient = await getQMDClient();
-      const qmdAvailable = await qmdClient.isAvailable();
-      const resolvedProject = resolveProjectPath(project);
-      const health = await buildHealthState(resolvedProject);
-
-      return { content: [{ type: "text", text: JSON.stringify({
-        ok: health.severity !== "broken",
-        version: SERVER_VERSION,
-        qmd: qmdAvailable ? "available" : "unavailable",
-        timestamp: new Date().toISOString(),
-        ...health,
-      }, null, 2) }] };
-    }
-  )) toolCount++;
-
-  // squish_stats - Get memory statistics for a project
+  // squish_stats - Get memory statistics, system health, watcher control, or consolidation
   if (safeRegisterTool(
     server,
     "squish_stats",
     {
-      description: "Get memory statistics (global if no project)",
+      description: "Get memory statistics and system health. Use action to control watcher or run LLM consolidation.",
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
       inputSchema: {
-        project: z.string().optional().describe("Project path filter (global if omitted)")
+        project: z.string().optional().describe("Project path filter (global if omitted)"),
+        action: z.enum(["status", "start_watcher", "stop_watcher", "consolidate"]).optional().describe(
+          "status (default): return stats + health + watcher status + consolidation config. " +
+          "start_watcher: start file watcher for multimodal ingestion. " +
+          "stop_watcher: stop file watcher. " +
+          "consolidate: run LLM cross-connection finding between memories."
+        ),
       }
     },
-    async ({ project }: { project?: string }) => {
+    async ({ project, action = "status" }: { project?: string; action?: string }) => {
       const resolvedProject = resolveProjectPath(project);
-      const stats = await buildStatsState(resolvedProject);
-      return { content: [{ type: "text", text: JSON.stringify({ ok: true, ...stats }, null, 2) }] };
+
+      // --- Watcher actions ---
+      if (action === "start_watcher") {
+        const result = await controlWatcher("start", resolvedProject);
+        return { content: [{ type: "text", text: JSON.stringify({ ok: result.success, action: "start_watcher", error: result.error }, null, 2) }] };
+      }
+      if (action === "stop_watcher") {
+        const result = await controlWatcher("stop", resolvedProject);
+        return { content: [{ type: "text", text: JSON.stringify({ ok: result.success, action: "stop_watcher", error: result.error }, null, 2) }] };
+      }
+
+      // --- Consolidation action ---
+      if (action === "consolidate") {
+        const result = await runLlmConsolidation(resolvedProject, false);
+        return { content: [{ type: "text", text: JSON.stringify({ ok: result.success, action: "consolidate", ...result }, null, 2) }] };
+      }
+
+      // --- Default: status (includes everything) ---
+      const [stats, healthState] = await Promise.all([
+        buildStatsState(resolvedProject),
+        buildHealthState(resolvedProject),
+      ]);
+      const qmdClient = await getQMDClient();
+      const qmdAvailable = await qmdClient.isAvailable();
+
+      // Enrich with watcher and consolidation status
+      const [watcherStatus, consolidationCfg] = await Promise.all([
+        getWatcherStatus(resolvedProject).catch(() => null),
+        Promise.resolve(getConsolidationConfig()),
+      ]);
+
+      return { content: [{ type: "text", text: JSON.stringify({
+        ok: true,
+        ...stats,
+        health: healthState,
+        qmd: qmdAvailable ? "available" : "unavailable",
+        watcher: watcherStatus,
+        consolidation: consolidationCfg,
+        version: SERVER_VERSION,
+      }, null, 2) }] };
     }
   )) toolCount++;
 
@@ -611,6 +568,7 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
     "squish_inspect",
     {
       description: "Explain why a memory was retained, where it was routed, and whether raw fallback exists",
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
       inputSchema: {
         memoryId: z.string().uuid().describe("Memory ID to inspect")
       }
@@ -618,388 +576,9 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
     async ({ memoryId }: { memoryId: string }) => {
       const inspection = await buildInspectState(memoryId);
       if (!inspection) {
-        return { content: [{ type: "text", text: `Memory not found: ${memoryId}` }], isError: true };
+        return errorResponse("not_found", "Memory not found", memoryId);
       }
-      return { content: [{ type: "text", text: JSON.stringify({ ok: true, inspection }, null, 2) }] };
-    }
-  )) toolCount++;
-
-  // squish_pin - Pin or unpin a memory to prevent consolidation
-  if (safeRegisterTool(
-    server,
-    "squish_pin",
-    {
-      description: "Pin or unpin a memory to prevent consolidation",
-      inputSchema: {
-        memoryId: z.string().uuid().describe("Memory ID"),
-        pinned: z.boolean().default(true).describe("Pin (true) or unpin (false)")
-      }
-    },
-    async ({ memoryId, pinned }: { memoryId: string; pinned: boolean }) => {
-      const db = await getDb();
-      const schema = await getSchema();
-      const sqliteDb = db as any;
-
-      await sqliteDb.update(schema.memories)
-        .set({ isPinned: pinned })
-        .where(eq(schema.memories.id, memoryId));
-
-      return { content: [{ type: "text", text: `Memory ${memoryId} ${pinned ? 'pinned' : 'unpinned'}` }] };
-    }
-  )) toolCount++;
-
-  // squish_recent - Get recent memories by period
-  if (safeRegisterTool(
-    server,
-    "squish_recent",
-    {
-      description: "Get recent memories by period (today, yesterday, thisweek, 7days, 30days, or custom)",
-      inputSchema: {
-        period: z.string().optional().describe("Period: today, yesterday, thisweek, 7days, 14days, 30days, 90days"),
-        since: z.string().optional().describe("Start date (alternative to period, e.g., '3 days', '2026-01-01')"),
-        until: z.string().optional().describe("End date (alternative to period, e.g., 'now', '2026-01-15')"),
-        limit: z.number().optional().describe("Max results to return"),
-        project: z.string().optional().describe("Project path filter (global if omitted)"),
-        actorUser: z.string().optional().describe("Actor user identity for team-mode ACL"),
-        actorAgent: z.string().optional().describe("Actor agent identity for team-mode ACL")
-      }
-    },
-    async ({ period = 'today', since, until, limit = 10, project, actorUser, actorAgent }: { period?: string; since?: string; until?: string; limit?: number; project?: string; actorUser?: string; actorAgent?: string }) => {
-      const proj = resolveProjectPath(project); // auto-detect if undefined
-      let sinceDate: string, untilDate: string;
-
-      if (since && until) {
-        sinceDate = since;
-        untilDate = until;
-      } else if (since) {
-        sinceDate = since;
-        untilDate = 'now';
-      } else {
-        const periodMap: Record<string, [string, string]> = {
-          today: ['today', 'now'],
-          yesterday: ['yesterday', 'today'],
-          thisweek: ['thisweek', 'now'],
-          '7days': ['7 days', 'now'],
-          '14days': ['14 days', 'now'],
-          '30days': ['30 days', 'now'],
-          '90days': ['90 days', 'now'],
-        };
-        const mapped = periodMap[period];
-        if (mapped) {
-          [sinceDate, untilDate] = mapped;
-        } else {
-          sinceDate = period;
-          untilDate = 'now';
-        }
-      }
-
-      const results = await getRecent(proj ?? '', 100, {
-        userId: actorUser,
-        agentId: actorAgent,
-      });
-      const filtered = filterByDateRange(results, sinceDate, untilDate);
-      const limited = filtered.slice(0, limit);
-      return { content: [{ type: "text", text: JSON.stringify({ ok: true, period, since: sinceDate, until: untilDate, count: limited.length, results: limited }, null, 2) }] };
-    }
-  )) toolCount++;
-
-  // squish_stale - Show stale memories
-  if (safeRegisterTool(
-    server,
-    "squish_stale",
-    {
-      description: "Show stale memories (old, low-confidence, or rarely accessed)",
-      inputSchema: {
-        days: z.number().optional().describe("Show memories older than N days"),
-        limit: z.number().optional().describe("Max results to return"),
-        project: z.string().optional().describe("Project path filter (global if omitted)"),
-        actorUser: z.string().optional().describe("Actor user identity for team-mode ACL"),
-        actorAgent: z.string().optional().describe("Actor agent identity for team-mode ACL")
-      }
-    },
-    async ({ days = 30, limit = 20, project, actorUser, actorAgent }: { days?: number; limit?: number; project?: string; actorUser?: string; actorAgent?: string }) => {
-      const proj = resolveProjectPath(project); // auto-detect if undefined
-      const cutoffDate = new Date(Date.now() - days * 86400000);
-      const results = await getRecent(proj ?? '', 500, {
-        userId: actorUser,
-        agentId: actorAgent,
-      });
-      const stale = results.filter((m: any) => {
-        const created = m.createdAt ? new Date(m.createdAt) : null;
-        const isOld = created && created < cutoffDate;
-        const isLowConfidence = m.confidenceLevel === 'outdated' || m.confidenceLevel === 'speculative';
-        const hasLowImportance = (m.importance || 50) < 40;
-        return isOld || isLowConfidence || hasLowImportance;
-      });
-      const limited = stale.slice(0, limit);
-      const summary = {
-        totalStale: stale.length,
-        old: stale.filter((m: any) => m.createdAt && new Date(m.createdAt) < cutoffDate).length,
-        lowConfidence: stale.filter((m: any) => m.confidenceLevel === 'outdated' || m.confidenceLevel === 'speculative').length,
-        lowImportance: stale.filter((m: any) => (m.importance || 50) < 40).length,
-      };
-      return { content: [{ type: "text", text: JSON.stringify({ ok: true, summary, memories: limited }, null, 2) }] };
-    }
-  )) toolCount++;
-
-  // squish_list_pinned - List all pinned memories
-  if (safeRegisterTool(
-    server,
-    "squish_list_pinned",
-    {
-      description: "List all pinned memories (pinned memories are always preserved)",
-      inputSchema: {
-        project: z.string().optional().describe("Project path (optional, uses current project if omitted)")
-      }
-    },
-    async ({ project }: { project?: string }) => {
-      const { getPinnedMemories } = await import('../../../core/security/governance.js');
-      const resolvedProject = resolveProjectPath(project);
-      const pinned = await getPinnedMemories(resolvedProject);
-      return { content: [{ type: "text", text: JSON.stringify({ ok: true, count: pinned.length, pinned }, null, 2) }] };
-    }
-  )) toolCount++;
-
-  // squish_on_session_start - Trigger session start
-  if (safeRegisterTool(
-    server,
-    "squish_on_session_start",
-    {
-      description: "Trigger session start - injects context from previous sessions, initializes session tracking",
-      inputSchema: {
-        projectPath: z.string().optional().describe("Project path (global if omitted)"),
-        mode: z.enum(["startup", "resume", "compact"]).default("startup").describe("Session mode")
-      }
-    },
-    async ({ projectPath, mode = "startup" }: { projectPath?: string; mode?: "startup" | "resume" | "compact" }) => {
-      const { handleSessionStart } = await import('../../../core/hooks/agent-hooks.js');
-      const resolvedProjectPath = resolveProjectPath(projectPath);
-      const result = await handleSessionStart({
-        projectPath: resolvedProjectPath ?? '',
-        mode,
-        agentType: 'opencode'
-      });
-      return {
-        content: [{
-          type: "text",
-          text: `Session started: ${result.sessionId}\nMemories injected: ${result.count}\n\n${result.memories?.join('\n') || 'No recent memories'}`
-        }]
-      };
-    }
-  )) toolCount++;
-
-  // squish_on_tool_use - Capture tool use event
-  if (safeRegisterTool(
-    server,
-    "squish_on_tool_use",
-    {
-      description: "Capture a tool use event for memory - stores observation about tool execution",
-      inputSchema: {
-        toolName: z.string().describe("Name of the tool used"),
-        toolInput: z.record(z.string(), z.any()).describe("Tool input/arguments"),
-        toolResult: z.any().optional().describe("Tool result/output"),
-        projectPath: z.string().optional().describe("Project path")
-      }
-    },
-    async ({ toolName, toolInput, toolResult, projectPath }: { toolName: string; toolInput: Record<string, any>; toolResult?: any; projectPath?: string }) => {
-      const { handlePostToolUse } = await import('../../../core/hooks/agent-hooks.js');
-      const resolvedProjectPath = resolveProjectPath(projectPath);
-      const result = await handlePostToolUse({
-        toolName,
-        toolInput,
-        toolResult,
-        projectPath: resolvedProjectPath ?? '',
-        agentType: 'opencode'
-      });
-      return {
-        content: [{
-          type: "text",
-          text: `Tool use captured: ${toolName}\nCaptured: ${result.captured}\nMemory ID: ${result.memoryId || 'N/A'}${result.reason ? '\nReason: ' + result.reason : ''}`
-        }]
-      };
-    }
-  )) toolCount++;
-
-  // squish_on_session_end - Trigger session end
-  if (safeRegisterTool(
-    server,
-    "squish_on_session_end",
-    {
-      description: "Trigger session end - performs cleanup and signals session completion",
-      inputSchema: {
-        projectPath: z.string().optional().describe("Project path (global if omitted)")
-      }
-    },
-    async ({ projectPath }: { projectPath?: string }) => {
-      const { handleSessionEnd } = await import('../../../core/hooks/agent-hooks.js');
-      const resolvedProjectPath = resolveProjectPath(projectPath);
-      const result = await handleSessionEnd({
-        projectPath: resolvedProjectPath ?? '',
-        agentType: 'opencode'
-      });
-      return {
-        content: [{
-          type: "text",
-          text: `Session ended\nSnapshot: ${result.snapshotId || 'none'}\nMemories saved: ${result.memoriesSaved}`
-        }]
-      };
-    }
-  )) toolCount++;
-
-  // squish_strategy - Polymorphic strategy tool with action-based routing
-  if (safeRegisterTool(
-    server,
-    "squish_strategy",
-    {
-      description: "Manage actionable strategies. Actions: read (before task), write (after task), list, search, supersede, stats.",
-      inputSchema: {
-        action: z.enum(["read", "write", "list", "search", "supersede", "stats"]).describe("Action to perform"),
-        // read params
-        tags: z.array(z.string()).optional().describe("Filter by tags (read/list)"),
-        type: z.enum(["procedure", "heuristic", "pattern", "constraint", "workaround"]).optional().describe("Filter by type (read/list/write)"),
-        // write params
-        title: z.string().optional().describe("Strategy title (write)"),
-        description: z.string().optional().describe("Strategy description (write)"),
-        context: z.string().optional().describe("When to apply (write)"),
-        steps: z.array(z.string()).optional().describe("Step-by-step procedure (write)"),
-        successCriteria: z.string().optional().describe("How to know it worked (write)"),
-        failureIndicators: z.string().optional().describe("How to know it failed (write)"),
-        confidence: z.number().min(0).max(1).optional().describe("Initial confidence 0-1 (write)"),
-        // list params
-        status: z.enum(["active", "superseded", "deprecated", "experimental"]).optional().describe("Filter by status (list)"),
-        limit: z.number().min(1).max(100).default(10).describe("Max results"),
-        offset: z.number().min(0).default(0).describe("Pagination offset (list)"),
-        // search params
-        query: z.string().optional().describe("Search query (search)"),
-        // supersede params
-        oldStrategyId: z.string().optional().describe("Strategy to supersede (supersede)"),
-        newStrategyId: z.string().optional().describe("New strategy ID (supersede)"),
-        reason: z.string().optional().describe("Reason for supersession (supersede)"),
-        // common
-        projectId: z.string().optional().describe("Project path")
-      }
-    },
-    async (input: any) => {
-      const { action, tags, type, title, description: desc, context, steps, successCriteria, failureIndicators, confidence, status, limit = 10, offset = 0, query, oldStrategyId, newStrategyId, reason, projectId } = input;
-      const resolvedProject = resolveProjectPath(projectId);
-
-      if (action === "read") {
-        // Read strategies ranked by confidence + recency, filtered by type/tags
-        const strategies = await listStrategies({
-          projectId: resolvedProject || undefined,
-          strategyType: type as StrategyType | undefined,
-          tags,
-          limit,
-          offset
-        });
-        // Sort by confidence descending, then by updatedAt descending
-        strategies.sort((a: any, b: any) => (b.confidence || 0) - (a.confidence || 0));
-        return { content: [{ type: "text", text: JSON.stringify({ ok: true, count: strategies.length, strategies }, null, 2) }] };
-      }
-
-      if (action === "write") {
-        if (!title || !desc || !type) {
-          return { content: [{ type: "text", text: "Error: title, description, and type are required for write action" }], isError: true };
-        }
-        const strategy = await createStrategy({
-          projectId: resolvedProject || undefined,
-          strategyType: type as StrategyType,
-          title,
-          description: desc,
-          context,
-          steps,
-          successCriteria,
-          failureIndicators,
-          tags,
-          confidence: confidence ?? 0.5
-        });
-        return { content: [{ type: "text", text: JSON.stringify({ ok: true, strategy }, null, 2) }] };
-      }
-
-      if (action === "list") {
-        const strategies = await listStrategies({
-          projectId: resolvedProject || undefined,
-          strategyType: type as StrategyType | undefined,
-          status: status as StrategyStatus | undefined,
-          tags,
-          limit,
-          offset
-        });
-        return { content: [{ type: "text", text: JSON.stringify({ ok: true, count: strategies.length, strategies }, null, 2) }] };
-      }
-
-      if (action === "search") {
-        if (!query) {
-          return { content: [{ type: "text", text: "Error: query is required for search action" }], isError: true };
-        }
-        const strategies = await searchStrategies(query, resolvedProject || undefined);
-        return { content: [{ type: "text", text: JSON.stringify({ ok: true, count: strategies.length, strategies }, null, 2) }] };
-      }
-
-      if (action === "supersede") {
-        if (!oldStrategyId) {
-          return { content: [{ type: "text", text: "Error: oldStrategyId is required for supersede action" }], isError: true };
-        }
-        await supersedeStrategy(oldStrategyId, newStrategyId || '', reason);
-        return { content: [{ type: "text", text: JSON.stringify({ ok: true, superseded: oldStrategyId, by: newStrategyId || 'deprecated', reason }, null, 2) }] };
-      }
-
-      if (action === "stats") {
-        const stats = await getStrategyStats(resolvedProject || undefined);
-        return { content: [{ type: "text", text: JSON.stringify({ ok: true, stats }, null, 2) }] };
-      }
-
-      return { content: [{ type: "text", text: "Error: invalid action. Use read, write, list, search, supersede, or stats" }], isError: true };
-    }
-  )) toolCount++;
-
-  // squish_consolidate - Run background consolidation
-  if (safeRegisterTool(
-    server,
-    "squish_consolidate",
-    {
-      description: "Run background consolidation - dedup, summarize, invalidate stale memories",
-      inputSchema: {
-        projectId: z.string().optional().describe("Project path (auto-detected if not provided)"),
-        enabled: z.boolean().optional().describe("Enable/disable consolidation (default: true)"),
-        deduplicationThreshold: z.number().min(0).max(1).optional().describe("Cosine similarity threshold for dedup (default: 0.92)"),
-        stalenessDays: z.number().min(1).optional().describe("Days before memory is stale (default: 90)"),
-        maxConsolidationsPerRun: z.number().min(1).optional().describe("Max operations per run (default: 50)"),
-      }
-    },
-    async ({ projectId, enabled, deduplicationThreshold, stalenessDays, maxConsolidationsPerRun }: {
-      projectId?: string;
-      enabled?: boolean;
-      deduplicationThreshold?: number;
-      stalenessDays?: number;
-      maxConsolidationsPerRun?: number;
-    }) => {
-      const { runConsolidation } = await import('../../../core/memory/sleep-consolidation.js');
-      const resolvedProject = resolveProjectPath(projectId);
-      const proj = resolvedProject || 'default';
-
-      const config: Record<string, unknown> = {};
-      if (enabled !== undefined) config.enabled = enabled;
-      if (deduplicationThreshold !== undefined) config.deduplicationThreshold = deduplicationThreshold;
-      if (stalenessDays !== undefined) config.stalenessDays = stalenessDays;
-      if (maxConsolidationsPerRun !== undefined) config.maxConsolidationsPerRun = maxConsolidationsPerRun;
-
-      const result = await runConsolidation(proj, config);
-
-      return {
-        content: [{
-          type: "text",
-          text: JSON.stringify({
-            ok: true,
-            project: proj,
-            deduplicated: result.deduplicated,
-            summarized: result.summarized,
-            invalidated: result.invalidated,
-            decayed: result.decayed,
-            errors: result.errors,
-          }, null, 2)
-        }]
-      };
+      return { content: [{ type: "text", text: JSON.stringify({ ok: true, inspection, version: SERVER_VERSION }, null, 2) }] };
     }
   )) toolCount++;
 
@@ -1052,10 +631,40 @@ async function runHttp(server: McpServer, port: number): Promise<void> {
   }
 
   const app = express();
-  app.use(express.json({ strict: false }));
+  app.use(express.json());
 
   // Store transports by session ID
   const transports = new Map<string, StreamableHTTPServerTransport>();
+
+  // Clean up stale sessions every 5 minutes
+  const cleanupInterval = setInterval(() => {
+    const now = Date.now();
+    for (const [sid, transport] of transports) {
+      const lastActivity = (transport as any)._lastActivity;
+      if (lastActivity && now - lastActivity > 30 * 60 * 1000) {
+        console.error(`[MCP] Cleaning up stale session: ${sid}`);
+        transport.close().catch(() => {});
+        transports.delete(sid);
+      }
+    }
+  }, 5 * 60 * 1000);
+
+  // Clear interval on shutdown
+  process.on('SIGTERM', () => clearInterval(cleanupInterval));
+  process.on('SIGINT', () => clearInterval(cleanupInterval));
+
+  // CORS for web-based MCP clients
+  app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, mcp-session-id, x-api-key, authorization');
+    res.header('Access-Control-Expose-Headers', 'mcp-session-id');
+    if (req.method === 'OPTIONS') {
+      res.sendStatus(204);
+      return;
+    }
+    next();
+  });
 
   // Helper to check if request is an initialization request
   function isInitializeRequest(body: any): boolean {
@@ -1084,13 +693,13 @@ async function runHttp(server: McpServer, port: number): Promise<void> {
     });
   });
 
-  // API key auth for HTTP mode
+  // API key auth for HTTP mode - MANDATORY for security (H-01)
   const MCP_API_KEY = process.env.SQUISH_MCP_API_KEY || '';
   if (!MCP_API_KEY) {
-    console.warn(`[MCP] WARNING: HTTP mode without SQUISH_MCP_API_KEY - API is accessible to all localhost clients`);
+    console.error(`[MCP] FATAL: HTTP mode requires SQUISH_MCP_API_KEY to be set. Refusing to start without authentication.`);
+    process.exit(1);
   }
   function checkMcpAuth(req: express.Request, res: express.Response): boolean {
-    if (!MCP_API_KEY) return true; // No key configured = localhost-only assumed
     const provided = req.headers['x-api-key'] as string || req.headers['authorization']?.replace('Bearer ', '') || '';
     if (provided !== MCP_API_KEY) {
       res.status(401).json({ error: 'Unauthorized. Set SQUISH_MCP_API_KEY or provide x-api-key header.' });
@@ -1253,7 +862,7 @@ async function runHealthCheck(): Promise<void> {
 async function main(): Promise<void> {
   try {
     console.error(`[${SERVER_NAME}] v${SERVER_VERSION} initializing...`);
-    console.error(`[${SERVER_NAME}] Mode: ${config.isManagedMode ? "managed" : "local"}`);
+    console.error(`[${SERVER_NAME}] Mode: local`);
     console.error(`[${SERVER_NAME}] Embeddings: ${config.embeddingsProvider}`);
 
     const { mode, port, health } = parseArgs();
@@ -1261,14 +870,6 @@ async function main(): Promise<void> {
     if (health) {
       await runHealthCheck();
       return;
-    }
-
-    // Start background worker for lifecycle maintenance, decay, etc.
-    try {
-      await startWorker();
-      console.error(`[${SERVER_NAME}] Background worker started`);
-    } catch (error) {
-      console.error(`[${SERVER_NAME}] Warning: Failed to start background worker:`, error);
     }
 
     // Initialize cron scheduler for scheduled jobs
@@ -1281,12 +882,6 @@ async function main(): Promise<void> {
 
     const shutdown = async () => {
       console.error(`[${SERVER_NAME}] Shutting down...`);
-      try {
-        await stopWorker();
-        console.error(`[${SERVER_NAME}] Background worker stopped`);
-      } catch (error) {
-        console.error(`[${SERVER_NAME}] Error stopping worker:`, error);
-      }
       process.exit(0);
     };
 

@@ -9,288 +9,69 @@
 
 Squish is an AI memory system for coding agents. Local-first MCP runtime with connectors, knowledge graphs, and multi-tier deployment. Free locally, paid Cloud for sync and teams.
 
-```bash
-npm i -g squish-memory && squish install --all
-```
-
 <p align="center">
   <img src="assets/demo/squish-demo.gif" width="780" alt="Squish Demo" />
 </p>
 
 ---
 
-### Core Concepts
-
-<table>
-  <thead>
-    <tr style="background-color: #f6f8fa; border-bottom: 2px solid #d0d7de;">
-      <th style="padding: 10px 14px; text-align: left;">Concept</th>
-      <th style="padding: 10px 14px; text-align: left;">What It Is</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr style="border-bottom: 1px solid #d0d7de;">
-      <td style="padding: 10px 14px;"><strong>Recall</strong></td>
-      <td style="padding: 10px 14px;">Durable memory — decisions, preferences, constraints</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de; background-color: #f6f8fa;">
-      <td style="padding: 10px 14px;"><strong>Sessions</strong></td>
-      <td style="padding: 10px 14px;">Evidence from past agent runs</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de;">
-      <td style="padding: 10px 14px;"><strong>Pinned</strong></td>
-      <td style="padding: 10px 14px;">Stable facts that do not decay</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de; background-color: #f6f8fa;">
-      <td style="padding: 10px 14px;"><strong>Beliefs</strong></td>
-      <td style="padding: 10px 14px;">Passive model of user/project</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de;">
-      <td style="padding: 10px 14px;"><strong>Strategies</strong></td>
-      <td style="padding: 10px 14px;">Active operating rules</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de; background-color: #f6f8fa;">
-      <td style="padding: 10px 14px;"><strong>Decay</strong></td>
-      <td style="padding: 10px 14px;">Stale weak traces fade automatically</td>
-    </tr>
-    <tr>
-      <td style="padding: 10px 14px;"><strong>Graph</strong></td>
-      <td style="padding: 10px 14px;">Reinforced relationships from usage</td>
-    </tr>
-  </tbody>
-</table>
-
----
-
-## The Problem: Agents Forget Everything
-
-Every AI coding agent starts from zero when a new session begins. The architecture decision from last week, the config you spent an hour debugging, the preference you mentioned yesterday — gone.
-
-Built-in memory files like CLAUDE.md and .cursorrules help, but they have hard limits. They cap out around 200 lines, require manual curation, and do not work across agents. You end up copy-pasting the same context into every tool.
-
-Squish gives you persistent memory for coding agents that scales without limits. No manual maintenance. No token waste. No agent lock-in.
-
-### Three Layers of Memory
-
-<table>
-  <thead>
-    <tr style="background-color: #f6f8fa; border-bottom: 2px solid #d0d7de;">
-      <th style="padding: 10px 14px; text-align: left;">Layer</th>
-      <th style="padding: 10px 14px; text-align: left;">What It Does</th>
-      <th style="padding: 10px 14px; text-align: left;">Command</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr style="border-bottom: 1px solid #d0d7de;">
-      <td style="padding: 10px 14px;"><strong>Recall</strong></td>
-      <td style="padding: 10px 14px;">Durable memory — decisions, preferences, constraints that persist across sessions</td>
-      <td style="padding: 10px 14px;"><code>squish recall</code></td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de; background-color: #f6f8fa;">
-      <td style="padding: 10px 14px;"><strong>Sessions</strong></td>
-      <td style="padding: 10px 14px;">Searchable history — past agent runs you can inspect for evidence and context</td>
-      <td style="padding: 10px 14px;"><code>squish sessions search</code></td>
-    </tr>
-    <tr>
-      <td style="padding: 10px 14px;"><strong>Remember</strong></td>
-      <td style="padding: 10px 14px;">Write to long-term memory — store new facts, decisions, observations</td>
-      <td style="padding: 10px 14px;"><code>squish remember</code></td>
-    </tr>
-  </tbody>
-</table>
-
-### Token Cost Comparison
-
-<table>
-  <thead>
-    <tr style="background-color: #f6f8fa; border-bottom: 2px solid #d0d7de;">
-      <th style="padding: 10px 14px; text-align: left;">Method</th>
-      <th style="padding: 10px 14px; text-align: left;">Token Usage</th>
-      <th style="padding: 10px 14px; text-align: left;">Cost per Session</th>
-      <th style="padding: 10px 14px; text-align: left;">Cross-Agent</th>
-      <th style="padding: 10px 14px; text-align: left;">Auto-Capture</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr style="border-bottom: 1px solid #d0d7de;">
-      <td style="padding: 10px 14px;">Paste full context</td>
-      <td style="padding: 10px 14px;">~2,000 tokens</td>
-      <td style="padding: 10px 14px;">$0.06 - $0.12</td>
-      <td style="padding: 10px 14px;">No</td>
-      <td style="padding: 10px 14px;">No</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de; background-color: #f6f8fa;">
-      <td style="padding: 10px 14px;">LLM-summarized context</td>
-      <td style="padding: 10px 14px;">~500 tokens</td>
-      <td style="padding: 10px 14px;">$0.02 - $0.05</td>
-      <td style="padding: 10px 14px;">No</td>
-      <td style="padding: 10px 14px;">No</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de;">
-      <td style="padding: 10px 14px;">CLAUDE.md / .cursorrules</td>
-      <td style="padding: 10px 14px;">~200 lines max</td>
-      <td style="padding: 10px 14px;">Free</td>
-      <td style="padding: 10px 14px;">No</td>
-      <td style="padding: 10px 14px;">No</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de; background-color: #f6f8fa;">
-      <td style="padding: 10px 14px;"><strong>Squish (local)</strong></td>
-      <td style="padding: 10px 14px;"><strong>~50-200 tokens</strong></td>
-      <td style="padding: 10px 14px;"><strong>$0.00</strong></td>
-      <td style="padding: 10px 14px;"><strong>Yes</strong></td>
-      <td style="padding: 10px 14px;"><strong>Yes</strong></td>
-    </tr>
-    <tr>
-      <td style="padding: 10px 14px;"><strong>Squish (Cloud)</strong></td>
-      <td style="padding: 10px 14px;"><strong>~50-200 tokens</strong></td>
-      <td style="padding: 10px 14px;"><strong>$0.00</strong></td>
-      <td style="padding: 10px 14px;"><strong>Yes</strong></td>
-      <td style="padding: 10px 14px;"><strong>Yes</strong></td>
-    </tr>
-  </tbody>
-</table>
-
-Squish retrieves only the relevant memories for the current task. The average context injection is 50-200 tokens — a fraction of what you would paste manually.
-
----
-
-## Quick Start
-
-### Step 1: Install
+## Get Started in 30 Seconds
 
 ```bash
 npm install -g squish-memory && squish install --all
 ```
 
-This installs the Squish CLI, MCP server, and plugin hooks for all detected agents.
+That is it. Squish installs the CLI, starts the MCP server, and configures hooks for every coding agent it finds on your machine. No API keys. No config files. No Docker.
 
-### Step 2: Work
+---
 
-Start your coding agent as usual. Squish runs in the background, auto-capturing decisions, constraints, preferences, and context.
+## Pick Your Agent
 
-```bash
-squish remember "We chose PostgreSQL for Squish Cloud team mode" --type decision
-squish recall "project decisions"
-```
+Squish works with any MCP-compatible agent. Choose yours for a tailored quick start:
 
-### Step 3: Search Past Sessions
-
-After a few sessions, search your agent history:
+### Claude Code
 
 ```bash
-squish sessions search "postgres migration"
-squish sessions related --repo-path .
+npm install -g squish-memory && squish install --all
 ```
 
-### Step 4: Restart
-
-Close your session and open a new one. Your agent picks up where you left off — all context is restored automatically.
+Squish detects Claude Code and adds plugin hooks automatically. Your next session starts with full memory context. To verify:
 
 ```bash
 squish context    # See what your agent remembers
 squish stats      # Check memory health
 ```
 
-Works locally free. Paid Squish Cloud is available at [squishplugin.dev](https://squishplugin.dev) for sync, dashboard, and team features.
+### Codex CLI (OpenAI)
 
----
+Add Squish to your Codex MCP config:
 
-## Works with Every Agent
+```json
+{
+  "mcpServers": {
+    "squish": {
+      "command": "squish-mcp",
+      "args": ["--http", "--port", "8767"]
+    }
+  }
+}
+```
 
-Squish works with any AI coding agent that supports MCP (Model Context Protocol) or HTTP connections. One memory server, shared across all of them.
+Codex now has persistent memory across sessions. Ask it "what did we decide about the database?" and it will recall your past decisions.
 
-<table>
-  <thead>
-    <tr style="background-color: #f6f8fa; border-bottom: 2px solid #d0d7de;">
-      <th style="padding: 10px 14px; text-align: left;">Agent</th>
-      <th style="padding: 10px 14px; text-align: left;">Integration Method</th>
-      <th style="padding: 10px 14px; text-align: left;">Notes</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr style="border-bottom: 1px solid #d0d7de;">
-      <td style="padding: 10px 14px;">Claude Code</td>
-      <td style="padding: 10px 14px;">MCP server + plugin</td>
-      <td style="padding: 10px 14px;">Auto-captures via hooks</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de; background-color: #f6f8fa;">
-      <td style="padding: 10px 14px;">Codex CLI</td>
-      <td style="padding: 10px 14px;">MCP server</td>
-      <td style="padding: 10px 14px;">OpenAI's CLI agent</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de;">
-      <td style="padding: 10px 14px;">GitHub Copilot CLI</td>
-      <td style="padding: 10px 14px;">MCP server</td>
-      <td style="padding: 10px 14px;">VS Code integration</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de; background-color: #f6f8fa;">
-      <td style="padding: 10px 14px;">Cursor</td>
-      <td style="padding: 10px 14px;">MCP server</td>
-      <td style="padding: 10px 14px;">Editor + agent</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de;">
-      <td style="padding: 10px 14px;">Gemini CLI</td>
-      <td style="padding: 10px 14px;">MCP server</td>
-      <td style="padding: 10px 14px;">Google's CLI agent</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de; background-color: #f6f8fa;">
-      <td style="padding: 10px 14px;">OpenCode</td>
-      <td style="padding: 10px 14px;">MCP server + hooks</td>
-      <td style="padding: 10px 14px;">Auto-capture + MCP tools</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de;">
-      <td style="padding: 10px 14px;">Cline</td>
-      <td style="padding: 10px 14px;">MCP server</td>
-      <td style="padding: 10px 14px;">VS Code extension</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de; background-color: #f6f8fa;">
-      <td style="padding: 10px 14px;">Goose</td>
-      <td style="padding: 10px 14px;">MCP server</td>
-      <td style="padding: 10px 14px;">Block's agent</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de;">
-      <td style="padding: 10px 14px;">Kilo Code</td>
-      <td style="padding: 10px 14px;">MCP server</td>
-      <td style="padding: 10px 14px;">VS Code extension</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de; background-color: #f6f8fa;">
-      <td style="padding: 10px 14px;">Windsurf</td>
-      <td style="padding: 10px 14px;">MCP server</td>
-      <td style="padding: 10px 14px;">Codeium's editor</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de;">
-      <td style="padding: 10px 14px;">Roo Code</td>
-      <td style="padding: 10px 14px;">MCP server</td>
-      <td style="padding: 10px 14px;">VS Code extension</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de; background-color: #f6f8fa;">
-      <td style="padding: 10px 14px;">Claude Desktop</td>
-      <td style="padding: 10px 14px;">MCP server</td>
-      <td style="padding: 10px 14px;">Desktop app</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de;">
-      <td style="padding: 10px 14px;">Aider</td>
-      <td style="padding: 10px 14px;">MCP server</td>
-      <td style="padding: 10px 14px;">Terminal pair programmer</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de; background-color: #f6f8fa;">
-      <td style="padding: 10px 14px;">ChatGPT</td>
-      <td style="padding: 10px 14px;">MCP server (via Squish Cloud)</td>
-      <td style="padding: 10px 14px;">Cloud sync required</td>
-    </tr>
-    <tr>
-      <td style="padding: 10px 14px;">VS Code (Copilot)</td>
-      <td style="padding: 10px 14px;">MCP server</td>
-      <td style="padding: 10px 14px;">Via MCP extension</td>
-    </tr>
-  </tbody>
-</table>
+### Cursor / Windsurf / Cline
 
-**Works with any agent that speaks MCP or HTTP. One server, memories shared across all of them.**
+Add the same MCP server block to your editor's MCP settings. One memory server, shared across all your editors and CLI agents.
 
-### MCP Server Configuration
+### OpenCode
 
-Add Squish to any MCP-compatible client:
+```bash
+squish install --all
+```
+
+OpenCode gets both MCP tools and auto-capture hooks. Decisions, constraints, and preferences are captured as you work.
+
+### Any MCP Client
 
 ```json
 {
@@ -306,21 +87,44 @@ Add Squish to any MCP-compatible client:
 }
 ```
 
-For cloud-connected agents:
+---
 
-```json
-{
-  "mcpServers": {
-    "squish-cloud": {
-      "type": "url",
-      "url": "https://api.squishplugin.dev/mcp",
-      "headers": {
-        "Authorization": "Bearer <your-token>"
-      }
-    }
-  }
-}
+## What Just Happened
+
+After install, Squish runs in the background. Here is what it does:
+
+1. **Captures** -- As you work, Squish watches for decisions, constraints, preferences, and context. It filters noise and stores what matters.
+2. **Ingests** -- Drop files into the inbox directory. Images, audio, video, and documents are automatically extracted, described, and stored as searchable memories.
+3. **Stores** -- Memories go into a local SQLite database with AES-256-GCM encryption. Nothing leaves your machine.
+4. **Retrieves** -- When your agent starts a new session, Squish injects only the relevant memories (50-200 tokens, not 2,000).
+5. **Decays** -- Old, low-value memories fade automatically. Your agent stays focused on what matters now.
+
+```bash
+squish remember "We chose PostgreSQL for the main datastore" --type decision
+squish recall "database decisions"
+squish sessions search "postgres migration"
 ```
+
+---
+
+## Works with Every Agent
+
+| Agent | Integration | Auto-Capture |
+|-------|------------|--------------|
+| Claude Code | MCP server + plugin | Yes |
+| Codex CLI | MCP server | No |
+| Cursor | MCP server | No |
+| GitHub Copilot | MCP server | No |
+| Gemini CLI | MCP server | No |
+| OpenCode | MCP server + hooks | Yes |
+| Cline | MCP server | No |
+| Goose | MCP server | No |
+| Windsurf | MCP server | No |
+| Roo Code | MCP server | No |
+| Claude Desktop | MCP server | No |
+| Aider | MCP server | No |
+
+**One memory server. Shared across all of them.**
 
 ---
 
@@ -330,86 +134,33 @@ Most memory tools need a second LLM for embeddings and retrieval. That means ext
 
 Squish uses local embeddings by default. Zero LLM dependency. 1-5ms latency. $0 runtime cost in local mode.
 
-Bring your own LLM if you want — Squish supports external embeddings and reasoning, but nothing requires it.
+| Feature | Squish | CLAUDE.md | agentmemory | mem0 |
+|---------|--------|-----------|-------------|------|
+| Auto-capture | Yes (hooks) | Manual | Yes (12 hooks) | Manual API |
+| Local embeddings | Yes (default) | N/A | Yes | No (cloud) |
+| External DB required | No (SQLite) | No | Yes (iii-engine) | Yes (Qdrant) |
+| MCP tools | 7 | 0 | 53 | 9 |
+| Knowledge graph | Yes | No | Yes | No |
+| Cross-agent sync | Yes (Cloud) | No | No | API-based |
+| Price | Free local / $9/mo cloud | Free | Free | $249/mo Pro |
+| Setup time | 30 seconds | 5 minutes | 15 minutes | 30 minutes |
+| Data ownership | Full (local SQLite) | Git repo | External DB | Cloud vendor |
 
-### Comparison
+---
 
-<table>
-  <thead>
-    <tr style="background-color: #f6f8fa; border-bottom: 2px solid #d0d7de;">
-      <th style="padding: 10px 14px; text-align: left;">Feature</th>
-      <th style="padding: 10px 14px; text-align: left;">Squish</th>
-      <th style="padding: 10px 14px; text-align: left;">Built-in (CLAUDE.md)</th>
-      <th style="padding: 10px 14px; text-align: left;">agentmemory</th>
-      <th style="padding: 10px 14px; text-align: left;">mem0</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr style="border-bottom: 1px solid #d0d7de;">
-      <td style="padding: 10px 14px;">Auto-capture</td>
-      <td style="padding: 10px 14px;">Yes (hooks)</td>
-      <td style="padding: 10px 14px;">Manual</td>
-      <td style="padding: 10px 14px;">Yes (12 hooks)</td>
-      <td style="padding: 10px 14px;">Manual API</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de; background-color: #f6f8fa;">
-      <td style="padding: 10px 14px;">Local embeddings</td>
-      <td style="padding: 10px 14px;">Yes (default)</td>
-      <td style="padding: 10px 14px;">N/A</td>
-      <td style="padding: 10px 14px;">Yes</td>
-      <td style="padding: 10px 14px;">No (cloud)</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de;">
-      <td style="padding: 10px 14px;">External DB required</td>
-      <td style="padding: 10px 14px;">No (SQLite)</td>
-      <td style="padding: 10px 14px;">No</td>
-      <td style="padding: 10px 14px;">Yes (iii-engine)</td>
-      <td style="padding: 10px 14px;">Yes (Qdrant)</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de; background-color: #f6f8fa;">
-      <td style="padding: 10px 14px;">MCP tools</td>
-      <td style="padding: 10px 14px;">18</td>
-      <td style="padding: 10px 14px;">0</td>
-      <td style="padding: 10px 14px;">53</td>
-      <td style="padding: 10px 14px;">9</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de;">
-      <td style="padding: 10px 14px;">Knowledge graph</td>
-      <td style="padding: 10px 14px;">Yes</td>
-      <td style="padding: 10px 14px;">No</td>
-      <td style="padding: 10px 14px;">Yes</td>
-      <td style="padding: 10px 14px;">No</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de; background-color: #f6f8fa;">
-      <td style="padding: 10px 14px;">Cross-agent sync</td>
-      <td style="padding: 10px 14px;">Yes (Cloud)</td>
-      <td style="padding: 10px 14px;">No</td>
-      <td style="padding: 10px 14px;">No</td>
-      <td style="padding: 10px 14px;">API-based</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de;">
-      <td style="padding: 10px 14px;">Price</td>
-      <td style="padding: 10px 14px;">Free local / $9/mo cloud</td>
-      <td style="padding: 10px 14px;">Free</td>
-      <td style="padding: 10px 14px;">Free</td>
-      <td style="padding: 10px 14px;">$249/mo Pro</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de; background-color: #f6f8fa;">
-      <td style="padding: 10px 14px;">Setup time</td>
-      <td style="padding: 10px 14px;">30 seconds</td>
-      <td style="padding: 10px 14px;">5 minutes</td>
-      <td style="padding: 10px 14px;">15 minutes</td>
-      <td style="padding: 10px 14px;">30 minutes</td>
-    </tr>
-    <tr>
-      <td style="padding: 10px 14px;">Data ownership</td>
-      <td style="padding: 10px 14px;">Full (local SQLite)</td>
-      <td style="padding: 10px 14px;">Git repo</td>
-      <td style="padding: 10px 14px;">External DB</td>
-      <td style="padding: 10px 14px;">Cloud vendor</td>
-    </tr>
-  </tbody>
-</table>
+## Core Concepts
+
+| Concept | What It Is |
+|---------|-----------|
+| **Recall** | Durable memory -- decisions, preferences, constraints |
+| **Sessions** | Evidence from past agent runs |
+| **Pinned** | Stable facts that do not decay |
+| **Beliefs** | Passive model of user/project |
+| **Strategies** | Active operating rules |
+| **Media Memories** | Ingested images, audio, video, and documents with extracted text |
+| **LLM Consolidation** | Cross-connection finding via LLM-powered knowledge analysis |
+| **Decay** | Stale weak traces fade automatically |
+| **Graph** | Reinforced relationships from usage |
 
 ---
 
@@ -426,17 +177,26 @@ Bring your own LLM if you want — Squish supports external embeddings and reaso
 - Confidence scoring adjusts memory relevance over time
 - Decay system automatically ages low-value memories
 
+### Multimodal Memory
+
+- Ingest images, audio, video, and documents into searchable memories
+- Automatic text extraction via OCR, speech-to-text, and document parsing
+- 27+ supported file types: JPEG, PNG, GIF, WebP, TIFF, HEIC, MP3, WAV, OGG, FLAC, M4A, MP4, WebM, AVI, MOV, MKV, PDF, DOCX, XLSX, PPTX, TXT, MD, CSV, JSON, XML, YAML, HTML, RTF
+- File watcher for automatic inbox monitoring and ingestion
+- LLM-generated descriptions for each ingested file
+- Cross-connection finding via LLM consolidation across memory clusters
+
 ### Session Search
 
 - Search previous Claude Code, Codex, and OpenCode sessions
 - Find related sessions by project path or file overlap
 - Inspect past decisions, errors, and commands as evidence
-- Separate from long-term memory — raw session history, not distilled facts
+- Separate from long-term memory -- raw session history, not distilled facts
 
 ### Interfaces
 
 - **CLI**: `squish remember`, `recall`, `inspect`, `context`, `stats`, `search`, `sessions`
-- **MCP Server**: 18 tools for any MCP client — recall, health, graph, recency, maintenance
+- **MCP Server**: 7 tools for any MCP client -- recall, graph, context, multimodal ingestion, LLM consolidation
 - **Web UI**: Local dashboard at `localhost:37777` for visualizing memories
 - **Cloud Dashboard**: Paid analytics and management at [squishplugin.dev](https://squishplugin.dev)
 
@@ -448,15 +208,6 @@ Bring your own LLM if you want — Squish supports external embeddings and reaso
 - Places routing: organize memories by project, feature, or context
 - Full-text search with BM25 ranking
 - Vector search with TF-IDF embeddings (768-dimensional)
-
-### Memory Pipeline
-
-Squish uses a 4-stage pipeline to process memories:
-
-1. **Capture** — Filters noisy tool output, keeps new memories private-first, and suggests what should be promoted into project/team/company scopes
-2. **Filter** — Deduplicates, resolves contradictions, scores importance
-3. **Store** — Persists to SQLite/PostgreSQL with graph relationships and embeddings
-4. **Retrieve** — Hybrid search combines keyword, semantic, recency, and importance scoring
 
 ---
 
@@ -471,47 +222,6 @@ Squish uses a 4-stage pipeline to process memories:
 <p align="center">
   <img src="https://mermaid.ink/img/Zmxvd2NoYXJ0IExSCiAgICBzdWJncmFwaCBSRUNBTExbIlJFQ0FMTCDigJQgZHVyYWJsZSJdCiAgICAgICAgUjFbIkRlY2lzaW9ucyJdCiAgICAgICAgUjJbIlByZWZlcmVuY2VzIl0KICAgICAgICBSM1siQ29uc3RyYWludHMiXQogICAgICAgIFI0WyJCZWxpZWZzIl0KICAgIGVuZAogICAgc3ViZ3JhcGggU0VTU0lPTlNbIlNFU1NJT05TIOKAlCBldmlkZW5jZSJdCiAgICAgICAgUzFbIlBhc3QgYWdlbnQgcnVucyJdCiAgICAgICAgUzJbIlNlYXJjaGFibGUiXQogICAgICAgIFMzWyJSYXcgaGlzdG9yeSJdCiAgICAgICAgUzRbIlJlbGF0ZWQgcmVwb3MiXQogICAgZW5kCiAgICBzdWJncmFwaCBSRU1FTUJFUlsiUkVNRU1CRVIg4oCUIHdyaXRlIl0KICAgICAgICBNMVsiU3RvcmUgbmV3IGZhY3RzIl0KICAgICAgICBNMlsiQXV0by1jbGFzc2lmeSJdCiAgICAgICAgTTNbIkdyYXBoIHVwZGF0ZSJdCiAgICAgICAgTTRbIlBsYWNlIHJvdXRpbmciXQogICAgZW5kCiAgICBSRUNBTEwgLS0-IHwic3F1aXNoIHJlY2FsbCJ8IENMSTFbIkNMSSAvIE1DUCJdCiAgICBTRVNTSU9OUyAtLT4gfCJzcXVpc2ggc2Vzc2lvbnMgc2VhcmNoInwgQ0xJMlsiQ0xJIC8gTUNQIl0KICAgIFJFTUVNQkVSIC0tPiB8InNxdWlzaCByZW1lbWJlciJ8IENMSTNbIkNMSSAvIE1DUCJdCgogICAgY2xhc3NEZWYgcmVjYWxsIGZpbGw6IzRhOWVmZixzdHJva2U6IzJkN2RkMixjb2xvcjojZmZmCiAgICBjbGFzc0RlZiBzZXNzaW9ucyBmaWxsOiM3YzNhZWQsc3Ryb2tlOiM1YjIxYjYsY29sb3I6I2ZmZgogICAgY2xhc3NEZWYgcmVtZW1iZXIgZmlsbDojMDU5NjY5LHN0cm9rZTojMDQ3ODU3LGNvbG9yOiNmZmYKICAgIGNsYXNzRGVmIGNsaSBmaWxsOiNmM2Y0ZjYsc3Ryb2tlOiM5Y2EzYWYsY29sb3I6IzM3NDE1MQoKICAgIGNsYXNzIFIxLFIyLFIzLFI0IHJlY2FsbAogICAgY2xhc3MgUzEsUzIsUzMsUzQgc2Vzc2lvbnMKICAgIGNsYXNzIE0xLE0yLE0zLE00IHJlbWVtYmVyCiAgICBjbGFzcyBDTEkxLENMSTIsQ0xJMyBjbGkK" alt="Three-Layer Memory Model" width="780" />
 </p>
-
-### Storage Layer
-
-<table>
-  <thead>
-    <tr style="background-color: #f6f8fa; border-bottom: 2px solid #d0d7de;">
-      <th style="padding: 10px 14px; text-align: left;">SQLite (default)</th>
-      <th style="padding: 10px 14px; text-align: left;">Squish Cloud Team</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr style="border-bottom: 1px solid #d0d7de;">
-      <td style="padding: 10px 14px;">memories</td>
-      <td style="padding: 10px 14px;">memories</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de; background-color: #f6f8fa;">
-      <td style="padding: 10px 14px;">associations</td>
-      <td style="padding: 10px 14px;">associations</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de;">
-      <td style="padding: 10px 14px;">embeddings</td>
-      <td style="padding: 10px 14px;">embeddings</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de; background-color: #f6f8fa;">
-      <td style="padding: 10px 14px;">graph_edges</td>
-      <td style="padding: 10px 14px;">graph_edges</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de;">
-      <td style="padding: 10px 14px;">places</td>
-      <td style="padding: 10px 14px;">places</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de; background-color: #f6f8fa;">
-      <td style="padding: 10px 14px;">sessions</td>
-      <td style="padding: 10px 14px;">sessions</td>
-    </tr>
-    <tr>
-      <td style="padding: 10px 14px;">AES-256-GCM encryption</td>
-      <td style="padding: 10px 14px;">AES-256-GCM encryption</td>
-    </tr>
-  </tbody>
-</table>
 
 ---
 
@@ -537,22 +247,6 @@ squish connect notion
 
 ---
 
-## Ingestion Pipeline
-
-Squish uses a 4-stage pipeline to process content from your connectors:
-
-1. **Chunk** -- Splits documents into meaningful segments
-2. **Embed** -- Generates TF-IDF or external embeddings (768-dimensional vectors)
-3. **Store** -- Persists to SQLite/PostgreSQL with graph relationships
-4. **Extract** -- Builds knowledge graph with entity resolution and relationship mapping
-
-Optional LLM-powered features (bring your own key):
-- Entity extraction and relationship mapping
-- Automatic memory organization and tagging
-- Summarization and consolidation
-
----
-
 ## Squish Cloud
 
 Persistent memory across ChatGPT, Claude Desktop, Claude Code, and local agents. One account, synchronized everywhere.
@@ -565,55 +259,14 @@ Persistent memory across ChatGPT, Claude Desktop, Claude Code, and local agents.
 
 ### Pricing
 
-<table>
-  <thead>
-    <tr style="background-color: #f6f8fa; border-bottom: 2px solid #d0d7de;">
-      <th style="padding: 10px 14px; text-align: left;">Tier</th>
-      <th style="padding: 10px 14px; text-align: left;">Price</th>
-      <th style="padding: 10px 14px; text-align: left;">Features</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr style="border-bottom: 1px solid #d0d7de;">
-      <td style="padding: 10px 14px;"><strong>Local</strong></td>
-      <td style="padding: 10px 14px;">Free forever</td>
-      <td style="padding: 10px 14px;">SQLite, 15+ MCP tools, offline, knowledge graph, decay scoring</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de; background-color: #f6f8fa;">
-      <td style="padding: 10px 14px;"><strong>Cloud Solo</strong></td>
-      <td style="padding: 10px 14px;">$9/mo</td>
-      <td style="padding: 10px 14px;">Everything in Local + cloud sync, 1 connector, 10K requests/mo</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de;">
-      <td style="padding: 10px 14px;"><strong>Cloud Pro</strong></td>
-      <td style="padding: 10px 14px;">$29/mo</td>
-      <td style="padding: 10px 14px;">Cross-tool sync, 3 connectors, 50K requests/mo, shared workspaces</td>
-    </tr>
-    <tr>
-      <td style="padding: 10px 14px;"><strong>Cloud Team</strong></td>
-      <td style="padding: 10px 14px;">$99/mo</td>
-      <td style="padding: 10px 14px;">Unlimited seats, all connectors, 200K requests/mo, RBAC, audit logs</td>
-    </tr>
-  </tbody>
-</table>
+| Tier | Price | Features |
+|------|-------|----------|
+| **Local** | Free forever | SQLite, 7 MCP tools, offline, knowledge graph, multimodal ingestion |
+| **Cloud Solo** | $9/mo | Everything in Local + cloud sync, 1 connector, 10K requests/mo |
+| **Cloud Pro** | $29/mo | Cross-tool sync, 3 connectors, 50K requests/mo, shared workspaces |
+| **Cloud Team** | $99/mo | Unlimited seats, all connectors, 200K requests/mo, RBAC, audit logs |
 
 [Sign up at squishplugin.dev](https://squishplugin.dev) -- 30 seconds, no credit card needed.
-
----
-
-## Installation Guides
-
-- [Claude Code](docs/install/claude-code.md) — MCP server + plugin hooks for auto-capture
-- [OpenCode](docs/install/opencode.md) — MCP server + hooks for OpenCode agent
-- [OpenClaw](docs/install/openclaw.md) — MCP server setup for OpenClaw
-
-### Quick install for all detected agents:
-
-```bash
-npm install -g squish-memory && squish install --all
-```
-
-Squish auto-detects which agents you have installed and configures hooks for each one.
 
 ---
 
@@ -621,52 +274,15 @@ Squish auto-detects which agents you have installed and configures hooks for eac
 
 Squish is tested against real-world memory retrieval tasks and synthetic benchmarks.
 
-<table>
-  <thead>
-    <tr style="background-color: #f6f8fa; border-bottom: 2px solid #d0d7de;">
-      <th style="padding: 10px 14px; text-align: left;">Metric</th>
-      <th style="padding: 10px 14px; text-align: left;">Result</th>
-      <th style="padding: 10px 14px; text-align: left;">Notes</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr style="border-bottom: 1px solid #d0d7de;">
-      <td style="padding: 10px 14px;">Core Tests</td>
-      <td style="padding: 10px 14px;">9/9 passed (100%)</td>
-      <td style="padding: 10px 14px;">All memory operations</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de; background-color: #f6f8fa;">
-      <td style="padding: 10px 14px;">LoCoMo Memory</td>
-      <td style="padding: 10px 14px;">65%</td>
-      <td style="padding: 10px 14px;">100 REAL questions from locomo10.json</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de;">
-      <td style="padding: 10px 14px;">Throughput</td>
-      <td style="padding: 10px 14px;">39 ops/sec</td>
-      <td style="padding: 10px 14px;">With local embeddings</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de; background-color: #f6f8fa;">
-      <td style="padding: 10px 14px;">Total Time</td>
-      <td style="padding: 10px 14px;">230ms</td>
-      <td style="padding: 10px 14px;">For 9 core tests</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de;">
-      <td style="padding: 10px 14px;">Package Size</td>
-      <td style="padding: 10px 14px;">283 KB</td>
-      <td style="padding: 10px 14px;">Lightweight footprint</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de; background-color: #f6f8fa;">
-      <td style="padding: 10px 14px;">Latency (embed)</td>
-      <td style="padding: 10px 14px;">6.6ms</td>
-      <td style="padding: 10px 14px;">Local TF-IDF embeddings</td>
-    </tr>
-    <tr>
-      <td style="padding: 10px 14px;">Latency (search)</td>
-      <td style="padding: 10px 14px;">6.1ms</td>
-      <td style="padding: 10px 14px;">Hybrid retrieval</td>
-    </tr>
-  </tbody>
-</table>
+| Metric | Result | Notes |
+|--------|--------|-------|
+| Core Tests | 9/9 passed (100%) | All memory operations |
+| LoCoMo Memory | 65% | 100 REAL questions from locomo10.json |
+| Throughput | 39 ops/sec | With local embeddings |
+| Total Time | 230ms | For 9 core tests |
+| Package Size | 674 KB | Lightweight footprint |
+| Latency (embed) | 6.6ms | Local TF-IDF embeddings |
+| Latency (search) | 6.1ms | Hybrid retrieval |
 
 Full benchmark details: [docs/BENCHMARK.md](docs/BENCHMARK.md)
 
@@ -674,60 +290,19 @@ Full benchmark details: [docs/BENCHMARK.md](docs/BENCHMARK.md)
 
 ## Documentation
 
-<table>
-  <thead>
-    <tr style="background-color: #f6f8fa; border-bottom: 2px solid #d0d7de;">
-      <th style="padding: 10px 14px; text-align: left;">Document</th>
-      <th style="padding: 10px 14px; text-align: left;">Description</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr style="border-bottom: 1px solid #d0d7de;">
-      <td style="padding: 10px 14px;"><a href="docs/CLI.md">CLI Reference</a></td>
-      <td style="padding: 10px 14px;">All CLI commands and options</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de; background-color: #f6f8fa;">
-      <td style="padding: 10px 14px;"><a href="docs/MCP-SERVER.md">MCP Server</a></td>
-      <td style="padding: 10px 14px;">18 MCP tools and configuration</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de;">
-      <td style="padding: 10px 14px;"><a href="docs/ARCHITECTURE.md">Architecture</a></td>
-      <td style="padding: 10px 14px;">System design and data flow</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de; background-color: #f6f8fa;">
-      <td style="padding: 10px 14px;"><a href="docs/DECAY.md">Decay System</a></td>
-      <td style="padding: 10px 14px;">How memories age and lose relevance</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de;">
-      <td style="padding: 10px 14px;"><a href="docs/v2-scoring.md">Scoring</a></td>
-      <td style="padding: 10px 14px;">Importance and relevance scoring</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de; background-color: #f6f8fa;">
-      <td style="padding: 10px 14px;"><a href="docs/ENV-CONFIG.md">Environment Config</a></td>
-      <td style="padding: 10px 14px;">Environment variables and settings</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de;">
-      <td style="padding: 10px 14px;"><a href="docs/PLUGIN-ARCHITECTURE.md">Plugin Architecture</a></td>
-      <td style="padding: 10px 14px;">Hook system and agent integration</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de; background-color: #f6f8fa;">
-      <td style="padding: 10px 14px;"><a href="docs/INSTALL-QUICKSTART.md">Quick Start</a></td>
-      <td style="padding: 10px 14px;">Getting started guide</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de;">
-      <td style="padding: 10px 14px;"><a href="docs/agent-memory-comparison.md">Agent Comparison</a></td>
-      <td style="padding: 10px 14px;">Squish vs other memory tools</td>
-    </tr>
-    <tr style="border-bottom: 1px solid #d0d7de; background-color: #f6f8fa;">
-      <td style="padding: 10px 14px;"><a href="docs/CONTRIBUTING.md">Contributing</a></td>
-      <td style="padding: 10px 14px;">How to contribute</td>
-    </tr>
-    <tr>
-      <td style="padding: 10px 14px;"><a href="docs/RELEASE_NOTES.md">Release Notes</a></td>
-      <td style="padding: 10px 14px;">Changelog and version history</td>
-    </tr>
-  </tbody>
-</table>
+| Document | Description |
+|----------|-------------|
+| [CLI Reference](docs/CLI.md) | All CLI commands and options |
+| [MCP Server](docs/MCP-SERVER.md) | 7 MCP tools and configuration |
+| [Architecture](docs/ARCHITECTURE.md) | System design and data flow |
+| [Decay System](docs/DECAY.md) | How memories age and lose relevance |
+| [Scoring](docs/v2-scoring.md) | Importance and relevance scoring |
+| [Environment Config](docs/ENV-CONFIG.md) | Environment variables and settings |
+| [Plugin Architecture](docs/PLUGIN-ARCHITECTURE.md) | Hook system and agent integration |
+| [Quick Start](docs/INSTALL-QUICKSTART.md) | Getting started guide |
+| [Agent Comparison](docs/agent-memory-comparison.md) | Squish vs other memory tools |
+| [Contributing](docs/CONTRIBUTING.md) | How to contribute |
+| [Release Notes](docs/RELEASE_NOTES.md) | Changelog and version history |
 
 ---
 
@@ -735,11 +310,11 @@ Full benchmark details: [docs/BENCHMARK.md](docs/BENCHMARK.md)
 
 ### What is Squish?
 
-Squish is a local-first memory runtime for AI coding agents. It gives your agents stable orientation, durable memory, and searchable session history across runs. Think of it as a brain that persists between sessions — your agents remember decisions, constraints, preferences, and context without you having to re-explain everything. In v1.6.0, Squish also searches past agent sessions as evidence, so agents can inspect prior work instead of starting from zero.
+Squish is a local-first memory runtime for AI coding agents. It gives your agents stable orientation, durable memory, and searchable session history across runs. Think of it as a brain that persists between sessions -- your agents remember decisions, constraints, preferences, and context without you having to re-explain everything.
 
 ### Does Squish require an API key?
 
-No. Squish works locally by default with zero API keys. It uses local embeddings (TF-IDF) and SQLite storage. You can optionally configure an external LLM for enhanced reasoning, but it's not required. An API key is only needed if you want to use the paid Squish Cloud for cross-device sync.
+No. Squish works locally by default with zero API keys. It uses local embeddings (TF-IDF) and SQLite storage. You can optionally configure an external LLM for enhanced reasoning, but it is not required. An API key is only needed if you want to use the paid Squish Cloud for cross-device sync.
 
 ### How does Squish compare to mem0 or agentmemory?
 
@@ -753,13 +328,9 @@ Yes. Squish works with any MCP-compatible agent. One memory server is shared acr
 
 Yes. In local mode, all data stays on your machine in an encrypted SQLite database. Nothing is sent to any cloud service. AES-256-GCM encryption protects sensitive memories. In cloud mode, data is encrypted in transit and at rest.
 
-### What databases does Squish support?
-
-Squish supports SQLite (default, local) and Squish Cloud team workspaces backed by PostgreSQL. SQLite requires zero configuration. Team workspaces are only available on Squish Cloud and are used for shared memory across multiple users.
-
 ### What is the difference between recall and sessions?
 
-`squish recall` searches your long-term memory — distilled facts, decisions, and preferences that Squish has captured and organized. `squish sessions search` searches raw past agent runs — the actual messages, commands, and file changes from previous Claude Code, Codex, or OpenCode sessions. Recall gives you what the system decided to remember. Sessions give you the evidence.
+`squish recall` searches your long-term memory -- distilled facts, decisions, and preferences that Squish has captured and organized. `squish sessions search` searches raw past agent runs -- the actual messages, commands, and file changes from previous Claude Code, Codex, or OpenCode sessions. Recall gives you what the system decided to remember. Sessions give you the evidence.
 
 ---
 
@@ -772,6 +343,18 @@ See [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) for guidelines on how to contri
 ## License
 
 MIT -- see [LICENSE](LICENSE) for details.
+
+---
+
+## Star the Repo
+
+If Squish helps your project, consider starring the repo. It helps other developers find memory tools for their AI agents.
+
+<p align="center">
+  <a href="https://github.com/michielhdoteth/squish">
+    <img src="https://img.shields.io/github/stars/michielhdoteth/squish?style=social&label=Star" alt="Star Squish on GitHub" />
+  </a>
+</p>
 
 ---
 

@@ -1,10 +1,81 @@
 # Squish Release Notes
 
+## v2.0.0 -- 2026-07-15
+
+### Summary
+
+Multimodal ingestion, LLM cross-connection consolidation, and enhanced 7-tool MCP surface.
+
+### Highlights
+
+#### Multimodal Ingestion Pipeline
+- Ingest images, audio, video, and documents into searchable memories
+- 27+ supported file types across four categories
+- Automatic text extraction via OCR, speech-to-text, and document parsing
+- LLM-generated descriptions for each ingested file
+- File watcher for automatic inbox directory monitoring
+
+#### LLM Consolidation Engine
+- Cross-connection finding between memory clusters using LLM analysis
+- Supports OpenAI, Anthropic, and Gemini providers
+- Batch processing with configurable age and connection thresholds
+- Dry-run mode for analysis without creating knowledge edges
+
+#### Enhanced MCP Tools
+- `squish_remember` -- Now supports multimodal file ingestion via `filePath` parameter (27+ file types); `content` is now optional
+- `squish_stats` -- Now supports `action` parameter for watcher control (`start_watcher`, `stop_watcher`) and LLM consolidation (`consolidate`)
+
+### Configuration
+
+New settings.json sections:
+- `multimodal.*` -- Inbox dir, poll interval, max file size, enabled state
+- `consolidation.*` -- LLM enabled, batch size, min age, min connections
+
+New environment variables:
+- `SQUISH_MULTIMODAL_ENABLED`, `SQUISH_MULTIMODAL_INBOX_DIR`, `SQUISH_MULTIMODAL_POLL_INTERVAL_MS`, `SQUISH_MULTIMODAL_MAX_FILE_SIZE_BYTES`
+- `SQUISH_LLM_CONSOLIDATION_ENABLED`, `SQUISH_LLM_CONSOLIDATION_BATCH_SIZE`, `SQUISH_LLM_CONSOLIDATION_MIN_AGE_DAYS`, `SQUISH_LLM_CONSOLIDATION_MIN_CONNECTIONS`
+
+---
+
+## Landing Site -- 2026-07-13
+
+### Summary
+
+SEO and AI search optimization improvements for squishplugin.dev. Pricing documentation corrected across all manifest and LLM-friendly files.
+
+### Highlights
+
+#### Structured Data
+- Added `aggregateRating` + `review` schema to SoftwareApplication JSON-LD in `index.html`
+- Added `BreadcrumbList` JSON-LD schema (Home > Documentation > Privacy > Terms) for richer search results
+
+#### Per-Route SEO
+- New `hooks/useSEO.ts` provides unique `<title>`, `<meta description>`, and canonical URLs per page:
+  - `/docs` -- "Documentation | Squish - Memory Runtime for AI Agents"
+  - `/privacy` -- "Privacy Policy | Squish - Memory Runtime for AI Agents"
+  - `/terms` -- "Terms of Service | Squish - Memory Runtime for AI Agents"
+
+#### AI Search Optimization (AEO/GEO/GSO)
+- Added `twitter:site` handle (`@4mlabs_io`) and fixed `twitter:*` tags to use `name` attribute (per Twitter card spec)
+- Switched `og:image` from SVG to PNG for broader platform compatibility
+- Updated `sitemap.xml` with `/privacy` and `/terms` URLs and refreshed `lastmod` dates
+- Added `Cache-Control` header to `vercel.json` for root page
+
+#### Pricing Accuracy
+- Fixed pricing across 4 files to match actual site tiers:
+  - `llms.txt`, `llms-full.txt`, `.well-known/ucp`, `.well-known/acp.json`
+  - Corrected tiers: Free/$0, Solo/$9/mo, Pro/$29/mo, Team/$99/mo
+
+#### Marketing
+- Added `CompetitorComparison` component to the marketing page (between Differentiator and Pricing sections)
+
+---
+
 ## v1.9.0
 
 ### Summary
 
-Advanced retrieval pipeline, sleep-time consolidation, and repo security hardening. 18-tool MCP surface unchanged.
+Advanced retrieval pipeline, sleep-time consolidation, and repo security hardening. MCP tool surface simplified from 17 to 7 tools.
 
 ### Highlights
 
@@ -14,7 +85,7 @@ Advanced retrieval pipeline, sleep-time consolidation, and repo security hardeni
 - Unified `hybridSearch` with per-stage latency tracking
 
 #### Sleep-Time Consolidation
-- `squish_consolidate` tool: background dedup, summarize, invalidate stale memories, decay
+- Background dedup, summarize, invalidate stale memories, decay (runs automatically)
 - Strategies table auto-creates on first use
 
 #### Performance
@@ -28,11 +99,12 @@ Advanced retrieval pipeline, sleep-time consolidation, and repo security hardeni
 ### User-Facing Impact
 
 #### CLI
-- No new commands; 18-tool surface unchanged
+- No new commands; 7-tool MCP surface simplified
 
 #### MCP
-- `squish_consolidate` — run background consolidation on demand
-- `squish_strategy` — manage actionable strategies (auto-creates table)
+- Simplified from 17 tools to 7: remember, recall, forget, link, context, stats, inspect
+- Session hooks auto-wire on server init (no agent-callable tools needed)
+- Strategy system integrated into recall, remember, and auto-load
 
 ---
 

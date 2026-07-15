@@ -65,19 +65,17 @@ Add to your `opencode.json`:
 
 ## Tool Reference
 
-When Squish is connected, these tools are available:
+When Squish is connected, these 7 tools are available:
 
-| Tool | What it does |
-|------|-------------|
-| `squish_remember` | Save content, decisions, preferences, or facts |
-| `squish_recall` | Search or retrieve by query or ID |
-| `squish_context` | Auto-load relevant context for current project |
-| `squish_stats` | Show memory usage and plan status |
-| `squish_search` | Full-text + semantic hybrid search |
-| `squish_health` | Check system status |
-| `squish_pin` | Pin important memories (prevent decay) |
-| `squish_recent` | Recent memories by period |
-| `squish_forget` | Remove single or bulk memories |
+| Tool | Params | What it does |
+|------|--------|-------------|
+| `squish_remember` | `content`, `type?`, `tags?` | Save content, decisions, preferences, or facts. Auto-detects routing (memory vs learning vs belief). |
+| `squish_recall` | `query`, `limit?`, `project?` | Search memories, learnings, beliefs, and graph entities. Hybrid search with QMD. |
+| `squish_forget` | `memoryId?`, `search?` | Delete a single memory by ID (auto-confirm) or bulk by search query (dry-run with preview). |
+| `squish_link` | `action`, `memoryId?`, `fromId?`, `toId?` | Manage memory associations. `action=find` traverses the graph. `action=add` links two memories. |
+| `squish_context` | `project?`, `actorUser?` | Auto-load relevant context for current project including beliefs, contradictions, and staleness warnings. |
+| `squish_stats` | `project?` | Show memory statistics, signal counts, graph status, places, and system health checks. |
+| `squish_inspect` | `memoryId` | Show why a memory was stored, its classification, beliefs, place, and graph status. |
 
 ## Best Practices
 
@@ -120,8 +118,6 @@ squish remember "content"          # Save a memory
 squish recall "query"              # Search memories
 squish context                     # Load project context
 squish stats                       # Show statistics
-squish pin <id>                    # Pin a memory
-squish recent                      # Show recent memories
 squish cloud login                 # Connect to cloud
 squish cloud status                # Cloud connection status
 ```
@@ -129,7 +125,7 @@ squish cloud status                # Cloud connection status
 ## Tips for agents using Squish
 
 1. **Load context at session start**: Run `squish_context` to restore project memory
-2. **Save decisions explicitly**: After making a decision, say "remember this: we chose X because Y"
+2. **Save decisions explicitly**: Use `squish_remember` with content describing the decision
 3. **Use recall before researching**: Before suggesting a new approach, check if Squish has context about previous attempts
 4. **Tag memories**: Use tags like `architecture`, `decision`, `bug`, `client` for better retrieval
-5. **Pin critical memories**: Pin project goals, architecture decisions, and client preferences
+5. **Inspect before debugging**: Use `squish_inspect` to understand why a memory was stored
