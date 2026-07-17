@@ -1,14 +1,14 @@
 {
   "$schema": "https://glama.ai/mcp/schemas/server.json",
   "name": "squish-memory",
-  "description": "Local-first memory runtime for AI agents via MCP. Provides 7 tools for durable memory, recall, graph linking, context, and inspection.",
+  "description": "Local-first memory runtime for AI agents via MCP. Provides 7 tools for durable memory storage, semantic recall, graph linking, project context, system health, and memory inspection. Supports multimodal ingestion (images, audio, video, documents) and optional LLM consolidation.",
   "repository": "https://github.com/michielhdoteth/squish",
   "categories": ["memory", "ai-agents", "mcp", "local-first"],
-  "keywords": ["memory", "mcp", "ai-agent", "recall", "knowledge-graph", "local-first", "sqlite"],
+  "keywords": ["memory", "mcp", "ai-agent", "recall", "knowledge-graph", "local-first", "sqlite", "multimodal", "consolidation"],
   "tools": [
     {
       "name": "squish_remember",
-      "description": "Store any memory or learning. System auto-detects type and routes appropriately."
+      "description": "Store any memory, learning, or ingest media files. System auto-detects type and routes appropriately. For text: provide content. For files: provide filePath. Supports images, audio, video, and documents (27+ file types)."
     },
     {
       "name": "squish_recall",
@@ -16,11 +16,11 @@
     },
     {
       "name": "squish_forget",
-      "description": "Delete a memory by ID, or bulk delete with search filters."
+      "description": "Delete a memory by ID, or bulk delete with search query."
     },
     {
       "name": "squish_link",
-      "description": "Manage memory associations: find related memories or add links between them."
+      "description": "Manage memory associations: find related memories or add a link between two memories."
     },
     {
       "name": "squish_context",
@@ -28,7 +28,7 @@
     },
     {
       "name": "squish_stats",
-      "description": "Get memory statistics and system health for a project."
+      "description": "Get memory statistics and system health. Use action to control watcher or run LLM consolidation."
     },
     {
       "name": "squish_inspect",

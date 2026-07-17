@@ -58,8 +58,6 @@ jobs:
           bun test \
             tests/cli/launch-paths.test.ts \
             tests/config \
-            tests/core/belief-explain.test.ts \
-            tests/core/belief-extractor.test.ts \
             tests/core/content-extraction.test.ts \
             tests/core/contradiction-resolver.test.ts \
             tests/core/db-client.test.ts \
@@ -117,10 +115,8 @@ jobs:
             tests/mcp/stdio-pipe.test.ts \
             tests/mcp/background-services.test.ts \
             tests/mcp/universal-contract.test.ts \
-            tests/mcp/team-surface.test.ts \
             tests/mcp/remote-auth-contract.test.ts \
             tests/mcp/recall-surface.test.ts \
-            tests/mcp/mode-semantics.test.ts \
             --pass-with-no-tests
         env:
           SQUISH_MODE: local

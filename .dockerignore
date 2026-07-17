@@ -1,0 +1,50 @@
+# Dependencies
+node_modules/
+bun.lock
+
+# Build output
+dist/
+*.tgz
+
+# Tests
+tests/
+*.test.ts
+*.spec.ts
+
+# Documentation
+docs/
+wiki/
+*.md
+!README.md
+
+# Development
+.opencode/
+.squish/
+.env*
+!.env.example
+*.log
+
+# Git
+.git/
+.github/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Benchmarks
+benchmark/
+
+# Features (not needed for MCP)
+features/
+
+# Plugin scripts (not needed for MCP server)
+plugin/claude-code/
+plugin/codex/
+plugin/opencode/
