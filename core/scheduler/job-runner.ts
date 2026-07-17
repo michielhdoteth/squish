@@ -3,7 +3,6 @@
 import { logger } from '../logger.js';
 import { type JobExecutionContext } from './cron-scheduler.js';
 import { runDeduplicationJob } from '../consolidation.js';
-import { runLifecycleMaintenance } from '../lifecycle.js';
 import { pruneWeakAssociations } from '../associations.js';
 import { pruneOldSummaries } from '../summarization.js';
 import { getDb } from '../../db/index.js';
@@ -18,18 +17,6 @@ export async function runNightlyJob(context: JobExecutionContext): Promise<{
   let recordsProcessed = 0;
 
   logger.info('[NightlyJob] Starting nightly maintenance');
-
-  if (context.config.applyDecay !== false) {
-    try {
-      const lifecycleResult = await runLifecycleMaintenance();
-      summary.decayApplied = lifecycleResult?.decayed || 0;
-      recordsProcessed += summary.decayApplied as number;
-      logger.info(`[NightlyJob] Lifecycle: ${summary.decayApplied} decayed`);
-    } catch (error) {
-      logger.error('[NightlyJob] Lifecycle maintenance failed:', error);
-      summary.lifecycleError = error instanceof Error ? error.message : String(error);
-    }
-  }
 
   if (context.config.mergeDuplicates !== false) {
     try {

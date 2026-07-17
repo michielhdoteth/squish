@@ -1,18 +1,14 @@
 {
   "$schema": "https://glama.ai/mcp/schemas/server.json",
   "name": "squish-memory",
-  "description": "Local-first memory runtime for AI agents via MCP. Provides 18 tools for durable memory, recall, session search, and knowledge graph.",
+  "description": "Local-first memory runtime for AI agents via MCP. Provides 7 tools for durable memory, recall, graph linking, context, and inspection.",
   "repository": "https://github.com/michielhdoteth/squish",
   "categories": ["memory", "ai-agents", "mcp", "local-first"],
-  "keywords": ["memory", "mcp", "ai-agent", "recall", "knowledge-graph", "session-search", "local-first", "sqlite"],
+  "keywords": ["memory", "mcp", "ai-agent", "recall", "knowledge-graph", "local-first", "sqlite"],
   "tools": [
     {
-      "name": "squish_timeline",
-      "description": "3-layer progressive disclosure for memory exploration (index, timeline, detail)."
-    },
-    {
       "name": "squish_remember",
-      "description": "Store a new memory or learning. Auto-detects type and routes appropriately."
+      "description": "Store any memory or learning. System auto-detects type and routes appropriately."
     },
     {
       "name": "squish_recall",
@@ -20,63 +16,23 @@
     },
     {
       "name": "squish_forget",
-      "description": "Delete memory by ID or bulk delete with filters."
+      "description": "Delete a memory by ID, or bulk delete with search filters."
     },
     {
       "name": "squish_link",
-      "description": "Manage memory associations for graph-based reasoning."
+      "description": "Manage memory associations: find related memories or add links between them."
     },
     {
       "name": "squish_context",
       "description": "Get project context or list registered projects."
     },
     {
-      "name": "squish_health",
-      "description": "Check Squish health status."
-    },
-    {
       "name": "squish_stats",
-      "description": "Get memory statistics for a project."
+      "description": "Get memory statistics and system health for a project."
     },
     {
       "name": "squish_inspect",
       "description": "Explain why a memory was retained, where it was routed, and whether raw fallback exists."
-    },
-    {
-      "name": "squish_pin",
-      "description": "Pin or unpin a memory to prevent consolidation/pruning."
-    },
-    {
-      "name": "squish_recent",
-      "description": "Get recent memories by period."
-    },
-    {
-      "name": "squish_stale",
-      "description": "Show stale memories (old, low-confidence, or rarely accessed)."
-    },
-    {
-      "name": "squish_list_pinned",
-      "description": "List all pinned memories."
-    },
-    {
-      "name": "squish_on_session_start",
-      "description": "Trigger session start - injects context from previous sessions, initializes session tracking."
-    },
-    {
-      "name": "squish_on_tool_use",
-      "description": "Capture a tool use event for memory - stores observation about tool execution."
-    },
-    {
-      "name": "squish_on_session_end",
-      "description": "Trigger session end - performs cleanup and signals session completion."
-    },
-    {
-      "name": "squish_strategy",
-      "description": "Manage actionable strategies (read, write, list, search, supersede)."
-    },
-    {
-      "name": "squish_consolidate",
-      "description": "Run background consolidation - dedup, summarize, invalidate stale memories."
     }
   ],
   "maintainers": ["4m-labs"]

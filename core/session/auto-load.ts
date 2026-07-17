@@ -6,6 +6,7 @@ import { initializeCoreMemory, getCoreMemory } from '../ingestion/core-memory.js
 import { search } from '../memory/memories.js';
 import { getProjectContext } from '../context/context.js';
 import { getOrCreateProject } from '../projects.js';
+import { listKnowledgeByKind } from '../knowledge/store.js';
 import { AutoLoadConfig, AutoLoadResult, DEFAULT_AUTO_LOAD_CONFIG } from './types.js';
 import { estimateTokens } from '../context/context-window.js';
 import { getLatestProjectWorkingSetSummary } from './working-set.js';
@@ -19,6 +20,7 @@ export async function performAutoLoad(
   const result: AutoLoadResult = {
     coreMemoryLoaded: false,
     memoriesLoaded: 0,
+    strategiesLoaded: 0,
     projectContextLoaded: false,
     tokensUsed: 0,
     duration: 0,
@@ -115,6 +117,21 @@ try {
       }
     }
 
+    if (cfg.includeStrategies) {
+      try {
+        const strategies = await listKnowledgeByKind(projectPath, 'strategy', { status: 'active', limit: 10 });
+        result.strategiesLoaded = strategies.length;
+        for (const s of strategies) {
+          result.tokensUsed += estimateTokens(`${s.title ?? s.content}: ${s.description ?? ''}`);
+        }
+        logger.info(`[AutoLoad] Loaded ${strategies.length} active strategies`);
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        result.warnings.push(`Failed to load strategies: ${msg}`);
+        logger.warn(`[AutoLoad] Failed to load strategies: ${msg}`);
+      }
+    }
+
     result.duration = Date.now() - startTime;
     logger.info(`[AutoLoad] Complete: ${result.memoriesLoaded} memories, ${result.tokensUsed} tokens, ${result.duration}ms`);
 
@@ -136,6 +153,7 @@ export function getAutoLoadConfig(): AutoLoadConfig {
     recentMemoryCount: config.sessionAutoLoadRecentCount,
     importanceThreshold: config.sessionAutoLoadImportanceThreshold,
     includeProjectContext: true,
+    includeStrategies: true,
   };
 }
 

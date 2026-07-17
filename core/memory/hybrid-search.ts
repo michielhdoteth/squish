@@ -20,8 +20,7 @@ import { logger } from '../logger.js';
 import { getRetrievalConfig, type SquishRetrievalConfig, type RetrievalScoringConfig, type RetrievalTrace } from '../retrieval/config.js';
 import { questionPlaceType } from '../places/question-router.js';
 import { getAdjacentPlaces as getQuestionAdjacentPlaces } from '../places/rules.js';
-import { normalizeVisibilityScopes } from '../lib/utils.js';
-import type { VisibilityScope } from '../team/types.js';
+import { normalizeVisibilityScopes, type VisibilityScope } from '../lib/utils.js';
 
 // Enhanced retrieval modules
 import { rerankResults } from '../retrieval/cross-encoder-reranker.js';
@@ -476,16 +475,6 @@ export async function hybridSearch(
   trace.finalResultCount = results.length;
   for (const r of results) {
     trace.scoreBreakdown[r.id] = r.similarity ?? 0;
-  }
-
-  const visibilityScopes = normalizeVisibilityScopes(input.visibilityScope);
-  if (visibilityScopes && visibilityScopes.length > 0) {
-    results = results.filter((result: any) => {
-      const scope = (result.visibilityScope ?? result.visibility_scope ?? 'private') as VisibilityScope;
-      return visibilityScopes.includes(scope);
-    });
-    trace.finalOrder = results.map(r => r.id);
-    trace.finalResultCount = results.length;
   }
 
   // Attach trace to results when trace mode is enabled

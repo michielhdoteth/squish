@@ -31,7 +31,7 @@ Expected output:
 
 ```text
 [MCP] Running health check...
-[MCP] Health check passed. Server initialized with 18 tools.
+[MCP] Health check passed. Server initialized with 17 tools.
 ```
 
 ## 3) Start Specific Surfaces
@@ -76,7 +76,7 @@ squish doctor --json --migrate
 
 ```text
 [MCP] Running health check...
-[MCP] Health check passed. Server initialized with 18 tools.
+[MCP] Health check passed. Server initialized with 17 tools.
 ```
 
 ### squish run web

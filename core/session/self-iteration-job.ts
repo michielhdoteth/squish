@@ -12,9 +12,19 @@ import { rememberMemory, search } from '../memory/memories.js';
 import { serializeMetadata, deserializeMetadata } from '../memory/serialization.js';
 import { logger } from '../logger.js';
 import { generateExtractiveSummary, extractMessageContent } from '../utils/content-extraction.js';
-import { extractStrategiesFromConversation } from '../strategies/extractor.js';
-import { createStrategy, createStrategyBeliefEdge } from '../strategies/store.js';
-import { autoDeprecateUnusedStrategies } from '../strategies/decay.js';
+import {
+  extractStrategiesFromConversation,
+} from '../knowledge/extractor.js';
+import {
+  listKnowledgeByKind,
+  updateKnowledge,
+  createKnowledge,
+  searchKnowledge,
+  getKnowledgeById,
+} from '../knowledge/store.js';
+import { boostConfidence, runDecayCycle } from '../knowledge/decay.js';
+import { runDeduplicationCycle } from '../knowledge/deduplicator.js';
+import type { CreateKnowledgeInput } from '../knowledge/types.js';
 import type { MemoryType } from '../lib/types.js';
 
 export interface SelfIterationConfig {
@@ -116,57 +126,6 @@ const EXTRACTION_PATTERNS: Array<{
     prefix: 'Fact',
   },
 ];
-
-/**
- * Build fact extraction prompt
- */
-function buildFactExtractionPrompt(messages: MessageRow[]): string {
-  const messagesText = messages.map(m => `[${m.role}]: ${m.content}`).join('\n\n');
-
-  return `Extract key facts, decisions, and user preferences from this conversation.
-
-Format your response as JSON:
-{
-  "extractedFacts": [
-    {
-      "content": "specific fact text",
-      "type": "fact|decision|preference|observation",
-      "confidence": 0-100
-    }
-  ]
-}
-
-Only extract truly meaningful information that should be remembered:
-- Facts that are useful for future work or decisions
-- User preferences and choices
-- Important decisions made
-- Patterns or behaviors observed
-
-Do NOT extract:
-- Temporary conversational details
-- Greetings or pleasantries
-- Unless they indicate something significant
-
-Conversation messages:
-${messagesText}`;
-}
-
-/**
- * Build summary generation prompt
- */
-function buildSummaryPrompt(messages: MessageRow[]): string {
-  const messagesText = messages.map(m => `[${m.role}]: ${m.content}`).join('\n\n');
-
-  return `Generate a concise summary of this conversation (2-3 sentences, under 300 characters).
-
-Focus on:
-- What was accomplished
-- Key decisions made
-- Important context established
-
-Conversation messages:
-${messagesText}`;
-}
 
 /**
  * Parse LLM fact extraction response
@@ -385,34 +344,44 @@ async function processConversation(
     }
   }
 
-  // Auto-extract strategies from conversation
+  // Auto-extract strategies from conversation into unified knowledge table
   try {
     const conversationContent = messagesToProcess.map(m => `[${m.role}]: ${m.content}`).join('\n\n');
     const project = conversation.projectId ? await getProjectById(conversation.projectId) : null;
-    const extractedStrategies = await extractStrategiesFromConversation(conversationContent, project?.path);
+    const extractedStrategies = await extractStrategiesFromConversation(conversationContent, {
+      projectId: project?.id,
+      sourceType: 'conversation',
+    });
     for (const extracted of extractedStrategies) {
       try {
-        const strategy = await createStrategy({
-          projectId: project?.path,
-          strategyType: extracted.strategyType,
+        // Check for similar existing knowledge before creating
+        const similarResults = await searchKnowledge({
+          contentQuery: extracted.title + ' ' + extracted.description,
+          projectId: project?.id,
+          kinds: ['strategy'],
+          limit: 5,
+        });
+        if (similarResults.length > 0) {
+          // Boost confidence of existing strategy instead of creating duplicate
+          await boostConfidence(similarResults[0].id, 0.1);
+          logger.debug(`[SelfIteration] Boosted existing strategy ${similarResults[0].id}`);
+          continue;
+        }
+
+        const knowledgeInput: CreateKnowledgeInput = {
+          projectId: project?.id,
+          knowledgeKind: 'strategy',
+          knowledgeType: extracted.strategyType,
+          content: extracted.description,
           title: extracted.title,
           description: extracted.description,
-          context: extracted.context,
           steps: extracted.steps,
           successCriteria: extracted.successCriteria,
           failureIndicators: extracted.failureIndicators,
-          confidence: extracted.confidence,
+          confidence: extracted.confidence / 100,
           tags: ['auto-extracted'],
-        });
-
-        // If the strategy was extracted from a belief, link them
-        if (extracted.sourceType === 'belief' && extracted.sourceId) {
-          try {
-            await createStrategyBeliefEdge(strategy.id, extracted.sourceId, 'informed_by');
-          } catch (edgeError: any) {
-            logger.debug('[SelfIteration] Failed to create belief-strategy edge:', edgeError);
-          }
-        }
+        };
+        await createKnowledge(knowledgeInput);
       } catch (strategyCreateError: any) {
         logger.debug('[SelfIteration] Failed to create strategy:', strategyCreateError);
       }
@@ -497,14 +466,25 @@ const selfIterationHandler: JobHandler = async (
     logger.info(`[SelfIteration] Created ${totalMemoriesCreated} memories`);
     logger.info(`[SelfIteration] Generated ${totalSummariesGenerated} summaries`);
 
-    // Run strategy decay periodically
+    // Run unified knowledge maintenance: decay, dedup, deprecate unused
     try {
-      const deprecatedIds = await autoDeprecateUnusedStrategies(undefined, 90); // deprecate after 90 days unused
-      if (deprecatedIds.length > 0) {
-        logger.info(`[SelfIteration] Deprecated ${deprecatedIds.length} unused strategies`);
+      // Run unified knowledge decay cycle (handles all kinds: memory, belief, strategy)
+      try {
+        await runDecayCycle();
+        logger.info('[SelfIteration] Knowledge decay cycle complete');
+      } catch (decayErr: any) {
+        logger.debug('[SelfIteration] Knowledge decay cycle failed:', decayErr);
       }
-    } catch (decayError: any) {
-      logger.debug('[SelfIteration] Strategy decay check failed:', decayError);
+
+      // Run unified knowledge dedup cycle (handles all kinds)
+      try {
+        await runDeduplicationCycle();
+        logger.info('[SelfIteration] Knowledge dedup cycle complete');
+      } catch (dedupErr: any) {
+        logger.debug('[SelfIteration] Knowledge dedup cycle failed:', dedupErr);
+      }
+    } catch (maintenanceError: any) {
+      logger.debug('[SelfIteration] Knowledge maintenance failed:', maintenanceError);
     }
 
     return {

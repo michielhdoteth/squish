@@ -8,4 +8,3 @@ export * from './ingestion/learnings';
 export * from './security/privacy';
 export * from './projects';
 export * from './security/secret-detector';
-export * from './worker';

@@ -17,6 +17,8 @@ import { multiHopSearch } from '../graph/multi-hop-retrieval.js';
 import { autoRoute } from '../retrieval/query-router.js';
 import { extractQueryEntities, entityBoost } from '../retrieval/entity-aware-retrieval.js';
 import { enrichContent } from '../retrieval/contextual-enrichment.js';
+import { searchKnowledge, listKnowledgeByKind, getConnectedEntities, getConnectedPlaces } from '../knowledge/store.js';
+import { toStrategy } from '../knowledge/types.js';
 import { logger } from '../logger.js';
 
 // Types
@@ -29,7 +31,6 @@ import type {
   SemanticSearchOptions,
   SemanticResult,
   MemoryFilter,
-  StrategyRecord,
 } from './types.js';
 
 // Re-export all types
@@ -37,7 +38,6 @@ export type {
   EntityRecord,
   EntityRelation,
   GraphTraversalResult,
-  StrategyRecord,
   RecallOptions,
   RecallResult,
   FacadeOptions,
@@ -50,7 +50,6 @@ export type {
 // Re-export sub-modules
 export { getEntities, getEntity, getEntityRelationsByName, getProjectEntityList } from './entity-ops.js';
 export { getEntityNeighborhood, traverseGraph, findEntityPaths } from './graph-ops.js';
-export { getStrategyByKeywords } from './strategy-ops.js';
 
 // ─── Core Functions ────────────────────────────────────────────────────────
 
@@ -154,6 +153,7 @@ export async function recall(
 
   return {
     memories: results as unknown as MemoryRecord[],
+    strategies: (await searchKnowledge({ contentQuery: query, kinds: ['strategy'], projectId: project || undefined, limit: 10 }).catch(() => [])).map(toStrategy),
     routing: {
       intent: routeResult.classification.intent,
       strategy,

@@ -7,14 +7,10 @@ import { join } from "node:path";
 const MCP_INDEX = join(import.meta.dir, "..", "..", "packages", "mcp", "src", "index.ts");
 
 describe("background services graceful degradation", () => {
-  it("MCP server source imports scheduler and worker", async () => {
+  it("MCP server source imports scheduler", async () => {
     const source = await readFile(MCP_INDEX, "utf-8");
 
-    expect(source).toContain("startWorker");
-    expect(source).toContain("stopWorker");
     expect(source).toContain("initializeScheduler");
-
-    expect(source).toContain("core/worker");
     expect(source).toContain("core/scheduler/cron-scheduler");
   });
 
@@ -32,29 +28,6 @@ describe("background services graceful degradation", () => {
 
     // Verify there is a catch block after the scheduler call
     const following = source.substring(schedulerCallIdx, schedulerCallIdx + 300);
-    const catchIdx = following.indexOf("catch (error)");
-    expect(catchIdx).toBeGreaterThan(-1);
-    expect(catchIdx).toBeLessThan(300);
-
-    // Verify the catch logs a warning but does not re-throw
-    const catchBlock = following.substring(catchIdx, catchIdx + 200);
-    expect(catchBlock).toContain("Warning");
-    expect(catchBlock).not.toThrow;
-  });
-
-  it("server startup does not crash if worker throws", async () => {
-    const source = await readFile(MCP_INDEX, "utf-8");
-
-    const workerCallIdx = source.indexOf("await startWorker()");
-    expect(workerCallIdx).toBeGreaterThan(-1);
-
-    // Walk backwards to find the enclosing try block
-    const preceding = source.substring(Math.max(0, workerCallIdx - 500), workerCallIdx);
-    const enclosingTryIdx = preceding.lastIndexOf("try {");
-    expect(enclosingTryIdx).toBeGreaterThan(-1);
-
-    // Verify there is a catch block after the worker call
-    const following = source.substring(workerCallIdx, workerCallIdx + 300);
     const catchIdx = following.indexOf("catch (error)");
     expect(catchIdx).toBeGreaterThan(-1);
     expect(catchIdx).toBeLessThan(300);

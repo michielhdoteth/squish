@@ -18,7 +18,7 @@ function getSalt(): Buffer {
   fs.mkdirSync(path.dirname(saltPath), { recursive: true });
   if (!fs.existsSync(saltPath)) {
     const salt = randomBytes(16).toString('hex');
-    fs.writeFileSync(saltPath, salt);
+    fs.writeFileSync(saltPath, salt, { mode: 0o600 });
     return Buffer.from(salt, 'hex');
   }
   return Buffer.from(fs.readFileSync(saltPath, 'utf-8'), 'hex');

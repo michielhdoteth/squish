@@ -9,6 +9,8 @@ import { eq } from 'drizzle-orm';
 import { getDbClient } from '../../../../core/lib/db-client.js';
 import { search } from '../../../../core/memory/memories.js';
 import { filterByDateRange } from '../../../../core/lib/utils.js';
+import { getRemediationForError } from '../errors.js';
+import { colors } from '../colors.js';
 
 export function registerForgetCommand(program: Command) {
   program
@@ -20,23 +22,33 @@ export function registerForgetCommand(program: Command) {
     .option('--confirm', 'Actually delete (default is dry-run)', false)
     .option('-l, --limit <number>', 'Max memories to delete', '100')
     .option('-p, --project <project>', 'Project path (global if omitted)')
-    .option('--actor-user <user>', 'Actor user identity for team-mode ACL')
-    .option('--actor-agent <agent>', 'Actor agent identity for team-mode ACL')
+    .option('--json', 'Emit machine-readable output', false)
     .action(async (memoryId: string, options: any) => {
+      const previousQuiet = process.env.SQUISH_QUIET;
+      if (options.json) {
+        process.env.SQUISH_QUIET = '1';
+      }
       try {
         const { db, schema } = await getDbClient();
         
         if (memoryId && memoryId !== 'all') {
           await db.delete(schema.memories).where(eq(schema.memories.id, memoryId));
-          console.log(JSON.stringify({ ok: true, deleted: 1, memoryId }));
+          if (options.json) {
+            console.log(JSON.stringify({ ok: true, deleted: 1, memoryId }));
+          } else {
+            console.log(`${colors.green('OK')} Deleted memory ${colors.dim(memoryId)}`);
+          }
           return;
         }
         
         if (!options.olderThan && !options.search) {
-          console.error(JSON.stringify({ 
+          const payload = { 
             ok: false, 
-            error: 'Provide memoryId or use --older-than / --search for bulk delete' 
-          }));
+            error: 'Provide memoryId or use --older-than / --search for bulk delete',
+            command: 'forget',
+            remediation: 'Run "squish forget <memoryId>" to delete a single memory, or use --older-than / --search for bulk delete',
+          };
+          console.error(options.json ? JSON.stringify(payload) : `${colors.red('Error')}: Provide memoryId or use --older-than / --search for bulk delete\nHint: ${payload.remediation}`);
           process.exit(1);
         }
         
@@ -45,8 +57,6 @@ export function registerForgetCommand(program: Command) {
           project: options.project,
           limit: parseInt(options.limit) || 100,
           type: options.type,
-          actorUser: options.actorUser,
-          actorAgent: options.actorAgent,
         });
         
         let filtered = results;
@@ -62,15 +72,38 @@ export function registerForgetCommand(program: Command) {
           }
         }
         
-        console.log(JSON.stringify({
-          ok: true,
-          matched: filtered.length,
-          deleted: deleted.length,
-          dryRun: !options.confirm
-        }, null, 2));
+        if (options.json) {
+          console.log(JSON.stringify({
+            ok: true,
+            matched: filtered.length,
+            deleted: deleted.length,
+            dryRun: !options.confirm
+          }, null, 2));
+        } else {
+          if (!options.confirm) {
+            console.log(`${colors.yellow('DRY RUN')} Would delete ${colors.bold(String(filtered.length))} memories. Use --confirm to apply.`);
+          } else {
+            console.log(`${colors.green('OK')} Deleted ${colors.bold(String(deleted.length))} memories`);
+          }
+        }
       } catch (error: any) {
-        console.error(JSON.stringify({ ok: false, error: error.message }));
+        const remediation = getRemediationForError(error);
+        const payload = {
+          ok: false,
+          error: error.message,
+          command: 'forget',
+          remediation,
+        };
+        console.error(options.json ? JSON.stringify(payload) : `${colors.red('Error')}: ${error.message}\nHint: ${remediation}`);
         process.exit(1);
+      } finally {
+        if (options.json) {
+          if (previousQuiet === undefined) {
+            delete process.env.SQUISH_QUIET;
+          } else {
+            process.env.SQUISH_QUIET = previousQuiet;
+          }
+        }
       }
     });
 }

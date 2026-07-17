@@ -11,32 +11,8 @@ const dbInstances = new Map<string, any>();
 const dbInitPromises = new Map<string, Promise<any>>();
 const dbErrors = new Map<string, string>();
 
-/**
- * Detect the current mode dynamically from process.env instead of using
- * the cached config values. This is critical for tests that set env vars
- * after config.ts has already been imported (ES module import hoisting).
- */
-function detectCurrentMode(): 'local' | 'team' | 'remote' {
-  const databaseUrl = process.env.DATABASE_URL || '';
-  const supabaseUrl = process.env.SUPABASE_URL || '';
-  const neonProjectId = process.env.NEON_PROJECT_ID || '';
-
-  if (supabaseUrl || neonProjectId) return 'remote';
-  if (databaseUrl.startsWith('postgres')) return 'team';
-  return 'local';
-}
-
 function getDbCacheKey(): string {
-  const mode = detectCurrentMode();
-  return [
-    mode,
-    process.env.SQUISH_DATA_DIR || '',
-    process.env.DATABASE_URL || '',
-    process.env.SUPABASE_URL || '',
-    process.env.NEON_PROJECT_ID || '',
-    process.env.SQUISH_REMOTE_BACKEND || '',
-    process.env.SQUISH_TEAM_BACKEND || '',
-  ].join('|');
+  return process.env.SQUISH_DATA_DIR || '';
 }
 
 export async function getDb() {

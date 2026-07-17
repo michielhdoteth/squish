@@ -2,3 +2,5 @@
 export * from './conversations.js';
 export * from './entities.js';
 export * from './folder-context.js';
+export * from './graph-boost.js';
+export * from './qmd-wrapper.js';

@@ -17,7 +17,6 @@ import { runMemoryPlacesMigrations } from './memory-places.js';
 import { runIndexMigrations } from './indexes.js';
 import { runFtsMigrations } from './fts.js';
 import { runMaintenanceMigrations } from './maintenance.js';
-import { runBeliefMigrations } from './beliefs.js';
 import { runEntitiesMigrations } from './entities.js';
 
 /**
@@ -36,7 +35,6 @@ export async function runAllMigrations(sqlite: Database): Promise<void> {
   await runIndexMigrations(sqlite);
   await runFtsMigrations(sqlite);
   await runMaintenanceMigrations(sqlite);
-  await runBeliefMigrations(sqlite);
 }
 
 // Re-export for direct usage if needed
@@ -50,5 +48,4 @@ export { runMemoryPlacesMigrations } from './memory-places.js';
 export { runIndexMigrations } from './indexes.js';
 export { runFtsMigrations } from './fts.js';
 export { runMaintenanceMigrations } from './maintenance.js';
-export { runBeliefMigrations } from './beliefs.js';
 export { runEntitiesMigrations } from './entities.js';

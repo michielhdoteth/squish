@@ -95,8 +95,8 @@ function parseMetadata(raw: unknown): Record<string, unknown> | null {
   if (typeof raw === 'object' && !Array.isArray(raw)) {
     return raw as Record<string, unknown>;
   }
-  if (typeof raw === 'string' || (typeof raw === 'object' && raw !== null)) {
-    return deserializeMetadata(raw as Record<string, unknown> | string);
+  if (typeof raw === 'string') {
+    return deserializeMetadata(raw);
   }
   return null;
 }

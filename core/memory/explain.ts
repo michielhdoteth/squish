@@ -5,8 +5,8 @@ import { extractMemoryPolicy } from './policy.js';
 import { getMemorySnapshot } from '../snapshots/retrieval.js';
 import { getMemoryPlace } from '../places/memory-places.js';
 import { getPlace } from '../places/places.js';
-import { getBeliefsForMemory } from '../beliefs/store.js';
-import type { StoredBelief } from '../beliefs/types.js';
+import { getBeliefsForMemory } from '../knowledge/store.js';
+import type { StoredBelief } from '../knowledge/types.js';
 
 export interface MemoryInspection {
   id: string;

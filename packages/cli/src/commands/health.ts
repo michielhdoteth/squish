@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import { getInstallShadowDiagnostic } from '../../../../core/runtime/install-diagnostics.js';
 import { buildHealthState } from '../../../../core/runtime/trust-state.js';
 import { formatHealthReport } from '../../../../core/runtime/trust-report.js';
+import { colors } from '../colors.js';
 
 export function registerHealthCommand(program: Command) {
   program
@@ -37,6 +38,7 @@ export function registerHealthCommand(program: Command) {
           console.log(JSON.stringify({ ok: true, ...health }, null, 2));
           return;
         }
+        console.log(colors.bold('\nRuntime Health\n'));
         console.log(formatHealthReport(health));
       } catch (error: any) {
         console.error(JSON.stringify({ ok: false, error: error.message }));

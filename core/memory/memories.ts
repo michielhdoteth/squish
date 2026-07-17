@@ -6,7 +6,7 @@ import { getOrCreateProject, requireProject } from '../../core/projects.js';
 import { getEmbedding } from '../../core/embeddings.js';
 import { enrichContent } from '../retrieval/contextual-enrichment.js';
 import { normalizeTags, serializeTags, deserializeTags, serializeMetadata, deserializeMetadata } from '../../core/memory/serialization.js';
-import { normalizeTimestamp, clampLimit, prepareEmbedding, normalizeVisibilityScopes } from '../lib/utils.js';
+import { normalizeTimestamp, clampLimit, prepareEmbedding } from '../lib/utils.js';
 import { validateUuid, requireUuid } from '../lib/validation.js';
 import { cosineSimilarity } from '../utils/vector-operations.js';
 import { hybridSearch as hybridSearchImpl } from './hybrid-search.js';
@@ -16,11 +16,12 @@ import { resolveContradictions, applySupersession } from './contradiction-resolv
 import { encrypt, decrypt } from '../security/encrypt.js';
 import { estimateTokens } from '../context/context-window.js';
 import { getDbClient } from '../lib/db-client.js';
-import { extractBeliefsFromMemory } from '../beliefs/extractor.js';
-import { upsertBeliefsForMemory } from '../beliefs/store.js';
+import { extractBeliefs } from '../knowledge/extractor.js';
+import { upsertBeliefsForMemory, createKnowledge, createKnowledgeEdge } from '../knowledge/store.js';
+import { extractStrategiesFromConversation } from '../knowledge/extractor.js';
+import type { KnowledgeKind, CreateKnowledgeInput, KnowledgeEdgeType } from '../knowledge/types.js';
 import { extractEntityNames } from './entity-extractor.js';
 import { buildMemoryPolicy, buildVisibilityScopes, serializeVisibilityScopes, recommendMemoryScope } from './policy.js';
-import { autoLinkByEntities } from '../associations.js';
 import { autoRoute } from '../retrieval/query-router.js';
 import { onMemoryStored } from '../graph/incremental-sync.js';
 import { MemoryRecord, MemoryType } from '../lib/types.js';
@@ -30,11 +31,7 @@ import { findOrCreateCluster, updateClusterStats } from '../clustering/cluster-e
 import { evaluateCluster, shouldConsolidate, shouldSplit } from '../clustering/consolidation-check.js';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
-import { canWriteMemory } from '../team/acl.js';
-import { filterMemoriesByScope } from '../team/scope-filter.js';
-import { getTeamMember } from '../team/workspace.js';
-import type { VisibilityScope } from '../team/types.js';
-import type { TeamAccessContext, TeamMember } from '../team/types.js';
+import type { VisibilityScope } from '../lib/utils.js';
 
 // MemoryType and MemoryRecord imported from ../lib/types.js
 
@@ -44,9 +41,6 @@ export interface RememberInput {
   tags?: string[];
   project?: string;
   user?: string;            // Optional user identifier (name or email)
-  actorUser?: string;
-  actorAgent?: string;
-  visibilityScope?: VisibilityScope;
   metadata?: Record<string, unknown>;
   source?: string;
   // Rich context fields (Agent 4 feedback)
@@ -110,9 +104,6 @@ export interface SearchInput {
   limit?: number;
   project?: string;
   user?: string;           // Optional user filter (name or email)
-  actorUser?: string;
-  actorAgent?: string;
-  visibilityScope?: VisibilityScope | VisibilityScope[]; // Optional visibility filter
   // Place and session filters for unified search (Task 2, Task 3)
   placeId?: string;        // Filter by place
   placeType?: string;     // Filter by place type (inbox, wip, archive, etc.)
@@ -133,11 +124,7 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
   const { db, schema } = await getDbClient();
   const tags = normalizeTags(input.tags);
   const project = input.project ? await getOrCreateProject(input.project) : null;
-  const actor = await resolveTeamAccessMember(project?.id, {
-    userId: input.actorUser ?? input.user,
-    agentId: input.actorAgent,
-  });
-  const accessUser = input.actorUser ?? input.user;
+  const accessUser = input.user;
   // Enrich content for embedding when contextual retrieval is enabled
   // The database stores original content; enriched version is only for embedding
   const enriched = enrichContent(input.content, {
@@ -149,7 +136,7 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
   const id = randomUUID();
   const signals = detectMemorySignals(input.content);
   const type = input.type ?? signals.suggestedType;
-  const visibilityScope = input.visibilityScope ?? config.defaultVisibilityScope;
+  const visibilityScope = 'project' as VisibilityScope;
   const policyRecommendation = recommendMemoryScope({
     content: input.content,
     type,
@@ -176,19 +163,6 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
   const readWriteScopes = buildVisibilityScopes(visibilityScope, 'user', accessUser);
   const serializedReadScope = serializeVisibilityScopes(readWriteScopes.readScope);
   const serializedWriteScope = serializeVisibilityScopes(readWriteScopes.writeScope);
-
-  if (config.isTeamMode && project && !actor) {
-    logger.warn('[TeamMode] Writing memory without actor identity; falling back to legacy project-scoped write');
-  }
-
-  if (config.isTeamMode && actor && !canWriteMemory({
-    visibilityScope,
-    projectId: project?.id ?? null,
-    userId: input.actorUser ?? input.user ?? null,
-    agentId: input.actorAgent ?? null,
-  }, actor)) {
-    throw new Error('Not authorized to write this memory in team mode');
-  }
 
   const baseValues = {
     id,
@@ -285,9 +259,11 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
 
   await db.insert(schema.memories).values(insertValues);
 
+  let knowledgeRecordId: string | null = null;
+
   if (project?.id) {
     try {
-      const beliefs = extractBeliefsFromMemory({
+      const beliefs = extractBeliefs({
         memoryId: id,
         content: input.content,
         type,
@@ -303,19 +279,60 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
     } catch (beliefError) {
       logger.warn(`[Beliefs] Failed to derive beliefs for memory ${id}: ${beliefError}`);
     }
-  }
 
-   // Auto-link by entity overlap (synchronous - Task 5)
-   // Now memories are immediately findable via associations after storage
-   const entityNames = extractEntityNames(input.content);
-   if (entityNames.length > 0 && project?.id) {
-     try {
-       const linked = await autoLinkByEntities(id, entityNames, project.id);
-       if (linked > 0) logger.debug(`[AutoLink] Linked memory ${id} to ${linked} related memories`);
-     } catch (err) {
-       logger.debug(`[AutoLink] Failed: ${err}`);
-     }
-   }
+    // Extract strategies from memory content into unified knowledge table
+    try {
+      const extractedStrategies = await extractStrategiesFromConversation(input.content, {
+        projectId: project.id,
+        sourceType: 'memory',
+        sourceId: id,
+      });
+      for (const extracted of extractedStrategies) {
+        try {
+          await createKnowledge({
+            projectId: project.id,
+            knowledgeKind: 'strategy',
+            knowledgeType: extracted.strategyType,
+            content: extracted.description,
+            title: extracted.title,
+            description: extracted.description,
+            steps: extracted.steps,
+            successCriteria: extracted.successCriteria,
+            failureIndicators: extracted.failureIndicators,
+            confidence: extracted.confidence / 100,
+            tags: ['auto-extracted', 'realtime'],
+          });
+        } catch (strategyCreateError) {
+          logger.debug(`[Strategy] Failed to create strategy from memory ${id}: ${strategyCreateError}`);
+        }
+      }
+    } catch (strategyError) {
+      logger.debug(`[Strategy] Extraction failed for memory ${id}: ${strategyError}`);
+    }
+
+    // Store memory in unified knowledge table
+    try {
+      const knowledgeInput: CreateKnowledgeInput = {
+        projectId: project.id,
+        userId: insertValues.userId ?? undefined,
+        sessionId: input.sessionId ?? undefined,
+        knowledgeKind: 'memory',
+        knowledgeType: type,
+        content: input.content,
+        summary: undefined,
+        confidence: importance.score / 100,
+        tags: tags,
+        metadata: enrichedMetadata,
+        sector: 'episodic',
+        tier: importance.score >= 70 ? 'hot' : 'cold',
+      };
+      const knowledgeRecord = await createKnowledge(knowledgeInput);
+      knowledgeRecordId = knowledgeRecord.id;
+      logger.debug(`[Knowledge] Stored memory ${id} in knowledge table`);
+    } catch (knowledgeError) {
+      logger.debug(`[Knowledge] Failed to store memory in knowledge table: ${knowledgeError}`);
+    }
+  }
 
    // Build graph for this memory (auto-build if enabled)
    // Uses incremental sync which tracks entity counts and runs periodic dedup
@@ -326,6 +343,43 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
        });
        if (syncResult.entitiesCreated > 0 || syncResult.relationsCreated > 0) {
          logger.debug(`[Graph] Synced memory ${id}: ${syncResult.entitiesCreated} entities, ${syncResult.relationsCreated} relations${syncResult.dedupRan ? ' (dedup ran)' : ''}`);
+       }
+
+       // Create knowledge_edges from knowledge record to extracted entities
+       // This bridges the knowledge table with the entity graph so that
+       // getConnectedEntities() can traverse cross-system relationships.
+       if (knowledgeRecordId && (syncResult.entitiesCreated > 0 || syncResult.relationsCreated > 0)) {
+         try {
+           const { raw } = await getDbClient();
+           const sqlite = (raw as any).$client;
+           const updatedRow = sqlite.prepare('SELECT metadata FROM memories WHERE id = ?').get(id);
+           if (updatedRow?.metadata) {
+             const meta = typeof updatedRow.metadata === 'string'
+               ? JSON.parse(updatedRow.metadata)
+               : updatedRow.metadata;
+             const entityNames: string[] = meta.entities || [];
+             if (entityNames.length > 0) {
+               const placeholders = entityNames.map(() => '?').join(',');
+               const entities = sqlite.prepare(
+                 `SELECT id, name FROM entities WHERE project_id = ? AND name IN (${placeholders})`
+               ).all(project.id, ...entityNames);
+
+               for (const entity of entities) {
+                 try {
+                    await createKnowledgeEdge({
+                      fromId: knowledgeRecordId,
+                      fromKind: 'knowledge',
+                      toId: entity.id,
+                      toKind: 'entity',
+                      edgeType: 'references',
+                    });
+                 } catch { /* edge may already exist */ }
+               }
+             }
+           }
+         } catch (edgeError) {
+           logger.debug(`[Knowledge] Failed to create entity edges: ${edgeError}`);
+         }
        }
      } catch (graphError) {
        logger.debug(`[Graph] Failed to sync memory ${id}: ${graphError}`);
@@ -368,6 +422,28 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
     memoryType: type,
   });
 
+  // Create knowledge_edge from knowledge record to primary place
+  // This bridges the knowledge table with the place system so that
+  // getConnectedPlaces() can traverse cross-system relationships.
+  if (knowledgeRecordId) {
+    try {
+      const { raw } = await getDbClient();
+      const sqlite = (raw as any).$client;
+      const memoryRow = sqlite.prepare('SELECT place_id FROM memories WHERE id = ?').get(id);
+      if (memoryRow?.place_id) {
+        await createKnowledgeEdge({
+          fromId: knowledgeRecordId,
+          fromKind: 'knowledge',
+          toId: memoryRow.place_id,
+          toKind: 'place',
+          edgeType: 'located_in',
+        });
+      }
+    } catch (placeEdgeError) {
+      logger.debug(`[Knowledge] Failed to create place edge: ${placeEdgeError}`);
+    }
+  }
+
   // Store tags in memory_tags indexed table (v1.5.0)
   if (tags.length > 0) {
     try {
@@ -404,7 +480,6 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
 export async function getMemory(
   id: string,
   incrementAccess: boolean = true,
-  actor?: TeamAccessContext,
 ): Promise<MemoryRecord | null> {
   try {
     // Validate UUID
@@ -436,13 +511,6 @@ export async function getMemory(
 		}
 		const decryptedRow = { ...row, content };
     const normalized = normalizeMemory(decryptedRow);
-    if (config.isTeamMode) {
-      const allowed = await isMemoryReadableByTeamContext(normalized, {
-        projectId: normalized.projectId ?? row.projectId ?? row.project_id ?? null,
-        ...actor,
-      });
-      if (!allowed) return null;
-    }
 		return normalized;
 	} catch (error: any) {
 		throw error;
@@ -512,7 +580,7 @@ export async function setConfidence(id: string, level: 'certain' | 'speculative'
 	}
 }
 
-export async function getRecent(projectPath: string, limit: number, actor?: TeamAccessContext): Promise<MemoryRecord[]> {
+export async function getRecent(projectPath: string, limit: number): Promise<MemoryRecord[]> {
   try {
     const { db } = await getDbClient();
     const sqlite = db.$client as any;
@@ -526,12 +594,7 @@ export async function getRecent(projectPath: string, limit: number, actor?: Team
       LIMIT ?
     `).all(project.id, limit);
 
-    const memories = rows.map((row: any) => normalizeMemory(row));
-    if (!config.isTeamMode) {
-      return memories;
-    }
-    const member = await resolveTeamAccessMember(project.id, actor);
-    return filterReadableMemories(memories, member, project.id);
+    return rows.map((row: any) => normalizeMemory(row));
   } catch (error: any) {
     throw error;
   }
@@ -571,12 +634,6 @@ export async function search(input: SearchInput): Promise<SearchResult[]> {
   }
 
   const project = input.project ? await requireProject(input.project) : null;
-  const member = config.isTeamMode && project
-    ? await resolveTeamAccessMember(project.id, {
-        userId: input.actorUser ?? input.user,
-        agentId: input.actorAgent,
-      })
-    : null;
 
   // Pass routing hints to hybrid search for strategy-aware retrieval
   const searchOptions: Record<string, unknown> = { limit };
@@ -588,10 +645,6 @@ export async function search(input: SearchInput): Promise<SearchResult[]> {
 
   if (dbResults.length === 0) {
     dbResults = await fallbackSearchByRecency(input, limit);
-  }
-
-  if (config.isTeamMode) {
-    dbResults = filterReadableMemories(dbResults, member, project?.id ?? null);
   }
 
   // Post-filter by userId if user filter was provided
@@ -618,11 +671,6 @@ async function fallbackSearchByRecency(input: SearchInput, limit: number): Promi
       conditions.push(eq(schema.memories.type, input.type));
     }
 
-    const visibilityScopes = normalizeVisibilityScopes(input.visibilityScope);
-    if (visibilityScopes && visibilityScopes.length > 0) {
-      conditions.push(inArray(schema.memories.visibilityScope, visibilityScopes));
-    }
-
     const query = (db as any)
       .select()
       .from(schema.memories);
@@ -635,64 +683,10 @@ async function fallbackSearchByRecency(input: SearchInput, limit: number): Promi
       ...normalizeMemory(row),
       similarity: 0,
     }));
-    if (config.isTeamMode) {
-      const projectId = input.project ? (await requireProject(input.project)).id : null;
-      const member = projectId
-        ? await resolveTeamAccessMember(projectId, {
-            userId: input.actorUser ?? input.user,
-            agentId: input.actorAgent,
-          })
-        : null;
-      results = filterReadableMemories(results, member, projectId);
-    }
     return results;
   } catch {
     return [];
   }
-}
-
-async function resolveTeamAccessMember(projectId: string | null | undefined, actor?: TeamAccessContext): Promise<TeamMember | null> {
-  if (!config.isTeamMode) return null;
-  if (!projectId) return null;
-  if (!actor?.userId && !actor?.agentId) return null;
-  try {
-    return await getTeamMember(projectId, actor.userId, actor.agentId);
-  } catch {
-    return null;
-  }
-}
-
-function filterReadableMemories<T extends { visibilityScope?: string | null; projectId?: string | null; userId?: string | null; agentId?: string | null }>(
-  memories: T[],
-  member: TeamMember | null,
-  projectId: string | null,
-): T[] {
-  if (!config.isTeamMode) return memories;
-  if (member) {
-    return filterMemoriesByScope(memories as any, member) as T[];
-  }
-  return memories.filter((memory) => {
-    const scope = memory.visibilityScope ?? 'private';
-    if (scope === 'global') return true;
-    if (scope === 'private') return false;
-    if (!projectId) return false;
-    return !memory.projectId || memory.projectId === projectId;
-  });
-}
-
-async function isMemoryReadableByTeamContext(
-  memory: MemoryRecord,
-  actor: TeamAccessContext & { projectId?: string | null },
-): Promise<boolean> {
-  if (!config.isTeamMode) return true;
-  const scope = memory.visibilityScope ?? 'private';
-  if (scope === 'global') return true;
-  if (!actor.projectId) return false;
-  const member = await resolveTeamAccessMember(actor.projectId, actor);
-  if (!member) {
-    return scope !== 'private';
-  }
-  return filterMemoriesByScope([memory as any], member).length > 0;
 }
 
 // parseEmbedding imported from ../lib/parse-embedding.js

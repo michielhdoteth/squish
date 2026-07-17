@@ -33,32 +33,6 @@ export interface GraphTraversalResult {
   paths: TraversalPath[];
 }
 
-export interface StrategyRecord {
-  id: string;
-  projectId: string | null;
-  strategyType: string;
-  title: string;
-  description: string;
-  context: string | null;
-  steps: string | null;
-  successCriteria: string | null;
-  failureIndicators: string | null;
-  confidence: number | null;
-  usageCount: number | null;
-  successCount: number | null;
-  failureCount: number | null;
-  lastUsedAt: Date | null;
-  lastSuccessAt: Date | null;
-  lastFailureAt: Date | null;
-  status: string | null;
-  supersededBy: string | null;
-  tags: string | null;
-  metadata: Record<string, unknown> | null;
-  visibilityScope: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
 export interface RecallOptions {
   project?: string;
   limit?: number;
@@ -102,6 +76,7 @@ export type EntityInfo = EntityRecord;
 
 export interface RecallResult {
   memories: MemoryRecord[];
+  strategies?: import('../knowledge/types.js').Strategy[];
   graphEntities?: EntityInfo[];
   routing: {
     intent: string;

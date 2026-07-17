@@ -3,9 +3,7 @@
  */
 
 import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
-import { config } from '../../config.js';
 import { toSqliteJson } from '../memory/serialization.js';
-import type { VisibilityScope } from '../team/types.js';
 
 export function normalizeTimestamp(value: any): string | null {
   if (!value) return null;
@@ -75,10 +73,7 @@ export function clampLimit(value: number | undefined, defaultValue: number, min:
   return Math.min(Math.max(value ?? defaultValue, min), max);
 }
 
-export function prepareEmbedding(embedding: number[] | null): { embedding?: number[] | null; embeddingJson?: string | null } {
-  if (config.isTeamMode) {
-    return { embedding: embedding ?? null };
-  }
+export function prepareEmbedding(embedding: number[] | null): { embeddingJson?: string | null } {
   return { embeddingJson: toSqliteJson(embedding ?? null) };
 }
 
@@ -124,6 +119,7 @@ export function parseDate(input: string): Date | null {
   if (lower === 'lastweek' || lower === 'last week') {
     const d = new Date(now);
     d.setDate(d.getDate() - d.getDay() - 7);
+    d.setHours(0, 0, 0, 0);
     return d;
   }
   
@@ -150,6 +146,8 @@ export function filterByDateRange<T extends { createdAt?: string | null }>(
     return true;
   });
 }
+
+export type VisibilityScope = 'private' | 'project';
 
 export function normalizeVisibilityScopes(
   visibilityScope?: VisibilityScope | VisibilityScope[] | null

@@ -6,6 +6,8 @@
 
 import { Command } from 'commander';
 import { getRecent } from '../../../../core/memory/memories.js';
+import { getRemediationForError } from '../errors.js';
+import { colors } from '../colors.js';
 
 export function registerStaleCommand(program: Command) {
   program
@@ -14,16 +16,16 @@ export function registerStaleCommand(program: Command) {
     .option('-d, --days <number>', 'Show memories older than N days', '30')
     .option('-l, --limit <number>', 'Max results', '20')
     .option('-p, --project <project>', 'Project path (global if omitted)')
-    .option('--actor-user <user>', 'Actor user identity for team-mode ACL')
-    .option('--actor-agent <agent>', 'Actor agent identity for team-mode ACL')
+    .option('--json', 'Emit machine-readable output', false)
     .action(async (options: any) => {
+      const previousQuiet = process.env.SQUISH_QUIET;
+      if (options.json) {
+        process.env.SQUISH_QUIET = '1';
+      }
       try {
         const days = parseInt(options.days) || 30;
         const cutoffDate = new Date(Date.now() - days * 86400000);
-        const results = await getRecent(options.project, 500, {
-          userId: options.actorUser,
-          agentId: options.actorAgent,
-        });
+        const results = await getRecent(options.project, 500);
         
         const stale = results.filter((m: any) => {
           const created = m.createdAt ? new Date(m.createdAt) : null;
@@ -34,15 +36,40 @@ export function registerStaleCommand(program: Command) {
         });
         
         const limited = stale.slice(0, parseInt(options.limit) || 20);
-        console.log(JSON.stringify({
-          ok: true,
-          totalStale: stale.length,
-          count: limited.length,
-          memories: limited
-        }, null, 2));
+
+        if (options.json) {
+          console.log(JSON.stringify({
+            ok: true,
+            totalStale: stale.length,
+            count: limited.length,
+            memories: limited
+          }, null, 2));
+          return;
+        }
+
+        console.log(`${colors.bold(`Stale memories (${stale.length} total):`)}\n`);
+        limited.forEach((r: any, i: number) => {
+          console.log(`${colors.green(`${i + 1}.`)} [${colors.yellow(r.type)}] ${r.content?.substring(0, 100)}...`);
+          console.log(`   ID: ${colors.dim(r.id)} Created: ${colors.dim(r.createdAt || 'unknown')}\n`);
+        });
       } catch (error: any) {
-        console.error(JSON.stringify({ ok: false, error: error.message }));
+        const remediation = getRemediationForError(error);
+        const payload = {
+          ok: false,
+          error: error.message,
+          command: 'stale',
+          remediation,
+        };
+        console.error(options.json ? JSON.stringify(payload) : `${colors.red('Error')}: ${error.message}\nHint: ${remediation}`);
         process.exit(1);
+      } finally {
+        if (options.json) {
+          if (previousQuiet === undefined) {
+            delete process.env.SQUISH_QUIET;
+          } else {
+            process.env.SQUISH_QUIET = previousQuiet;
+          }
+        }
       }
     });
 }

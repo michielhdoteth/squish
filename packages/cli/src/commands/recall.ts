@@ -8,6 +8,8 @@ import { Command } from 'commander';
 import { getMemory, search } from '../../../../core/memory/memories.js';
 import { shouldReturnRawFallback } from '../../../../core/ingestion/signal-engine.js';
 import { getMemorySnapshot } from '../../../../core/snapshots/retrieval.js';
+import { getRemediationForError } from '../errors.js';
+import { colors } from '../colors.js';
 
 export function registerRecallCommand(program: Command) {
   program
@@ -18,21 +20,22 @@ export function registerRecallCommand(program: Command) {
     .option('-l, --limit <number>', 'Max results', '5')
     .option('-P, --pretty', 'Human-friendly output', false)
     .option('-p, --project <project>', 'Project path')
-    .option('--actor-user <user>', 'Actor user identity for team-mode ACL')
-    .option('--actor-agent <agent>', 'Actor agent identity for team-mode ACL')
+    .option('--json', 'Emit machine-readable output', false)
     .action(async (query: string, options: any) => {
+      const previousQuiet = process.env.SQUISH_QUIET;
+      if (options.json) {
+        process.env.SQUISH_QUIET = '1';
+      }
       try {
         const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(query);
         
         let result;
         
         if (isUuid) {
-          const memory = await getMemory(query, true, {
-            userId: options.actorUser,
-            agentId: options.actorAgent,
-          });
+          const memory = await getMemory(query, true);
           if (!memory) {
-            console.error(JSON.stringify({ ok: false, error: 'Memory not found' }));
+            const payload = { ok: false, error: 'Memory not found', command: 'recall', remediation: 'Check the ID or query, or run "squish recall" to find memories' };
+            console.error(options.json ? JSON.stringify(payload) : `${colors.red('Error')}: Memory not found\nHint: Check the ID or query, or run "squish recall" to find memories`);
             process.exit(1);
           }
           result = [memory];
@@ -44,8 +47,6 @@ export function registerRecallCommand(program: Command) {
             limit,
             type: options.type,
             placeType: options.place,
-            actorUser: options.actorUser,
-            actorAgent: options.actorAgent,
           });
           result = await Promise.all(memories.map(async (memory) => {
             const metadata = (memory.metadata ?? {}) as Record<string, unknown>;
@@ -75,16 +76,7 @@ export function registerRecallCommand(program: Command) {
           }));
         }
 
-        if (options.pretty) {
-          console.log(`\nFound ${result.length} memories:\n`);
-          result.forEach((r, i) => {
-            console.log(`${i + 1}. [${r.type}] ${r.content?.substring(0, 100)}...`);
-            console.log(`   Tags: ${r.tags?.join(', ') || 'none'}`);
-            console.log(`   Similarity: ${r.similarity?.toFixed(3) || 'N/A'}`);
-            console.log(`   ID: ${r.id}`);
-            console.log(`   Created: ${r.createdAt || 'unknown'}\n`);
-          });
-        } else {
+        if (options.json) {
           console.log(JSON.stringify({
             ok: true,
             count: result.length,
@@ -97,10 +89,45 @@ export function registerRecallCommand(program: Command) {
               createdAt: r.createdAt
             }))
           }, null, 2));
+          return;
+        }
+
+        if (options.pretty) {
+          console.log(colors.bold(`\nFound ${result.length} memories:\n`));
+          result.forEach((r, i) => {
+            console.log(`${colors.cyan(`${i + 1}.`)} [${colors.green(r.type)}] ${r.content?.substring(0, 100)}...`);
+            console.log(`   Tags: ${colors.dim(r.tags?.join(', ') || 'none')}`);
+            console.log(`   Similarity: ${colors.dim(r.similarity?.toFixed(3) || 'N/A')}`);
+            console.log(`   ID: ${colors.dim(r.id)}`);
+            console.log(`   Created: ${colors.dim(r.createdAt || 'unknown')}\n`);
+          });
+        } else {
+          // Default human-readable output
+          console.log(`Found ${result.length} memories:\n`);
+          result.forEach((r, i) => {
+            console.log(`${i + 1}. [${r.type}] ${r.content?.substring(0, 100)}...`);
+            console.log(`   ID: ${r.id}`);
+            console.log(`   Created: ${r.createdAt || 'unknown'}\n`);
+          });
         }
       } catch (error: any) {
-        console.error(JSON.stringify({ ok: false, error: error.message }));
+        const remediation = getRemediationForError(error);
+        const payload = {
+          ok: false,
+          error: error.message,
+          command: 'recall',
+          remediation,
+        };
+        console.error(options.json ? JSON.stringify(payload) : `${colors.red('Error')}: ${error.message}\nHint: ${remediation}`);
         process.exit(1);
+      } finally {
+        if (options.json) {
+          if (previousQuiet === undefined) {
+            delete process.env.SQUISH_QUIET;
+          } else {
+            process.env.SQUISH_QUIET = previousQuiet;
+          }
+        }
       }
     });
 }

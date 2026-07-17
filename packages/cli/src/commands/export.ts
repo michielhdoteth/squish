@@ -8,6 +8,7 @@
 
 import { Command } from 'commander';
 import { search } from '../../../../core/memory/memories.js';
+import { getRemediationForError } from '../errors.js';
 
 export function registerExportCommand(program: Command) {
   program
@@ -17,10 +18,13 @@ export function registerExportCommand(program: Command) {
     .option('--place <place>', 'Filter by place (inbox, ref, wip, sandbox, board, sparks, archive)')
     .option('-l, --limit <number>', 'Max memories to export', '100')
     .option('-p, --project <project>', 'Project path')
-    .option('--actor-user <user>', 'Actor user identity for team-mode ACL')
-    .option('--actor-agent <agent>', 'Actor agent identity for team-mode ACL')
     .option('-o, --output <file>', 'Output file (default: stdout)')
+    .option('--json', 'Emit machine-readable output', false)
     .action(async (options: any) => {
+      const previousQuiet = process.env.SQUISH_QUIET;
+      if (options.json) {
+        process.env.SQUISH_QUIET = '1';
+      }
       try {
         const format = options.format?.toLowerCase() || 'markdown';
         const limit = parseInt(options.limit) || 100;
@@ -31,12 +35,14 @@ export function registerExportCommand(program: Command) {
           project: options.project,
           limit,
           placeType: options.place,
-          actorUser: options.actorUser,
-          actorAgent: options.actorAgent,
         });
         
         if (memories.length === 0) {
-          console.log('No memories to export');
+          if (options.json) {
+            console.log(JSON.stringify({ ok: true, count: 0, results: [] }, null, 2));
+          } else {
+            console.log('No memories to export');
+          }
           return;
         }
         
@@ -45,16 +51,46 @@ export function registerExportCommand(program: Command) {
         if (options.output) {
           const fs = await import('node:fs');
           fs.writeFileSync(options.output, output);
-          console.log(`Exported ${memories.length} memories to ${options.output}`);
+          if (options.json) {
+            console.log(JSON.stringify({ ok: true, exported: memories.length, file: options.output }, null, 2));
+          } else {
+            console.log(`Exported ${memories.length} memories to ${options.output}`);
+          }
         } else {
-          console.log(output);
+          if (options.json) {
+            console.log(JSON.stringify({ ok: true, count: memories.length, results: memories.map(m => ({
+              id: m.id,
+              type: m.type,
+              content: m.content,
+              summary: m.summary,
+              tags: m.tags,
+              importance: m.importance,
+              confidenceLevel: m.confidenceLevel,
+              place: m.place,
+              createdAt: m.createdAt,
+              updatedAt: m.updatedAt
+            })) }, null, 2));
+          } else {
+            console.log(output);
+          }
         }
-      } catch (error) {
-        console.error(JSON.stringify({ 
-          ok: false, 
-          error: error instanceof Error ? error.message : String(error) 
-        }));
+      } catch (error: any) {
+        const remediation = getRemediationForError(error);
+        if (options.json) {
+          console.error(JSON.stringify({ ok: false, error: error.message, remediation }));
+        } else {
+          console.error(`Error: ${error.message}`);
+          console.error(`Hint: ${remediation}`);
+        }
         process.exit(1);
+      } finally {
+        if (options.json) {
+          if (previousQuiet === undefined) {
+            delete process.env.SQUISH_QUIET;
+          } else {
+            process.env.SQUISH_QUIET = previousQuiet;
+          }
+        }
       }
     });
 }

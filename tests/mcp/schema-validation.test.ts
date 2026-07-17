@@ -92,7 +92,7 @@ describe("MCP schema validation", () => {
     const source = readSource();
     const tools = extractTools(source);
 
-    expect(tools.length).toBe(18);
+    expect(tools.length).toBe(7);
 
     const validPropertyTypes = new Set([
       "string", "number", "boolean", "object", "array", "integer",
@@ -129,7 +129,7 @@ describe("MCP schema validation", () => {
     const source = readSource();
     const tools = extractTools(source);
 
-    expect(tools.length).toBe(18);
+    expect(tools.length).toBe(7);
 
     for (const tool of tools) {
       expect(tool.description.length).toBeGreaterThan(0);
@@ -144,24 +144,13 @@ describe("MCP schema validation", () => {
     const tools = extractTools(source);
 
     const expected = new Set([
-      "squish_timeline",
       "squish_remember",
       "squish_recall",
       "squish_forget",
       "squish_link",
       "squish_context",
-      "squish_health",
       "squish_stats",
       "squish_inspect",
-      "squish_pin",
-      "squish_recent",
-      "squish_stale",
-      "squish_list_pinned",
-      "squish_on_session_start",
-      "squish_on_tool_use",
-      "squish_on_session_end",
-      "squish_strategy",
-      "squish_consolidate",
     ]);
 
     const actual = new Set(tools.map((t) => t.name));
@@ -240,7 +229,7 @@ describe("MCP schema validation", () => {
     const source = readSource();
     const tools = extractTools(source);
 
-    expect(tools.length).toBe(18);
+    expect(tools.length).toBe(7);
 
     for (const tool of tools) {
       const schemaObj = evalZodSchema(tool.inputSchemaZod);

@@ -219,11 +219,11 @@ afterAll(async () => {
 // ─── Tests ────────────────────────────────────────────────────────────
 
 describe("MCP Tool Handlers", () => {
-  describe("squish_health", () => {
+  describe("squish_stats", () => {
     it(
       "returns health status with schema info",
       async () => {
-        const resp = await sharedServer.callTool("squish_health", {}, TEST_TIMEOUT);
+        const resp = await sharedServer.callTool("squish_stats", {}, TEST_TIMEOUT);
         expect(resp.result).toBeDefined();
         expect(resp.result.content).toBeDefined();
         expect(resp.result.content.length).toBeGreaterThan(0);
@@ -242,7 +242,6 @@ describe("MCP Tool Handlers", () => {
           expect(parsed.ok).toBeDefined();
           expect(typeof parsed.ok).toBe("boolean");
           expect(parsed.version).toBeDefined();
-          expect(parsed.timestamp).toBeDefined();
         }
       },
       TEST_TIMEOUT
@@ -251,14 +250,14 @@ describe("MCP Tool Handlers", () => {
     it(
       "includes tool count in response",
       async () => {
-        const resp = await sharedServer.callTool("squish_health", {}, TEST_TIMEOUT);
+        const resp = await sharedServer.callTool("squish_stats", {}, TEST_TIMEOUT);
         const parsed = parseToolResult(resp);
         if (parsed._raw !== undefined) {
           // Non-JSON response is acceptable
           expect(typeof parsed._raw).toBe("string");
         } else {
           expect(parsed.ok).toBeDefined();
-          expect(parsed.version).toBe("1.9.0");
+          expect(parsed.version).toBe("2.0.0");
         }
       },
       TEST_TIMEOUT
@@ -497,10 +496,8 @@ describe("MCP Tool Handlers", () => {
           "squish_link",
           {
             action: "add",
-            fromMemoryId: memoryId1,
-            toMemoryId: memoryId2,
-            type: "relates_to",
-            weight: 0.7,
+            fromId: memoryId1,
+            toId: memoryId2,
           },
           TEST_TIMEOUT
         );
@@ -516,7 +513,7 @@ describe("MCP Tool Handlers", () => {
       async () => {
         const resp = await sharedServer.callTool(
           "squish_link",
-          { action: "find", memoryId: memoryId1, depth: 2, minWeight: 0.1 },
+          { action: "find", memoryId: memoryId1 },
           TEST_TIMEOUT
         );
         expect(resp.result).toBeDefined();
@@ -525,264 +522,37 @@ describe("MCP Tool Handlers", () => {
       },
       TEST_TIMEOUT
     );
-
-    it(
-      "list lists associations",
-      async () => {
-        const resp = await sharedServer.callTool(
-          "squish_link",
-          { action: "list" },
-          TEST_TIMEOUT
-        );
-        expect(resp.result).toBeDefined();
-        const parsed = parseToolResult(resp);
-        expect(parsed.ok).toBe(true);
-        expect(typeof parsed.count).toBe("number");
-      },
-      TEST_TIMEOUT
-    );
   });
 
   describe("squish_forget", () => {
+    let forgetMemoryId: string;
+
     beforeAll(async () => {
       // Store a memory to delete
-      await sharedServer.callTool(
+      const resp = await sharedServer.callTool(
         "squish_remember",
         { content: "Memory to forget for testing" },
         TEST_TIMEOUT
       );
+      const text = resp.result.content[0].text;
+      const idMatch = text.match(/Remembered: ([0-9a-f-]+)/);
+      forgetMemoryId = idMatch![1];
     });
 
     it(
-      "dry-run mode (confirm: false) returns preview",
+      "deletes a memory by ID",
       async () => {
         const resp = await sharedServer.callTool(
           "squish_forget",
           {
-            search: "forget",
-            confirm: false,
+            memoryId: forgetMemoryId,
           },
           TEST_TIMEOUT
         );
         expect(resp.result).toBeDefined();
         const parsed = parseToolResult(resp);
         expect(parsed.ok).toBe(true);
-        expect(parsed.dryRun).toBe(true);
-        expect(typeof parsed.matched).toBe("number");
-      },
-      TEST_TIMEOUT
-    );
-
-    it(
-      "bulk delete by age",
-      async () => {
-        const resp = await sharedServer.callTool(
-          "squish_forget",
-          {
-            olderThan: "1 day",
-            confirm: true,
-          },
-          TEST_TIMEOUT
-        );
-        expect(resp.result).toBeDefined();
-        const parsed = parseToolResult(resp);
-        expect(parsed.ok).toBe(true);
-        expect(typeof parsed.matched).toBe("number");
-        expect(typeof parsed.deleted).toBe("number");
-      },
-      TEST_TIMEOUT
-    );
-  });
-
-  describe("squish_recent", () => {
-    beforeAll(async () => {
-      await sharedServer.callTool(
-        "squish_remember",
-        { content: "Recent memory for testing" },
-        TEST_TIMEOUT
-      );
-    });
-
-    it(
-      "returns recent memories by period",
-      async () => {
-        const resp = await sharedServer.callTool(
-          "squish_recent",
-          { period: "today" },
-          TEST_TIMEOUT
-        );
-        expect(resp.result).toBeDefined();
-        const parsed = parseToolResult(resp);
-        expect(parsed.ok).toBe(true);
-        expect(parsed.period).toBe("today");
-        expect(typeof parsed.count).toBe("number");
-        expect(Array.isArray(parsed.results)).toBe(true);
-      },
-      TEST_TIMEOUT
-    );
-  });
-
-  describe("squish_strategy", () => {
-    const uniqueTitle = `Test Strategy ${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-    let strategyId: string;
-
-    beforeAll(async () => {
-      // Seed a project so strategy creation has a valid projectId
-      await sharedServer.callTool(
-        "squish_remember",
-        { content: "Seed memory for strategy project" },
-        TEST_TIMEOUT
-      );
-    });
-
-    it(
-      "write creates a strategy",
-      async () => {
-        const resp = await sharedServer.callTool(
-          "squish_strategy",
-          {
-            action: "write",
-            title: uniqueTitle,
-            description: "A test strategy for MCP tool handler testing",
-            type: "heuristic",
-            context: "When running MCP integration tests",
-            steps: [
-              "Initialize the server",
-              "Call the tool",
-              "Verify the response",
-            ],
-            successCriteria: "All assertions pass",
-            failureIndicators: "Any assertion fails",
-            confidence: 0.8,
-          },
-          TEST_TIMEOUT
-        );
-        expect(resp.result).toBeDefined();
-        const parsed = parseToolResult(resp);
-        if (parsed._raw !== undefined) {
-          // Error (e.g. FK constraint) - acceptable in test env
-          expect(typeof parsed._raw).toBe("string");
-        } else {
-          expect(parsed.ok).toBe(true);
-          expect(parsed.strategy).toBeDefined();
-          strategyId = parsed.strategy.id;
-        }
-      },
-      TEST_TIMEOUT
-    );
-
-    it(
-      "list returns strategies",
-      async () => {
-        const resp = await sharedServer.callTool(
-          "squish_strategy",
-          { action: "list" },
-          TEST_TIMEOUT
-        );
-        expect(resp.result).toBeDefined();
-        const parsed = parseToolResult(resp);
-        if (parsed._raw !== undefined) {
-          expect(typeof parsed._raw).toBe("string");
-        } else {
-          expect(parsed.ok).toBe(true);
-          expect(typeof parsed.count).toBe("number");
-          expect(Array.isArray(parsed.strategies)).toBe(true);
-        }
-      },
-      TEST_TIMEOUT
-    );
-
-    it(
-      "search finds by query",
-      async () => {
-        const resp = await sharedServer.callTool(
-          "squish_strategy",
-          { action: "search", query: uniqueTitle },
-          TEST_TIMEOUT
-        );
-        expect(resp.result).toBeDefined();
-        const parsed = parseToolResult(resp);
-        if (parsed._raw !== undefined) {
-          expect(typeof parsed._raw).toBe("string");
-        } else {
-          expect(parsed.ok).toBe(true);
-          expect(typeof parsed.count).toBe("number");
-        }
-      },
-      TEST_TIMEOUT
-    );
-
-    it(
-      "stats returns counts",
-      async () => {
-        const resp = await sharedServer.callTool(
-          "squish_strategy",
-          { action: "stats" },
-          TEST_TIMEOUT
-        );
-        expect(resp.result).toBeDefined();
-        const parsed = parseToolResult(resp);
-        if (parsed._raw !== undefined) {
-          expect(typeof parsed._raw).toBe("string");
-        } else {
-          expect(parsed.ok).toBe(true);
-          expect(parsed.stats).toBeDefined();
-        }
-      },
-      TEST_TIMEOUT
-    );
-  });
-
-  describe("squish_timeline", () => {
-    beforeAll(async () => {
-      await sharedServer.callTool(
-        "squish_remember",
-        { content: "Timeline test memory for depth testing" },
-        TEST_TIMEOUT
-      );
-    });
-
-    it(
-      "returns index depth by default",
-      async () => {
-        const resp = await sharedServer.callTool(
-          "squish_timeline",
-          { query: "timeline test" },
-          TEST_TIMEOUT
-        );
-        expect(resp.result).toBeDefined();
-        const text = resp.result.content[0].text;
-        expect(text).toContain("Timeline (index");
-      },
-      TEST_TIMEOUT
-    );
-
-    it(
-      "returns timeline depth",
-      async () => {
-        const resp = await sharedServer.callTool(
-          "squish_timeline",
-          { query: "timeline test", depth: "timeline" },
-          TEST_TIMEOUT
-        );
-        expect(resp.result).toBeDefined();
-        const text = resp.result.content[0].text;
-        expect(text).toContain("Timeline (timeline");
-      },
-      TEST_TIMEOUT
-    );
-
-    it(
-      "returns detail depth",
-      async () => {
-        const resp = await sharedServer.callTool(
-          "squish_timeline",
-          { query: "timeline test", depth: "detail" },
-          TEST_TIMEOUT
-        );
-        expect(resp.result).toBeDefined();
-        const text = resp.result.content[0].text;
-        expect(text).toContain("Timeline (detail");
+        expect(parsed.deleted).toBe(1);
       },
       TEST_TIMEOUT
     );

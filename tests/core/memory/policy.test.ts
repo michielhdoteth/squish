@@ -83,8 +83,7 @@ describe('Memory Policy', () => {
   test('classifyAudience returns correct audience for each scope', () => {
     expect(classifyAudience('private')).toBe('personal');
     expect(classifyAudience('project')).toBe('project');
-    expect(classifyAudience('team')).toBe('company');
-    expect(classifyAudience('global')).toBe('company');
+    expect(classifyAudience('project' as any)).toBe('project');
   });
 
   test('recommendMemoryScope recommends private for simple content', () => {
@@ -107,7 +106,7 @@ describe('Memory Policy', () => {
     });
     expect(rec).toBeDefined();
     // Decisions tend to get broader scope recommendations
-    expect(['private', 'project', 'team', 'global']).toContain(rec.scope);
+    expect(['private', 'project']).toContain(rec.scope);
   });
 
   test('extractMemoryPolicy extracts policy from metadata', () => {
@@ -115,7 +114,7 @@ describe('Memory Policy', () => {
       memoryPolicy: {
         captureMode: 'private-first',
         currentScope: 'team',
-        audience: 'company',
+        audience: 'project',
         shared: true,
         reason: 'test',
         recommendation: { scope: 'team', reason: 'test', source: 'heuristic' },
@@ -127,7 +126,7 @@ describe('Memory Policy', () => {
     const policy = extractMemoryPolicy(metadata);
     expect(policy).not.toBeNull();
     expect(policy!.currentScope).toBe('team');
-    expect(policy!.audience).toBe('company');
+    expect(policy!.audience).toBe('project');
     expect(policy!.shared).toBe(true);
   });
 
@@ -155,19 +154,19 @@ describe('Memory Policy', () => {
       user: 'test-user'
     });
 
-    const result = await promoteMemoryVisibility(memory.id, 'team', 'Promoting for team visibility');
+    const result = await promoteMemoryVisibility(memory.id, 'project', 'Promoting for project visibility');
     expect(result).not.toBeNull();
     expect(result!.memoryId).toBe(memory.id);
-    expect(result!.visibilityScope).toBe('team');
+    expect(result!.visibilityScope).toBe('project');
     expect(result!.policy).toBeDefined();
-    expect(result!.policy.currentScope).toBe('team');
+    expect(result!.policy.currentScope).toBe('project');
     expect(result!.policy.history.length).toBe(1);
-    expect(result!.policy.history[0].from).toBe('private');
-    expect(result!.policy.history[0].to).toBe('team');
+    expect(result!.policy.history[0].from).toBe('project');
+    expect(result!.policy.history[0].to).toBe('project');
   });
 
   test('promoteMemoryVisibility returns null for non-existent memory', async () => {
-    const result = await promoteMemoryVisibility('00000000-0000-0000-0000-000000000000', 'global', 'test');
+    const result = await promoteMemoryVisibility('00000000-0000-0000-0000-000000000000', 'project', 'test');
     expect(result).toBeNull();
   });
 
@@ -175,10 +174,10 @@ describe('Memory Policy', () => {
     const policy = buildMemoryPolicy({
       content: 'Global decision',
       type: 'decision',
-      visibilityScope: 'global',
+      visibilityScope: 'project',
     });
-    expect(policy.currentScope).toBe('global');
-    expect(policy.audience).toBe('company');
+    expect(policy.currentScope).toBe('project');
+    expect(policy.audience).toBe('project');
     expect(policy.shared).toBe(true);
   });
 });

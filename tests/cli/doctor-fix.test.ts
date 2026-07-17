@@ -114,7 +114,7 @@ describe('squish doctor --fix', () => {
       expect(fixJson.schemaStatus).toBe('ok');
 
       // Verify we can write memories now
-      const remember = runSquish(['remember', 'Fixed schema test', '--type', 'decision'], env);
+      const remember = runSquish(['remember', 'Fixed schema test', '--type', 'decision', '--json'], env);
       expect(remember.status).toBe(0);
       const remembered = JSON.parse(remember.stdout);
       expect(remembered.ok).toBe(true);

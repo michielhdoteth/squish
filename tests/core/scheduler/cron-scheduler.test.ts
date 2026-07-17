@@ -15,12 +15,6 @@ describe("Cron Scheduler - Decay Integration", () => {
     expect(cronExpression).toBe("0 * * * *");
   });
 
-  it("should have nightly_maintenance config without decayScores step", () => {
-    // After migration, the nightly_maintenance job should NOT have decayScores: true
-    const nightlyConfig = { mergeDuplicates: true, boostAccessed: true };
-    expect(nightlyConfig).not.toHaveProperty("decayScores");
-  });
-
   it("should import updateAllDecayScores from decay engine", async () => {
     // This is a compile-time check that the import path resolves
     const decayModule = await import("../../../core/decay/decay-engine.ts");

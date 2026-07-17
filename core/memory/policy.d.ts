@@ -1,7 +1,7 @@
 import { type MemorySignals } from './trigger-detector.js';
 import type { MemoryType } from '../lib/types.js';
-import type { VisibilityScope } from '../team/types.js';
-export type MemoryAudience = 'personal' | 'project' | 'team' | 'company';
+export type VisibilityScope = 'private' | 'project';
+export type MemoryAudience = 'personal' | 'project';
 export type MemoryPolicySource = 'explicit' | 'heuristic' | 'manual';
 export type MemoryPolicyReviewState = 'suggested' | 'promoted' | 'demoted';
 export interface MemoryPolicyHistoryEntry {
@@ -47,7 +47,7 @@ export declare function buildVisibilityScopes(scope: VisibilityScope, subjectKin
     readScope: string[];
     writeScope: string[];
 };
-export declare function serializeVisibilityScopes(scopes: string[]): string[] | string;
+export declare function serializeVisibilityScopes(scopes: string[]): string;
 export declare function recommendMemoryScope(input: MemoryPolicyContext): MemoryPolicyRecommendation;
 export declare function buildMemoryPolicy(input: MemoryPolicyContext): MemoryPolicy;
 export declare function extractMemoryPolicy(metadata: Record<string, unknown> | null | undefined): MemoryPolicy | null;

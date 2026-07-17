@@ -68,16 +68,16 @@ const decayHandler = async (context: JobExecutionContext) => {
 };
 registerJobHandler('decay_maintenance', decayHandler);
 
-// Belief decay handler - applies confidence decay to beliefs
+// Knowledge belief decay handler - applies confidence decay to beliefs via unified knowledge table
 const beliefDecayHandler = async (context: JobExecutionContext) => {
-  const { applyBeliefDecay } = await import('../beliefs/decay.js');
-  const stats = await applyBeliefDecay();
+  const { runDecayCycle } = await import('../knowledge/decay.js');
+  const stats = await runDecayCycle();
   return {
-    recordsProcessed: stats.decayed + stats.sourceCountUpdated,
+    recordsProcessed: stats.beliefs.decayed + stats.beliefs.deprecated,
     summary: {
-      beliefDecayed: stats.decayed,
-      sourceCountUpdated: stats.sourceCountUpdated,
-      errors: stats.errors,
+      beliefDecayed: stats.beliefs.decayed,
+      beliefDeprecated: stats.beliefs.deprecated,
+      errors: [],
     },
   };
 };
@@ -316,6 +316,37 @@ const consolidationHandler = async (context: JobExecutionContext) => {
 };
 registerJobHandler('consolidation_sleep', consolidationHandler);
 
+// LLM Consolidation handler - finds creative cross-connections using LLM
+const llmConsolidationHandler = async (context: JobExecutionContext) => {
+  const { runLLMConsolidation } = await import('../consolidation/llm-consolidator.js');
+  const jobConfig = context.config as {
+    enabled?: boolean;
+    maxMemories?: number;
+    batchSize?: number;
+    projectId?: string;
+  };
+
+  if (jobConfig.enabled === false) {
+    return { recordsProcessed: 0, summary: { skipped: true, reason: 'llm-consolidation disabled' } };
+  }
+
+  const result = await runLLMConsolidation(jobConfig.projectId, {
+    maxMemories: jobConfig.maxMemories || 50,
+    batchSize: jobConfig.batchSize || 20,
+  });
+
+  return {
+    recordsProcessed: result.memoriesProcessed,
+    summary: {
+      insightsCreated: result.insightsCreated,
+      edgesCreated: result.edgesCreated,
+      memoriesProcessed: result.memoriesProcessed,
+      errors: result.errors,
+    },
+  };
+};
+registerJobHandler('llm_consolidation', llmConsolidationHandler);
+
 export async function initializeScheduler(): Promise<void> {
   if (!config.cronEnabled) {
     logger.info('[Scheduler] Cron scheduling disabled, using heartbeat fallback');
@@ -446,20 +477,6 @@ async function ensureDefaultJobs(db: any): Promise<void> {
       jobConfig: { applyBeliefDecay: true },
     },
     {
-      jobName: 'nightly_maintenance',
-      jobType: 'nightly' as JobType,
-      cronExpression: '0 2 * * *',
-      enabled: true,
-      jobConfig: { mergeDuplicates: true, boostAccessed: true },
-    },
-    {
-      jobName: 'weekly_maintenance',
-      jobType: 'weekly' as JobType,
-      cronExpression: '0 3 * * 0',
-      enabled: true,
-      jobConfig: { regenerateSummaries: true, archiveStale: true, cleanupOrphaned: true },
-    },
-    {
       jobName: 'self_iteration',
       jobType: 'hourly' as JobType,
       cronExpression: '30 * * * *', // Run every hour at :30
@@ -498,6 +515,18 @@ async function ensureDefaultJobs(db: any): Promise<void> {
         maxClusterSize: 20,
         similarityThreshold: 0.8,
         mergeConfidence: 0.85,
+      },
+    },
+    // LLM Consolidation - creative cross-connection finding
+    {
+      jobName: 'llm_consolidation',
+      jobType: 'daily' as JobType,
+      cronExpression: '30 3 * * *', // Run daily at 3:30 AM (after consolidation_sleep)
+      enabled: true,
+      jobConfig: {
+        enabled: true,
+        maxMemories: 50,
+        batchSize: 20,
       },
     },
     {

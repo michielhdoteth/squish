@@ -9,6 +9,8 @@ import { Command } from 'commander';
 import { rememberMemory } from '../../../../core/memory/memories.js';
 import { detectMemorySignals } from '../../../../core/memory/trigger-detector.js';
 import { pinMemory, unpinMemory } from '../../../../core/security/governance.js';
+import { getRemediationForError } from '../errors.js';
+import { colors } from '../colors.js';
 
 export function registerRememberCommand(program: Command) {
   program
@@ -17,8 +19,6 @@ export function registerRememberCommand(program: Command) {
     .option('-t, --type <type>', 'Memory type (observation, fact, decision, context, preference)', 'observation')
     .option('-T, --tags <tags>', 'Comma-separated tags')
     .option('-p, --project <project>', 'Project path (global if omitted)')
-    .option('--actor-user <user>', 'Actor user identity for team-mode ACL')
-    .option('--actor-agent <agent>', 'Actor agent identity for team-mode ACL')
     .option('-s, --source <source>', 'Source (cli, voice, chat, document)', 'cli')
     .option('-r, --reasoning <reasoning>', 'Why this memory is important')
     .option('-c, --context <context>', 'What triggered this memory')
@@ -29,9 +29,12 @@ export function registerRememberCommand(program: Command) {
     .option('--unpin', 'Unpin memory', false)
     .option('--route <route>', 'Routing: auto, memory, learning, note', 'auto')
     .option('--learning-type <type>', 'Learning type if routing to learning: success, failure, fix, insight')
+    .option('--json', 'Emit machine-readable output', false)
     .action(async (content: string, options: any) => {
       const previousQuiet = process.env.SQUISH_QUIET;
-      process.env.SQUISH_QUIET = '1';
+      if (options.json) {
+        process.env.SQUISH_QUIET = '1';
+      }
       try {
         const signals = detectMemorySignals(content);
         
@@ -91,8 +94,6 @@ export function registerRememberCommand(program: Command) {
             memoryContext: options.context,
             examples: options.examples,
             exceptions: options.exceptions,
-            actorUser: options.actorUser,
-            actorAgent: options.actorAgent,
           });
           
           if (options.pin) {
@@ -106,7 +107,9 @@ export function registerRememberCommand(program: Command) {
             const { addMemoryToGraph } = await import('../../../../core/graph/graph-builder.js');
             const graphResult = await addMemoryToGraph(result.id);
             if (graphResult && graphResult.entitiesCreated > 0) {
-              console.error(`[Graph] Added ${graphResult.entitiesCreated} entities, ${graphResult.relationsCreated} relations`);
+              if (!options.json) {
+                console.error(colors.dim(`[Graph] Added ${graphResult.entitiesCreated} entities, ${graphResult.relationsCreated} relations`));
+              }
             }
           } catch (e: any) {
             // Ignore graph errors - don't fail the remember command
@@ -124,32 +127,54 @@ export function registerRememberCommand(program: Command) {
                   projectId: project.id,
                   placeType: options.place as any,
                 });
-                console.error(`[Places] Assigned to ${options.place}`);
+                if (!options.json) {
+                  console.error(colors.dim(`[Places] Assigned to ${options.place}`));
+                }
               }
             } catch (e: any) {
-              console.error(`[Places] Failed to assign: ${e.message}`);
+              if (!options.json) {
+                console.error(colors.yellow(`[Places] Failed to assign: ${e.message}`));
+              }
             }
           }
         }
 
-        console.log(JSON.stringify({
-          ok: true,
-          id: result.id,
-          routing,
-          type: routing === "learning" ? result.type : result.type,
-          place: options.place || null,
-          priority: signals.priority,
-          confidence: signals.confidence,
-          reason: routingReason
-        }, null, 2));
+        if (options.json) {
+          console.log(JSON.stringify({
+            ok: true,
+            id: result.id,
+            routing,
+            type: routing === "learning" ? result.type : result.type,
+            place: options.place || null,
+            priority: signals.priority,
+            confidence: signals.confidence,
+            reason: routingReason
+          }, null, 2));
+        } else {
+          console.log(`${colors.green('OK')} Stored ${colors.bold(routing)} memory ${colors.dim(result.id)}`);
+          if (options.place) {
+            console.log(`  Place:   ${colors.dim(options.place)}`);
+          }
+          console.log(`  Type:    ${result.type || 'unknown'}`);
+          console.log(`  Route:   ${routing} (${routingReason})`);
+        }
       } catch (error: any) {
-        console.error(JSON.stringify({ ok: false, error: error.message }));
+        const remediation = getRemediationForError(error);
+        const payload = {
+          ok: false,
+          error: error.message,
+          command: 'remember',
+          remediation,
+        };
+        console.error(options.json ? JSON.stringify(payload) : `${colors.red('Error')}: ${error.message}\nHint: ${remediation}`);
         process.exit(1);
       } finally {
-        if (previousQuiet === undefined) {
-          delete process.env.SQUISH_QUIET;
-        } else {
-          process.env.SQUISH_QUIET = previousQuiet;
+        if (options.json) {
+          if (previousQuiet === undefined) {
+            delete process.env.SQUISH_QUIET;
+          } else {
+            process.env.SQUISH_QUIET = previousQuiet;
+          }
         }
       }
     });

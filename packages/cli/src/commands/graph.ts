@@ -9,6 +9,7 @@
 import { Command } from 'commander';
 import { buildProjectGraph } from '../../../../core/graph/pipeline.js';
 import { getGraphPipelineStats } from '../../../../core/graph/pipeline.js';
+import { getRemediationForError } from '../errors.js';
 
 export function registerGraphCommand(program: Command) {
   const graph = program
@@ -27,6 +28,10 @@ export function registerGraphCommand(program: Command) {
     .option('--max-memories <n>', 'Max memories to process', '100000')
     .option('--json', 'Emit machine-readable output', false)
     .action(async (options: any) => {
+      const previousQuiet = process.env.SQUISH_QUIET;
+      if (options.json) {
+        process.env.SQUISH_QUIET = '1';
+      }
       const startTime = Date.now();
 
       if (!options.json) {
@@ -47,7 +52,9 @@ export function registerGraphCommand(program: Command) {
           },
         });
 
-        if (!options.json) {
+        if (options.json) {
+          console.log(JSON.stringify({ ok: true, ...stats }, null, 2));
+        } else {
           console.log('\n');
           console.log('Graph rebuild complete:');
           console.log(`  Memories processed: ${stats.memoriesProcessed}`);
@@ -57,16 +64,24 @@ export function registerGraphCommand(program: Command) {
           console.log(`  Errors:             ${stats.errors}`);
           console.log(`  Duration:           ${(stats.durationMs / 1000).toFixed(1)}s`);
           console.log(`  Extraction:         ${stats.extractionSource}`);
-        } else {
-          console.log(JSON.stringify({ ok: true, ...stats }, null, 2));
         }
       } catch (error: any) {
+        const remediation = getRemediationForError(error);
         if (options.json) {
-          console.log(JSON.stringify({ ok: false, error: error.message }));
+          console.error(JSON.stringify({ ok: false, error: error.message, remediation }));
         } else {
           console.error(`Error: ${error.message}`);
+          console.error(`Hint: ${remediation}`);
         }
         process.exit(1);
+      } finally {
+        if (options.json) {
+          if (previousQuiet === undefined) {
+            delete process.env.SQUISH_QUIET;
+          } else {
+            process.env.SQUISH_QUIET = previousQuiet;
+          }
+        }
       }
     });
 
@@ -77,6 +92,10 @@ export function registerGraphCommand(program: Command) {
     .option('-p, --project <project>', 'Project path')
     .option('--json', 'Emit machine-readable output', false)
     .action(async (options: any) => {
+      const previousQuiet = process.env.SQUISH_QUIET;
+      if (options.json) {
+        process.env.SQUISH_QUIET = '1';
+      }
       try {
         const stats = await getGraphPipelineStats(options.project);
 
@@ -101,12 +120,22 @@ export function registerGraphCommand(program: Command) {
           console.log(`  Last pipeline: ${stats.lastPipelineAt.toISOString()}`);
         }
       } catch (error: any) {
+        const remediation = getRemediationForError(error);
         if (options.json) {
-          console.log(JSON.stringify({ ok: false, error: error.message }));
+          console.error(JSON.stringify({ ok: false, error: error.message, remediation }));
         } else {
           console.error(`Error: ${error.message}`);
+          console.error(`Hint: ${remediation}`);
         }
         process.exit(1);
+      } finally {
+        if (options.json) {
+          if (previousQuiet === undefined) {
+            delete process.env.SQUISH_QUIET;
+          } else {
+            process.env.SQUISH_QUIET = previousQuiet;
+          }
+        }
       }
     });
 }

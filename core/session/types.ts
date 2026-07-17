@@ -7,11 +7,13 @@ export interface AutoLoadConfig {
   recentMemoryCount: number;
   importanceThreshold: number;
   includeProjectContext: boolean;
+  includeStrategies: boolean;
 }
 
 export interface AutoLoadResult {
   coreMemoryLoaded: boolean;
   memoriesLoaded: number;
+  strategiesLoaded: number;
   projectContextLoaded: boolean;
   tokensUsed: number;
   duration: number;
@@ -33,4 +35,5 @@ export const DEFAULT_AUTO_LOAD_CONFIG: AutoLoadConfig = {
   recentMemoryCount: 5,
   importanceThreshold: 70,
   includeProjectContext: true,
+  includeStrategies: true,
 };

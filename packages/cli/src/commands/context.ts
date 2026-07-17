@@ -10,6 +10,7 @@ import { buildContextState, resolveProjectScope } from '../../../../core/runtime
 import { formatContextReport } from '../../../../core/runtime/trust-report.js';
 import { getPinnedMemories } from '../../../../core/security/governance.js';
 import { getTierStats } from '../../../../core/memory/tiers.js';
+import { colors } from '../colors.js';
 
 export function registerContextCommand(program: Command) {
   program
@@ -21,8 +22,6 @@ export function registerContextCommand(program: Command) {
     .option('--json', 'Emit machine-readable output', false)
     .option('--pinned', 'Show pinned memories instead of full context', false)
     .option('--tiers', 'Show memory count per tier', false)
-    .option('--actor-user <user>', 'Actor user identity for team-mode ACL')
-    .option('--actor-agent <agent>', 'Actor agent identity for team-mode ACL')
     .action(async (options: any) => {
       const previousQuiet = process.env.SQUISH_QUIET;
       if (options.json) {
@@ -87,6 +86,8 @@ export function registerContextCommand(program: Command) {
             console.log(JSON.stringify(payload, null, 2));
             return;
           }
+          console.log(colors.bold('Project Context'));
+          console.log(colors.dim('─'.repeat(40)));
           console.log(formatContextReport({
             currentProject: scope.currentProject,
             otherProjects: scope.otherProjects,
@@ -100,14 +101,13 @@ export function registerContextCommand(program: Command) {
             nextStep: scope.nextStep,
           }));
         } else {
-          const context = await buildContextState(options.project, parseInt(options.limit) || 10, {
-            userId: options.actorUser,
-            agentId: options.actorAgent,
-          });
+          const context = await buildContextState(options.project, parseInt(options.limit) || 10);
           if (options.json) {
             console.log(JSON.stringify({ ok: true, ...context }, null, 2));
             return;
           }
+          console.log(colors.bold('Project Context'));
+          console.log(colors.dim('─'.repeat(40)));
           console.log(formatContextReport(context));
         }
       } catch (error: any) {

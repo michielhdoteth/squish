@@ -337,7 +337,22 @@ async function runStatus() {
 // Sync command
 // ---------------------------------------------------------------------------
 
-async function runSync(opts: { direction?: string; limit?: number }) {
+interface SyncStats {
+  pushed: number;
+  pulled: number;
+  skipped: number;
+  failed: number;
+  errors: string[];
+}
+
+async function runSync(opts: {
+  direction?: string;
+  limit?: number;
+  dryRun?: boolean;
+  type?: string;
+  since?: string;
+  retry?: number;
+}) {
   const auth = loadAuth();
 
   if (!auth) {
@@ -347,137 +362,273 @@ async function runSync(opts: { direction?: string; limit?: number }) {
   }
 
   const direction = opts.direction || 'push';
-  const limit = opts.limit || 100;
+  const limit = opts.limit || 500;
+  const dryRun = opts.dryRun || false;
+  const since = opts.since ? new Date(opts.since) : null;
+  const maxRetries = opts.retry || 2;
 
-  const s = spinner();
+  const stats: SyncStats = { pushed: 0, pulled: 0, skipped: 0, failed: 0, errors: [] };
 
+  if (dryRun) {
+    console.log(c.yellow('  DRY RUN - no changes will be made'));
+    console.log('');
+  }
+
+  // ---- PUSH ----
   if (direction === 'push' || direction === 'both') {
-    // Push local memories to cloud
+    const s = spinner();
     s.start('Reading local memories...');
 
     try {
-      // Dynamic import to avoid circular deps
       const { getDb } = await import('../../../../db/index.js');
       const db = await getDb();
+      const client = (db as any).$client;
 
-      // Get recent memories from local DB
-      const memories = (db as any).$client
-        .prepare(`
-          SELECT id, content, type, tags, importance_score, source,
-                 created_at, updated_at
-          FROM memories
-          WHERE is_active = 1
-          ORDER BY updated_at DESC
-          LIMIT ?
-        `)
-        .all(limit);
+      // Build query with optional filters
+      let query = `
+        SELECT id, content, type, tags, importance_score, source,
+               summary, confidence, visibility_scope,
+               created_at, updated_at
+        FROM memories
+        WHERE is_active = 1
+      `;
+      const params: any[] = [];
+
+      if (since) {
+        query += ` AND updated_at > ?`;
+        params.push(Math.floor(since.getTime() / 1000));
+      }
+      if (opts.type) {
+        query += ` AND type = ?`;
+        params.push(opts.type);
+      }
+
+      query += ` ORDER BY updated_at DESC LIMIT ?`;
+      params.push(limit);
+
+      const memories = client.prepare(query).all(...params);
 
       if (memories.length === 0) {
         s.stop('No local memories to sync');
-        outro('Nothing to sync. Create some memories first with `squish remember`.');
+        outro('Nothing to sync.');
         return;
       }
 
-      s.message(`Pushing ${memories.length} memories to cloud...`);
+      console.log(c.cyan(`  Found ${memories.length} local memories`));
+      if (since) console.log(c.gray(`  Since: ${since.toLocaleDateString()}`));
+      if (opts.type) console.log(c.gray(`  Type: ${opts.type}`));
+      console.log('');
 
-      // Push in batches of 10
-      let pushed = 0;
-      for (let i = 0; i < memories.length; i += 10) {
-        const batch = memories.slice(i, i + 10);
-        for (const mem of batch) {
-          try {
-            const tagsArray = mem.tags ? mem.tags.split(',').map((t: string) => t.trim()).filter(Boolean) : [];
-            const result = await apiCall(auth.cloudUrl, '/api/memories', {
-              method: 'POST',
-              body: {
-                content: mem.content,
-                type: mem.type || 'insight',
-                tags: tagsArray.length > 0 ? tagsArray : undefined,
-                importance_score: mem.importance_score || 50,
-                source: mem.source || 'squish-cli',
-              },
-              apiKey: auth.apiKey,
-            });
-            pushed++;
-          } catch (err: any) {
-            // Skip duplicates or errors - but log for debugging
-            if (err.message && !err.message.includes('409')) {
-              console.error(c.gray(`  Skip: ${err.message}`));
+      if (dryRun) {
+        // Show what would be pushed
+        for (const mem of memories.slice(0, 20)) {
+          const preview = mem.content.substring(0, 60).replace(/\n/g, ' ');
+          console.log(`  ${c.gray('[' + (mem.type || 'note') + ']')} ${preview}...`);
+        }
+        if (memories.length > 20) {
+          console.log(c.gray(`  ... and ${memories.length - 20} more`));
+        }
+        s.stop(`Would push ${memories.length} memories`);
+      } else {
+        s.message(`Pushing ${memories.length} memories to cloud...`);
+
+        let pushed = 0;
+        let failed = 0;
+        const errors: string[] = [];
+
+        for (let i = 0; i < memories.length; i++) {
+          const mem = memories[i];
+          const progress = `[${i + 1}/${memories.length}]`;
+
+          // Retry logic
+          for (let attempt = 0; attempt <= maxRetries; attempt++) {
+            try {
+              const tagsArray = mem.tags
+                ? mem.tags.split(',').map((t: string) => t.trim()).filter(Boolean)
+                : [];
+
+              await apiCall(auth.cloudUrl, '/api/memories', {
+                method: 'POST',
+                body: {
+                  content: mem.content,
+                  title: mem.summary || undefined,
+                  type: mem.type || 'fact',
+                  tags: tagsArray.length > 0 ? tagsArray : undefined,
+                  visibility_scope: mem.visibility_scope || 'private',
+                  source: mem.source || 'squish-local',
+                },
+                apiKey: auth.apiKey,
+              });
+              pushed++;
+              break; // Success, no more retries
+            } catch (err: any) {
+              if (attempt === maxRetries) {
+                failed++;
+                const msg = err.message || 'unknown error';
+                if (!msg.includes('409') && errors.length < 5) {
+                  errors.push(`${progress} ${msg}`);
+                }
+              } else {
+                // Wait before retry (exponential backoff)
+                await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
+              }
             }
           }
-        }
-      }
 
-      s.stop(`Pushed ${pushed} memories to cloud`);
+          // Update spinner every 10 memories
+          if ((i + 1) % 10 === 0 || i === memories.length - 1) {
+            s.message(`Pushing... ${i + 1}/${memories.length} (${pushed} ok, ${failed} failed)`);
+          }
+        }
+
+        stats.pushed = pushed;
+        stats.failed += failed;
+        stats.errors.push(...errors);
+        s.stop(`Pushed ${pushed} memories to cloud${failed > 0 ? c.yellow(` (${failed} failed)`) : ''}`);
+      }
     } catch (err: any) {
-      s.stop('Sync failed');
+      s.stop('Push failed');
       console.error(c.red(`Error: ${err.message}`));
       return;
     }
   }
 
+  // ---- PULL ----
   if (direction === 'pull' || direction === 'both') {
-    // Pull cloud memories to local
+    const s = spinner();
     s.start('Fetching cloud memories...');
 
     try {
-      const result = await apiCall(auth.cloudUrl, '/api/memories?limit=100', {
-        apiKey: auth.apiKey,
-      });
+      let allCloudMemories: any[] = [];
+      let page = 1;
+      const perPage = 100;
 
-      const cloudMemories = result.memories || result || [];
+      // Paginate through all cloud memories
+      while (true) {
+        const result = await apiCall(auth.cloudUrl, `/api/memories?limit=${perPage}&page=${page}`, {
+          apiKey: auth.apiKey,
+        });
 
-      if (cloudMemories.length === 0) {
+        const batch = result.memories || result || [];
+        if (batch.length === 0) break;
+        allCloudMemories.push(...batch);
+        if (batch.length < perPage) break;
+        page++;
+      }
+
+      if (allCloudMemories.length === 0) {
         s.stop('No cloud memories to pull');
         return;
       }
 
-      s.message(`Pulling ${cloudMemories.length} memories from cloud...`);
+      // Apply filters
+      if (since) {
+        allCloudMemories = allCloudMemories.filter((m: any) =>
+          new Date(m.updated_at || m.created_at) >= since
+        );
+      }
+      if (opts.type) {
+        allCloudMemories = allCloudMemories.filter((m: any) => m.type === opts.type);
+      }
 
-      // Dynamic import
-      const { getDb } = await import('../../../../db/index.js');
-      const db = await getDb();
-      const client = (db as any).$client;
+      console.log(c.cyan(`  Found ${allCloudMemories.length} cloud memories`));
+      console.log('');
 
-      let pulled = 0;
-      for (const mem of cloudMemories) {
-        try {
-          // Check if exists locally
-          const existing = client
-            .prepare('SELECT id FROM memories WHERE id = ?')
-            .get(mem.id);
+      if (dryRun) {
+        for (const mem of allCloudMemories.slice(0, 20)) {
+          const preview = (mem.content || '').substring(0, 60).replace(/\n/g, ' ');
+          console.log(`  ${c.gray('[' + (mem.type || 'note') + ']')} ${preview}...`);
+        }
+        if (allCloudMemories.length > 20) {
+          console.log(c.gray(`  ... and ${allCloudMemories.length - 20} more`));
+        }
+        s.stop(`Would pull ${allCloudMemories.length} memories`);
+      } else {
+        s.message(`Pulling ${allCloudMemories.length} memories from cloud...`);
 
-          if (!existing) {
+        const { getDb } = await import('../../../../db/index.js');
+        const db = await getDb();
+        const client = (db as any).$client;
+
+        let pulled = 0;
+        let skipped = 0;
+
+        for (let i = 0; i < allCloudMemories.length; i++) {
+          const mem = allCloudMemories[i];
+
+          try {
+            // Check if exists locally (by content hash or ID)
+            const existing = client
+              .prepare('SELECT id FROM memories WHERE id = ? OR content = ?')
+              .get(mem.id, mem.content);
+
+            if (existing) {
+              skipped++;
+              continue;
+            }
+
+            // Map cloud fields to local schema
+            const tagsStr = Array.isArray(mem.tags)
+              ? mem.tags.join(', ')
+              : (mem.tags || '');
+
             client
               .prepare(`
-                INSERT INTO memories (id, content, type, tags, importance_score, source, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO memories (id, content, type, tags, importance_score, source,
+                                      summary, confidence, created_at, updated_at, is_active)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
               `)
               .run(
-                mem.id,
+                mem.id || `cloud-${Date.now()}-${Math.random().toString(36).slice(2)}`,
                 mem.content,
-                mem.type || 'insight',
-                mem.tags || '',
+                mem.type || 'fact',
+                tagsStr,
                 mem.importance_score || 50,
                 mem.source || 'squish-cloud',
+                mem.title || mem.summary || null,
+                mem.confidence || null,
                 toEpoch(mem.created_at),
                 toEpoch(mem.updated_at),
               );
             pulled++;
+          } catch {
+            skipped++;
           }
-        } catch {
-          // Skip errors
-        }
-      }
 
-      s.stop(`Pulled ${pulled} new memories from cloud`);
+          if ((i + 1) % 20 === 0 || i === allCloudMemories.length - 1) {
+            s.message(`Pulling... ${i + 1}/${allCloudMemories.length} (${pulled} new, ${skipped} skipped)`);
+          }
+        }
+
+        stats.pulled = pulled;
+        stats.skipped += skipped;
+        s.stop(`Pulled ${pulled} new memories from cloud${skipped > 0 ? c.gray(` (${skipped} skipped)`) : ''}`);
+      }
     } catch (err: any) {
       s.stop('Pull failed');
       console.error(c.red(`Error: ${err.message}`));
     }
   }
 
-  outro(c.green('Sync complete'));
+  // ---- Summary ----
+  console.log('');
+  if (dryRun) {
+    console.log(c.yellow('  Dry run complete. Remove --dry-run to execute.'));
+  } else {
+    console.log(c.green('  Sync complete'));
+    if (stats.pushed > 0) console.log(`  ${c.gray('Pushed:')}  ${stats.pushed}`);
+    if (stats.pulled > 0) console.log(`  ${c.gray('Pulled:')}  ${stats.pulled}`);
+    if (stats.skipped > 0) console.log(`  ${c.gray('Skipped:')} ${stats.skipped}`);
+    if (stats.failed > 0) console.log(`  ${c.gray('Failed:')}  ${c.red(String(stats.failed))}`);
+  }
+  if (stats.errors.length > 0) {
+    console.log('');
+    console.log(c.yellow('  Errors:'));
+    for (const err of stats.errors) {
+      console.log(c.red(`    ${err}`));
+    }
+  }
+  console.log('');
 }
 
 // ---------------------------------------------------------------------------

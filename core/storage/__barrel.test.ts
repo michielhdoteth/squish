@@ -86,9 +86,4 @@ describe('storage/index.ts barrel exports', () => {
     const mod = await import('./index.js');
     expect(typeof mod.findEntityPaths).toBe('function');
   });
-
-  it('exports getStrategyByKeywords', async () => {
-    const mod = await import('./index.js');
-    expect(typeof mod.getStrategyByKeywords).toBe('function');
-  });
 });

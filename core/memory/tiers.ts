@@ -116,68 +116,37 @@ export async function recalculateTiers(
   try {
     const { raw } = await getDbClient();
     const sqlite = (raw as any)?.$client;
-    const isPg = typeof (raw as any)?.query === 'function';
 
-    if (!sqlite && !isPg) {
+    if (!sqlite) {
       logger.warn('No database client available for tier recalculation');
       return result;
     }
 
-    if (isPg) {
-      const pg = raw as any;
-      const query = projectId
-        ? `SELECT id, is_pinned, importance_score, access_count, last_accessed_at, created_at, tier
-           FROM memories WHERE status = 'active' AND project_id = $1`
-        : `SELECT id, is_pinned, importance_score, access_count, last_accessed_at, created_at, tier
-           FROM memories WHERE status = 'active'`;
+    const query = projectId
+      ? `SELECT id, is_pinned, importance_score, access_count, last_accessed_at, created_at, tier
+         FROM memories WHERE status = 'active' AND project_id = ?`
+      : `SELECT id, is_pinned, importance_score, access_count, last_accessed_at, created_at, tier
+         FROM memories WHERE status = 'active'`;
 
-      const memResult = await pg.query(query, projectId ? [projectId] : []);
+    const memories = sqlite.prepare(query).all(projectId || null) as any[];
+    const now = Math.floor(Date.now() / 1000);
 
-      for (const mem of memResult.rows) {
-        const newTier = classifyMemoryTier({
-          isPinned: mem.is_pinned,
-          importanceScore: mem.importance_score,
-          accessCount: mem.access_count,
-          lastAccessedAt: mem.last_accessed_at,
-          createdAt: mem.created_at,
-        });
+    for (const mem of memories) {
+      const newTier = classifyMemoryTier({
+        isPinned: !!mem.is_pinned,
+        importanceScore: mem.importance_score,
+        accessCount: mem.access_count,
+        lastAccessedAt: mem.last_accessed_at ? mem.last_accessed_at * 1000 : null,
+        createdAt: mem.created_at ? mem.created_at * 1000 : null,
+      });
 
-        if (newTier !== mem.tier) {
-          await pg.query(
-            `UPDATE memories SET tier = $1, updated_at = NOW() WHERE id = $2`,
-            [newTier, mem.id],
-          );
-          result.updated++;
-        }
-        result.tiers[newTier]++;
+      if (newTier !== mem.tier) {
+        sqlite
+          .prepare(`UPDATE memories SET tier = ?, updated_at = ? WHERE id = ?`)
+          .run(newTier, now, mem.id);
+        result.updated++;
       }
-    } else if (sqlite) {
-      const query = projectId
-        ? `SELECT id, is_pinned, importance_score, access_count, last_accessed_at, created_at, tier
-           FROM memories WHERE status = 'active' AND project_id = ?`
-        : `SELECT id, is_pinned, importance_score, access_count, last_accessed_at, created_at, tier
-           FROM memories WHERE status = 'active'`;
-
-      const memories = sqlite.prepare(query).all(projectId || null) as any[];
-      const now = Math.floor(Date.now() / 1000);
-
-      for (const mem of memories) {
-        const newTier = classifyMemoryTier({
-          isPinned: !!mem.is_pinned,
-          importanceScore: mem.importance_score,
-          accessCount: mem.access_count,
-          lastAccessedAt: mem.last_accessed_at ? mem.last_accessed_at * 1000 : null,
-          createdAt: mem.created_at ? mem.created_at * 1000 : null,
-        });
-
-        if (newTier !== mem.tier) {
-          sqlite
-            .prepare(`UPDATE memories SET tier = ?, updated_at = ? WHERE id = ?`)
-            .run(newTier, now, mem.id);
-          result.updated++;
-        }
-        result.tiers[newTier]++;
-      }
+      result.tiers[newTier]++;
     }
 
     logger.info('Tier recalculation complete', {
@@ -200,27 +169,18 @@ export async function promoteToSturdy(memoryId: string): Promise<boolean> {
   try {
     const { raw } = await getDbClient();
     const sqlite = (raw as any)?.$client;
-    const isPg = typeof (raw as any)?.query === 'function';
 
-    if (!sqlite && !isPg) {
+    if (!sqlite) {
       logger.warn('No database client available for promoteToSturdy');
       return false;
     }
 
-    if (isPg) {
-      const pg = raw as any;
-      await pg.query(
-        `UPDATE memories SET tier = 'sturdy', is_pinned = true, updated_at = NOW() WHERE id = $1`,
-        [memoryId],
-      );
-    } else if (sqlite) {
-      const now = Math.floor(Date.now() / 1000);
-      sqlite
-        .prepare(
-          `UPDATE memories SET tier = 'sturdy', is_pinned = 1, updated_at = ? WHERE id = ?`,
-        )
-        .run(now, memoryId);
-    }
+    const now = Math.floor(Date.now() / 1000);
+    sqlite
+      .prepare(
+        `UPDATE memories SET tier = 'sturdy', is_pinned = 1, updated_at = ? WHERE id = ?`,
+      )
+      .run(now, memoryId);
 
     logger.info(`Promoted memory to sturdy tier: ${memoryId}`);
     return true;
@@ -247,41 +207,23 @@ export async function getTierStats(
   try {
     const { raw } = await getDbClient();
     const sqlite = (raw as any)?.$client;
-    const isPg = typeof (raw as any)?.query === 'function';
 
-    if (!sqlite && !isPg) {
+    if (!sqlite) {
       return stats;
     }
 
-    if (isPg) {
-      const pg = raw as any;
-      const query = projectId
-        ? `SELECT tier, COUNT(*) as count FROM memories
-           WHERE status = 'active' AND project_id = $1
-           GROUP BY tier`
-        : `SELECT tier, COUNT(*) as count FROM memories
-           WHERE status = 'active'
-           GROUP BY tier`;
+    const query = projectId
+      ? `SELECT tier, COUNT(*) as count FROM memories
+         WHERE status = 'active' AND project_id = ?
+         GROUP BY tier`
+      : `SELECT tier, COUNT(*) as count FROM memories
+         WHERE status = 'active'
+         GROUP BY tier`;
 
-      const result = await pg.query(query, projectId ? [projectId] : []);
-      for (const row of result.rows) {
-        const t = row.tier as MemoryTier;
-        if (t in stats) stats[t] = Number(row.count);
-      }
-    } else if (sqlite) {
-      const query = projectId
-        ? `SELECT tier, COUNT(*) as count FROM memories
-           WHERE status = 'active' AND project_id = ?
-           GROUP BY tier`
-        : `SELECT tier, COUNT(*) as count FROM memories
-           WHERE status = 'active'
-           GROUP BY tier`;
-
-      const rows = sqlite.prepare(query).all(projectId || null) as any[];
-      for (const row of rows) {
-        const t = row.tier as MemoryTier;
-        if (t in stats) stats[t] = Number(row.count);
-      }
+    const rows = sqlite.prepare(query).all(projectId || null) as any[];
+    for (const row of rows) {
+      const t = row.tier as MemoryTier;
+      if (t in stats) stats[t] = Number(row.count);
     }
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);

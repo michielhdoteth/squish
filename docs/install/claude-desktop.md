@@ -57,22 +57,13 @@ Once installed, Squish provides:
 - Memory Runtime with hot/cold lifecycle and automatic decay
 
 ### Standard MCP Memory Tools
-- **squish_timeline**: 3-layer progressive disclosure search
-- **squish_remember**: Store new memories
-- **squish_recall**: Search memories by query
-- **squish_forget**: Delete memories
-- **squish_link**: Create associations between memories
+- **squish_remember**: Store new memories (auto-detects type)
+- **squish_recall**: Search memories by query or retrieve by ID
+- **squish_forget**: Delete memories by ID or search
+- **squish_link**: Create or find associations between memories
 - **squish_context**: Get project-relevant context
-- **squish_health**: System health check
-- **squish_stats**: Memory statistics
-- **squish_inspect**: Inspect a specific memory
-- **squish_pin**: Pin/unpin memories
-- **squish_recent**: Get recent memories
-- **squish_stale**: Find stale memories
-- **squish_list_pinned**: List all pinned memories
-- **squish_on_session_start**: Session lifecycle hook
-- **squish_on_tool_use**: Tool use lifecycle hook
-- **squish_on_session_end**: Session end lifecycle hook
+- **squish_stats**: Memory statistics and system health
+- **squish_inspect**: Inspect why a memory was retained
 
 ## MCP Configuration
 

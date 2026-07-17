@@ -4,7 +4,9 @@ const program = createProgram();
 
 // Default: show help if no arguments
 if (process.argv.length === 2) {
-  program.parse(['node', 'squish', '--help']);
+  await program.parseAsync(['node', 'squish', '--help']);
 } else {
-  program.parse();
+  await program.parseAsync();
 }
+
+process.exit(0);

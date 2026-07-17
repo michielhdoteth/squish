@@ -1,7 +1,6 @@
 import { and, desc, eq, gte, lte } from 'drizzle-orm';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
-import { config } from '../../config.js';
 import { requireProject } from '../../core/projects.js';
 import { deserializeMetadata } from '../../core/memory/serialization.js';
 import { createDatabaseClient } from '../storage/database.js';
@@ -34,9 +33,6 @@ export interface RecentConversationsInput {
 
 export async function searchConversations(input: ConversationSearchInput): Promise<ConversationRecord[]> {
   const limit = clampLimit(input.limit, 5, 1, 50);
-  if (config.isTeamMode) {
-    return await searchConversationsPostgres(input, limit);
-  }
   return await searchConversationsSqlite(input, limit);
 }
 
@@ -113,41 +109,6 @@ async function searchConversationsSqlite(input: ConversationSearchInput, limit: 
     metadata: string | null;
   }>;
   return rows.map((row: any) => normalizeConversation(row));
-}
-
-async function searchConversationsPostgres(input: ConversationSearchInput, limit: number): Promise<ConversationRecord[]> {
-  const db = createDatabaseClient(await getDb());
-  const values: Array<string | number> = [`%${input.query}%`];
-  const whereParts: string[] = [`m.content ILIKE $1`];
-
-  if (input.role) {
-    values.push(input.role);
-    whereParts.push(`m.role = $${values.length}`);
-  }
-
-  values.push(limit);
-
-  const rows = await (db.$client as any).query(
-    `SELECT DISTINCT ON (c.id)
-      c.id as "id",
-      c.project_id as "projectId",
-      c.session_id as "sessionId",
-      c.title as "title",
-      c.summary as "summary",
-      c.message_count as "messageCount",
-      c.token_count as "tokenCount",
-      c.started_at as "startedAt",
-      c.ended_at as "endedAt",
-      c.metadata as "metadata"
-    FROM conversations c
-    JOIN messages m ON m.conversation_id = c.id
-    WHERE ${whereParts.join(' AND ')}
-    ORDER BY c.id, c.started_at DESC
-    LIMIT $${values.length}`,
-    values
-  );
-
-  return rows.rows.map((row: any) => normalizeConversation(row));
 }
 
 function normalizeConversation(row: any): ConversationRecord {

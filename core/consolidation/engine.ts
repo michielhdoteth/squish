@@ -265,20 +265,45 @@ async function mergeRedundant(cluster: any[], minConfidence: number): Promise<{ 
     return scoreB - scoreA;
   });
 
-  // Check each memory against the canonical one
+  const canonical = sorted[0];
+  if (!canonical) return { mergedCount };
+
+  // Phase 1: Collect IDs to merge (CPU-only, no DB)
+  const toMerge: { id: string; overlap: number }[] = [];
   for (let i = 1; i < sorted.length; i++) {
-    const keep = sorted[0];
-    const merge = sorted[i];
+    const candidate = sorted[i];
+    if (!candidate) continue;
 
-    if (!keep || !merge) continue;
-
-    // Check content overlap
-    const overlap = calculateOverlap(keep.content || '', merge.content || '');
+    const overlap = calculateOverlap(canonical.content || '', candidate.content || '');
     if (overlap >= minConfidence) {
-      // In real implementation, this would mark the memory as merged/superseded
-      logger.info(`Consolidation: Merging ${merge.id} into ${keep.id} (overlap: ${overlap.toFixed(2)})`);
-      mergedCount++;
+      toMerge.push({ id: candidate.id, overlap });
     }
+  }
+
+  if (toMerge.length === 0) return { mergedCount };
+
+  // Phase 2: Single batch UPDATE — avoids N+1
+  try {
+    const { db, schema } = await getDbClient();
+    const { inArray } = await import('drizzle-orm');
+    const now = new Date();
+
+    const mergeIds = toMerge.map(m => m.id);
+
+    await db
+      .update(schema.memories)
+      .set({
+        status: 'merged',
+        mergedIntoId: canonical.id,
+        mergedAt: now,
+        updatedAt: now,
+      })
+      .where(inArray(schema.memories.id, mergeIds));
+
+    mergedCount = mergeIds.length;
+    logger.info(`Consolidation: Merged ${mergedCount} memories into ${canonical.id}`);
+  } catch (error) {
+    logger.error('Consolidation: mergeRedundant failed:', error);
   }
 
   return { mergedCount };
@@ -307,10 +332,30 @@ export function calculateOverlap(content1: string, content2: string): number {
  * Promote a pattern to the semantic layer
  */
 async function promoteToSemantic(pattern: any, projectId?: string): Promise<void> {
-  // Create a new semantic memory from the pattern
-  logger.info(`Consolidation: Promoting pattern to semantic layer: ${pattern.summary}`);
-  // This would call the memory write path with type='semantic'
-  // For now, just log the action
+  try {
+    const { rememberMemory } = await import('../memory/memories.js');
+
+    // Build content from pattern summary and key points
+    const content = pattern.keyPoints.length > 0
+      ? `${pattern.summary}\n\nKey points: ${pattern.keyPoints.join(', ')}`
+      : pattern.summary;
+
+    await rememberMemory({
+      content,
+      type: 'fact',
+      project: projectId || undefined,
+      tags: ['auto-promoted', 'semantic', ...(pattern.keyPoints || [])],
+      metadata: {
+        source: 'consolidation-engine',
+        patternConfidence: pattern.confidence,
+        keyPoints: pattern.keyPoints,
+      },
+    });
+
+    logger.info(`Consolidation: Promoted pattern to semantic layer: ${pattern.summary}`);
+  } catch (error) {
+    logger.error('Consolidation: promoteToSemantic failed:', error);
+  }
 }
 
 /**
@@ -319,22 +364,24 @@ async function promoteToSemantic(pattern: any, projectId?: string): Promise<void
 async function fetchEpisodicMemories(projectId?: string): Promise<any[]> {
   try {
     const { db, schema } = await getDbClient();
-    const isPg = typeof (db as any)?.query === 'function';
+    const { eq, and, desc } = await import('drizzle-orm');
 
-    if (isPg) {
-      const query = projectId
-        ? `SELECT * FROM memories WHERE project_id = $1 AND sector = 'episodic' AND status = 'active' ORDER BY created_at DESC LIMIT 100`
-        : `SELECT * FROM memories WHERE sector = 'episodic' AND status = 'active' ORDER BY created_at DESC LIMIT 100`;
-      const result = await (db as any).query(query, projectId ? [projectId] : []);
-      return result.rows || [];
-    } else {
-      // SQLite - use drizzle ORM or direct prepare
-      const sqlite = (db as any);
-      const query = projectId
-        ? `SELECT * FROM memories WHERE project_id = ? AND sector = 'episodic' AND status = 'active' ORDER BY created_at DESC LIMIT 100`
-        : `SELECT * FROM memories WHERE sector = 'episodic' AND status = 'active' ORDER BY created_at DESC LIMIT 100`;
-      return sqlite.prepare(query).all(projectId ? [projectId] : []) || [];
+    const conditions = [
+      eq(schema.memories.sector, 'episodic'),
+      eq(schema.memories.status, 'active'),
+    ];
+    if (projectId) {
+      conditions.push(eq(schema.memories.projectId, projectId));
     }
+
+    const rows = await db
+      .select()
+      .from(schema.memories)
+      .where(and(...conditions))
+      .orderBy(desc(schema.memories.createdAt))
+      .limit(100);
+
+    return rows || [];
   } catch (error) {
     logger.error('Error fetching episodic memories:', error);
     return [];

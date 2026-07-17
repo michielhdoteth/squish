@@ -14,7 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { getDataDir, config } from '../../../../config.js';
 import { getDb } from '../../../../db/index.js';
-import { ensurePostgresSchema, ensureSqliteSchema } from '../../../../db/bootstrap.js';
+import { ensureSqliteSchema } from '../../../../db/bootstrap.js';
 import { getInstallShadowDiagnostic } from '../../../../core/runtime/install-diagnostics.js';
 import {
   probeSchemaHealth,
@@ -247,7 +247,7 @@ async function runDoctorDiagnostics(options: { fix?: boolean; migrate?: boolean;
     severity: combinedSeverity as 'ok' | 'degraded' | 'broken',
     currentProject: health.currentProject,
     checks: health.checks,
-    backend: config.isRemoteMode ? `remote:${config.remoteBackend}` : (config.isTeamMode ? `team:${config.teamBackend}` : 'local:sqlite'),
+    backend: 'local:sqlite',
     schemaStatus: schemaProbe.status,
     missingTables: schemaProbe.missingTables,
     remediationCommand: schemaProbe.remediation ?? 'squish doctor --migrate',
@@ -266,7 +266,7 @@ async function runDoctorDiagnostics(options: { fix?: boolean; migrate?: boolean;
     process.exit(combined.severity === 'broken' ? 1 : 0);
   }
 
-  console.log('\n=== Squish Doctor v1.5.0 ===\n');
+  console.log('\n=== Squish Doctor v2.0.0 ===\n');
   console.log(formatHealthReport({
     severity: combined.severity,
     currentProject: combined.currentProject,
@@ -382,10 +382,6 @@ async function checkSchemaVersion(forceMigrate: boolean, forceFix: boolean, fixA
       // Run ensureSqliteSchema, tolerating second-pass failures
       // for existing tables with incomplete column sets
       await ensureSqliteSchema(raw).catch(() => {});
-    } else if (raw && typeof raw.query === 'function') {
-      await ensurePostgresSchema(raw);
-    } else if (config.isTeamMode || config.isRemoteMode) {
-      throw new Error('The active backend does not expose a migratable raw SQL client');
     } else {
       throw new Error('Unable to access the local SQLite client for repair');
     }

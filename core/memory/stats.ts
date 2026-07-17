@@ -63,7 +63,7 @@ export async function getMemoryStats(projectPath?: string): Promise<MemoryStats>
     learningsByType: {},
     totalLinks: 0,
     projectPath: resolvedPath,
-    mode: config.isTeamMode ? 'team' : 'local',
+    mode: 'local',
   };
 
   try {
@@ -75,29 +75,15 @@ export async function getMemoryStats(projectPath?: string): Promise<MemoryStats>
 
     stats.totalMemories = countResult.length;
 
-    // Count by type
-    if (config.isTeamMode) {
-      // PostgreSQL - use raw query for GROUP BY
-      const typeCounts = await db.execute(sql`
-        SELECT type, COUNT(*) as count
-        FROM memories
-        ${sql`WHERE project_id = ${project.id}`}
-        GROUP BY type
-      `);
-      for (const row of typeCounts.rows) {
-        stats.byType[row.type] = Number(row.count);
-      }
-    } else {
-      // SQLite - get all and count in memory
-      const allMemories = await db
-        .select({ type: schema.memories.type })
-       .from(schema.memories)
-       .where(eq(schema.memories.projectId, project.id));
+    // Count by type - get all and count in memory
+    const allMemories = await db
+      .select({ type: schema.memories.type })
+     .from(schema.memories)
+     .where(eq(schema.memories.projectId, project.id));
 
-      for (const mem of allMemories) {
-        const type = mem.type || 'unknown';
-        stats.byType[type] = (stats.byType[type] || 0) + 1;
-      }
+    for (const mem of allMemories) {
+      const type = mem.type || 'unknown';
+      stats.byType[type] = (stats.byType[type] || 0) + 1;
     }
 
     // Get oldest and newest
@@ -149,27 +135,16 @@ export async function getMemoryStats(projectPath?: string): Promise<MemoryStats>
 
     // Links
     // Links are scoped via their associated memories
-    if (config.isTeamMode) {
-      // PostgreSQL - use raw query to join through memories
-      const linksCount = await db.execute(sql`
-        SELECT COUNT(*) as count FROM memory_associations ma
-        JOIN memories m1 ON ma.from_memory_id = m1.id
-        JOIN memories m2 ON ma.to_memory_id = m2.id
-        ${project ? sql`WHERE m1.project_id = ${project.id} OR m2.project_id = ${project.id}` : sql``}
-      `);
-      stats.totalLinks = Number(linksCount.rows[0]?.count || 0);
-    } else {
-      // SQLite - get all and filter in memory
-      const allLinks = await db
-        .select({
-          fromProjectId: schema.memories.projectId,
-          toProjectId: schema.memories.projectId
-        })
-        .from(schema.memoryAssociations)
-        .innerJoin(schema.memories, eq(schema.memoryAssociations.fromMemoryId, schema.memories.id))
-        .where(project ? eq(schema.memories.projectId, project.id) : undefined);
-      stats.totalLinks = allLinks.length;
-    }
+    // SQLite - get all and filter in memory
+    const allLinks = await db
+      .select({
+        fromProjectId: schema.memories.projectId,
+        toProjectId: schema.memories.projectId
+      })
+      .from(schema.memoryAssociations)
+      .innerJoin(schema.memories, eq(schema.memoryAssociations.fromMemoryId, schema.memories.id))
+      .where(project ? eq(schema.memories.projectId, project.id) : undefined);
+    stats.totalLinks = allLinks.length;
 
   } catch (error) {
     // Return empty stats on error

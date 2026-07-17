@@ -14,9 +14,9 @@ import { validateLimit } from '../core/lib/validation.js';
 
 const app = express();
 const PORT = Number(process.env.SQUISH_WEB_PORT || 37777);
-const VERSION = '1.9.0';
+const VERSION = '2.0.0';
 
-const allowedOrigins = process.env.SQUISH_CORS_ORIGINS?.split(',').map(s => s.trim()) || ['http://localhost:*', 'http://127.0.0.1:*'];
+const allowedOrigins = process.env.SQUISH_CORS_ORIGINS?.split(',').map(s => s.trim()) || [`http://localhost:${PORT}`, `http://127.0.0.1:${PORT}`];
 const appCors = cors({
   origin: (origin, callback) => {
     if (!origin || allowedOrigins.some(allowed => {
@@ -54,8 +54,53 @@ app.use((req, res, next) => {
   next();
 });
 
-// Health check endpoint
+// API key authentication middleware
+const API_KEY = process.env.SQUISH_WEB_API_KEY;
+if (!API_KEY) {
+  logger.warn('SQUISH_WEB_API_KEY not set - API endpoints are unprotected (dev mode)');
+}
+app.use('/api', (req, res, next) => {
+  // Allow health endpoint without auth (used by monitoring/load balancers)
+  if (req.path === '/health' || req.path === '/health/debug') {
+    if (req.path === '/health/debug' && API_KEY) {
+      const authHeader = req.headers.authorization;
+      if (!authHeader || authHeader !== `Bearer ${API_KEY}`) {
+        return res.status(401).json({ status: 'error', message: 'Unauthorized' });
+      }
+    }
+    return next();
+  }
+
+  if (!API_KEY) return next();
+
+  const authHeader = req.headers.authorization;
+  if (!authHeader || authHeader !== `Bearer ${API_KEY}`) {
+    return res.status(401).json({ status: 'error', message: 'Unauthorized' });
+  }
+  next();
+});
+
+// Health check endpoint (safe - minimal info)
 app.get('/api/health', async (req, res) => {
+  let dbStatus = 'error';
+
+  try {
+    const healthy = await checkDatabaseHealth();
+    dbStatus = healthy ? 'ok' : 'error';
+  } catch (error: any) {
+    if (!isDatabaseUnavailableError(error)) {
+      logger.error('Health check failed:', error.message);
+    }
+  }
+
+  res.json({
+    status: dbStatus,
+    version: VERSION,
+  });
+});
+
+// Debug health endpoint (requires API key) - full diagnostics
+app.get('/api/health/debug', async (req, res) => {
   let dbStatus = 'error';
   let projectInfo = null;
   let allProjects: any[] = [];
@@ -74,7 +119,7 @@ app.get('/api/health', async (req, res) => {
   } catch (error: any) {
     errorMessage = error.message;
     if (!isDatabaseUnavailableError(error)) {
-      logger.error('Health check failed:', error.message);
+      logger.error('Health check debug failed:', error.message);
     }
   }
 
@@ -108,11 +153,11 @@ app.get('/api/memories', async (req, res) => {
         count: memories.length,
         project: { id: project.id, name: project.name, path: project.path }
       });
-    } catch (error: any) {
+     } catch (error: any) {
       if (!isDatabaseUnavailableError(error)) {
         logger.error('Failed to get memories:', error.message);
       }
-      res.status(isDatabaseUnavailableError(error) ? 503 : 500).json({ status: 'error', message: error.message });
+      res.status(isDatabaseUnavailableError(error) ? 503 : 500).json({ status: 'error', message: 'Internal error' });
     }
 });
 
@@ -136,7 +181,7 @@ app.get('/api/observations', async (req, res) => {
     if (!isDatabaseUnavailableError(error)) {
       logger.error('Failed to get observations:', error.message);
     }
-    res.status(isDatabaseUnavailableError(error) ? 503 : 500).json({ status: 'error', message: error.message });
+    res.status(isDatabaseUnavailableError(error) ? 503 : 500).json({ status: 'error', message: 'Internal error' });
   }
 });
 
@@ -178,11 +223,11 @@ app.get('/api/context', async (req, res) => {
        totalCount: memories.length + observations.length
      });
    } catch (error: any) {
-     if (!isDatabaseUnavailableError(error)) {
-       logger.error('Failed to get context:', error.message);
-     }
-     res.status(isDatabaseUnavailableError(error) ? 503 : 500).json({ status: 'error', message: error.message });
-   }
+      if (!isDatabaseUnavailableError(error)) {
+        logger.error('Failed to get context:', error.message);
+      }
+      res.status(isDatabaseUnavailableError(error) ? 503 : 500).json({ status: 'error', message: 'Internal error' });
+    }
 });
 
 // Get all projects
@@ -195,11 +240,11 @@ app.get('/api/projects', async (req, res) => {
       count: projects.length
      });
    } catch (error: any) {
-     if (!isDatabaseUnavailableError(error)) {
-       logger.error('Failed to get projects:', error.message);
-     }
-     res.status(isDatabaseUnavailableError(error) ? 503 : 500).json({ status: 'error', message: error.message });
-   }
+      if (!isDatabaseUnavailableError(error)) {
+        logger.error('Failed to get projects:', error.message);
+      }
+      res.status(isDatabaseUnavailableError(error) ? 503 : 500).json({ status: 'error', message: 'Internal error' });
+    }
 });
 
 // Get sessions grouped from memory metadata
@@ -271,7 +316,7 @@ app.get('/api/sessions', async (req, res) => {
     if (!isDatabaseUnavailableError(error)) {
       logger.error('Failed to get sessions:', error.message);
     }
-    res.status(isDatabaseUnavailableError(error) ? 503 : 500).json({ status: 'error', message: error.message });
+    res.status(isDatabaseUnavailableError(error) ? 503 : 500).json({ status: 'error', message: 'Internal error' });
   }
 });
 
@@ -361,7 +406,7 @@ app.get('/', (req, res) => {
 <span class="text-xs font-bold uppercase tracking-widest text-text-muted" id="server-status">Server: Online</span>
 </div>
 <div class="bg-card-bg px-3 py-1 rounded-full text-xs font-medium text-text-muted" id="server-version">
-v1.9.0
+v2.0.0
 </div>
 </div>
 </div>
@@ -531,7 +576,7 @@ v1.9.0
                     updateStatus(data.memories && data.observations ? 'ok' : 'error');
                     
                     // Update server status based on health
-                    updateServerStatus(true, data.version || '1.9.0', data.project?.name);
+                    updateServerStatus(true, data.version || '2.0.0', data.project?.name);
 
                     renderMemories(data.memories || []);
                     renderObservations(data.observations || []);

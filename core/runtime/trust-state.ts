@@ -10,8 +10,7 @@ import { getProjectPlaces } from '../places/places.js';
 import { getMemoryPlace } from '../places/memory-places.js';
 import { getPlace } from '../places/places.js';
 import { config } from '../../config.js';
-import { getBeliefsForMemory } from '../beliefs/store.js';
-import type { TeamAccessContext } from '../team/types.js';
+import { getBeliefsForMemory } from '../knowledge/store.js';
 import type {
   ContextReportInput,
   CurrentProjectSummary,
@@ -134,7 +133,6 @@ async function getMemoryPlaceName(memoryId: string): Promise<string | null> {
 export async function buildContextState(
   projectPath?: string,
   limit: number = 10,
-  actor?: TeamAccessContext,
 ): Promise<ContextReportInput> {
   const scope = await resolveProjectScope(projectPath);
   const projectPathResolved = scope.currentProject.path;
@@ -142,7 +140,7 @@ export async function buildContextState(
     getLatestProjectWorkingSetSummary(projectPathResolved),
     getProjectSignalStats(projectPathResolved),
     getGraphStats(projectPathResolved),
-    getRecent(projectPathResolved, limit, actor),
+    getRecent(projectPathResolved, limit),
   ]);
 
   const project = await getProjectByPath(projectPathResolved);
@@ -188,7 +186,7 @@ export async function buildContextState(
   };
 }
 
-export async function buildStatsState(projectPath?: string, actor?: TeamAccessContext): Promise<StatsReportInput> {
+export async function buildStatsState(projectPath?: string): Promise<StatsReportInput> {
   const scope = await resolveProjectScope(projectPath);
   const projectPathResolved = scope.currentProject.path;
   const [stats, graphStats, sessionSummary] = await Promise.all([
@@ -260,7 +258,7 @@ export async function buildHealthState(projectPath?: string): Promise<HealthRepo
     checks.push({
       name: 'mode',
       status: 'ok',
-      detail: `${config.isManagedMode ? 'managed' : 'local'} mode; embeddings ${config.embeddingsProvider}`,
+      detail: `local mode; embeddings ${config.embeddingsProvider}`,
     });
 
     return {
@@ -347,7 +345,7 @@ export async function buildHealthState(projectPath?: string): Promise<HealthRepo
   checks.push({
     name: 'mode',
     status: 'ok',
-    detail: `${config.isManagedMode ? 'managed' : 'local'} mode; embeddings ${config.embeddingsProvider}`,
+    detail: `local mode; embeddings ${config.embeddingsProvider}`,
   });
 
   return {

@@ -28,8 +28,8 @@ import { getDbClient } from '../lib/db-client.js';
 import { eq } from 'drizzle-orm';
 import { serializeMetadata, deserializeMetadata } from '../memory/serialization.js';
 import { addMemoryToGraph } from '../graph/graph-builder.js';
-import { extractBeliefsFromMemory } from '../beliefs/extractor.js';
-import { upsertBeliefsForMemory, getRecentFailures, getActiveConstraints, getActiveDecisions } from '../beliefs/store.js';
+import { extractBeliefs } from '../knowledge/extractor.js';
+import { upsertBeliefsForMemory, getRecentFailures, getActiveConstraints, getActiveDecisions } from '../knowledge/store.js';
 
 /** Session ID for tracking across agents */
 let currentSessionId: string | null = null;
@@ -388,7 +388,7 @@ export async function handlePostToolUse(params: {
     try {
       const project = await getProjectByPath(projectPath);
       if (project) {
-        const beliefs = extractBeliefsFromMemory({
+        const beliefs = extractBeliefs({
           memoryId: memory.id,
           content: memory.content,
           type: memory.type,

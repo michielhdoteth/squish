@@ -1,13 +1,12 @@
 import { eq } from 'drizzle-orm';
-import { config } from '../../config.js';
 import { getDbClient } from '../lib/db-client.js';
 import { logger } from '../logger.js';
 import { serializeMetadata, deserializeMetadata } from './serialization.js';
 import { detectMemorySignals, type MemorySignals } from './trigger-detector.js';
 import type { MemoryType } from '../lib/types.js';
-import type { VisibilityScope } from '../team/types.js';
 
-export type MemoryAudience = 'personal' | 'project' | 'team' | 'company';
+export type VisibilityScope = 'private' | 'project';
+export type MemoryAudience = 'personal' | 'project';
 export type MemoryPolicySource = 'explicit' | 'heuristic' | 'manual';
 export type MemoryPolicyReviewState = 'suggested' | 'promoted' | 'demoted';
 
@@ -60,9 +59,8 @@ export function classifyAudience(scope: VisibilityScope): MemoryAudience {
       return 'personal';
     case 'project':
       return 'project';
-    case 'team':
-    case 'global':
-      return 'company';
+    default:
+      return 'project';
   }
 }
 
@@ -84,21 +82,16 @@ export function buildVisibilityScopes(
         readScope: subjectId ? [identity, 'project:*'] : ['project:*'],
         writeScope: subjectId ? [identity, 'project:*'] : ['project:*'],
       };
-    case 'team':
+    default:
       return {
-        readScope: subjectId ? [identity, 'team:*'] : ['team:*'],
-        writeScope: subjectId ? [identity, 'team:*'] : ['team:*'],
-      };
-    case 'global':
-      return {
-        readScope: ['*'],
-        writeScope: ['*'],
+        readScope: subjectId ? [identity] : ['private'],
+        writeScope: subjectId ? [identity] : ['private'],
       };
   }
 }
 
-export function serializeVisibilityScopes(scopes: string[]): string[] | string {
-  return config.isTeamMode ? scopes : JSON.stringify(scopes);
+export function serializeVisibilityScopes(scopes: string[]): string {
+  return JSON.stringify(scopes);
 }
 
 export function recommendMemoryScope(input: MemoryPolicyContext): MemoryPolicyRecommendation {
@@ -150,17 +143,9 @@ export function recommendMemoryScope(input: MemoryPolicyContext): MemoryPolicyRe
     reasons.push('high importance');
   }
 
-  if (score >= 6) {
-    return {
-      scope: 'global',
-      reason: reasons.join(', '),
-      source: 'heuristic',
-    };
-  }
-
   if (score >= 4) {
     return {
-      scope: 'team',
+      scope: 'project',
       reason: reasons.join(', '),
       source: 'heuristic',
     };

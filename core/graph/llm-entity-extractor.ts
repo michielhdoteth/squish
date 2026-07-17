@@ -7,6 +7,7 @@
 
 import { logger } from '../logger.js';
 import { config } from '../../config.js';
+import { callLLM } from '../llm/client.js';
 import {
   extractEntities as regexExtractEntities,
   linkEntitiesToMemories,
@@ -80,118 +81,6 @@ Rules:
 - Keep entity names as they appear in text (preserve capitalization)
 - For ambiguous relationships, use "related_to"
 - Do NOT invent entities or relationships not present in the text`;
-
-// ─── LLM Call Abstraction ───────────────────────────────────────────────────
-
-/**
- * Call an LLM for entity extraction.
- * Uses OpenAI-compatible API (works with OpenAI, Ollama, LM Studio, local endpoints).
- */
-async function callLLM(prompt: string, content: string): Promise<string | null> {
-  // Determine which provider to use for extraction
-  const provider = config.llmProvider;
-  const endpoint = config.llmEndpoint || config.lmStudioUrl || config.ollamaUrl;
-  const model = config.llmExtractionModel;
-  if (!model) {
-    logger.debug('LLM extraction model not configured; using regex fallback');
-    return null;
-  }
-  
-  // Try OpenAI first if configured and provider matches
-  if ((provider === 'openai' || !provider) && config.openAiApiKey) {
-    try {
-      const chatUrl = config.openAiApiUrl.replace('/embeddings', '/chat/completions');
-      const response = await fetch(chatUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${config.openAiApiKey}`,
-        },
-        body: JSON.stringify({
-          model,
-          messages: [
-            { role: 'system', content: prompt },
-            { role: 'user', content },
-          ],
-          temperature: 0.1,
-          max_tokens: 2000,
-        }),
-      });
-
-      if (!response.ok) {
-        logger.warn(`LLM entity extraction failed (OpenAI): ${response.status}`);
-        return null;
-      }
-
-      const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
-      return payload.choices?.[0]?.message?.content ?? null;
-    } catch (error) {
-      logger.warn('LLM entity extraction error (OpenAI):', { error: error as Error });
-    }
-  }
-
-  // Try Ollama if configured and provider matches
-  if ((provider === 'ollama' || !provider) && config.ollamaUrl) {
-    try {
-      const response = await fetch(`${config.ollamaUrl}/api/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model,
-          messages: [
-            { role: 'system', content: prompt },
-            { role: 'user', content },
-          ],
-          stream: false,
-          options: { temperature: 0.1 },
-        }),
-      });
-
-      if (!response.ok) {
-        logger.warn(`Ollama entity extraction failed: ${response.status}`);
-        return null;
-      }
-
-      const payload = await response.json() as { message?: { content?: string } };
-      return payload.message?.content ?? null;
-    } catch (error) {
-      logger.warn('LLM entity extraction error (Ollama):', { error: error as Error });
-    }
-  }
-
-  // Try LM Studio / custom endpoint if configured and provider matches
-  if ((provider === 'lmstudio' || provider === 'local' || !provider) && (config.lmStudioUrl || endpoint)) {
-    try {
-      const baseUrl = endpoint || config.lmStudioUrl;
-      if (!baseUrl) return null;
-      const response = await fetch(`${baseUrl}/v1/chat/completions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model,
-          messages: [
-            { role: 'system', content: prompt },
-            { role: 'user', content },
-          ],
-          temperature: 0.1,
-          max_tokens: 2000,
-        }),
-      });
-
-      if (!response.ok) {
-        logger.warn(`LM Studio entity extraction failed: ${response.status}`);
-        return null;
-      }
-
-      const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
-      return payload.choices?.[0]?.message?.content ?? null;
-    } catch (error) {
-      logger.warn('LLM entity extraction error (LM Studio):', { error: error as Error });
-    }
-  }
-
-  return null;
-}
 
 // ─── JSON Parsing ────────────────────────────────────────────────────────────
 
@@ -325,7 +214,9 @@ export async function extractEntitiesAndRelations(
  * Extract entities and relations using LLM.
  */
 async function extractWithLLM(content: string): Promise<Omit<LLMExtractionResult, 'source'> | null> {
-  const response = await callLLM(ENTITY_EXTRACTION_PROMPT, content);
+  // Build combined prompt: system instructions + user content
+  const fullPrompt = `${ENTITY_EXTRACTION_PROMPT}\n\n---\n\nText to analyze:\n${content}`;
+  const response = await callLLM(fullPrompt);
   if (!response) return null;
 
   const parsed = parseLLMResponse(response);

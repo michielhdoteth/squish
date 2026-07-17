@@ -45,4 +45,15 @@ export declare function shouldReturnRawFallback(input: {
     hasRawFallback: boolean;
     nuanceSuppressed: boolean;
 }): boolean;
+/**
+ * Classify a media file for the signal system.
+ *
+ * Media files are always durable (not session-only or discard)
+ * because they represent user-authored or user-collected content.
+ *
+ * @param category - Media category (image, audio, video, document)
+ * @param mimeType - MIME type of the file
+ * @param hasTextContent - Whether extraction produced usable text
+ */
+export declare function classifyMediaSignal(category: 'image' | 'audio' | 'video' | 'document', mimeType: string, hasTextContent: boolean): SignalDecision;
 //# sourceMappingURL=signal-engine.d.ts.map

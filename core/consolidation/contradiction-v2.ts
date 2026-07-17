@@ -137,30 +137,16 @@ export async function checkContradictions(
   try {
     const { db, schema } = await getDbClient();
 
-    // Determine if we're using PostgreSQL or SQLite
-    const isPg = typeof (db as any)?.query === 'function';
-
     // Fetch recent memories of same project (limit to 20 for performance)
     let existing: any[] = [];
 
-    if (isPg) {
-      // PostgreSQL query
-      const query = newMemory.projectId
-        ? `SELECT id, content FROM memories WHERE project_id = $1 AND status = 'active' LIMIT 20`
-        : `SELECT id, content FROM memories WHERE status = 'active' LIMIT 20`;
+    // SQLite query
+    const query = newMemory.projectId
+      ? `SELECT id, content FROM memories WHERE project_id = ? AND status = 'active' LIMIT 20`
+      : `SELECT id, content FROM memories WHERE status = 'active' LIMIT 20`;
 
-      const params = newMemory.projectId ? [newMemory.projectId] : [];
-      const result = await (db as any).query(query, params);
-      existing = result.rows || [];
-    } else {
-      // SQLite query
-      const query = newMemory.projectId
-        ? `SELECT id, content FROM memories WHERE project_id = ? AND status = 'active' LIMIT 20`
-        : `SELECT id, content FROM memories WHERE status = 'active' LIMIT 20`;
-
-      const params = newMemory.projectId ? [newMemory.projectId] : [];
-      existing = (db as any).prepare(query).all(params);
-    }
+    const params = newMemory.projectId ? [newMemory.projectId] : [];
+    existing = (db as any).prepare(query).all(params);
 
     const results: ContradictionResult[] = [];
 

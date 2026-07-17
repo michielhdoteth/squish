@@ -10,10 +10,9 @@ const __dirname = dirname(__filename);
 type Settings = Record<string, unknown>;
 
 const EMBEDDINGS_PROVIDERS = ['openai', 'ollama', 'lmstudio', 'transformers', 'local', 'none', 'google', 'auto'] as const;
-const LLM_PROVIDERS = ['openai', 'anthropic', 'ollama', 'lmstudio', 'local'] as const;
+const LLM_PROVIDERS = ['openai', 'anthropic', 'google', 'ollama', 'lmstudio', 'local'] as const;
 const GRAPH_EXTRACTION_METHODS = ['llm', 'regex', 'auto'] as const;
 const SCHEDULER_MODES = ['cron', 'interval', 'heartbeat'] as const;
-const VISIBILITY_SCOPES = ['private', 'project', 'team', 'global'] as const;
 const DECAY_ENGINES = ['sector', 'ebbinghaus'] as const;
 
 function loadSettings(): Settings {
@@ -120,10 +119,6 @@ export function findSquishDir(_startPath?: string): string {
   return globalDataDir();
 }
 
-export function findAllSquishDirs(_startPath?: string): string[] {
-  return [globalDataDir()];
-}
-
 export function getDataDir(): string {
   // 1. If SQUISH_DATA_DIR is explicitly set, use it
   if (process.env.SQUISH_DATA_DIR) {
@@ -191,26 +186,6 @@ function resolveDataDir(): string {
   }
 
   return globalDataDir();
-}
-
-function detectMode(): 'local' | 'team' | 'remote' {
-  const databaseUrl = process.env.DATABASE_URL || '';
-  const supabaseUrl = process.env.SUPABASE_URL || '';
-  const neonProjectId = process.env.NEON_PROJECT_ID || '';
-  const managedMode = getBoolean('managed.enabled', 'SQUISH_MANAGED_MODE', false);
-
-  if (supabaseUrl || neonProjectId) return 'remote';
-  // Team mode is cloud-managed only. Local PostgreSQL alone should not
-  // auto-switch a workstation into team mode.
-  if (managedMode && databaseUrl.startsWith('postgres')) return 'team';
-  return 'local';
-}
-
-let modeOverride: 'local' | 'team' | null = null;
-
-function getEffectiveMode(): 'local' | 'team' | 'remote' {
-  if (modeOverride) return modeOverride;
-  return detectMode();
 }
 
 function getEnvironmentString(key: string, fallback = ''): string {
@@ -297,43 +272,12 @@ function buildConsolidationGeometryConfig() {
 function buildConfig() {
   return {
     get mode() {
-      return getEffectiveMode();
-    },
-    set mode(value: 'local' | 'team' | 'remote') {
-      if (value === 'remote') {
-        modeOverride = null;
-      } else {
-        modeOverride = value;
-      }
+      return 'local' as const;
     },
     get isLocalMode() {
-      return getEffectiveMode() === 'local';
-    },
-    get isTeamMode() {
-      return getEffectiveMode() === 'team';
-    },
-    set isTeamMode(value: boolean) {
-      modeOverride = value ? 'team' : 'local';
-    },
-    get isRemoteMode() {
-      return getEffectiveMode() === 'remote';
-    },
-    get teamBackend() {
-      return getEnum('team.backend', 'SQUISH_TEAM_BACKEND', ['postgres', 'supabase', 'neon'] as const, 'postgres');
-    },
-    get remoteBackend() {
-      return getEnum('remote.backend', 'SQUISH_REMOTE_BACKEND', ['supabase', 'neon'] as const, 'supabase');
+      return true;
     },
 
-    get isManagedMode() {
-      return getBoolean('managed.enabled', 'SQUISH_MANAGED_MODE', false);
-    },
-    get managedApiUrl() {
-      return getString('managed.apiUrl', 'SQUISH_MANAGED_API_URL', 'https://api.squish.dev');
-    },
-    get managedApiKey() {
-      return getString('managed.apiKey', 'SQUISH_MANAGED_API_KEY', '');
-    },
     get redisEnabled() {
       return Boolean(process.env.REDIS_URL);
     },
@@ -387,18 +331,6 @@ function buildConfig() {
       return getString('embeddings.models.transformers.model', 'SQUISH_LOCAL_MODEL', '');
     },
 
-    get supabaseUrl() {
-      return getString('supabase.url', 'SUPABASE_URL', '');
-    },
-    get supabaseKey() {
-      return getString('supabase.key', 'SUPABASE_SERVICE_KEY', '');
-    },
-    get neonProjectId() {
-      return process.env.NEON_PROJECT_ID || '';
-    },
-    get neonServiceKey() {
-      return process.env.NEON_SERVICE_KEY || '';
-    },
     get clientEncryptionEnabled() {
       return getBoolean('security.encryptionEnabled', null, false);
     },
@@ -437,9 +369,6 @@ function buildConfig() {
     },
     get agentIsolationEnabled() {
       return getBoolean('features.agentIsolation', 'SQUISH_AGENT_ISOLATION_ENABLED', true);
-    },
-    get defaultVisibilityScope() {
-      return getEnum('visibility.defaultScope', 'SQUISH_DEFAULT_VISIBILITY', VISIBILITY_SCOPES, 'private');
     },
     get governanceEnabled() {
       return getBoolean('features.governanceEnabled', 'SQUISH_GOVERNANCE_ENABLED', true);
@@ -606,8 +535,61 @@ function buildConfig() {
     get llmEndpoint() {
       return buildLlmConfig().endpoint;
     },
+    get llmMaxTokens() {
+      return getNumber('llm.maxTokens', 'SQUISH_LLM_MAX_TOKENS', 300);
+    },
+    get llmTemperature() {
+      return getNumber('llm.temperature', 'SQUISH_LLM_TEMPERATURE', 0.1);
+    },
+    get llmTimeoutMs() {
+      return getNumber('llm.timeout', 'SQUISH_LLM_TIMEOUT_MS', 10000);
+    },
     get llm() {
       return buildLlmConfig();
+    },
+
+    // Anthropic
+    get anthropicApiKey() {
+      return process.env.SQUISH_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY || '';
+    },
+    get anthropicModel() {
+      return getString('llm.models.anthropic', 'SQUISH_ANTHROPIC_MODEL', 'claude-sonnet-4-20250514');
+    },
+
+    // Google Gemini
+    get googleGeminiApiKey() {
+      return process.env.SQUISH_GOOGLE_GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
+    },
+    get googleGeminiModel() {
+      return getString('llm.models.gemini', 'SQUISH_GOOGLE_GEMINI_MODEL', 'gemini-2.0-flash');
+    },
+
+    // Multimodal Ingestion
+    get multimodalInboxDir() {
+      return getString('multimodal.inboxDir', 'SQUISH_MULTIMODAL_INBOX_DIR', './inbox');
+    },
+    get multimodalPollIntervalMs() {
+      return getNumber('multimodal.pollIntervalMs', 'SQUISH_MULTIMODAL_POLL_INTERVAL_MS', 5000);
+    },
+    get multimodalMaxFileSizeBytes() {
+      return getNumber('multimodal.maxFileSizeBytes', 'SQUISH_MULTIMODAL_MAX_FILE_SIZE_BYTES', 104857600); // 100MB
+    },
+    get multimodalEnabled() {
+      return getBoolean('multimodal.enabled', 'SQUISH_MULTIMODAL_ENABLED', true);
+    },
+
+    // LLM Consolidation
+    get llmConsolidationEnabled() {
+      return getBoolean('consolidation.llmEnabled', 'SQUISH_LLM_CONSOLIDATION_ENABLED', false);
+    },
+    get llmConsolidationBatchSize() {
+      return getNumber('consolidation.batchSize', 'SQUISH_LLM_CONSOLIDATION_BATCH_SIZE', 50);
+    },
+    get llmConsolidationMinAgeDays() {
+      return getNumber('consolidation.minAgeDays', 'SQUISH_LLM_CONSOLIDATION_MIN_AGE_DAYS', 7);
+    },
+    get llmConsolidationMinConnections() {
+      return getNumber('consolidation.minConnections', 'SQUISH_LLM_CONSOLIDATION_MIN_CONNECTIONS', 2);
     },
 
     get graphAutoBuild() {

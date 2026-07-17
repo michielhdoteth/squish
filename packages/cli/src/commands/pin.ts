@@ -11,6 +11,7 @@ import { Command } from 'commander';
 import { pinMemory, unpinMemory } from '../../../../core/security/governance.js';
 import { promoteToSturdy } from '../../../../core/memory/tiers.js';
 import { getMemory } from '../../../../core/memory/memories.js';
+import { getRemediationForError } from '../errors.js';
 
 export function registerPinCommand(program: Command) {
   // squish pin <memoryId> (toggles by default)
@@ -21,6 +22,10 @@ export function registerPinCommand(program: Command) {
     .option('--unpin', 'Force unpin (no toggle)', false)
     .option('--json', 'Emit machine-readable output', false)
     .action(async (memoryId: string, options: any) => {
+      const previousQuiet = process.env.SQUISH_QUIET;
+      if (options.json) {
+        process.env.SQUISH_QUIET = '1';
+      }
       try {
         const forcePin = options.pin === true;
         const forceUnpin = options.unpin === true;
@@ -48,7 +53,12 @@ export function registerPinCommand(program: Command) {
         // Toggle: check current state
         const memory = await getMemory(memoryId, false);
         if (!memory) {
-          console.error(`Memory not found: ${memoryId}`);
+          const payload = { ok: false, error: `Memory not found: ${memoryId}`, command: 'pin', remediation: 'Check the ID or query, or run "squish recall" to find memories' };
+          if (options.json) {
+            console.error(JSON.stringify(payload));
+          } else {
+            console.error(`Memory not found: ${memoryId}`);
+          }
           process.exit(1);
         }
 
@@ -69,8 +79,22 @@ export function registerPinCommand(program: Command) {
           }
         }
       } catch (error: any) {
-        console.error(JSON.stringify({ ok: false, error: error.message }));
+        const remediation = getRemediationForError(error);
+        if (options.json) {
+          console.error(JSON.stringify({ ok: false, error: error.message, remediation }));
+        } else {
+          console.error(`Error: ${error.message}`);
+          console.error(`Hint: ${remediation}`);
+        }
         process.exit(1);
+      } finally {
+        if (options.json) {
+          if (previousQuiet === undefined) {
+            delete process.env.SQUISH_QUIET;
+          } else {
+            process.env.SQUISH_QUIET = previousQuiet;
+          }
+        }
       }
     });
 
@@ -80,6 +104,10 @@ export function registerPinCommand(program: Command) {
     .description('Promote a memory to sturdy tier (pins it, prevents decay, boosts in search)')
     .option('--json', 'Emit machine-readable output', false)
     .action(async (memoryId: string, options: any) => {
+      const previousQuiet = process.env.SQUISH_QUIET;
+      if (options.json) {
+        process.env.SQUISH_QUIET = '1';
+      }
       try {
         const success = await promoteToSturdy(memoryId);
         if (options.json) {
@@ -93,8 +121,22 @@ export function registerPinCommand(program: Command) {
           }
         }
       } catch (error: any) {
-        console.error(JSON.stringify({ ok: false, error: error.message }));
+        const remediation = getRemediationForError(error);
+        if (options.json) {
+          console.error(JSON.stringify({ ok: false, error: error.message, remediation }));
+        } else {
+          console.error(`Error: ${error.message}`);
+          console.error(`Hint: ${remediation}`);
+        }
         process.exit(1);
+      } finally {
+        if (options.json) {
+          if (previousQuiet === undefined) {
+            delete process.env.SQUISH_QUIET;
+          } else {
+            process.env.SQUISH_QUIET = previousQuiet;
+          }
+        }
       }
     });
 }

@@ -1,4 +1,4 @@
-import type { StoredBelief } from '../beliefs/types.js';
+import type { StoredBelief } from '../knowledge/types.js';
 export interface MemoryInspection {
     id: string;
     type: string;

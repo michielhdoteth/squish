@@ -38,19 +38,3 @@ export async function performMemoryOperation(
     logger.error(`Error ${operation.name.toLowerCase()}`, error);
   }
 }
-
-/**
- * Redis publish operation with error handling
- */
-export async function performRedisPublish(
-  getRedisClient: () => Promise<any>,
-  channel: string,
-  message: unknown
-): Promise<void> {
-  try {
-    const redis = await getRedisClient();
-    await redis.publish(channel, JSON.stringify(message));
-  } catch (error) {
-    logger.error('Error publishing to Redis', error);
-  }
-}

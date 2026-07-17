@@ -303,3 +303,54 @@ export function shouldReturnRawFallback(input: {
   if (input.nuanceSuppressed) return true;
   return /\b(raw|original|full|stack trace|traceback|stderr|stdout|rewind)\b/i.test(input.query);
 }
+
+/**
+ * Classify a media file for the signal system.
+ *
+ * Media files are always durable (not session-only or discard)
+ * because they represent user-authored or user-collected content.
+ *
+ * @param category - Media category (image, audio, video, document)
+ * @param mimeType - MIME type of the file
+ * @param hasTextContent - Whether extraction produced usable text
+ */
+export function classifyMediaSignal(
+  category: 'image' | 'audio' | 'video' | 'document',
+  mimeType: string,
+  hasTextContent: boolean,
+): SignalDecision {
+  const reasons: string[] = [`media file: ${category}`];
+  const content = `[${category}] ${mimeType}`;
+
+  // Documents with text are high importance (they contain information)
+  // Media without text are medium importance (metadata-only)
+  const importance = (hasTextContent && category === 'document') ? 'high' as const : 'medium' as const;
+
+  // Images/videos from user tools go to ref, audio goes to inbox
+  const placeHint = category === 'image'
+    ? { placeType: 'ref' as const, confidence: 0.7 }
+    : category === 'video'
+    ? { placeType: 'ref' as const, confidence: 0.65 }
+    : category === 'audio'
+    ? { placeType: 'inbox' as const, confidence: 0.6 }
+    : { placeType: 'ref' as const, confidence: 0.75 };
+
+  // Documents with text are graph-enrichable (they have entities)
+  // Images/audio/video need LLM descriptions before graph enrichment
+  const graphHint = hasTextContent
+    ? { shouldEnrich: true, entityTerms: [], reason: 'media with extractable text' }
+    : { shouldEnrich: false, entityTerms: [], reason: 'media without text content' };
+
+  return {
+    classification: 'durable-distilled',
+    reasons,
+    storeRaw: false,
+    importance,
+    wakeUpPriority: 'medium',
+    placeHint,
+    graphHint,
+    content,
+    contentHash: hashSignalContent(content),
+    estimatedSavings: 0,
+  };
+}

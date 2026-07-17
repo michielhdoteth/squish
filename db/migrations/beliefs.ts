@@ -1,14 +1,15 @@
 /**
- * Beliefs table migrations
- * Uses schema definitions to generate migrations
+ * Beliefs table migrations (LEGACY)
  * 
- * For existing databases without beliefs table (pre-v1.2.0), creates the table.
- * Then runs column migrations for all belief-related tables.
+ * Creates beliefs/belief_memory_sources/belief_edges tables for databases
+ * upgrading from pre-v1.2.0. These tables are kept for backward compatibility
+ * but active belief data now lives in the unified 'knowledge' table.
+ * 
+ * NOTE: This migration is NOT called from runAllMigrations().
+ * It exists only for direct invocation if needed.
  */
 
 import type { Database } from 'better-sqlite3';
-import { migrateTable } from '../schema/generator.js';
-import { beliefsSchema, beliefMemorySourcesSchema, beliefEdgesSchema } from '../schema/beliefs.js';
 import { logger } from '../../core/logger.js';
 
 export async function runBeliefMigrations(sqlite: Database): Promise<void> {
@@ -82,8 +83,6 @@ export async function runBeliefMigrations(sqlite: Database): Promise<void> {
     `);
   }
 
-  // Run column migrations - adds missing columns to existing tables
-  await migrateTable(sqlite, beliefsSchema);
-  await migrateTable(sqlite, beliefMemorySourcesSchema);
-  await migrateTable(sqlite, beliefEdgesSchema);
+  // Note: Column migrations for beliefs tables are no longer needed.
+  // Belief data is managed via the unified 'knowledge' table (core/knowledge/).
 }

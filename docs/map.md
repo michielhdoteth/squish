@@ -182,9 +182,8 @@ Response Formatting
 - `on_session_start` - Trigger session start and context injection
 - `on_session_end` - Trigger session end and cleanup
 
-### **System (3 tools)**
+### **System (2 tools)**
 - `health` - Service status checks
-- `strategy` - Manage actionable strategies (read, write, list, search, supersede)
 - `consolidate` - Run background consolidation (dedup, summarize, invalidate stale memories)
 
 ## 🔐 **Security & Privacy Components**

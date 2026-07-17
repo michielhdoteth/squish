@@ -7,6 +7,7 @@
 import { Command } from 'commander';
 import { buildStatsState } from '../../../../core/runtime/trust-state.js';
 import { formatStatsReport } from '../../../../core/runtime/trust-report.js';
+import { colors } from '../colors.js';
 
 export function registerStatsCommand(program: Command) {
   program
@@ -25,6 +26,8 @@ export function registerStatsCommand(program: Command) {
           console.log(JSON.stringify({ ok: true, ...stats }, null, 2));
           return;
         }
+        console.log(colors.bold('Memory Statistics'));
+        console.log(colors.dim('─'.repeat(40)));
         console.log(formatStatsReport(stats));
       } catch (error: any) {
         console.error(JSON.stringify({ ok: false, error: error.message }));

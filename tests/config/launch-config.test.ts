@@ -18,6 +18,7 @@ function readConfig(env: Record<string, string>) {
           import { config } from './config.ts';
           console.log(JSON.stringify({
             mode: config.mode,
+            isLocalMode: config.isLocalMode,
             embeddingsProvider: config.embeddingsProvider,
             openAiEmbeddingModel: config.openAiEmbeddingModel,
             googleEmbeddingModel: config.googleEmbeddingModel,
@@ -152,21 +153,10 @@ describe('launch config defaults and overrides', () => {
     expect(config.nestedGraphAutoBuild).toBe(true);
   });
 
-  test('postgres alone does not enable team mode locally', () => {
-    const config = readConfig({
-      DATABASE_URL: 'postgres://user:pass@localhost/squish',
-    });
-
+  test('mode is always local in OSS', () => {
+    const config = readConfig({});
     expect(config.mode).toBe('local');
-  });
-
-  test('managed postgres enables team mode for cloud deployments', () => {
-    const config = readConfig({
-      DATABASE_URL: 'postgres://user:pass@localhost/squish',
-      SQUISH_MANAGED_MODE: 'true',
-    });
-
-    expect(config.mode).toBe('team');
+    expect(config.isLocalMode).toBe(true);
   });
 
   test('packaged defaults do not hardcode provider model names', () => {

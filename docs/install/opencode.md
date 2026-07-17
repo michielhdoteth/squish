@@ -39,11 +39,13 @@ Once installed, Squish provides:
 - Memory Runtime with hot/cold lifecycle and automatic decay
 
 ### Standard MCP Memory Tools
-- **squish_recall**: Search memories using hybrid search, or retrieve a specific memory by ID
-- **squish_remember**: Store new memories (auto-detects type, supports upsert)
-- **squish_forget**: Delete memory by ID or bulk delete with filters
-- **squish_context**: Get project-relevant memories and context
-- **squish_on_tool_use**: Capture tool use events for memory
+- **squish_remember**: Store new memories (auto-detects type)
+- **squish_recall**: Search memories by query or retrieve by ID
+- **squish_forget**: Delete memories by ID or search
+- **squish_link**: Create or find associations between memories
+- **squish_context**: Get project-relevant context
+- **squish_stats**: Memory statistics and system health
+- **squish_inspect**: Inspect why a memory was retained
 
 ## Usage
 
@@ -124,47 +126,9 @@ npx squish-memory uninstall-plugin --client=opencode
 
 This removes the Squish entry from OpenCode's MCP configuration but preserves your Squish data and memories.
 
-## Auto-Capture (Coming Soon)
+## Auto-Capture
 
-Squish can automatically capture your OpenCode session activity and build persistent memories. This feature requires OpenCode to call the lifecycle MCP tools.
-
-### Enabling Auto-Capture
-
-OpenCode should call these tools at the appropriate times:
-
-1. **Session Start** - Call `squish_on_session_start` at the beginning of each session:
-```json
-{
-  "tool": "squish_on_session_start",
-  "params": {
-    "projectPath": "/path/to/project",
-    "mode": "startup"
-  }
-}
-```
-
-2. **Tool Use** - Call `squish_on_tool_use` after each tool execution:
-```json
-{
-  "tool": "squish_on_tool_use",
-  "params": {
-    "toolName": "write",
-    "toolInput": { "filePath": "src/index.ts" },
-    "toolResult": { "success": true },
-    "projectPath": "/path/to/project"
-  }
-}
-```
-
-3. **Session End** - Call `squish_on_session_end` when the session completes:
-```json
-{
-  "tool": "squish_on_session_end",
-  "params": {
-    "projectPath": "/path/to/project"
-  }
-}
-```
+Session lifecycle hooks (session start, tool use, session end) are automatically wired when the MCP server initializes. No manual configuration is needed.
 
 ### What Gets Captured
 

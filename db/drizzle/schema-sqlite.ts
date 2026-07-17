@@ -93,6 +93,11 @@ export const memories = sqliteTable(
     primaryPlace: text('primary_place'),  // primary cognitive place (board/wip/sparks/ref/inbox)
     memoryType: text('memory_type'),      // e.g. user_preference, technical_decision, project_state, etc.
 
+    // v1.6.0: Multimodal support
+    mediaType: text('media_type'),        // 'image' | 'audio' | 'video' | 'document' | null (text-only)
+    mediaPath: text('media_path'),        // path to original media file
+    mediaMetadata: text('media_metadata'), // JSON: dimensions, duration, pages, etc.
+
     // v0.4.3: Layer support
     hasL0Abstract: integer('has_l0_abstract', { mode: 'boolean' }).default(false),
     hasL1Overview: integer('has_l1_overview', { mode: 'boolean' }).default(false),
@@ -133,7 +138,7 @@ export const memories = sqliteTable(
     // v0.3.0: Agent-Aware Memory
     agentId: text('agent_id'),
     agentRole: text('agent_role'),
-    visibilityScope: text('visibility_scope').$type<'private' | 'project' | 'team' | 'global'>().default('private'),
+    visibilityScope: text('visibility_scope').$type<'private' | 'project'>().default('private'),
 
     // v0.3.0: Memory Governance
     isProtected: integer('is_protected', { mode: 'boolean' }).default(false),
@@ -1125,24 +1130,6 @@ export const strategyBeliefEdges = sqliteTable('strategy_belief_edges', {
   index('strategy_belief_edges_belief_idx').on(table.beliefId),
 ]);
 
-/**
- * Team Members - project membership and roles
- */
-export const teamMembers = sqliteTable('team_members', {
-  id: text('id').primaryKey().$default(() => crypto.randomUUID()),
-  projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }).notNull(),
-  userId: text('user_id').references(() => users.id, { onDelete: 'set null' }),
-  agentId: text('agent_id'),
-
-  role: text('role').default('member'),
-  joinedAt: integer('joined_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
-  lastActiveAt: integer('last_active_at', { mode: 'timestamp' }),
-  metadata: text('metadata').$type<Record<string, unknown>>(),
-}, (table) => [
-  index('team_members_project_idx').on(table.projectId),
-  index('team_members_user_idx').on(table.userId),
-]);
-
 // Belief Types (re-exported for schema)
 export type BeliefType = 'decision' | 'preference' | 'failure_cause' | 'constraint' | 'state_change' | 'dispute';
 export type BeliefStatus = 'active' | 'superseded' | 'disputed';
@@ -1167,5 +1154,3 @@ export type StrategyEdge = typeof strategyEdges.$inferSelect;
 export type NewStrategyEdge = typeof strategyEdges.$inferInsert;
 export type StrategyBeliefEdge = typeof strategyBeliefEdges.$inferSelect;
 export type NewStrategyBeliefEdge = typeof strategyBeliefEdges.$inferInsert;
-export type TeamMember = typeof teamMembers.$inferSelect;
-export type NewTeamMember = typeof teamMembers.$inferInsert;

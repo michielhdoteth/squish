@@ -12,7 +12,7 @@ import { getEmbedding } from '../embeddings.js';
 import { logger } from '../logger.js';
 import { annotateMemoryMetadata, buildMemoryPolicy, buildVisibilityScopes, serializeVisibilityScopes } from '../memory/policy.js';
 
-export type VisibilityScope = 'private' | 'project' | 'team' | 'global';
+export type VisibilityScope = 'private' | 'project';
 
 export interface AgentContext {
   agentId: string;
@@ -46,7 +46,7 @@ export async function storeAgentMemory(
 
     const memoryId = randomUUID();
     const embedding = await getEmbedding(content);
-    const visibilityScope = options.visibilityScope || config.defaultVisibilityScope;
+    const visibilityScope = options.visibilityScope || 'project';
 
     // Determine scopes based on visibility
     const scopes = buildVisibilityScopes(visibilityScope, 'agent', context.agentId);
@@ -94,7 +94,7 @@ export async function storeAgentMemory(
 
 
 function serializeMemoryMetadata(metadata: Record<string, unknown>): Record<string, unknown> | string {
-  return config.isTeamMode ? metadata : JSON.stringify(metadata);
+  return JSON.stringify(metadata);
 }
 
 async function storeStandardMemory(

@@ -1,85 +1,87 @@
 /**
- * LLM Client Helper
- * Minimal LLM API client with fast timeout and silent fallback.
- * All LLM calls MUST go through this module for consistency.
+ * LLM Client — Provider Router
+ *
+ * Routes LLM calls to the configured provider. All LLM calls in the
+ * system MUST go through this module for consistency.
  *
  * Design principles:
  * - LLM is ALWAYS optional. Callers must handle null returns.
- * - Never blocks longer than TIMEOUT_MS (10s).
+ * - Never blocks longer than the configured timeout.
  * - All errors are silently swallowed; callers always have fallback paths.
- * - No new dependencies beyond fetch (built into Node 18+).
+ * - No new dependencies beyond fetch (built into Node 18+ / Bun).
  */
 
 import { config } from '../../config.js';
 import { logger } from '../logger.js';
+import type { LLMCallOptions, LLMProvider } from './types.js';
 
-const TIMEOUT_MS = 10000; // 10s timeout - never block
+// ─── Provider Registry ──────────────────────────────────────────────────────
+
+const providers = new Map<string, LLMProvider>();
 
 /**
- * Call an LLM with the given prompt.
- * Returns the text response, or null if LLM is disabled, unavailable, or errors.
+ * Register a provider. Called automatically by the barrel export.
+ */
+export function registerProvider(name: string, provider: LLMProvider): void {
+  providers.set(name, provider);
+}
+
+/**
+ * Get the currently active provider based on config.
+ * Returns null if LLM is disabled or provider is not registered.
+ */
+function getActiveProvider(): LLMProvider | null {
+  if (!config.llmEnabled) return null;
+  const name = config.llmProvider;
+  const provider = providers.get(name);
+  if (!provider) {
+    logger.debug(`LLM provider '${name}' not registered (available: ${[...providers.keys()].join(', ')})`);
+    return null;
+  }
+  if (!provider.isAvailable()) {
+    logger.debug(`LLM provider '${name}' is not available (missing config)`);
+    return null;
+  }
+  return provider;
+}
+
+// ─── Public API ─────────────────────────────────────────────────────────────
+
+/**
+ * Call an LLM with a plain text prompt.
+ * Backward-compatible wrapper around the provider system.
  *
  * @param prompt - The prompt to send to the LLM
  * @returns The LLM response text, or null if unavailable
  */
 export async function callLLM(prompt: string): Promise<string | null> {
-  if (!config.llmEnabled) {
-    return null;
-  }
+  const provider = getActiveProvider();
+  if (!provider) return null;
 
-  const endpoint = config.llmEndpoint || 'http://localhost:1234';
-  const model = config.llmExtractionModel || 'gpt-4o-mini';
-  const apiKey = config.llmApiKey || '';
+  return provider.call({
+    prompt,
+    maxTokens: config.llmMaxTokens,
+    temperature: config.llmTemperature,
+  });
+}
 
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+/**
+ * Call an LLM with full options (multimodal, system prompt, etc.).
+ *
+ * @param options - Full call options
+ * @returns The LLM response text, or null if unavailable
+ */
+export async function callLLMWithContent(options: LLMCallOptions): Promise<string | null> {
+  const provider = getActiveProvider();
+  if (!provider) return null;
 
-    // Normalize endpoint - add /v1 path if not present
-    const baseUrl = endpoint.endsWith('/v1') ? endpoint : `${endpoint}/v1`;
+  return provider.call(options);
+}
 
-    const response = await fetch(`${baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-      },
-      body: JSON.stringify({
-        model,
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.1,
-        max_tokens: 300,
-      }),
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeout);
-
-    if (!response.ok) {
-      logger.debug(`LLM call failed with status ${response.status}`, {
-        endpoint,
-        status: response.status,
-      });
-      return null;
-    }
-
-    const data = (await response.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
-    };
-    const content = data.choices?.[0]?.message?.content?.trim() ?? null;
-
-    if (content === null || content === '') {
-      logger.debug('LLM returned empty response');
-      return null;
-    }
-
-    return content;
-  } catch (err: any) {
-    // Log as debug, not error - LLM failures are expected when not configured
-    logger.debug(`LLM call failed: ${err?.message ?? err}`, {
-      endpoint,
-      error: err?.message,
-    });
-    return null; // Silent fallback
-  }
+/**
+ * Get the name of the currently active provider (for logging/status).
+ */
+export function getActiveProviderName(): string | null {
+  if (!config.llmEnabled) return null;
+  return config.llmProvider;
 }

@@ -4,29 +4,18 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const SERVER_VERSION = "1.9.0";
+const SERVER_VERSION = "2.0.0";
 const SERVER_NAME = "squish-memory";
-const EXPECTED_TOOL_COUNT = 18;
+const EXPECTED_TOOL_COUNT = 7;
 
 const EXPECTED_TOOLS = [
   "squish_remember",
   "squish_recall",
-  "squish_health",
-  "squish_context",
-  "squish_stats",
-  "squish_timeline",
   "squish_forget",
   "squish_link",
+  "squish_context",
+  "squish_stats",
   "squish_inspect",
-  "squish_pin",
-  "squish_recent",
-  "squish_stale",
-  "squish_list_pinned",
-  "squish_on_session_start",
-  "squish_on_tool_use",
-  "squish_on_session_end",
-  "squish_strategy",
-  "squish_consolidate",
 ];
 
 function resolveServerCommand(): { command: string; args: string[] } {
@@ -199,7 +188,7 @@ describe("MCP STDIO e2e", () => {
     }
   }, 30_000);
 
-  it("MCP STDIO tools/list returns all 18 tools", async () => {
+  it("MCP STDIO tools/list returns all 7 tools", async () => {
     const server = await spawnServer(tmpDir);
     try {
       await initializeServer(server);
@@ -275,7 +264,7 @@ describe("MCP STDIO e2e", () => {
     }
   }, 30_000);
 
-  it("MCP STDIO tools/call squish_health", async () => {
+  it("MCP STDIO tools/call squish_stats", async () => {
     const server = await spawnServer(tmpDir);
     try {
       await initializeServer(server);
@@ -284,7 +273,7 @@ describe("MCP STDIO e2e", () => {
         jsonrpc: "2.0",
         id: 5,
         method: "tools/call",
-        params: { name: "squish_health", arguments: {} },
+        params: { name: "squish_stats", arguments: {} },
       });
 
       const resp = await server.readLine((r: any) => r.id === 5, 15_000);

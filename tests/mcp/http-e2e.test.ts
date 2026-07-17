@@ -38,6 +38,7 @@ async function startServer(): Promise<ServerHandle> {
       ...process.env,
       SQUISH_DATA_DIR: dataDir,
       SQUISH_MCP_MODE: "http",
+      SQUISH_MCP_API_KEY: "test-e2e-key",
     },
   });
 
@@ -127,7 +128,7 @@ describe("MCP HTTP server e2e", () => {
       const body = await res.json();
       expect(body).toHaveProperty("status");
       expect(body).toHaveProperty("server", "squish-memory");
-      expect(body).toHaveProperty("version", "1.9.0");
+      expect(body).toHaveProperty("version", "2.0.0");
       expect(["ok", "degraded", "broken"]).toContain(body.status);
     },
     15_000,
@@ -154,6 +155,7 @@ describe("MCP HTTP server e2e", () => {
         headers: {
           "Content-Type": "application/json",
           "Accept": "application/json, text/event-stream",
+          "x-api-key": "test-e2e-key",
         },
         body: JSON.stringify(initBody),
         signal: AbortSignal.timeout(5000),
@@ -171,7 +173,7 @@ describe("MCP HTTP server e2e", () => {
       expect(body).toHaveProperty("result");
       expect(body.result).toHaveProperty("serverInfo");
       expect(body.result.serverInfo).toHaveProperty("name", "squish-memory");
-      expect(body.result.serverInfo).toHaveProperty("version", "1.9.0");
+      expect(body.result.serverInfo).toHaveProperty("version", "2.0.0");
       expect(body.result).toHaveProperty("capabilities");
     },
     15_000,
@@ -188,6 +190,7 @@ describe("MCP HTTP server e2e", () => {
         headers: {
           "Content-Type": "application/json",
           "Accept": "application/json, text/event-stream",
+          "x-api-key": "test-e2e-key",
         },
         body: JSON.stringify({
           jsonrpc: "2.0",
@@ -212,6 +215,7 @@ describe("MCP HTTP server e2e", () => {
           "Content-Type": "application/json",
           "Accept": "application/json, text/event-stream",
           "mcp-session-id": sessionId!,
+          "x-api-key": "test-e2e-key",
         },
         body: JSON.stringify({
           jsonrpc: "2.0",
@@ -229,7 +233,7 @@ describe("MCP HTTP server e2e", () => {
       expect(body).toHaveProperty("result");
       expect(body.result).toHaveProperty("tools");
       expect(Array.isArray(body.result.tools)).toBe(true);
-      expect(body.result.tools.length).toBe(18);
+      expect(body.result.tools.length).toBe(7);
     },
     15_000,
   );
@@ -244,6 +248,7 @@ describe("MCP HTTP server e2e", () => {
         headers: {
           "Content-Type": "application/json",
           "Accept": "application/json, text/event-stream",
+          "x-api-key": "test-e2e-key",
         },
         body: JSON.stringify({
           jsonrpc: "2.0",

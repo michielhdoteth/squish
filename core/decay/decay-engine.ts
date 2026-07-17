@@ -80,9 +80,8 @@ export async function updateAllDecayScores(projectId?: string): Promise<DecayEng
   try {
     const { raw } = await getDbClient();
     const sqlite = (raw as any)?.$client;
-    const isPg = typeof (raw as any)?.query === 'function';
 
-    if (!sqlite && !isPg) {
+    if (!sqlite) {
       logger.warn('No database client available for decay engine');
       return stats;
     }
@@ -103,154 +102,76 @@ export async function updateAllDecayScores(projectId?: string): Promise<DecayEng
       'cold': 1.5,
     };
 
-    if (isPg) {
-      // PostgreSQL version
-      const pg = raw as any;
+    // SQLite version
+    const query = projectId
+      ? `SELECT id, relevance_score, type, last_decay_at, created_at, decay_rate, is_pinned, tier
+         FROM memories WHERE project_id = ? AND status = 'active' AND (is_pinned IS NULL OR is_pinned = 0)`
+      : `SELECT id, relevance_score, type, last_decay_at, created_at, decay_rate, is_pinned, tier
+         FROM memories WHERE status = 'active' AND (is_pinned IS NULL OR is_pinned = 0)`;
 
-      // Get all active, non-pinned memories
-      const query = projectId
-        ? `SELECT id, relevance_score, type, last_decay_at, created_at, decay_rate, is_pinned, tier
-           FROM memories WHERE project_id = $1 AND status = 'active' AND (is_pinned IS NULL OR is_pinned = false)`
-        : `SELECT id, relevance_score, type, last_decay_at, created_at, decay_rate, is_pinned, tier
-           FROM memories WHERE status = 'active' AND (is_pinned IS NULL OR is_pinned = false)`;
+    const memories = sqlite.prepare(query).all(projectId || null) as any[];
 
-      const result = await pg.query(query, projectId ? [projectId] : []);
+    for (const mem of memories) {
+      try {
+        stats.processed++;
 
-      for (const mem of result.rows) {
-        try {
-          stats.processed++;
+        // Belt-and-suspenders: skip pinned memories
+        if (mem.is_pinned) {
+          continue;
+        }
 
-          // Belt-and-suspenders: skip pinned memories
-          if (mem.is_pinned) {
-            continue;
-          }
+        // Sturdy tier: skip decay entirely
+        if (mem.tier === 'sturdy' || mem.tier === 'hot') {
+          continue;
+        }
 
-          // Sturdy tier: skip decay entirely
-          if (mem.tier === 'sturdy' || mem.tier === 'hot') {
-            continue;
-          }
+        const memory: MemoryForDecay = {
+          id: mem.id,
+          score: mem.relevance_score || 100,
+          memoryType: mem.type,
+          lastDecayAt: mem.last_decay_at ? mem.last_decay_at * 1000 : mem.created_at * 1000,
+          createdAt: mem.created_at * 1000,
+          tau: mem.decay_rate,
+          beta: undefined
+        };
 
-          const memory: MemoryForDecay = {
-            id: mem.id,
-            score: mem.relevance_score || 100,
-            memoryType: mem.type,
-            lastDecayAt: mem.last_decay_at || mem.created_at,
-            createdAt: mem.created_at,
-            tau: mem.decay_rate,
-            beta: undefined
-          };
+        let newScore = applyEbbinghausDecay(memory);
 
-          let newScore = applyEbbinghausDecay(memory);
-
-          // Apply tier-specific decay multiplier
-          const multiplier = tierMultipliers[mem.tier] ?? 1.0;
-          if (multiplier !== 1.0) {
+        // Apply tier-specific decay multiplier
+        const multiplier = tierMultipliers[mem.tier] ?? 1.0;
+        if (multiplier !== 1.0) {
+          if (multiplier > 1.0) {
             // fleeeting: accelerate decay by dividing score
-            if (multiplier > 1.0) {
-              newScore = newScore / multiplier;
-            } else if (multiplier < 1.0 && multiplier > 0) {
-              // long-term: slow decay by reducing the effective elapsed time
-              const params: DecayParams = {
-                tau: memory.tau ?? getDefaultDecayParams(memory.memoryType || 'default').tau,
-                beta: memory.beta ?? getDefaultDecayParams(memory.memoryType || 'default').beta,
-                lastDecayAt: new Date(memory.lastDecayAt),
-                createdAt: new Date(memory.createdAt)
-              };
-              newScore = ebbinghausScore(memory.score, {
-                ...params,
-                lastDecayAt: new Date(Date.now() - (Date.now() - new Date(memory.lastDecayAt).getTime()) * multiplier)
-              });
-            }
+            newScore = newScore / multiplier;
+          } else if (multiplier < 1.0 && multiplier > 0) {
+            // long-term: slow decay by reducing the effective elapsed time
+            const params: DecayParams = {
+              tau: memory.tau ?? getDefaultDecayParams(memory.memoryType || 'default').tau,
+              beta: memory.beta ?? getDefaultDecayParams(memory.memoryType || 'default').beta,
+              lastDecayAt: new Date(memory.lastDecayAt),
+              createdAt: new Date(memory.createdAt)
+            };
+            newScore = ebbinghausScore(memory.score, {
+              ...params,
+              lastDecayAt: new Date(Date.now() - (Date.now() - new Date(memory.lastDecayAt).getTime()) * multiplier)
+            });
           }
-
-          // Clamp to [0, 100]
-          newScore = Math.max(0, Math.min(100, newScore));
-
-          // Update if score changed significantly (more than 0.5)
-          if (Math.abs(newScore - memory.score) > 0.5) {
-            await pg.query(
-              `UPDATE memories SET relevance_score = $1, last_decay_at = NOW(), updated_at = NOW() WHERE id = $2`,
-              [Math.round(newScore), mem.id]
-            );
-            stats.updated++;
-          }
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          stats.errors.push(`Memory ${mem.id}: ${msg}`);
         }
-      }
-    } else if (sqlite) {
-      // SQLite version
-      const query = projectId
-        ? `SELECT id, relevance_score, type, last_decay_at, created_at, decay_rate, is_pinned, tier
-           FROM memories WHERE project_id = ? AND status = 'active' AND (is_pinned IS NULL OR is_pinned = 0)`
-        : `SELECT id, relevance_score, type, last_decay_at, created_at, decay_rate, is_pinned, tier
-           FROM memories WHERE status = 'active' AND (is_pinned IS NULL OR is_pinned = 0)`;
 
-      const memories = sqlite.prepare(query).all(projectId || null) as any[];
+        // Clamp to [0, 100]
+        newScore = Math.max(0, Math.min(100, newScore));
 
-      for (const mem of memories) {
-        try {
-          stats.processed++;
-
-          // Belt-and-suspenders: skip pinned memories
-          if (mem.is_pinned) {
-            continue;
-          }
-
-          // Sturdy tier: skip decay entirely
-          if (mem.tier === 'sturdy' || mem.tier === 'hot') {
-            continue;
-          }
-
-          const memory: MemoryForDecay = {
-            id: mem.id,
-            score: mem.relevance_score || 100,
-            memoryType: mem.type,
-            lastDecayAt: mem.last_decay_at ? mem.last_decay_at * 1000 : mem.created_at * 1000,
-            createdAt: mem.created_at * 1000,
-            tau: mem.decay_rate,
-            beta: undefined
-          };
-
-          let newScore = applyEbbinghausDecay(memory);
-
-          // Apply tier-specific decay multiplier
-          const multiplier = tierMultipliers[mem.tier] ?? 1.0;
-          if (multiplier !== 1.0) {
-            if (multiplier > 1.0) {
-              // fleeeting: accelerate decay by dividing score
-              newScore = newScore / multiplier;
-            } else if (multiplier < 1.0 && multiplier > 0) {
-              // long-term: slow decay by reducing the effective elapsed time
-              const params: DecayParams = {
-                tau: memory.tau ?? getDefaultDecayParams(memory.memoryType || 'default').tau,
-                beta: memory.beta ?? getDefaultDecayParams(memory.memoryType || 'default').beta,
-                lastDecayAt: new Date(memory.lastDecayAt),
-                createdAt: new Date(memory.createdAt)
-              };
-              newScore = ebbinghausScore(memory.score, {
-                ...params,
-                lastDecayAt: new Date(Date.now() - (Date.now() - new Date(memory.lastDecayAt).getTime()) * multiplier)
-              });
-            }
-          }
-
-          // Clamp to [0, 100]
-          newScore = Math.max(0, Math.min(100, newScore));
-
-          // Update if score changed significantly
-          if (Math.abs(newScore - memory.score) > 0.5) {
-            sqlite.prepare(`
-              UPDATE memories SET relevance_score = ?, last_decay_at = ?, updated_at = ?
-              WHERE id = ?
-            `).run(Math.round(newScore), Math.floor(now / 1000), Math.floor(now / 1000), mem.id);
-            stats.updated++;
-          }
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          stats.errors.push(`Memory ${mem.id}: ${msg}`);
+        // Update if score changed significantly
+        if (Math.abs(newScore - memory.score) > 0.5) {
+          sqlite.prepare(`
+            UPDATE memories SET relevance_score = ?, last_decay_at = ?, updated_at = ?
+            WHERE id = ?
+          `).run(Math.round(newScore), Math.floor(now / 1000), Math.floor(now / 1000), mem.id);
+          stats.updated++;
         }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        stats.errors.push(`Memory ${mem.id}: ${msg}`);
       }
     }
 
