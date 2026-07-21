@@ -1,13 +1,13 @@
-# Squish - AI Memory System for Coding Agents
+# Squish - Memory Infrastructure for AI Agents
 
 [![npm version](https://img.shields.io/npm/v/squish-memory)](https://www.npmjs.com/package/squish-memory)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![GitHub stars](https://img.shields.io/github/stars/michielhdoteth/squish?style=social)](https://github.com/michielhdoteth/squish/stargazers)
 [![Downloads](https://img.shields.io/npm/dm/squish-memory)](https://www.npmjs.com/package/squish-memory)
 
-> **Connect your sources. Click ingest. Your AI remembers everything.**
+> **SDK, MCP server, and CLI for persistent agent memory. Local-first. Zero dependencies.**
 
-Squish is an AI memory system for coding agents. Local-first MCP runtime with connectors, knowledge graphs, and multi-tier deployment. Free locally, paid Cloud for sync and teams.
+Squish is memory infrastructure for AI agents. Use the TypeScript SDK to build memory-powered apps, the MCP server to plug into any compatible agent, or the CLI for quick operations. Local-first with optional Cloud sync.
 
 <p align="center">
   <img src="assets/demo/squish-demo.gif" width="780" alt="Squish Demo" />
@@ -22,6 +22,21 @@ npm install -g squish-memory && squish install --all
 ```
 
 That is it. Squish installs the CLI, starts the MCP server, and configures hooks for every coding agent it finds on your machine. No API keys. No config files. No Docker.
+
+---
+
+## Build on Squish
+
+The `@squish/sdk` is the recommended way to build memory-powered AI applications:
+
+```typescript
+import { SquishClient } from '@squish/sdk';
+const client = new SquishClient({ dataDir: './memory' });
+await client.remember('key decision', { type: 'decision' });
+const context = await client.getContext();
+```
+
+[SDK Documentation](packages/sdk/) | [API Reference](packages/sdk/README.md#api-reference)
 
 ---
 
@@ -126,6 +141,8 @@ squish sessions search "postgres migration"
 
 **One memory server. Shared across all of them.**
 
+The SDK (`@squish/sdk`) works with any TypeScript or JavaScript environment -- not just coding agents. Build memory into web apps, CLI tools, backend services, or custom agent frameworks.
+
 ---
 
 ## Why Squish
@@ -134,17 +151,33 @@ Most memory tools need a second LLM for embeddings and retrieval. That means ext
 
 Squish uses local embeddings by default. Zero LLM dependency. 1-5ms latency. $0 runtime cost in local mode.
 
-| Feature | Squish | CLAUDE.md | agentmemory | mem0 |
-|---------|--------|-----------|-------------|------|
-| Auto-capture | Yes (hooks) | Manual | Yes (12 hooks) | Manual API |
-| Local embeddings | Yes (default) | N/A | Yes | No (cloud) |
-| External DB required | No (SQLite) | No | Yes (iii-engine) | Yes (Qdrant) |
-| MCP tools | 7 | 0 | 53 | 9 |
-| Knowledge graph | Yes | No | Yes | No |
-| Cross-agent sync | Yes (Cloud) | No | No | API-based |
-| Price | Free local / $9/mo cloud | Free | Free | $249/mo Pro |
-| Setup time | 30 seconds | 5 minutes | 15 minutes | 30 minutes |
-| Data ownership | Full (local SQLite) | Git repo | External DB | Cloud vendor |
+### Comparison
+
+| Feature | Squish | CLAUDE.md | agentmemory | mem0 | Letta | Zep |
+|---------|--------|-----------|-------------|------|-------|-----|
+| SDK available | Yes (TypeScript) | No | No | No | No | No |
+| Auto-capture | Yes (hooks) | Manual | Yes (12 hooks) | Manual API | No | No |
+| Local embeddings | Yes (default) | N/A | Yes | No (cloud) | No | No |
+| External DB required | No (SQLite) | No | Yes (iii-engine) | Yes (Qdrant) | Yes (Postgres) | Yes (Postgres) |
+| MCP tools | 7 | 0 | 53 | 9 | 0 | 0 |
+| Knowledge graph | Yes | No | Yes | No | Yes | Yes |
+| Cross-agent sync | Yes (Cloud) | No | No | API-based | API-based | API-based |
+| Price | Free local / $9/mo cloud | Free | Free | $249/mo Pro | Free (self-hosted) | Free (self-hosted) |
+| Setup time | 30 seconds | 5 minutes | 15 minutes | 30 minutes | 30+ minutes | 30+ minutes |
+| Data ownership | Full (local SQLite) | Git repo | External DB | Cloud vendor | External DB | External DB |
+
+### What Makes Squish Different
+
+Squish is the only tool that combines all of these in a single package:
+
+- **SDK-first architecture** -- `@squish/sdk` for building memory-powered apps in any TypeScript/JavaScript environment
+- **Local-first by default** -- SQLite storage, TF-IDF embeddings, zero API keys needed
+- **MCP-native** -- Works with every MCP-compatible agent out of the box
+- **Knowledge graph** -- Reinforced relationships between memories, not just flat storage
+- **Decay system** -- Old, low-value memories fade automatically so agents stay focused
+- **Hybrid search** -- BM25 keyword + semantic similarity with RRF fusion
+- **Multimodal ingestion** -- 27+ file types: images, audio, video, documents
+- **Zero external dependencies** -- No Qdrant, no Postgres, no vector DB required in local mode
 
 ---
 
@@ -310,7 +343,7 @@ Full benchmark details: [docs/BENCHMARK.md](docs/BENCHMARK.md)
 
 ### What is Squish?
 
-Squish is a local-first memory runtime for AI coding agents. It gives your agents stable orientation, durable memory, and searchable session history across runs. Think of it as a brain that persists between sessions -- your agents remember decisions, constraints, preferences, and context without you having to re-explain everything.
+Squish is memory infrastructure for AI agents. It provides a TypeScript SDK, an MCP server, and a CLI for persistent agent memory. Use the SDK to build memory-powered apps, plug the MCP server into any compatible agent, or use the CLI for quick operations. Local-first with optional Cloud sync. Think of it as a brain that persists between sessions -- your agents remember decisions, constraints, preferences, and context without you having to re-explain everything.
 
 ### Does Squish require an API key?
 
@@ -318,11 +351,11 @@ No. Squish works locally by default with zero API keys. It uses local embeddings
 
 ### How does Squish compare to mem0 or agentmemory?
 
-Squish is the only option that works locally with zero external dependencies. mem0 requires Qdrant (a vector database) and cloud API calls. agentmemory requires iii-engine. Squish uses SQLite and local embeddings by default. See the full comparison in the [Why Squish](#why-squish) section above.
+Squish is the only option that works locally with zero external dependencies AND provides a TypeScript SDK. mem0 requires Qdrant (a vector database) and cloud API calls. agentmemory requires iii-engine. Letta and Zep require Postgres. Squish uses SQLite and local embeddings by default. See the full comparison in the [Why Squish](#why-squish) section above.
 
 ### Can I use Squish with multiple AI agents?
 
-Yes. Squish works with any MCP-compatible agent. One memory server is shared across Claude Code, Cursor, Codex, Copilot, Gemini CLI, and any other agent that supports MCP. Memories are available to all connected agents.
+Yes. Squish works with any MCP-compatible agent. One memory server is shared across Claude Code, Cursor, Codex, Copilot, Gemini CLI, and any other agent that supports MCP. Memories are available to all connected agents. You can also use the SDK directly in any TypeScript/JavaScript environment.
 
 ### Is my data private with Squish?
 
