@@ -77,6 +77,11 @@ async function getPipeline(): Promise<Pipeline | null> {
   isLoading = true;
   const cfg = getRerankerConfig();
 
+  if (!cfg.enabled) {
+    isLoading = false;
+    return null;
+  }
+
   if (!cfg.model) {
     isLoading = false;
     throw new Error('Reranker requires SQUISH_RERANKER_MODEL to be set');

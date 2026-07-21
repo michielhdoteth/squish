@@ -42,7 +42,8 @@ describe("background services graceful degradation", () => {
     "server responds to initialize even with background service errors",
     async () => {
       const rootDir = join(import.meta.dir, "..", "..");
-      const entry = join(rootDir, "bin", "squish-mcp.mjs");
+      // Spawn MCP server directly (bypass relay script to avoid initialization hangs)
+      const entry = join(rootDir, "packages", "mcp", "src", "index.ts");
 
       const tmpDir = await mkdtemp(join(tmpdir(), "squish-bg-degrade-"));
 
@@ -67,12 +68,13 @@ describe("background services graceful degradation", () => {
         reject: (e: Error) => void;
       }> = [];
 
+      // MCP stdio uses newline-delimited JSON (one JSON object per line)
       child.stdout!.on("data", (chunk: Buffer) => {
         stdoutBuf += chunk.toString();
-        let nlIdx: number;
-        while ((nlIdx = stdoutBuf.indexOf("\n")) !== -1) {
-          const line = stdoutBuf.slice(0, nlIdx).trim();
-          stdoutBuf = stdoutBuf.slice(nlIdx + 1);
+        let nlIndex: number;
+        while ((nlIndex = stdoutBuf.indexOf("\n")) !== -1) {
+          const line = stdoutBuf.substring(0, nlIndex).replace(/\r$/, "");
+          stdoutBuf = stdoutBuf.substring(nlIndex + 1);
           if (!line) continue;
           for (const pr of pendingReaders) {
             try {
@@ -83,7 +85,7 @@ describe("background services graceful degradation", () => {
                 break;
               }
             } catch {
-              // not JSON
+              // not JSON, skip
             }
           }
         }
@@ -154,6 +156,12 @@ describe("background services graceful degradation", () => {
       } finally {
         child.stdin!.end();
         child.kill("SIGKILL");
+        // Wait for child process to fully exit before removing temp dir (Windows EBUSY fix)
+        await new Promise<void>((resolve) => {
+          child.on("close", () => resolve());
+          // Fallback timeout in case close never fires
+          setTimeout(() => resolve(), 2000);
+        });
         await rm(tmpDir, { recursive: true, force: true });
       }
     },
