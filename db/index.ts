@@ -9,7 +9,11 @@ import { clearSchemaCache } from './schema.js';
 // using different data directories or connection strings do not interfere.
 const dbInstances = new Map<string, any>();
 const dbInitPromises = new Map<string, Promise<any>>();
-const dbErrors = new Map<string, string>();
+
+// Transient error cache: errors expire after 5 minutes so the system can
+// recover from transient failures without requiring a manual resetDb() call.
+const DB_ERROR_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const dbErrors = new Map<string, { message: string; timestamp: number }>();
 
 function getDbCacheKey(): string {
   return process.env.SQUISH_DATA_DIR || '';
@@ -20,7 +24,12 @@ export async function getDb() {
 
   const cachedError = dbErrors.get(cacheKey);
   if (cachedError) {
-    throw new Error(cachedError);
+    // Expire transient errors after TTL so the system can recover
+    if (Date.now() - cachedError.timestamp > DB_ERROR_CACHE_TTL_MS) {
+      dbErrors.delete(cacheKey);
+    } else {
+      throw new Error(cachedError.message);
+    }
   }
 
   const cachedDb = dbInstances.get(cacheKey);
@@ -40,7 +49,7 @@ export async function getDb() {
       return createdDb;
     } catch (error) {
       const dbError = error instanceof Error ? error.message : 'Database initialization failed';
-      dbErrors.set(cacheKey, dbError);
+      dbErrors.set(cacheKey, { message: dbError, timestamp: Date.now() });
       throw new Error(dbError);
     } finally {
       dbInitPromises.delete(cacheKey);
