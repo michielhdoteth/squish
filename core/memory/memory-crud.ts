@@ -1,0 +1,210 @@
+/**
+ * Memory CRUD operations.
+ *
+ * Core read/write primitives: get, getByIds, recent, confidence updates.
+ * Also exports internal helpers (normalizeMemory, getOrCreateUser) consumed
+ * by the write and search sub-modules.
+ */
+
+import { randomUUID } from 'crypto';
+import { eq, inArray } from 'drizzle-orm';
+import { requireProject } from '../../core/projects.js';
+import { logger } from '../logger.js';
+import { normalizeTimestamp } from '../lib/utils.js';
+import { requireUuid } from '../lib/validation.js';
+import { decrypt } from '../security/encrypt.js';
+import { getDbClient } from '../lib/db-client.js';
+import { deserializeTags, deserializeMetadata } from '../../core/memory/serialization.js';
+import type { MemoryRecord } from './memory-types.js';
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+export function normalizeMemory(row: any): MemoryRecord {
+  const tags = deserializeTags(row.tags ?? null);
+  const metadata = deserializeMetadata(row.metadata ?? null);
+
+  const createdAtStr = normalizeTimestamp(row.createdAt ?? row.created_at);
+
+  return {
+    id: row.id,
+    projectId: row.projectId ?? row.project_id ?? null,
+    type: row.type,
+    content: row.content,
+    summary: row.summary ?? null,
+    tags,
+    metadata,
+    visibilityScope: row.visibilityScope ?? row.visibility_scope ?? null,
+    createdAt: createdAtStr,
+    validFrom: row.validFrom ?? row.valid_from ?? null,
+    validTo: row.validTo ?? row.valid_to ?? null,
+    recordedAt: row.recordedAt ?? row.recorded_at ?? null,
+    confidenceLevel: row.confidenceLevel ?? row.confidence_level ?? null,
+  };
+}
+
+export async function getOrCreateUser(identifier: string, existingDb?: any, existingSchema?: any): Promise<{ id: string } | null> {
+  try {
+    const { db, schema } = existingDb ? { db: existingDb, schema: existingSchema } : await getDbClient();
+    const sqliteDb = db as any;
+    const usersTable = schema.users;
+
+    // Try to find existing user by externalId (name/email)
+    let user = await sqliteDb.select().from(usersTable).where(
+      eq(usersTable.externalId, identifier)
+    ).limit(1).then((rows: any[]) => rows[0] || null);
+
+    if (user) return { id: user.id };
+
+    // Try by email pattern detection
+    if (identifier.includes('@')) {
+      user = await sqliteDb.select().from(usersTable).where(
+        eq(usersTable.email, identifier)
+      ).limit(1).then((rows: any[]) => rows[0] || null);
+      if (user) return { id: user.id };
+    }
+
+    // Create new user
+    const id = randomUUID();
+    const isEmail = identifier.includes('@');
+    await sqliteDb.insert(usersTable).values({
+      id,
+      externalId: identifier,
+      name: isEmail ? null : identifier,
+      email: isEmail ? identifier : null,
+    });
+
+    return { id };
+  } catch (error: any) {
+    logger.warn(`[User] Failed to resolve user "${identifier}":`, error);
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Read operations
+// ---------------------------------------------------------------------------
+
+export async function getMemory(
+  id: string,
+  incrementAccess: boolean = true,
+): Promise<MemoryRecord | null> {
+  try {
+    // Validate UUID
+    requireUuid(id);
+
+    const { db, schema } = await getDbClient();
+    const rows = await db.select().from(schema.memories).where(eq(schema.memories.id, id)).limit(1);
+		const row = rows[0];
+		if (!row) return null;
+
+		// Increment access count and update last accessed time
+		if (incrementAccess) {
+			await db.update(schema.memories)
+			.set({
+				accessCount: (row.accessCount ?? 0) + 1,
+				lastAccessedAt: new Date(),
+			})
+			.where(eq(schema.memories.id, id));
+		}
+
+  let content = row.content;
+  if (row.is_encrypted) {
+		  try {
+		    content = decrypt(row.encrypted_content, row.encryption_nonce);
+		  } catch (e: any) {
+		    logger.warn('Failed to decrypt memory', e);
+		    content = row.content; // fall back to stored content
+		  }
+		}
+		const decryptedRow = { ...row, content };
+    const normalized = normalizeMemory(decryptedRow);
+		return normalized;
+	} catch (error: any) {
+		throw error;
+	}
+}
+
+/**
+ * Batch-fetch memories by IDs (fixes N+1 query in walking.ts)
+ * Returns memories in the same order as the input IDs, skipping any that are not found.
+ */
+export async function getMemoriesByIds(
+  ids: string[],
+  incrementAccess: boolean = false
+): Promise<MemoryRecord[]> {
+  if (ids.length === 0) return [];
+
+  try {
+    const { db, schema } = await getDbClient();
+    const rows = await db.select().from(schema.memories).where(
+      inArray(schema.memories.id, ids)
+    );
+
+    // Increment access counts if requested (batch update)
+    if (incrementAccess && rows.length > 0) {
+      const now = new Date();
+      await db.update(schema.memories)
+        .set({ lastAccessedAt: now })
+        .where(inArray(schema.memories.id, ids));
+    }
+
+    // Normalize and filter by team access if needed
+    const memories: MemoryRecord[] = [];
+    for (const row of rows) {
+      let content = row.content;
+      if (row.is_encrypted) {
+        try {
+          content = decrypt(row.encrypted_content, row.encryption_nonce);
+        } catch {
+          content = row.content;
+        }
+      }
+      const decryptedRow = { ...row, content };
+      const normalized = normalizeMemory(decryptedRow);
+      // Skip team mode check for batch (simplified - trust the caller)
+      memories.push(normalized);
+    }
+
+    return memories;
+  } catch (error) {
+    logger.debug(`[Memories] getMemoriesByIds failed: ${error}`);
+    return [];
+  }
+}
+
+export async function setConfidence(id: string, level: 'certain' | 'speculative' | 'outdated'): Promise<boolean> {
+  try {
+    // Validate UUID
+    requireUuid(id);
+
+    const { db, schema } = await getDbClient();
+    await db.update(schema.memories)
+			.set({ confidenceLevel: level, updatedAt: new Date() })
+			.where(eq(schema.memories.id, id));
+		return true;
+	} catch (error: any) {
+		throw error;
+	}
+}
+
+export async function getRecent(projectPath: string, limit: number): Promise<MemoryRecord[]> {
+  try {
+    const { db } = await getDbClient();
+    const sqlite = db.$client as any;
+    const project = await requireProject(projectPath);
+
+    // Use raw SQL to avoid drizzle column name issues
+    const rows = sqlite.prepare(`
+      SELECT * FROM memories 
+      WHERE project_id = ? 
+      ORDER BY created_at DESC 
+      LIMIT ?
+    `).all(project.id, limit);
+
+    return rows.map((row: any) => normalizeMemory(row));
+  } catch (error: any) {
+    throw error;
+  }
+}
