@@ -351,64 +351,11 @@ export interface RecallResult {
   };
 }
 
-// ─── Strategy Interface (backward compat) ────────────────────────────────────
+// ─── Stored Belief (used by belief adapter in store.ts) ─────────────────────
 
 /**
- * Strategy interface — for backward compatibility with existing callers.
- * Will be deprecated once all callers use Knowledge directly.
- * 
- * @deprecated Use Knowledge with knowledgeKind === 'strategy' instead
- */
-export interface Strategy {
-  id: string;
-  projectId: string | null;
-  userId: string | null;
-  agentId: string | null;
-  strategyType: StrategyKnowledgeType;
-  title: string;
-  description: string;
-  context: string | null;
-  steps: string | null;
-  successCriteria: string | null;
-  failureIndicators: string | null;
-  confidence: number;
-  usageCount: number;
-  successCount: number;
-  failureCount: number;
-  lastUsedAt: Date | null;
-  lastSuccessAt: Date | null;
-  lastFailureAt: Date | null;
-  status: KnowledgeStatus;
-  supersededBy: string | null;
-  tags: string | null;
-  metadata: Record<string, unknown> | null;
-  visibilityScope: string;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-/**
- * @deprecated Use CreateKnowledgeInput with knowledgeKind === 'strategy' instead
- */
-export interface CreateStrategyInput {
-  projectId?: string;
-  userId?: string;
-  agentId?: string;
-  strategyType: StrategyKnowledgeType;
-  title: string;
-  description: string;
-  context?: string;
-  steps?: string[];
-  successCriteria?: string;
-  failureIndicators?: string;
-  confidence?: number;
-  tags?: string[];
-  visibilityScope?: string;
-  metadata?: Record<string, unknown>;
-}
-
-/**
- * @deprecated Use Knowledge with knowledgeKind === 'belief' instead
+ * Stored belief shape — used by belief adapter functions in store.ts
+ * and by the explain module. Not deprecated; actively consumed.
  */
 export interface StoredBelief {
   id: string;
@@ -459,63 +406,4 @@ export interface ExtractedStrategy {
   confidence: number;
   sourceType: 'conversation' | 'learning' | 'belief' | 'trace' | 'memory';
   sourceId: string;
-}
-
-// ─── Utility Functions ───────────────────────────────────────────────────────
-
-/**
- * Convert a Knowledge record to a Strategy interface for backward compat.
- */
-export function toStrategy(k: Knowledge): Strategy {
-  return {
-    id: k.id,
-    projectId: k.projectId,
-    userId: k.userId,
-    agentId: k.agentId,
-    strategyType: k.knowledgeType as StrategyKnowledgeType,
-    title: k.title ?? k.content.slice(0, 100),
-    description: k.description ?? k.content,
-    context: null,
-    steps: k.steps,
-    successCriteria: k.successCriteria,
-    failureIndicators: k.failureIndicators,
-    confidence: k.confidence,
-    usageCount: k.usageCount,
-    successCount: k.successCount,
-    failureCount: k.failureCount,
-    lastUsedAt: k.lastUsedAt ? new Date(k.lastUsedAt) : null,
-    lastSuccessAt: k.lastSuccessAt ? new Date(k.lastSuccessAt) : null,
-    lastFailureAt: k.lastFailureAt ? new Date(k.lastFailureAt) : null,
-    status: k.status,
-    supersededBy: k.supersededBy,
-    tags: k.tags,
-    metadata: k.metadata,
-    visibilityScope: 'private',
-    createdAt: k.createdAt,
-    updatedAt: k.updatedAt,
-  };
-}
-
-/**
- * Convert a Knowledge record to a StoredBelief interface for backward compat.
- */
-export function toStoredBelief(k: Knowledge): StoredBelief {
-  return {
-    id: k.id,
-    projectId: k.projectId ?? '',
-    type: k.knowledgeType as BeliefKnowledgeType,
-    statement: k.content,
-    normalizedKey: k.normalizedKey ?? '',
-    confidence: k.confidence,
-    status: k.status,
-    reason: k.reason ?? undefined,
-    context: undefined,
-    evidenceSummary: k.evidenceSummary ?? undefined,
-    sourceMemoryIds: [],
-    lastConfirmedAt: k.lastConfirmedAt ? new Date(k.lastConfirmedAt) : null,
-    sourceCount: k.sourceCount,
-    beliefDecayRate: k.importanceDecayRate,
-    createdAt: k.createdAt,
-    updatedAt: k.updatedAt,
-  };
 }

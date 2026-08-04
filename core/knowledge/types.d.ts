@@ -244,59 +244,8 @@ export interface RecallResult {
     };
 }
 /**
- * Strategy interface — for backward compatibility with existing callers.
- * Will be deprecated once all callers use Knowledge directly.
- *
- * @deprecated Use Knowledge with knowledgeKind === 'strategy' instead
- */
-export interface Strategy {
-    id: string;
-    projectId: string | null;
-    userId: string | null;
-    agentId: string | null;
-    strategyType: StrategyKnowledgeType;
-    title: string;
-    description: string;
-    context: string | null;
-    steps: string | null;
-    successCriteria: string | null;
-    failureIndicators: string | null;
-    confidence: number;
-    usageCount: number;
-    successCount: number;
-    failureCount: number;
-    lastUsedAt: Date | null;
-    lastSuccessAt: Date | null;
-    lastFailureAt: Date | null;
-    status: KnowledgeStatus;
-    supersededBy: string | null;
-    tags: string | null;
-    metadata: Record<string, unknown> | null;
-    visibilityScope: string;
-    createdAt: Date;
-    updatedAt: Date;
-}
-/**
- * @deprecated Use CreateKnowledgeInput with knowledgeKind === 'strategy' instead
- */
-export interface CreateStrategyInput {
-    projectId?: string;
-    userId?: string;
-    agentId?: string;
-    strategyType: StrategyKnowledgeType;
-    title: string;
-    description: string;
-    context?: string;
-    steps?: string[];
-    successCriteria?: string;
-    failureIndicators?: string;
-    confidence?: number;
-    tags?: string[];
-    visibilityScope?: string;
-    metadata?: Record<string, unknown>;
-}
-/**
- * @deprecated Use Knowledge with knowledgeKind === 'belief' instead
+ * Stored belief shape — used by belief adapter functions in store.ts
+ * and by the explain module. Not deprecated; actively consumed.
  */
 export interface StoredBelief {
     id: string;
@@ -344,12 +293,4 @@ export interface ExtractedStrategy {
     sourceType: 'conversation' | 'learning' | 'belief' | 'trace' | 'memory';
     sourceId: string;
 }
-/**
- * Convert a Knowledge record to a Strategy interface for backward compat.
- */
-export declare function toStrategy(k: Knowledge): Strategy;
-/**
- * Convert a Knowledge record to a StoredBelief interface for backward compat.
- */
-export declare function toStoredBelief(k: Knowledge): StoredBelief;
 //# sourceMappingURL=types.d.ts.map

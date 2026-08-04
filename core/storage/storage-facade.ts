@@ -18,7 +18,6 @@ import { autoRoute } from '../retrieval/query-router.js';
 import { extractQueryEntities, entityBoost } from '../retrieval/entity-aware-retrieval.js';
 import { enrichContent } from '../retrieval/contextual-enrichment.js';
 import { searchKnowledge, listKnowledgeByKind, getConnectedEntities, getConnectedPlaces } from '../knowledge/store.js';
-import { toStrategy } from '../knowledge/types.js';
 import { logger } from '../logger.js';
 
 // Types
@@ -153,7 +152,6 @@ export async function recall(
 
   return {
     memories: results as unknown as MemoryRecord[],
-    strategies: (await searchKnowledge({ contentQuery: query, kinds: ['strategy'], projectId: project || undefined, limit: 10 }).catch(() => [])).map(toStrategy),
     routing: {
       intent: routeResult.classification.intent,
       strategy,

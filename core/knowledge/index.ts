@@ -6,7 +6,7 @@
  * Graph entities and places connect via knowledge_edges.
  * 
  * Usage:
- *   import { Knowledge, KnowledgeKind, toStrategy } from './knowledge/index.js';
+ *   import { Knowledge, KnowledgeKind } from './knowledge/index.js';
  */
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -43,16 +43,11 @@ export type {
   RecallOptions,
   RecallResult,
 
-  // Backward compat
-  Strategy,
-  CreateStrategyInput,
+  // Extraction types
   StoredBelief,
   ExtractedBelief,
   ExtractedStrategy,
 } from './types.js';
-
-// ─── Utility Functions ───────────────────────────────────────────────────────
-export { toStrategy, toStoredBelief } from './types.js';
 
 // ─── Store ───────────────────────────────────────────────────────────────────
 export {

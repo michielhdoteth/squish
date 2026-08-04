@@ -65,7 +65,6 @@ export interface SemanticResult {
 export type EntityInfo = EntityRecord;
 export interface RecallResult {
     memories: MemoryRecord[];
-    strategies?: import('../knowledge/types.js').Strategy[];
     graphEntities?: EntityInfo[];
     routing: {
         intent: string;
