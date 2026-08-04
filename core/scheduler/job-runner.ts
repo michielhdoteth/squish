@@ -7,7 +7,7 @@ import { pruneWeakAssociations } from '../associations.js';
 import { pruneOldSummaries } from '../summarization.js';
 import { getDb } from '../../db/index.js';
 import { memories, memoryFeedback } from '../../db/drizzle/schema-sqlite.js';
-import { eq, and, gt, lt, sql } from 'drizzle-orm';
+import { eq, and, gt, lt } from 'drizzle-orm';
 
 export async function runNightlyJob(context: JobExecutionContext): Promise<{
   recordsProcessed: number;
@@ -149,7 +149,7 @@ async function archiveStaleMemories(daysOld: number): Promise<number> {
     .set({
       contextStatus: 'archived',
       isActive: false,
-      updatedAt: sql`CURRENT_TIMESTAMP`,
+      updatedAt: Math.floor(Date.now() / 1000),
     })
     .where(and(
       lt(memories.lastAccessedAt, staleThreshold),
