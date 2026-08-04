@@ -131,20 +131,23 @@ export class ResponseFormatter {
 
   /**
    * Format error for MCP tools (throws McpError)
+   * Uses dynamic import() to avoid requiring @modelcontextprotocol/sdk in non-MCP contexts.
    */
-  static mcpError(
+  static async mcpError(
     error: Error,
     context?: string
-  ): never {
+  ): Promise<never> {
     const message = context ? `${context}: ${error.message}` : error.message;
     const response = this.buildBase<void>('error', message, undefined, message);
     
-    // Import McpError dynamically to avoid requiring @modelcontextprotocol/sdk in non-MCP contexts
+    // Dynamic import to avoid requiring @modelcontextprotocol/sdk in non-MCP contexts
     try {
-      const { McpError, ErrorCode } = require('@modelcontextprotocol/sdk/types.js');
+      const { McpError, ErrorCode } = await import('@modelcontextprotocol/sdk/types.js');
       throw new McpError(ErrorCode.InternalError, JSON.stringify(response));
     } catch (e) {
       // If McpError is not available, throw a standard error with MCP-formatted message
+      // Re-throw McpError instances from the dynamic import above
+      if (e instanceof Error && e.name === 'McpError') throw e;
       const mcpError = new Error(JSON.stringify(response));
       mcpError.name = 'McpError';
       throw mcpError;
