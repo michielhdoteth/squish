@@ -7,7 +7,7 @@ import { pruneWeakAssociations } from '../associations.js';
 import { pruneOldSummaries } from '../summarization.js';
 import { getDb } from '../../db/index.js';
 import { memories, memoryFeedback } from '../../db/drizzle/schema-sqlite.js';
-import { eq, and, gt, lt } from 'drizzle-orm';
+import { eq, and, gt, lt, sql } from 'drizzle-orm';
 
 export async function runNightlyJob(context: JobExecutionContext): Promise<{
   recordsProcessed: number;
@@ -142,22 +142,23 @@ async function archiveStaleMemories(daysOld: number): Promise<number> {
   const staleThreshold = new Date(Date.now() - daysOld * 24 * 60 * 60 * 1000);
   const sqliteDb = db as any;
 
-  const staleMemories = await sqliteDb
-    .select()
-    .from(memories)
+  // Soft-archive: mark stale memories as archived and inactive
+  // Uses a single bulk UPDATE for efficiency instead of N individual updates
+  const result = await sqliteDb
+    .update(memories)
+    .set({
+      contextStatus: 'archived',
+      isActive: false,
+      updatedAt: sql`CURRENT_TIMESTAMP`,
+    })
     .where(and(
       lt(memories.lastAccessedAt, staleThreshold),
       lt(memories.importanceScore, 30),
       eq(memories.isProtected, false),
-      eq(memories.isPinned, false)
+      eq(memories.isPinned, false),
     ));
 
-  let archived = 0;
-  for (const memory of staleMemories) {
-    archived++;
-  }
-
-  return archived;
+  return result?.changes ?? 0;
 }
 
 async function cleanupOldFeedbackRecords(daysOld: number): Promise<number> {
