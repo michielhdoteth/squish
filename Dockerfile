@@ -26,9 +26,9 @@ COPY skills/ ./skills/
 ENV SQUISH_DB_PATH=/app/data
 RUN mkdir -p /app/data
 
-# Health check - verify bun can parse the MCP entrypoint
+# Health check - verify MCP server initializes and database is reachable
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-  CMD bun run -e "process.exit(0)"
+  CMD bun run packages/mcp/src/index.ts --health
 
 # Default: stdio mode for Glama evaluation and MCP clients
 CMD ["bun", "run", "packages/mcp/src/index.ts", "--stdio"]
