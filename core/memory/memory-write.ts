@@ -17,7 +17,8 @@ import { normalizeTags, serializeTags, serializeMetadata } from '../../core/memo
 import { prepareEmbedding } from '../lib/utils.js';
 import { validateUuid } from '../lib/validation.js';
 import { detectMemorySignals } from './trigger-detector.js';
-import { resolveContradictions, applySupersession } from './contradiction-resolver.js';
+import { applySupersession } from './contradiction-resolver.js';
+import { runContradictionResolution } from '../engines/contradiction-engine.js';
 import { encrypt } from '../security/encrypt.js';
 import { estimateTokens } from '../context/context-window.js';
 import { getDbClient } from '../lib/db-client.js';
@@ -32,7 +33,7 @@ import { findOrCreateCluster, updateClusterStats } from '../clustering/cluster-e
 import { evaluateCluster } from '../clustering/consolidation-check.js';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
-import { calculateImportance } from './importance.js';
+import { computeInitialImportance as computeImportanceFlagged } from '../engines/importance-engine.js';
 import { normalizeMemory, getOrCreateUser } from './memory-crud.js';
 import { emit } from '../event-bus.js';
 import type { RememberInput, MemoryRecord, VisibilityScope } from './memory-types.js';
@@ -94,8 +95,9 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
     visibilityScope,
   };
 
-  // Calculate initial importance score
-  const importance = calculateImportance({
+  // Calculate initial importance score (flag-gated v1/v2, shadow logs disagreements)
+  const importance = computeImportanceFlagged({
+    content: input.content,
     type,
     createdAt: new Date().toISOString(),
     accessCount: 0,
@@ -309,8 +311,8 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
 
    // Resolve contradictions and supersede old memories (async, non-blocking)
    // Benchmarks can skip this expensive path by setting SQUISH_SKIP_CONTRADICTION=true
-   if (process.env.SQUISH_SKIP_CONTRADICTION !== 'true') {
-       resolveContradictions(input.content, type, project?.id, id, insertValues.createdAt as string)
+    if (process.env.SQUISH_SKIP_CONTRADICTION !== 'true') {
+        runContradictionResolution({ content: input.content, type, projectId: project?.id ?? null, newMemoryId: id, newMemoryCreatedAt: insertValues.createdAt as string })
        .then(async (result) => {
           if (result.supersededIds.length > 0) {
             await applySupersession(id, result.supersededIds, result.confidence, result.associationType);

@@ -49,6 +49,8 @@ export interface SearchInput {
   sessionStartTime?: string; // Session start for temporal queries
   /** Enable retrieval trace for debugging (Phase 8) */
   trace?: boolean;
+  /** ACL context for read-path visibility gating (P5) - omit for no ACL checks */
+  acl?: import('../acl/read-gate.js').AclContext;
 }
 
 // SearchResult extends the shared MemoryRecord from normalization.ts

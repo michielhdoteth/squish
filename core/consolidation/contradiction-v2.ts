@@ -6,7 +6,6 @@
  * Falls back to keyword-based detection when LLM is unavailable.
  */
 
-import { getDbClient } from '../lib/db-client.js';
 import { logger } from '../logger.js';
 
 export interface ContradictionResult {
@@ -135,7 +134,9 @@ export async function checkContradictions(
   useLLM: boolean = false
 ): Promise<ContradictionResult[]> {
   try {
-    const { db, schema } = await getDbClient();
+    const { getDb } = await import('../../db/index.js');
+    const rawDb: any = await getDb();
+    const sqlite = rawDb?.$client ?? rawDb;
 
     // Fetch recent memories of same project (limit to 20 for performance)
     let existing: any[] = [];
@@ -146,7 +147,7 @@ export async function checkContradictions(
       : `SELECT id, content FROM memories WHERE status = 'active' LIMIT 20`;
 
     const params = newMemory.projectId ? [newMemory.projectId] : [];
-    existing = (db as any).prepare(query).all(params);
+    existing = sqlite.prepare(query).all(params);
 
     const results: ContradictionResult[] = [];
 

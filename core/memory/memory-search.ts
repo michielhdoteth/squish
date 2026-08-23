@@ -14,6 +14,7 @@ import { getDbClient } from '../lib/db-client.js';
 import { hybridSearch as hybridSearchImpl } from './hybrid-search.js';
 import { autoRoute } from '../retrieval/query-router.js';
 import { normalizeMemory, getOrCreateUser } from './memory-crud.js';
+import { applyAclReadGate } from '../acl/read-gate.js';
 import type { SearchInput, SearchResult } from './memory-types.js';
 
 // ---------------------------------------------------------------------------
@@ -66,6 +67,10 @@ export async function search(input: SearchInput): Promise<SearchResult[]> {
   if (dbResults.length === 0) {
     dbResults = await fallbackSearchByRecency(input, limit);
   }
+
+  // ACL read gate (P5): log-only by default, filters when SQUISH_ACL_ENFORCE=true.
+  // No-op unless an acl context with a userId was supplied.
+  dbResults = await applyAclReadGate(dbResults, input.acl ?? null);
 
   // Post-filter by userId if user filter was provided
   if (userId) {
