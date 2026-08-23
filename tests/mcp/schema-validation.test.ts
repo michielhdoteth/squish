@@ -7,9 +7,12 @@ import { join } from "node:path";
 // ---------------------------------------------------------------------------
 
 const MCP_SRC = join(process.cwd(), "packages", "mcp", "src", "index.ts");
+const MCP_EXTRAS_SRC = join(process.cwd(), "packages", "mcp", "src", "tools", "extras.ts");
 
 function readSource(): string {
-  return readFileSync(MCP_SRC, "utf8");
+  // Tool definitions live in both index.ts (core tools) and tools/extras.ts
+  // (additive capability tools: places, sessions, tier, maintenance)
+  return readFileSync(MCP_SRC, "utf8") + "\n" + readFileSync(MCP_EXTRAS_SRC, "utf8");
 }
 
 interface ToolInfo {
@@ -26,8 +29,8 @@ interface ToolInfo {
 function extractTools(source: string): ToolInfo[] {
   const tools: ToolInfo[] = [];
 
-  // Split by safeRegisterTool calls
-  const blocks = source.split(/safeRegisterTool\(\s*server\s*,/);
+  // Split by safeRegisterTool calls (extras.ts uses a `register` alias)
+  const blocks = source.split(/(?:safeRegisterTool|register)\(\s*server\s*,/);
 
   for (let i = 1; i < blocks.length; i++) {
     const block = blocks[i];
@@ -92,7 +95,7 @@ describe("MCP schema validation", () => {
     const source = readSource();
     const tools = extractTools(source);
 
-    expect(tools.length).toBe(11);
+    expect(tools.length).toBe(15);
 
     const validPropertyTypes = new Set([
       "string", "number", "boolean", "object", "array", "integer",
@@ -129,7 +132,7 @@ describe("MCP schema validation", () => {
     const source = readSource();
     const tools = extractTools(source);
 
-    expect(tools.length).toBe(11);
+    expect(tools.length).toBe(15);
 
     for (const tool of tools) {
       expect(tool.description.length).toBeGreaterThan(0);
@@ -155,6 +158,10 @@ describe("MCP schema validation", () => {
       "squish_wiki",
       "squish_loadout",
       "squish_extract",
+      "squish_places",
+      "squish_sessions",
+      "squish_tier",
+      "squish_maintenance",
     ]);
 
     const actual = new Set(tools.map((t) => t.name));
@@ -233,7 +240,7 @@ describe("MCP schema validation", () => {
     const source = readSource();
     const tools = extractTools(source);
 
-    expect(tools.length).toBe(11);
+    expect(tools.length).toBe(15);
 
     for (const tool of tools) {
       const schemaObj = evalZodSchema(tool.inputSchemaZod);

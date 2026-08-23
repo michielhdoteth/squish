@@ -43,6 +43,14 @@ import {
 // SDK client — replaces direct core imports for recall, search, remember, forget,
 // listProjects, associations, scheduler, and graph operations
 import { SquishClient, type SearchResult, type ProjectRecord } from "@squish/sdk";
+// Tool-call tracing (in-memory ring buffer) + additive capability tools
+import { traceToolCall, getTraceSummary } from "./tracing.js";
+import {
+  registerPlacesTools,
+  registerSessionsTools,
+  registerTierTools,
+  registerMaintenanceTools,
+} from "./tools/extras.js";
 
 // CRITICAL: Redirect console.log to stderr AFTER all imports
 
@@ -105,7 +113,7 @@ function safeRegisterTool(
       }
 
       try {
-        return await handler(input);
+        return await traceToolCall(name, () => handler(input));
       } catch (error) {
         if (isSchemaDriftError(error)) {
           return schemaProbeErrorResult(error.probe);
@@ -506,11 +514,12 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
       inputSchema: {
         project: z.string().optional().describe("Project path filter (global if omitted)"),
-        action: z.enum(["status", "start_watcher", "stop_watcher", "consolidate"]).optional().describe(
+        action: z.enum(["status", "start_watcher", "stop_watcher", "consolidate", "traces"]).optional().describe(
           "status (default): return stats + health + watcher status + consolidation config. " +
           "start_watcher: start file watcher for multimodal ingestion. " +
           "stop_watcher: stop file watcher. " +
-          "consolidate: run LLM cross-connection finding between memories."
+          "consolidate: run LLM cross-connection finding between memories. " +
+          "traces: tool-call trace summary (durations, errors, recent calls)."
         ),
       }
     },
@@ -531,6 +540,11 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
       if (action === "consolidate") {
         const result = await runLlmConsolidation(resolvedProject, false);
         return { content: [{ type: "text", text: JSON.stringify({ ok: result.success, action: "consolidate", ...result }, null, 2) }] };
+      }
+
+      // --- Traces action ---
+      if (action === "traces") {
+        return { content: [{ type: "text", text: JSON.stringify({ ok: true, action: "traces", ...getTraceSummary(), version: SERVER_VERSION }, null, 2) }] };
       }
 
       // --- Default: status (includes everything) ---
@@ -960,6 +974,20 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
       }
     }
   )) toolCount++;
+
+  // Additive capability tools (thin wrappers over existing SDK methods)
+  const extrasCtx = {
+    register: safeRegisterTool,
+    server,
+    sdkClient,
+    resolveProjectPath,
+    errorResponse,
+    SERVER_VERSION,
+  };
+  toolCount += registerPlacesTools(extrasCtx);
+  toolCount += registerSessionsTools(extrasCtx);
+  toolCount += registerTierTools(extrasCtx);
+  toolCount += registerMaintenanceTools(extrasCtx);
 
   console.error(`[MCP] Tool registration complete. Registered ${toolCount} tools.`);
 

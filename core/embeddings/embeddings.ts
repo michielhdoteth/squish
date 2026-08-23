@@ -196,7 +196,20 @@ export async function getEmbedding(input: string | MultimodalInput): Promise<num
            result = getLocalEmbedding(textInput);
          }
        } else if (provider === 'local') {
-         result = getLocalEmbedding(textInput);
+         // Local provider: prefer transformers-local (lazy import, only loaded
+         // when this provider is selected); fall back to TF-IDF if the
+         // transformers module or model is unavailable.
+         try {
+           const mod = await getTransformersLocal();
+           if (mod && config.transformersLocalModel) {
+             result = await mod.getEmbedding(textInput);
+           }
+         } catch (error) {
+           logger.debug(`Transformers local not available, falling back to TF-IDF: ${error}`);
+         }
+         if (!result) {
+           result = getLocalEmbedding(textInput);
+         }
        } else {
          // Auto mode: cloud -> transformers -> TF-IDF (smart fallback)
          // Step 1: Try cloud providers
