@@ -281,4 +281,103 @@ describe('squish_dedup workflow (SDK wrappers)', () => {
     expect(relevant.filter((p) => p.status === 'approved').length).toBe(1);
     expect(relevant.filter((p) => p.status === 'pending').length).toBeGreaterThanOrEqual(1);
   });
+
+  async function insertPairProposal(id: string, sources: string[]): Promise<void> {
+    const schema = await getSchema();
+    const db = createDatabaseClient(dbRef);
+    await db.insert(schema.memoryMergeProposals).values({
+      id,
+      projectId: PROJECT_ID,
+      sourceMemoryIds: JSON.stringify(sources),
+      proposedContent: 'seeded pair proposal',
+      detectionMethod: 'minhash',
+      similarityScore: String(0.99),
+      confidenceLevel: 'high',
+      mergeReason: 'seeded for reverse-semantics tests',
+      status: 'pending',
+      createdAt: new Date(),
+    } as any);
+  }
+
+  test('reverse restores full source content from the stored snapshot', async () => {
+    const client = new sdk.SquishClient();
+    const SNAPSHOT_CONTENT = 'Snapshot integrity check: user brews kombucha every weekend';
+
+    await insertMemory('snap-a', SNAPSHOT_CONTENT);
+    await insertMemory('snap-b', SNAPSHOT_CONTENT);
+    await insertPairProposal('prop-snap', ['snap-a', 'snap-b']);
+
+    const approved = await client.approveMerge({ proposalId: 'prop-snap' });
+    expect(approved.ok).toBe(true);
+    const { mergeHistoryId, canonicalMemoryId } = approved.data!;
+    expect(mergeHistoryId).toBeTruthy();
+
+    // Simulate post-merge drift on a source row (content was changed elsewhere)
+    getSqlite().prepare("UPDATE memories SET content = 'DRIFTED CONTENT' WHERE id = 'snap-a'").run();
+    expect((await getMemoryRow('snap-a')).content).toBe('DRIFTED CONTENT');
+
+    const reversed = await client.reverseMerge({ mergeHistoryId, reason: 'snapshot test' });
+    expect(reversed.ok).toBe(true);
+    expect((reversed.data!.restoredMemoryIds as string[]).sort()).toEqual(['snap-a', 'snap-b'].sort());
+    expect(reversed.data!.skippedMemoryIds).toEqual([]);
+
+    // Content must come back from the snapshot, not just merge flags
+    expect((await getMemoryRow('snap-a')).content).toBe(SNAPSHOT_CONTENT);
+    expect((await getMemoryRow('snap-b')).content).toBe(SNAPSHOT_CONTENT);
+    expect((await getMemoryRow('snap-a')).is_active).toBe(1);
+    expect((await getMemoryRow('snap-a')).merged_into_id).toBeNull();
+    // Canonical is deactivated
+    expect((await getMemoryRow(canonicalMemoryId)).is_active).toBe(0);
+  });
+
+  test('reverse after re-merge skips stale sources and reports them', async () => {
+    const client = new sdk.SquishClient();
+    const STALE_CONTENT = 'Stale reverse check: user keeps notes in a paper journal';
+
+    await insertMemory('stale-a', STALE_CONTENT);
+    await insertMemory('stale-b', STALE_CONTENT);
+
+    // First merge
+    await insertPairProposal('prop-stale-1', ['stale-a', 'stale-b']);
+    const first = await client.approveMerge({ proposalId: 'prop-stale-1' });
+    expect(first.ok).toBe(true);
+    const { mergeHistoryId: h1, canonicalMemoryId: c1 } = first.data!;
+    expect((await getMemoryRow('stale-a')).merged_into_id).toBe(c1);
+
+    // Undo the first merge so the pair can be merged again
+    const undo = await client.reverseMerge({ mergeHistoryId: h1 });
+    expect(undo.ok).toBe(true);
+    expect((await getMemoryRow('stale-a')).merged_into_id).toBeNull();
+
+    // Re-merge: sources now belong to a NEW canonical (c2)
+    await insertPairProposal('prop-stale-2', ['stale-a', 'stale-b']);
+    const second = await client.approveMerge({ proposalId: 'prop-stale-2' });
+    expect(second.ok).toBe(true);
+    const { canonicalMemoryId: c2 } = second.data!;
+    expect(c2).not.toBe(c1);
+    expect((await getMemoryRow('stale-a')).merged_into_id).toBe(c2);
+
+    // Replay a reverse of the OLD history (simulate retried/replayed request):
+    // sources point at c2 now, so they must be SKIPPED, not blindly reactivated
+    getSqlite().prepare('UPDATE memory_merge_history SET is_reversed = 0 WHERE id = ?').run(h1);
+
+    const staleReverse = await client.reverseMerge({ mergeHistoryId: h1, reason: 'stale replay' });
+    expect(staleReverse.ok).toBe(true);
+    expect(staleReverse.data!.restoredMemoryIds).toEqual([]);
+    expect((staleReverse.data!.skippedMemoryIds as string[]).sort()).toEqual(['stale-a', 'stale-b'].sort());
+
+    // Stale sources untouched: still archived under the NEW canonical
+    const rowA = await getMemoryRow('stale-a');
+    const rowB = await getMemoryRow('stale-b');
+    expect(rowA.merged_into_id).toBe(c2);
+    expect(rowB.merged_into_id).toBe(c2);
+    expect(rowA.is_active).toBe(0);
+    expect(rowB.is_active).toBe(0);
+    expect(rowA.content).toBe(STALE_CONTENT);
+
+    // Old canonical deactivated, history marked reversed
+    expect((await getMemoryRow(c1)).is_active).toBe(0);
+    const h1After = getSqlite().prepare('SELECT * FROM memory_merge_history WHERE id = ?').get(h1);
+    expect(h1After.is_reversed).toBe(1);
+  });
 });

@@ -6,7 +6,7 @@ import type { Memory, MemoryMergeProposal, MemoryMergeHistory } from '../../../d
 import { randomUUID } from 'crypto';
 import { getDb } from '../../../db/index.js';
 import { getSchema } from '../../../db/schema.js';
-import { createDatabaseClient } from '../../../core/storage/database.js';
+import { createDatabaseClient, runInTransaction } from '../../../core/storage/database.js';
 import { eq, inArray } from 'drizzle-orm';
 import { mergeMemories } from '../strategies/merge-strategies.js';
 import { estimateTokensSaved } from '../analytics/token-estimator.js';
@@ -115,88 +115,92 @@ export async function handleApproveMerge(input: ApproveMergeInput): Promise<Appr
       // Continue without embedding if generation fails
     }
 
-    // Step 6: Create canonical memory
+    // Steps 6-9: All writes execute atomically in a single transaction
     const canonicalId = randomUUID();
     const now = new Date();
+    let historyId = '';
 
-    await db.insert(schema.memories).values({
-      id: canonicalId,
-      projectId: sourceMemories[0].projectId,
-      userId: sourceMemories[0].userId,
-      type: sourceMemories[0].type,
-      content: merged.content,
-      summary: merged.summary,
-      embedding: embedding || undefined,
-      tags: toSqliteJson(merged.tags),
-      metadata: toSqliteJson(merged.metadata),
-      source: 'merge',
-      confidence: 85, // Merged confidence slightly lower than source
-      isActive: true,
-      isCanonical: true,
-      mergeSourceIds: toSqliteJson(sourceIds),
-      isMergeable: true,
-      mergeVersion: 1,
-      createdAt: now,
-      updatedAt: now,
-      isPrivate: sourceMemories[0].isPrivate,
-      hasSecrets: sourceMemories.some((m) => m.hasSecrets),
-      relevanceScore: Math.round(
-        sourceMemories.reduce((sum, m) => sum + (m.relevanceScore || 50), 0) / sourceMemories.length
-      ),
-      accessCount: 0,
-      lastAccessedAt: null,
-      expiresAt: null,
-    } as any);
+    // Steps 6-9: All writes execute atomically in a single transaction
+    await runInTransaction(db, async () => {
+      // Step 6: Create canonical memory
+      await db.insert(schema.memories).values({
+        id: canonicalId,
+        projectId: sourceMemories[0].projectId,
+        userId: sourceMemories[0].userId,
+        type: sourceMemories[0].type,
+        content: merged.content,
+        summary: merged.summary,
+        embedding: embedding || undefined,
+        tags: toSqliteJson(merged.tags),
+        metadata: toSqliteJson(merged.metadata),
+        source: 'merge',
+        confidence: 85, // Merged confidence slightly lower than source
+        isActive: true,
+        isCanonical: true,
+        mergeSourceIds: toSqliteJson(sourceIds),
+        isMergeable: true,
+        mergeVersion: 1,
+        createdAt: now,
+        updatedAt: now,
+        isPrivate: sourceMemories[0].isPrivate,
+        hasSecrets: sourceMemories.some((m) => m.hasSecrets),
+        relevanceScore: Math.round(
+          sourceMemories.reduce((sum, m) => sum + (m.relevanceScore || 50), 0) / sourceMemories.length
+        ),
+        accessCount: 0,
+        lastAccessedAt: null,
+        expiresAt: null,
+      } as any);
 
-    // Step 7: Mark source memories as merged (soft archive)
-    for (const sourceMemory of sourceMemories) {
+      // Step 7: Mark source memories as merged (soft archive)
+      for (const sourceMemory of sourceMemories) {
+        await db
+          .update(schema.memories)
+          .set({
+            isMerged: true,
+            mergedIntoId: canonicalId,
+            mergedAt: now,
+            isActive: false,
+            updatedAt: now,
+          })
+          .where(eq(schema.memories.id, sourceMemory.id));
+      }
+
+      // Step 8: Create merge history record (audit trail)
+      historyId = randomUUID();
+      await db.insert(schema.memoryMergeHistory).values({
+        id: historyId,
+        projectId: sourceMemories[0].projectId,
+        userId: sourceMemories[0].userId,
+        proposalId,
+        sourceMemoryIds: toSqliteJson(sourceIds),
+        canonicalMemoryId: canonicalId,
+        sourceMemoriesSnapshot: toSqliteJson(sourceMemories.map((m) => ({
+          id: m.id,
+          type: m.type,
+          content: m.content,
+          summary: m.summary,
+          tags: m.tags,
+          metadata: m.metadata,
+          createdAt: m.createdAt,
+        }))),
+        mergeStrategy: sourceMemories[0].type === 'preference' ? 'latest' : 'union',
+        tokensSaved,
+        isReversed: false,
+        mergedAt: now,
+      } as any);
+
+      // Step 9: Update proposal status
       await db
-        .update(schema.memories)
+        .update(schema.memoryMergeProposals)
         .set({
-          isMerged: true,
-          mergedIntoId: canonicalId,
-          mergedAt: now,
-          isActive: false,
-          updatedAt: now,
+          status: 'approved',
+          reviewedAt: now,
+          reviewNotes: reviewNotes || undefined,
         })
-        .where(eq(schema.memories.id, sourceMemory.id));
-    }
+        .where(eq(schema.memoryMergeProposals.id, proposalId));
+    });
 
-    // Step 8: Create merge history record (audit trail)
-    const historyId = randomUUID();
-    await db.insert(schema.memoryMergeHistory).values({
-      id: historyId,
-      projectId: sourceMemories[0].projectId,
-      userId: sourceMemories[0].userId,
-      proposalId,
-      sourceMemoryIds: toSqliteJson(sourceIds),
-      canonicalMemoryId: canonicalId,
-      sourceMemoriesSnapshot: toSqliteJson(sourceMemories.map((m) => ({
-        id: m.id,
-        type: m.type,
-        content: m.content,
-        summary: m.summary,
-        tags: m.tags,
-        metadata: m.metadata,
-        createdAt: m.createdAt,
-      }))),
-      mergeStrategy: sourceMemories[0].type === 'preference' ? 'latest' : 'union',
-      tokensSaved,
-      isReversed: false,
-      mergedAt: now,
-    } as any);
-
-    // Step 9: Update proposal status
-    await db
-      .update(schema.memoryMergeProposals)
-      .set({
-        status: 'approved',
-        reviewedAt: now,
-        reviewNotes: reviewNotes || undefined,
-      })
-      .where(eq(schema.memoryMergeProposals.id, proposalId));
-
-    // Step 10: Return success
     return {
       ok: true,
       message: `Merge approved and executed. Created canonical memory ${canonicalId}`,

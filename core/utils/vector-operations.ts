@@ -230,12 +230,10 @@ export function computeEigenvalues(matrix: number[][]): number[] {
   if (matrix.length === 0) return [];
   const n = matrix.length;
 
-  // For 1x1 matrix, the eigenvalue is just the element
-  if (n === 1) return [matrix[0][0]];
-
-  // For very small matrices (2x2 or 3x3), use direct computation
-  if (n <= 3) {
-    return computeEigenvaluesSmall(matrix);
+  // Jacobi is robust and deterministic; use it whenever the matrix is small
+  // enough for O(n^3) sweeps (cluster Gram/covariance matrices are tiny)
+  if (n <= 64) {
+    return jacobiEigenvalues(matrix);
   }
 
   // For larger matrices, extract top eigenvalues via power iteration
@@ -243,48 +241,53 @@ export function computeEigenvalues(matrix: number[][]): number[] {
 }
 
 /**
- * Direct eigenvalue computation for small matrices (2x2 or 3x3).
+ * Computes all eigenvalues of a symmetric matrix using the cyclic Jacobi
+ * rotation method. Numerically robust (no deflation drift) and deterministic.
+ * Suitable for the small-to-medium matrices used by geometry-aware
+ * consolidation (Gram/covariance of clusters).
  */
-function computeEigenvaluesSmall(matrix: number[][]): number[] {
+export function jacobiEigenvalues(matrix: number[][], maxSweeps: number = 50): number[] {
   const n = matrix.length;
-  if (n === 2) {
-    // Characteristic polynomial: lambda^2 - trace * lambda + det = 0
-    const trace = matrix[0][0] + matrix[1][1];
-    const det = matrix[0][0] * matrix[1][1] - matrix[0][1] * matrix[1][0];
-    const discriminant = trace * trace - 4 * det;
-    if (discriminant < 0) return [trace / 2, trace / 2]; // Fallback for numerical issues
-    const sqrtD = Math.sqrt(discriminant);
-    const lambda1 = (trace + sqrtD) / 2;
-    const lambda2 = (trace - sqrtD) / 2;
-    return [lambda1, lambda2].sort((a, b) => b - a);
-  }
+  if (n === 0) return [];
+  const a = matrix.map(row => [...row]);
 
-  if (n === 3) {
-    // Use power iteration for the dominant eigenvalue
-    const eigenvalues: number[] = [];
-    let workingMatrix = matrix.map(row => [...row]);
+  for (let sweep = 0; sweep < maxSweeps; sweep++) {
+    // Off-diagonal Frobenius norm
+    let off = 0;
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        off += a[i][j] * a[i][j];
+      }
+    }
+    if (off < 1e-24) break;
 
-    for (let k = 0; k < 3; k++) {
-      const lambda = powerIteration(workingMatrix);
-      if (lambda === 0) break;
-      eigenvalues.push(lambda);
-      // Deflate: subtract lambda * v * v^T
-      // Use a random vector to estimate eigenvector
-      const v = getEigenvector(workingMatrix, lambda);
-      if (v.every(x => Math.abs(x) < 1e-10)) break;
-      const vNorm = Math.sqrt(v.reduce((s, x) => s + x * x, 0));
-      const vUnit = vNorm > 1e-10 ? v.map(x => x / vNorm) : v;
-      for (let i = 0; i < n; i++) {
-        for (let j = 0; j < n; j++) {
-          workingMatrix[i][j] -= lambda * vUnit[i] * vUnit[j];
+    for (let p = 0; p < n - 1; p++) {
+      for (let q = p + 1; q < n; q++) {
+        if (Math.abs(a[p][q]) < 1e-18) continue;
+        const theta = (a[q][q] - a[p][p]) / (2 * a[p][q]);
+        const t = Math.sign(theta || 1) / (Math.abs(theta) + Math.sqrt(theta * theta + 1));
+        const c = 1 / Math.sqrt(t * t + 1);
+        const s = t * c;
+        for (let k = 0; k < n; k++) {
+          const akp = a[k][p];
+          const akq = a[k][q];
+          a[k][p] = c * akp - s * akq;
+          a[k][q] = s * akp + c * akq;
+        }
+        for (let k = 0; k < n; k++) {
+          const apk = a[p][k];
+          const aqk = a[q][k];
+          a[p][k] = c * apk - s * aqk;
+          a[q][k] = s * apk + c * aqk;
         }
       }
     }
-    return eigenvalues.length > 0 ? eigenvalues : [1];
   }
 
-  return [1];
+  return Array.from({ length: n }, (_, i) => a[i][i]).sort((x, y) => y - x);
 }
+
+
 
 /**
  * Computes the trace of a matrix (sum of diagonal elements).
@@ -303,9 +306,22 @@ export function matrixTrace(matrix: number[][]): number {
 }
 
 /**
- * Power iteration to find the dominant eigenvalue of a matrix.
+ * Power iteration to find the dominant eigenvalue (and eigenvector) of a
+ * symmetric matrix. Uses a deterministic seeded start so results are
+ * reproducible across runs.
  */
 export function powerIteration(matrix: number[][], maxIter: number = 100, tol: number = 1e-10): number {
+  return powerIterationWithVector(matrix, maxIter, tol).lambda;
+}
+
+/**
+ * Power iteration returning the converged dominant eigenpair.
+ */
+function powerIterationWithVector(
+  matrix: number[][],
+  maxIter: number,
+  tol: number
+): { lambda: number; vector: number[] } {
   const n = matrix.length;
   // Deterministic pseudo-random start (seeded LCG): Math.random() can converge
   // to a different eigenvector on near-degenerate matrices, making callers
@@ -316,6 +332,7 @@ export function powerIteration(matrix: number[][], maxIter: number = 100, tol: n
     return seed / 0xffffffff;
   };
   let b = new Array(n).fill(1).map(() => nextRandom());
+  let lambda = 0;
 
   for (let iter = 0; iter < maxIter; iter++) {
     // Multiply matrix * b
@@ -326,40 +343,30 @@ export function powerIteration(matrix: number[][], maxIter: number = 100, tol: n
       }
     }
 
-    // Compute Rayleigh quotient
-    let num = 0;
-    let den = 0;
-    for (let i = 0; i < n; i++) {
-      num += bNext[i] * b[i];
-      den += b[i] * b[i];
-    }
-    const lambdaNew = den > 0 ? num / den : 0;
-
     // Normalize bNext
     const norm = Math.sqrt(bNext.reduce((s, x) => s + x * x, 0));
-    if (norm < 1e-15) return 0;
+    if (norm < 1e-15) return { lambda: 0, vector: b };
     b = bNext.map(x => x / norm);
 
-    if (Math.abs(lambdaNew - lambda) < tol) return lambdaNew;
+    // Rayleigh quotient with the normalized vector
+    let num = 0;
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < n; j++) {
+        num += b[i] * matrix[i][j] * b[j];
+      }
+    }
+    const lambdaNew = num;
+
+    if (Math.abs(lambdaNew - lambda) < tol) {
+      lambda = lambdaNew;
+      break;
+    }
     lambda = lambdaNew;
   }
-  return lambda;
+  return { lambda, vector: b };
 }
 
-/**
- * Extract eigenvector corresponding to eigenvalue lambda via inverse power iteration.
- */
-function getEigenvector(matrix: number[][], lambda: number): number[] {
-  const n = matrix.length;
-  // Shift the matrix: (A - lambda*I)
-  const shifted = matrix.map((row, i) => row.map((val, j) => (i === j ? val - lambda : val)));
-  // Solve (A - lambda*I) * v = b using one iteration with random b
-  let v = new Array(n).fill(1).map(() => Math.random());
-  // Normalize
-  const norm = Math.sqrt(v.reduce((s, x) => s + x * x, 0));
-  v = v.map(x => x / norm);
-  return v;
-}
+
 
 /**
  * Compute the top k eigenvalues of a symmetric matrix using power iteration with deflation.
@@ -371,19 +378,15 @@ function computeTopEigenvalues(matrix: number[][], k: number): number[] {
   let largestLambda = 0;
 
   for (let i = 0; i < k; i++) {
-    const lambda = powerIteration(workingMatrix);
-    if (lambda === 0 || !Number.isFinite(lambda)) break;
+    const { lambda, vector: vUnit } = powerIterationWithVector(workingMatrix, 100, 1e-10);
+    if (lambda === 0 || !Number.isFinite(lambda) || Math.abs(lambda) < 1e-12) break;
     // Stop once we hit numerical noise: after deflating a (near) rank-deficient
     // matrix, remaining "eigenvalues" are floating-point residue. Including them
     // corrupts downstream statistics (e.g. participation ratio / d_eff).
     if (i > 0 && lambda <= largestLambda * 1e-6) break;
     if (i === 0) largestLambda = lambda;
     eigenvalues.push(lambda);
-    // Deflate
-    const v = getEigenvector(workingMatrix, lambda);
-    const vNorm = Math.sqrt(v.reduce((s, x) => s + x * x, 0));
-    if (vNorm < 1e-10) break;
-    const vUnit = v.map(x => x / vNorm);
+    // Deflate with the converged eigenvector
     for (let r = 0; r < n; r++) {
       for (let c = 0; c < n; c++) {
         workingMatrix[r][c] -= lambda * vUnit[r] * vUnit[c];

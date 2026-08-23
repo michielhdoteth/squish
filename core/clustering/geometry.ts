@@ -163,8 +163,11 @@ export function computeSpreadThresholds(
   thetaPrime: number,
   dEff: number,
 ): { spreadSafe: number; spreadUnsafe: number } {
-  const clampedDEff = Math.max(dEff, 1);
-  const factor = Math.pow(2, 1 / clampedDEff);
+    const clampedDEff = Math.max(dEff, 1);
+    // Square-root scaling: thresholds shrink toward theta as d_eff grows, but
+    // more gently than 2^(1/d_eff) so moderately-spread clusters are not
+    // misclassified as "safe" (see consolidation-gac borderline tests)
+    const factor = Math.pow(2, 0.5 / clampedDEff);
   return {
     spreadSafe: thetaPrime * factor * 0.75,
     spreadUnsafe: thetaPrime * factor * 1.25,

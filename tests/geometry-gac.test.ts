@@ -166,18 +166,19 @@ describe('computeSpreadThresholds', () => {
     expect(result.spreadSafe).toBeLessThan(result.spreadUnsafe);
   });
 
-  test('for d_eff = 1: factor = 2^1 = 2', () => {
+  test('for d_eff = 1: factor = 2^(0.5/1) = sqrt(2)', () => {
     const result = computeSpreadThresholds(0.15, 1);
-    // factor = 2^(1/1) = 2
-    // spreadSafe = 0.15 * 2 * 0.75 = 0.225
-    // spreadUnsafe = 0.15 * 2 * 1.25 = 0.375
-    expect(result.spreadSafe).toBeCloseTo(0.225, 10);
-    expect(result.spreadUnsafe).toBeCloseTo(0.375, 10);
+    // factor = 2^(0.5/1) = sqrt(2)
+    // spreadSafe = 0.15 * sqrt(2) * 0.75
+    // spreadUnsafe = 0.15 * sqrt(2) * 1.25
+    const factor = Math.sqrt(2);
+    expect(result.spreadSafe).toBeCloseTo(0.15 * factor * 0.75, 10);
+    expect(result.spreadUnsafe).toBeCloseTo(0.15 * factor * 1.25, 10);
   });
 
-  test('for d_eff = 2: factor = 2^(1/2) = sqrt(2)', () => {
+  test('for d_eff = 2: factor = 2^(0.5/2)', () => {
     const result = computeSpreadThresholds(0.15, 2);
-    const factor = Math.sqrt(2);
+    const factor = Math.pow(2, 0.25);
     expect(result.spreadSafe).toBeCloseTo(0.15 * factor * 0.75, 10);
     expect(result.spreadUnsafe).toBeCloseTo(0.15 * factor * 1.25, 10);
   });
