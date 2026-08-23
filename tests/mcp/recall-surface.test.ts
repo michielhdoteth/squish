@@ -20,7 +20,7 @@ describe("MCP recall surface", () => {
 
     expect(source).toContain('query: z.string().describe("Query text or memory ID to recall")');
     expect(source).toContain("const isUuid =");
-    expect(source).toContain("await searchMemories({");
+    expect(source).toContain("await sdkClient.search(");
   });
 
   it("delegates mcp health to the real server instead of hardcoded success", () => {

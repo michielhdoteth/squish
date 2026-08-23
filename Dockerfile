@@ -23,8 +23,8 @@ COPY bin/ ./bin/
 COPY skills/ ./skills/
 
 # Set default DB path inside container
-ENV SQUISH_DB_PATH=/app/data
-RUN mkdir -p /app/data
+ENV SQUISH_DB_PATH=/app/.squish
+RUN mkdir -p /app/.squish
 
 # Health check - verify MCP server initializes and database is reachable
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \

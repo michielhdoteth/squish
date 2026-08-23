@@ -7,6 +7,7 @@ import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
 import { lt, or, and, eq, lte } from 'drizzle-orm';
 import { logger } from '../logger.js';
+import { emit } from '../event-bus.js';
 
 export interface StaleMemory {
   id: string;
@@ -111,6 +112,11 @@ export async function deleteMemoryPermanently(memoryId: string): Promise<void> {
     
     // Delete the memory itself
     await sqliteDb.delete(schema.memories).where(eq(schema.memories.id, memoryId));
+
+    emit({
+      type: 'memory:deleted',
+      payload: { memoryId },
+    });
   } catch (error) {
     logger.error(`[StaleCleaner] Error deleting memory ${memoryId}:`, error);
     throw error;

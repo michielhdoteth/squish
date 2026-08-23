@@ -8,3 +8,15 @@ export * from './ingestion/learnings';
 export * from './security/privacy';
 export * from './projects';
 export * from './security/secret-detector';
+
+// Skills system (v2.1.0)
+export * from './skills/skills';
+
+// Wiki system (v2.1.0)
+export * from './wiki/wiki';
+
+// Agent loadout & visibility (v2.1.0)
+export * from './loadout/loadout';
+
+// Auto-extraction pipeline (v2.1.0)
+export * from './extraction/extraction';

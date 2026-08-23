@@ -56,7 +56,93 @@ export type {
   LLMCallOptions,
   LLMContentPart,
   LLMConfig,
+  // New SDK types
+  PinOptions,
+  SessionOptions,
+  MaintenanceOptions,
+  SchemaHealthResult,
+  TrustState,
+  SignalResult,
+  AssociationResult,
+  PlaceRecord,
+  SessionRecord,
+  ChunkRecord,
 } from './types.js';
+
+// ─── Plugin Registry ────────────────────────────────────────────────────────
+
+export { PluginRegistry, type Plugin } from './plugins.js';
+
+// ─── Event System ────────────────────────────────────────────────────────────
+export { DefaultEventBus } from './events/event-bus.js';
+
+// ─── Core Module Re-exports ──────────────────────────────────────────────────
+// These allow CLI and MCP to import from '@squish/sdk' instead of
+// using deep relative paths (../../../) into core internals.
+
+// ─── Config ──────────────────────────────────────────────────────────────────
+export { config, getDataDir, detectProjectScope } from '../../../config.js';
+
+// ─── Logger ──────────────────────────────────────────────────────────────────
+export { logger } from '../../../core/logger.js';
+
+// ─── Database ────────────────────────────────────────────────────────────────
+export { getDb } from '../../../db/index.js';
+export {
+  probeSchemaHealth,
+  fixSchemaIssues,
+  isSchemaDriftError,
+  type SchemaProbeResult,
+} from '../../../db/schema-health.js';
+export { ensureSqliteSchema } from '../../../db/bootstrap.js';
+
+// ─── Runtime ─────────────────────────────────────────────────────────────────
+export { getInstallShadowDiagnostic } from '../../../core/runtime/install-diagnostics.js';
+export {
+  buildHealthState,
+  buildStatsState,
+  buildContextState,
+  buildInspectState,
+  resolveProjectScope,
+} from '../../../core/runtime/trust-state.js';
+export {
+  formatHealthReport,
+  formatStatsReport,
+  formatContextReport,
+} from '../../../core/runtime/trust-report.js';
+
+// ─── Memory ──────────────────────────────────────────────────────────────────
+export { getMemory } from '../../../core/memory/memories.js';
+export { promoteToSturdy } from '../../../core/memory/tiers.js';
+export { detectMemorySignals } from '../../../core/memory/trigger-detector.js';
+export { migrateMemories, type MigrateResult } from '../../../core/memory/migrate.js';
+
+// ─── Security ────────────────────────────────────────────────────────────────
+export { pinMemory, unpinMemory } from '../../../core/security/governance.js';
+
+// ─── Associations ────────────────────────────────────────────────────────────
+export { createAssociation, getRelatedMemories } from '../../../core/associations.js';
+
+// ─── Snapshots ───────────────────────────────────────────────────────────────
+export { getMemorySnapshot } from '../../../core/snapshots/retrieval.js';
+
+// ─── Ingestion ───────────────────────────────────────────────────────────────
+export { shouldReturnRawFallback } from '../../../core/ingestion/signal-engine.js';
+export { createLearning } from '../../../core/ingestion/learnings.js';
+
+// ─── Sessions ────────────────────────────────────────────────────────────────
+export {
+  listSessions,
+  getSessionChunks,
+  searchChunks,
+} from '../../../core/sessions/index.js';
+export { allAgentStores } from '../../../core/sessions/agent-stores/registry.js';
+
+// ─── Embeddings ──────────────────────────────────────────────────────────────
+export { getQMDClient } from '../../../core/embeddings/qmd-client.js';
+
+// ─── Utilities ───────────────────────────────────────────────────────────────
+export { filterByDateRange } from '../../../core/lib/utils.js';
 
 // ─── Error Classes ───────────────────────────────────────────────────────────
 
@@ -135,6 +221,7 @@ import type {
   EntityRecord,
   EntityRelation,
   GraphTraversalResult,
+  GraphBuildStats,
   ProjectRecord,
   MemoryType,
   RememberOptions,
@@ -144,6 +231,18 @@ import type {
   ContextOptions,
   MemoryStats,
   HealthResult,
+  PinOptions,
+  SessionOptions,
+  MaintenanceOptions,
+  SchemaHealthResult,
+  TrustState,
+  SignalResult,
+  AssociationResult,
+  PlaceRecord,
+  SessionRecord,
+  ChunkRecord,
+  LearningInput,
+  LearningRecord,
 } from './types.js';
 import type { RecallOptions as CoreRecallOptions } from './interfaces/storage.js';
 
@@ -272,7 +371,7 @@ export class SquishClient {
         limit: options?.limit,
         type: options?.type,
         tags: options?.tags,
-        strategy: options?.strategy,
+        strategy: options?.strategy as any,
       });
 
       return {
@@ -461,7 +560,7 @@ export class SquishClient {
       return await traverseGraph(name.trim(), projectId, {
         maxDepth: options?.maxDepth,
         limit: options?.limit,
-      });
+      }) as any;
     } catch (error) {
       if (error instanceof SquishError) throw error;
       throw new StorageError('Failed to traverse graph', error as Error);
@@ -615,6 +714,509 @@ export class SquishClient {
       status: hasErrors ? 'error' : hasDegraded ? 'degraded' : 'ok',
       components,
     };
+  }
+
+  // ─── Governance ──────────────────────────────────────────────────────────
+
+  /**
+   * Pin a memory to prevent it from being cleaned up by consolidation.
+   *
+   * @param id - The memory UUID to pin
+   * @param options - Optional pin configuration
+   */
+  async pinMemory(id: string, options?: PinOptions): Promise<void> {
+    try {
+      const { pinMemory } = await import('../../../core/security/governance.js');
+      await pinMemory(id);
+    } catch (error) {
+      if (error instanceof SquishError) throw error;
+      throw new StorageError('Failed to pin memory', error as Error);
+    }
+  }
+
+  /**
+   * Unpin a memory to allow it to be cleaned up by consolidation.
+   *
+   * @param id - The memory UUID to unpin
+   * @param options - Optional unpin configuration
+   */
+  async unpinMemory(id: string, options?: PinOptions): Promise<void> {
+    try {
+      const { unpinMemory } = await import('../../../core/security/governance.js');
+      await unpinMemory(id);
+    } catch (error) {
+      if (error instanceof SquishError) throw error;
+      throw new StorageError('Failed to unpin memory', error as Error);
+    }
+  }
+
+  /**
+   * Get all pinned memories for a project.
+   *
+   * @param project - Optional project path (uses active project if omitted)
+   * @returns Array of pinned memory records
+   */
+  async getPinnedMemories(project?: string): Promise<SdkMemoryRecord[]> {
+    try {
+      const { getPinnedMemories } = await import('../../../core/security/governance.js');
+      const memories = await getPinnedMemories(project ?? this._activeProject);
+      return memories.map(mapCoreMemoryToSdk);
+    } catch (error) {
+      if (error instanceof SquishError) throw error;
+      throw new StorageError('Failed to get pinned memories', error as Error);
+    }
+  }
+
+  // ─── Memory Tiers ────────────────────────────────────────────────────────
+
+  /**
+   * Promote a memory to the "sturdy" tier for longer retention.
+   *
+   * @param id - The memory UUID to promote
+   */
+  async promoteToSturdy(id: string): Promise<void> {
+    try {
+      const { promoteToSturdy } = await import('../../../core/memory/tiers.js');
+      await promoteToSturdy(id);
+    } catch (error) {
+      if (error instanceof SquishError) throw error;
+      throw new StorageError('Failed to promote memory', error as Error);
+    }
+  }
+
+  /**
+   * Get statistics about memory distribution across tiers.
+   *
+   * @param project - Optional project path (uses active project if omitted)
+   * @returns Map of tier name to memory count
+   */
+  async getTierStats(project?: string): Promise<Record<string, number>> {
+    try {
+      const { getTierStats } = await import('../../../core/memory/tiers.js');
+      return await getTierStats(project ?? this._activeProject);
+    } catch (error) {
+      if (error instanceof SquishError) throw error;
+      throw new StorageError('Failed to get tier stats', error as Error);
+    }
+  }
+
+  // ─── Memory Retrieval ────────────────────────────────────────────────────
+
+  /**
+   * Get the most recently created memories.
+   *
+   * @param limit - Maximum number of memories to return (default 10)
+   * @param project - Optional project path (uses active project if omitted)
+   * @returns Array of recent memory records
+   */
+  async getRecent(limit?: number, project?: string): Promise<SdkMemoryRecord[]> {
+    try {
+      const { getRecent } = await import('../../../core/memory/memories.js');
+      const memories = await getRecent(project ?? this._activeProject!, limit ?? 10);
+      return memories.map(mapCoreMemoryToSdk);
+    } catch (error) {
+      if (error instanceof SquishError) throw error;
+      throw new StorageError('Failed to get recent memories', error as Error);
+    }
+  }
+
+  /**
+   * Get a snapshot of the memory system for a project.
+   *
+   * @param project - Optional project path (uses active project if omitted)
+   * @returns Memory snapshot data
+   */
+  async getMemorySnapshot(project?: string): Promise<unknown> {
+    try {
+      const { getMemorySnapshot } = await import('../../../core/snapshots/retrieval.js');
+      return await getMemorySnapshot(project ?? this._activeProject!);
+    } catch (error) {
+      if (error instanceof SquishError) throw error;
+      throw new StorageError('Failed to get memory snapshot', error as Error);
+    }
+  }
+
+  // ─── Associations ────────────────────────────────────────────────────────
+
+  /**
+   * Create an association between two memories.
+   *
+   * @param fromId - Source memory ID
+   * @param toId - Target memory ID
+   * @param type - Optional association type label
+   * @returns The created association record
+   */
+  async createAssociation(fromId: string, toId: string, type?: string): Promise<void> {
+    try {
+      const { createAssociation } = await import('../../../core/associations.js');
+      await createAssociation(fromId, toId, type as any);
+    } catch (error) {
+      if (error instanceof SquishError) throw error;
+      throw new StorageError('Failed to create association', error as Error);
+    }
+  }
+
+  /**
+   * Get all memories associated with a given memory.
+   *
+   * @param id - The memory UUID to find associations for
+   * @returns Array of related memory records
+   */
+  async getRelatedMemories(id: string): Promise<SdkMemoryRecord[]> {
+    try {
+      const { getRelatedMemories } = await import('../../../core/associations.js');
+      const memories = await getRelatedMemories(id);
+      return memories.map(mapCoreMemoryToSdk);
+    } catch (error) {
+      if (error instanceof SquishError) throw error;
+      throw new StorageError('Failed to get related memories', error as Error);
+    }
+  }
+
+  // ─── Graph Building ──────────────────────────────────────────────────────
+
+  /**
+   * Rebuild the knowledge graph for a project.
+   *
+   * @param project - Optional project path (uses active project if omitted)
+   * @returns Graph build statistics
+   */
+  async buildGraph(project?: string): Promise<GraphBuildStats> {
+    try {
+      const { buildGraphForProject } = await import('../../../core/graph/graph-builder.js');
+      const stats = await buildGraphForProject(project ?? this._activeProject!);
+      return {
+        memoriesProcessed: stats.memoriesProcessed,
+        entitiesCreated: stats.entitiesCreated,
+        relationsCreated: stats.relationsCreated,
+        entitiesDeduplicated: stats.entitiesDeduplicated,
+        errors: stats.errors,
+        durationMs: stats.durationMs,
+      };
+    } catch (error) {
+      if (error instanceof SquishError) throw error;
+      throw new StorageError('Failed to build graph', error as Error);
+    }
+  }
+
+  // ─── Places ──────────────────────────────────────────────────────────────
+
+  /**
+   * Get all memory places for a project.
+   *
+   * @param project - Optional project path (uses active project if omitted)
+   * @returns Array of place records
+   */
+  async getPlaces(project?: string): Promise<PlaceRecord[]> {
+    try {
+      const { getProjectPlaces } = await import('../../../core/places/places.js');
+      const projectId = project ?? this._activeProject;
+      const places = await getProjectPlaces(projectId);
+      return places.map((p: any) => ({
+        id: p.id,
+        name: p.name,
+        memories: [],
+      }));
+    } catch (error) {
+      if (error instanceof SquishError) throw error;
+      throw new StorageError('Failed to get places', error as Error);
+    }
+  }
+
+  // ─── Sessions ────────────────────────────────────────────────────────────
+
+  /**
+   * List sessions with optional filtering.
+   *
+   * @param options - Optional session list configuration
+   * @returns Array of session records
+   */
+  async listSessions(options?: SessionOptions): Promise<SessionRecord[]> {
+    try {
+      const { listSessions } = await import('../../../core/sessions/index.js');
+      const result = await listSessions({ project: options?.project ?? this._activeProject, limit: options?.limit });
+      return result.sessions.map((s: any) => ({
+        id: s.session_id,
+        title: s.title,
+        project: s.project,
+        branch: s.branch,
+        agent: s.agent,
+        startedAt: s.started_at,
+        endedAt: s.ended_at,
+        status: s.status,
+        chunkCount: s.chunk_count,
+        memoryCount: s.chunk_count,
+      }));
+    } catch (error) {
+      if (error instanceof SquishError) throw error;
+      throw new StorageError('Failed to list sessions', error as Error);
+    }
+  }
+
+  /**
+   * Get all chunks for a specific session.
+   *
+   * @param sessionId - The session ID to retrieve chunks for
+   * @returns Array of chunk records
+   */
+  async getSessionChunks(sessionId: string): Promise<ChunkRecord[]> {
+    try {
+      const { getSessionChunks } = await import('../../../core/sessions/index.js');
+      const result = await getSessionChunks(sessionId);
+      if (!result?.chunks) return [];
+      return result.chunks.map((c: any) => ({
+        id: c.id,
+        sessionId: c.session_id,
+        content: c.content,
+        type: c.chunk_type,
+      }));
+    } catch (error) {
+      if (error instanceof SquishError) throw error;
+      throw new StorageError('Failed to get session chunks', error as Error);
+    }
+  }
+
+  /**
+   * Search session chunks by content.
+   *
+   * @param query - Search query to match against chunk content
+   * @param options - Optional search configuration
+   * @returns Array of matching chunk records
+   */
+  async searchChunks(query: string, options?: { limit?: number }): Promise<ChunkRecord[]> {
+    try {
+      const { searchChunks } = await import('../../../core/sessions/index.js');
+      const results = await searchChunks({ query, limit: options?.limit });
+      return results.map((r: any) => ({
+        id: r.chunk?.id ?? '',
+        sessionId: r.chunk?.session_id ?? '',
+        content: r.chunk?.content ?? '',
+        type: r.chunk?.chunk_type ?? '',
+      }));
+    } catch (error) {
+      if (error instanceof SquishError) throw error;
+      throw new StorageError('Failed to search chunks', error as Error);
+    }
+  }
+
+  // ─── Consolidation ───────────────────────────────────────────────────────
+
+  /**
+   * Run full memory maintenance (consolidation, decay, cleanup).
+   *
+   * @param options - Optional maintenance configuration
+   * @returns Maintenance result data
+   */
+  async runMaintenance(options?: MaintenanceOptions): Promise<unknown> {
+    try {
+      const { runFullMaintenance } = await import('../../../core/consolidation.js');
+      return await runFullMaintenance({
+        projectId: options?.project ?? this._activeProject,
+        dryRun: options?.dryRun,
+        steps: options?.steps as any,
+        age: options?.age,
+        llmEnabled: options?.llmEnabled,
+      });
+    } catch (error) {
+      if (error instanceof SquishError) throw error;
+      throw new StorageError('Failed to run maintenance', error as Error);
+    }
+  }
+
+  // ─── Migrations ──────────────────────────────────────────────────────────
+
+  /**
+   * Run memory migration to update schema or data format.
+   *
+   * @returns Migration result data
+   */
+  async migrateMemories(sourceDir?: string, targetDir?: string): Promise<unknown> {
+    try {
+      const { migrateMemories } = await import('../../../core/memory/migrate.js');
+      const src = sourceDir ?? this._activeProject ?? '.';
+      const tgt = targetDir ?? src;
+      return await migrateMemories(src, tgt);
+    } catch (error) {
+      if (error instanceof SquishError) throw error;
+      throw new StorageError('Failed to migrate memories', error as Error);
+    }
+  }
+
+  // ─── Schema Health ───────────────────────────────────────────────────────
+
+  /**
+   * Probe the schema health for a project.
+   *
+   * @param project - Optional project path (uses active project if omitted)
+   * @returns Schema health result with issues and fixes
+   */
+  async probeSchemaHealth(): Promise<SchemaHealthResult> {
+    try {
+      const { probeSchemaHealth } = await import('../../../db/schema-health.js');
+      const result = await probeSchemaHealth();
+      return {
+        healthy: result.status === 'ok',
+        issues: result.missingTables.length > 0 || result.missingColumns.length > 0
+          ? [result.detail]
+          : [],
+        fixes: result.remediation ? [result.remediation] : [],
+      };
+    } catch (error) {
+      if (error instanceof SquishError) throw error;
+      throw new StorageError('Failed to probe schema health', error as Error);
+    }
+  }
+
+  /**
+   * Fix schema issues for a project.
+   *
+   * @returns Schema health result after fixes
+   */
+  async fixSchemaIssues(): Promise<SchemaHealthResult> {
+    try {
+      const { fixSchemaIssues } = await import('../../../db/schema-health.js');
+      const actions = await fixSchemaIssues();
+      return {
+        healthy: actions.length === 0,
+        issues: actions.map((a: any) => a.detail ?? a.type ?? 'fix'),
+        fixes: actions.map((a: any) => a.detail ?? a.type ?? 'fix'),
+      };
+    } catch (error) {
+      if (error instanceof SquishError) throw error;
+      throw new StorageError('Failed to fix schema issues', error as Error);
+    }
+  }
+
+  // ─── Trust State ─────────────────────────────────────────────────────────
+
+  /**
+   * Build the context trust state for a project.
+   *
+   * @param project - Optional project path (uses active project if omitted)
+   * @returns Trust state with context data
+   */
+  async buildContextState(project?: string): Promise<TrustState> {
+    try {
+      const { buildContextState } = await import('../../../core/runtime/trust-state.js');
+      const result = await buildContextState(project ?? this._activeProject);
+      return {
+        project: result.currentProject.path,
+        mode: result.currentProject.resolution,
+        stats: {},
+        context: result as unknown as Record<string, unknown>,
+      };
+    } catch (error) {
+      if (error instanceof SquishError) throw error;
+      throw new StorageError('Failed to build context state', error as Error);
+    }
+  }
+
+  /**
+   * Build the stats trust state for a project.
+   *
+   * @param project - Optional project path (uses active project if omitted)
+   * @returns Trust state with stats data
+   */
+  async buildStatsState(project?: string): Promise<TrustState> {
+    try {
+      const { buildStatsState } = await import('../../../core/runtime/trust-state.js');
+      const result = await buildStatsState(project ?? this._activeProject);
+      return {
+        project: result.currentProject,
+        mode: 'stats',
+        stats: result as unknown as Record<string, unknown>,
+        context: {},
+      };
+    } catch (error) {
+      if (error instanceof SquishError) throw error;
+      throw new StorageError('Failed to build stats state', error as Error);
+    }
+  }
+
+  /**
+   * Resolve the project scope for a given project path.
+   *
+   * @param project - Optional project path (uses active project if omitted)
+   * @returns Resolved project scope string
+   */
+  async resolveProjectScope(project?: string): Promise<string> {
+    try {
+      const { resolveProjectScope } = await import('../../../core/runtime/trust-state.js');
+      const result = await resolveProjectScope(project ?? this._activeProject);
+      return result.currentProject?.path ?? project ?? this._activeProject ?? '';
+    } catch (error) {
+      if (error instanceof SquishError) throw error;
+      throw new StorageError('Failed to resolve project scope', error as Error);
+    }
+  }
+
+  // ─── Scheduler ───────────────────────────────────────────────────────────
+
+  /**
+   * Initialize the cron scheduler for automated maintenance tasks.
+   *
+   * @param options - Optional scheduler configuration
+   */
+  async initializeScheduler(): Promise<void> {
+    try {
+      const { initializeScheduler } = await import('../../../core/scheduler/cron-scheduler.js');
+      await initializeScheduler();
+    } catch (error) {
+      if (error instanceof SquishError) throw error;
+      throw new StorageError('Failed to initialize scheduler', error as Error);
+    }
+  }
+
+  // ─── Signals ─────────────────────────────────────────────────────────────
+
+  /**
+   * Detect memory-related signals in content (e.g. task, decision, error).
+   *
+   * @param content - The content to analyze for signals
+   * @returns Signal detection result
+   */
+  async detectMemorySignals(content: string): Promise<SignalResult> {
+    try {
+      const { detectMemorySignals } = await import('../../../core/memory/trigger-detector.js');
+      const result = detectMemorySignals(content);
+      const hasSignal = result.explicitTriggers.length > 0 ||
+        Object.values(result.implicit).some(v => v === true);
+      return {
+        signals: result.explicitTriggers,
+        hasSignal,
+      };
+    } catch (error) {
+      if (error instanceof SquishError) throw error;
+      throw new StorageError('Failed to detect memory signals', error as Error);
+    }
+  }
+
+  // ─── Learnings ───────────────────────────────────────────────────────────
+
+  /**
+   * Create a learning record from structured input.
+   *
+   * @param input - The learning input data
+   * @returns The created learning record
+   */
+  async createLearning(input: LearningInput): Promise<LearningRecord> {
+    try {
+      const { createLearning } = await import('../../../core/ingestion/learnings.js');
+      const validTypes = ['success', 'failure', 'fix', 'insight'];
+      const learningType = validTypes.includes(input.type) ? input.type : 'insight';
+      return await createLearning({
+        type: learningType as 'success' | 'failure' | 'fix' | 'insight',
+        content: input.content,
+        context: input.context,
+        action: input.action,
+        target: input.target,
+        project: input.project ?? this._activeProject,
+        memoryId: input.memoryId,
+      });
+    } catch (error) {
+      if (error instanceof SquishError) throw error;
+      throw new StorageError('Failed to create learning', error as Error);
+    }
   }
 
   /**

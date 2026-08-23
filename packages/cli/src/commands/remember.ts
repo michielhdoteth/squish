@@ -6,7 +6,7 @@
  */
 
 import { Command } from 'commander';
-import { rememberMemory } from '../../../../core/memory/memories.js';
+import { client } from '../program.js';
 import { detectMemorySignals } from '../../../../core/memory/trigger-detector.js';
 import { pinMemory, unpinMemory } from '../../../../core/security/governance.js';
 import { getRemediationForError } from '../errors.js';
@@ -83,17 +83,18 @@ export function registerRememberCommand(program: Command) {
             autoLink: true
           });
         } else {
-          // Store as memory
-          result = await rememberMemory({
-            content,
+          // Store as memory via SDK
+          result = await client.remember(content, {
             project: options.project,
             tags,
             type: options.type || signals.suggestedType,
-            source: options.source,
-            reasoning: options.reasoning,
-            memoryContext: options.context,
-            examples: options.examples,
-            exceptions: options.exceptions,
+            metadata: {
+              source: options.source,
+              reasoning: options.reasoning,
+              memoryContext: options.context,
+              examples: options.examples,
+              exceptions: options.exceptions,
+            },
           });
           
           if (options.pin) {

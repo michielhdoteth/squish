@@ -13,7 +13,7 @@ describe('launch-path CLI commands', () => {
     try {
       const result = spawnSync(
         'bun',
-        ['run', 'packages/cli/src/index.ts', 'context', '--json'],
+        ['run', 'packages/cli/src/index.ts', 'status', '--context', '--json'],
         {
           cwd: repoRoot,
           encoding: 'utf8',
@@ -71,7 +71,7 @@ describe('launch-path CLI commands', () => {
 
       const context = spawnSync(
         'bun',
-        ['run', 'packages/cli/src/index.ts', 'context', '--json'],
+        ['run', 'packages/cli/src/index.ts', 'status', '--context', '--json'],
         {
           cwd: repoRoot,
           encoding: 'utf8',
@@ -100,28 +100,7 @@ describe('launch-path CLI commands', () => {
         ]),
       );
 
-      const inspect = spawnSync(
-        'bun',
-        ['run', 'packages/cli/src/index.ts', 'inspect', remembered.id, '--json'],
-        {
-          cwd: repoRoot,
-          encoding: 'utf8',
-          env,
-          timeout: 30000,
-        },
-      );
-
-      expect(inspect.status).toBe(0);
-      const inspectJson = JSON.parse(inspect.stdout);
-      expect(inspectJson.inspection.id).toBe(remembered.id);
-      expect(inspectJson.inspection.beliefs).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            type: 'decision',
-            statement: 'Keep launch demos focused on one clean JSON command',
-          }),
-        ]),
-      );
+      // inspect was removed in CLI consolidation; context check above already confirms memory exists
     } finally {
       try { rmSync(tempDataDir, { recursive: true, force: true }); } catch (_) { /* Windows EBUSY */ }
     }
@@ -204,7 +183,7 @@ describe('launch-path CLI commands', () => {
 
       const degradedHealth = spawnSync(
         'bun',
-        ['run', 'packages/cli/src/index.ts', 'health', '--json'],
+        ['run', 'packages/cli/src/index.ts', 'doctor', '--json'],
         {
           cwd: repoRoot,
           encoding: 'utf8',
@@ -213,9 +192,10 @@ describe('launch-path CLI commands', () => {
         },
       );
 
-      expect(degradedHealth.status).toBe(0);
+      // doctor detects schema drift as "broken", exits with code 1
+      expect(degradedHealth.status).toBe(1);
       const healthJson = JSON.parse(degradedHealth.stdout);
-      expect(healthJson.severity).toBe('degraded');
+      expect(healthJson.severity).toBe('broken');
       expect(healthJson.checks).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
@@ -273,7 +253,7 @@ describe('launch-path CLI commands', () => {
 
       const context = spawnSync(
         'bun',
-        ['run', 'packages/cli/src/index.ts', 'context', '--json', '--project', '.'],
+        ['run', 'packages/cli/src/index.ts', 'status', '--context', '--json', '--project', '.'],
         {
           cwd: repoRoot,
           encoding: 'utf8',

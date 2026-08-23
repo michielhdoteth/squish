@@ -18,6 +18,7 @@ import { runIndexMigrations } from './indexes.js';
 import { runFtsMigrations } from './fts.js';
 import { runMaintenanceMigrations } from './maintenance.js';
 import { runEntitiesMigrations } from './entities.js';
+import { runTeamsMigrations } from './teams.js';
 
 /**
  * Run all v1.2.0 migrations in order
@@ -35,6 +36,7 @@ export async function runAllMigrations(sqlite: Database): Promise<void> {
   await runIndexMigrations(sqlite);
   await runFtsMigrations(sqlite);
   await runMaintenanceMigrations(sqlite);
+  await runTeamsMigrations(sqlite);
 }
 
 // Re-export for direct usage if needed
@@ -49,3 +51,4 @@ export { runIndexMigrations } from './indexes.js';
 export { runFtsMigrations } from './fts.js';
 export { runMaintenanceMigrations } from './maintenance.js';
 export { runEntitiesMigrations } from './entities.js';
+export { runTeamsMigrations } from './teams.js';

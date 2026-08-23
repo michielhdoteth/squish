@@ -1,6 +1,6 @@
 {
   "name": "squish-memory",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "author": "4m-labs",
   "repository": {
     "type": "git",
@@ -20,6 +20,7 @@
     "express": "^5.2.1",
     "express-rate-limit": "^8.3.2",
     "node-cron": "^4.2.1",
+    "pg": "^8.16.0",
     "picocolors": "^1.0.0",
     "redis": "^5.11.0",
     "sql.js": "^1.14.1",
@@ -32,6 +33,7 @@
     "@types/express": "^5.0.0",
     "@types/node": "^25.6.0",
     "@types/node-cron": "^3.0.11",
+    "@types/pg": "^8.15.6",
     "drizzle-kit": "^0.31.10",
     "esbuild": "^0.28.0",
     "pkg": "^5.8.1",
@@ -135,5 +137,8 @@
     "bench:db": "tsx benchmark/run.ts",
     "bench:locomo": "bun benchmark/locomo-full.ts"
   },
-  "type": "module"
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ]
 }

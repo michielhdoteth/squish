@@ -24,6 +24,8 @@ const REQUIRED_TABLES = [
   'beliefs',
   'belief_memory_sources',
   'belief_edges',
+  'knowledge',
+  'knowledge_edges',
 ] as const;
 
 const REQUIRED_INDEXES = [
@@ -790,6 +792,94 @@ function createSingleTable(raw: any, tableName: string): void {
       `);
       raw.exec('CREATE INDEX IF NOT EXISTS belief_edges_from_idx ON belief_edges(from_belief_id)');
       raw.exec('CREATE INDEX IF NOT EXISTS belief_edges_to_idx ON belief_edges(to_belief_id)');
+      break;
+
+    case 'knowledge':
+      raw.exec(`
+        CREATE TABLE IF NOT EXISTS knowledge (
+          id TEXT PRIMARY KEY,
+          project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+          user_id TEXT,
+          agent_id TEXT,
+          session_id TEXT,
+          knowledge_kind TEXT NOT NULL,
+          knowledge_type TEXT NOT NULL,
+          content TEXT NOT NULL,
+          summary TEXT,
+          embedding_json TEXT,
+          embedding BLOB,
+          confidence REAL DEFAULT 0.5,
+          confidence_level TEXT DEFAULT 'certain',
+          importance_score REAL DEFAULT 0.5,
+          importance_decay_rate REAL DEFAULT 30,
+          last_importance_recalc INTEGER,
+          normalized_key TEXT,
+          reason TEXT,
+          evidence_summary TEXT,
+          last_confirmed_at INTEGER,
+          source_count INTEGER DEFAULT 1,
+          title TEXT,
+          description TEXT,
+          steps TEXT,
+          success_criteria TEXT,
+          failure_indicators TEXT,
+          usage_count INTEGER DEFAULT 0,
+          success_count INTEGER DEFAULT 0,
+          failure_count INTEGER DEFAULT 0,
+          last_used_at INTEGER,
+          last_success_at INTEGER,
+          last_failure_at INTEGER,
+          status TEXT DEFAULT 'active',
+          superseded_by TEXT,
+          contradicts_id TEXT,
+          informed_by_id TEXT,
+          tags TEXT,
+          metadata TEXT,
+          place_id TEXT,
+          primary_place TEXT,
+          sector TEXT DEFAULT 'general',
+          tier TEXT DEFAULT 'episodic',
+          is_active INTEGER DEFAULT 1,
+          created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL,
+          updated_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL
+        );
+      `);
+      raw.exec('CREATE INDEX IF NOT EXISTS knowledge_project_idx ON knowledge(project_id)');
+      raw.exec('CREATE INDEX IF NOT EXISTS knowledge_kind_idx ON knowledge(knowledge_kind)');
+      raw.exec('CREATE INDEX IF NOT EXISTS knowledge_type_idx ON knowledge(knowledge_type)');
+      raw.exec('CREATE INDEX IF NOT EXISTS knowledge_status_idx ON knowledge(status)');
+      raw.exec('CREATE INDEX IF NOT EXISTS knowledge_session_idx ON knowledge(session_id)');
+      raw.exec('CREATE INDEX IF NOT EXISTS knowledge_user_idx ON knowledge(user_id)');
+      raw.exec('CREATE INDEX IF NOT EXISTS knowledge_agent_idx ON knowledge(agent_id)');
+      raw.exec('CREATE INDEX IF NOT EXISTS knowledge_confidence_idx ON knowledge(confidence)');
+      raw.exec('CREATE INDEX IF NOT EXISTS knowledge_active_idx ON knowledge(is_active)');
+      raw.exec('CREATE INDEX IF NOT EXISTS knowledge_created_idx ON knowledge(created_at)');
+      raw.exec('CREATE INDEX IF NOT EXISTS knowledge_sector_idx ON knowledge(sector)');
+      raw.exec('CREATE INDEX IF NOT EXISTS knowledge_tier_idx ON knowledge(tier)');
+      raw.exec('CREATE INDEX IF NOT EXISTS knowledge_project_kind_idx ON knowledge(project_id, knowledge_kind)');
+      raw.exec('CREATE INDEX IF NOT EXISTS knowledge_project_status_idx ON knowledge(project_id, status)');
+      break;
+
+    case 'knowledge_edges':
+      raw.exec(`
+        CREATE TABLE IF NOT EXISTS knowledge_edges (
+          id TEXT PRIMARY KEY,
+          from_id TEXT NOT NULL,
+          from_kind TEXT NOT NULL,
+          to_id TEXT NOT NULL,
+          to_kind TEXT NOT NULL,
+          edge_type TEXT NOT NULL,
+          weight REAL DEFAULT 1.0,
+          metadata TEXT,
+          created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL
+        );
+      `);
+      raw.exec('CREATE INDEX IF NOT EXISTS knowledge_edges_from_idx ON knowledge_edges(from_id, from_kind)');
+      raw.exec('CREATE INDEX IF NOT EXISTS knowledge_edges_to_idx ON knowledge_edges(to_id, to_kind)');
+      raw.exec('CREATE INDEX IF NOT EXISTS knowledge_edges_type_idx ON knowledge_edges(edge_type)');
+      raw.exec('CREATE INDEX IF NOT EXISTS knowledge_edges_from_kind_idx ON knowledge_edges(from_kind)');
+      raw.exec('CREATE INDEX IF NOT EXISTS knowledge_edges_to_kind_idx ON knowledge_edges(to_kind)');
+      raw.exec('CREATE UNIQUE INDEX IF NOT EXISTS knowledge_edges_unique ON knowledge_edges(from_id, from_kind, to_id, to_kind, edge_type)');
       break;
 
     default:

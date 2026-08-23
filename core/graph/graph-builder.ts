@@ -12,6 +12,7 @@ import { logger } from '../logger.js';
 import { config } from '../../config.js';
 import { extractAndStoreRelations } from './relationship-extractor.js';
 import { deduplicateProjectEntities } from './entity-deduplicator.js';
+import { emit } from '../event-bus.js';
 
 export interface GraphBuildStats {
   memoriesProcessed: number;
@@ -147,6 +148,21 @@ export async function buildGraphForProject(
   };
 
   logger.info('Graph build completed', stats);
+
+  emit({
+    type: 'graph:rebuilt',
+    payload: {
+      project: projectPath,
+      stats: {
+        memoriesProcessed: stats.memoriesProcessed,
+        entitiesCreated: stats.entitiesCreated,
+        relationsCreated: stats.relationsCreated,
+        entitiesDeduplicated: stats.entitiesDeduplicated,
+        errors: stats.errors,
+        durationMs: stats.durationMs,
+      },
+    },
+  });
 
   // Auto-export graph visualization if enabled
   if (config.graphAutoExport) {

@@ -2,28 +2,23 @@ import { Command } from 'commander';
 
 import { probeSchemaHealth, fixSchemaIssues } from '../../../db/schema-health.js';
 import { config } from '../../../config.js';
+import { SquishClient } from '@squish/sdk';
 
 import { registerRememberCommand } from './commands/remember.js';
 import { registerRecallCommand } from './commands/recall.js';
-import { registerRecentCommand } from './commands/recent.js';
-import { registerContextCommand } from './commands/context.js';
-import { registerStatsCommand } from './commands/stats.js';
 import { registerForgetCommand } from './commands/forget.js';
 import { registerLinkCommand } from './commands/link.js';
-import { registerStaleCommand } from './commands/stale.js';
 import { registerCleanCommand } from './commands/clean.js';
-import { registerMigrateCommand } from './commands/migrate.js';
 import { registerRunCommand } from './commands/run.js';
 import { registerDoctorCommand } from './commands/doctor.js';
-import { registerInspectCommand } from './commands/inspect.js';
-import { registerHealthCommand } from './commands/health.js';
-import { registerExportCommand } from './commands/export.js';
 import { registerInstallCommand, registerUninstallCommand } from './commands/install.js';
 import { registerPinCommand } from './commands/pin.js';
 import { registerSessionsCommand } from './commands/sessions.js';
 import { registerCloudCommand } from './commands/cloud.js';
 import { registerStatusCommand } from './commands/status.js';
-import { registerGraphCommand } from './commands/graph.js';
+
+/** Shared SDK client available to all command handlers. */
+export const client = new SquishClient();
 
 export function createProgram(): Command {
   const program = new Command();
@@ -35,7 +30,7 @@ export function createProgram(): Command {
 
   program.hook('preAction', async (_thisCommand, actionCommand) => {
     const commandName = actionCommand.name();
-    const exempt = new Set(['doctor', 'health', 'install', 'install-plugin', 'uninstall', 'migrate', 'pin', 'sessions', 'cloud']);
+    const exempt = new Set(['doctor', 'install', 'install-plugin', 'uninstall', 'pin', 'sessions', 'cloud']);
     if (exempt.has(commandName)) return;
 
     const probe = await probeSchemaHealth();
@@ -83,26 +78,17 @@ export function createProgram(): Command {
 
   registerRememberCommand(program);
   registerRecallCommand(program);
-  registerRecentCommand(program);
-  registerContextCommand(program);
-  registerStatsCommand(program);
   registerForgetCommand(program);
   registerLinkCommand(program);
-  registerStaleCommand(program);
   registerCleanCommand(program);
-  registerMigrateCommand(program);
   registerRunCommand(program);
   registerDoctorCommand(program);
-  registerInspectCommand(program);
-  registerHealthCommand(program);
-  registerExportCommand(program);
   registerInstallCommand(program);
   registerUninstallCommand(program);
   registerPinCommand(program);
   registerSessionsCommand(program);
   registerCloudCommand(program);
   registerStatusCommand(program);
-  registerGraphCommand(program);
 
   return program;
 }

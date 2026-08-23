@@ -16,6 +16,7 @@ import { getDbClient } from '../lib/db-client.js';
 import { createAssociation } from '../associations.js';
 import { search, type SearchResult } from '../memory/memories.js';
 import { updateAgentPreference } from '../agent-preferences.js';
+import { emit } from '../event-bus.js';
 
 // Learning type: success, failure, fix, insight
 export type LearningType = 'success' | 'failure' | 'fix' | 'insight';
@@ -98,7 +99,7 @@ export async function createLearning(input: LearningInput): Promise<LearningReco
   // Extract and store agent preferences from this learning
   await updateAgentPreference(project?.id ?? 'default', input.content, id);
 
-  return {
+  const record: LearningRecord = {
     id,
     projectId: project?.id ?? null,
     conversationId: null,
@@ -110,6 +111,17 @@ export async function createLearning(input: LearningInput): Promise<LearningReco
     memoryId: input.memoryId ?? null,
     createdAt: new Date().toISOString(),
   };
+
+  emit({
+    type: 'learning:stored',
+    payload: {
+      learningId: id,
+      type: learningType,
+      content: input.content,
+    },
+  });
+
+  return record;
 }
 
 /**

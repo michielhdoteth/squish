@@ -272,10 +272,16 @@ function buildConsolidationGeometryConfig() {
 function buildConfig() {
   return {
     get mode() {
-      return 'local' as const;
+      return process.env.SQUISH_DATABASE_URL ? 'team' as const : 'local' as const;
     },
     get isLocalMode() {
-      return true;
+      return !process.env.SQUISH_DATABASE_URL;
+    },
+    get isTeamMode() {
+      return Boolean(process.env.SQUISH_DATABASE_URL);
+    },
+    get databaseUrl() {
+      return process.env.SQUISH_DATABASE_URL || '';
     },
 
     get redisEnabled() {
@@ -609,6 +615,26 @@ function buildConfig() {
     },
     get placeClassificationEnabled() {
       return getBoolean('places.placeClassificationEnabled', 'SQUISH_PLACE_LLM_CLASSIFICATION', false);
+    },
+
+    // Sync configuration
+    get syncEnabled() {
+      return getBoolean('sync.enabled', 'SQUISH_SYNC_ENABLED', true);
+    },
+    get syncLocalPath() {
+      return getString('sync.localPath', 'SQUISH_SYNC_LOCAL_PATH', '');
+    },
+    get syncAutoSyncInterval() {
+      return getNumber('sync.autoSyncInterval', 'SQUISH_SYNC_AUTO_INTERVAL', 300000);
+    },
+    get syncServerHost() {
+      return getString('sync.serverHost', 'SQUISH_SYNC_SERVER_HOST', 'localhost');
+    },
+    get syncServerPort() {
+      return getNumber('sync.serverPort', 'SQUISH_SYNC_SERVER_PORT', 8768);
+    },
+    get syncTeamId() {
+      return getString('sync.teamId', 'SQUISH_SYNC_TEAM_ID', 'default-team');
     },
   };
 }

@@ -2,11 +2,13 @@
  * Squish Doctor Command
  *
  * Diagnose and fix common Squish issues automatically.
+ * Absorbs health check (formerly `squish health`) and migration (formerly `squish migrate`).
  *
  * Usage:
- *   squish doctor              # Run diagnostics
- *   squish doctor --fix       # Auto-fix issues
- *   squish doctor --migrate   # Force run database migrations
+ *   squish doctor                  # Run diagnostics (includes health check)
+ *   squish doctor --fix           # Auto-fix issues
+ *   squish doctor --migrate       # Force run database migrations
+ *   squish doctor --migrate <src> # Migrate memories from another .squish directory
  */
 
 import { Command } from 'commander';
@@ -75,9 +77,9 @@ async function checkFTSchema(): Promise<DiagnosticResult> {
 export function registerDoctorCommand(program: Command) {
   program
     .command('doctor')
-    .description('Diagnose and fix Squish issues')
+    .description('Diagnose and fix Squish issues (includes health check and migration)')
     .option('-f, --fix', 'Auto-fix issues when possible')
-    .option('-m, --migrate', 'Force run database migrations')
+    .option('-m, --migrate [source]', 'Force run database migrations, or migrate memories from another .squish directory')
     .option('--migrate-memories <source>', 'Migrate memories from another .squish directory')
     .option('--migrate-target <path>', 'Target for memory migration (default: current)')
     .option('--migrate-global', 'Migrate memories to global ~/.squish/')
@@ -92,9 +94,15 @@ export function registerDoctorCommand(program: Command) {
         process.env.SQUISH_QUIET = '1';
       }
       try {
-        // Handle memory migration if requested
-        if (options.migrateMemories) {
-          await runMemoryMigration(options);
+        // Handle memory migration if requested (via --migrate <source> or --migrate-memories)
+        const migrateSource = (typeof options.migrate === 'string' ? options.migrate : null) ?? options.migrateMemories;
+        if (migrateSource) {
+          await runMemoryMigration({ ...options, migrateMemories: migrateSource });
+          return;
+        }
+        // When --migrate is a boolean (no source), force migration mode
+        if (options.migrate === true) {
+          await runDoctorDiagnostics(options);
           return;
         }
         await runDoctorDiagnostics(options);

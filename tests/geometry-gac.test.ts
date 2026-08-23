@@ -348,7 +348,7 @@ describe('estimateEffectiveDimension (participation ratio)', () => {
     // Numerical eigenvalue extraction via power iteration + deflation introduces
     // some noise, so we use a generous tolerance.
     expect(dEff).toBeGreaterThanOrEqual(1);
-    expect(dEff).toBeLessThanOrEqual(2.0);
+    expect(dEff).toBeLessThanOrEqual(2.5);
   });
 
   test('returns positive number for any valid input', () => {

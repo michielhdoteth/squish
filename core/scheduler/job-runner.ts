@@ -135,7 +135,7 @@ async function boostFrequentlyAccessed(): Promise<number> {
   return boosted;
 }
 
-async function archiveStaleMemories(daysOld: number): Promise<number> {
+export async function archiveStaleMemories(daysOld: number): Promise<number> {
   const db = await getDb();
   if (!db) return 0;
 
@@ -143,15 +143,18 @@ async function archiveStaleMemories(daysOld: number): Promise<number> {
   const sqliteDb = db as any;
 
   // Soft-archive: mark stale memories as archived and inactive
-  // Uses a single bulk UPDATE for efficiency instead of N individual updates
+  // Sets status='archived' so decay/retrieval queries filtering on status='active'
+  // skip these rows, plus contextStatus='archived' per v0.5.0 lifecycle conventions
   const result = await sqliteDb
     .update(memories)
     .set({
+      status: 'archived',
       contextStatus: 'archived',
       isActive: false,
-      updatedAt: Math.floor(Date.now() / 1000),
+      updatedAt: new Date(),
     })
     .where(and(
+      eq(memories.status, 'active'),
       lt(memories.lastAccessedAt, staleThreshold),
       lt(memories.importanceScore, 30),
       eq(memories.isProtected, false),
@@ -168,9 +171,9 @@ async function cleanupOldFeedbackRecords(daysOld: number): Promise<number> {
   const oldThreshold = new Date(Date.now() - daysOld * 24 * 60 * 60 * 1000);
   const sqliteDb = db as any;
 
-  await sqliteDb
+  const result = await sqliteDb
     .delete(memoryFeedback)
     .where(lt(memoryFeedback.createdAt, oldThreshold));
 
-  return 0;
+  return result?.changes ?? 0;
 }

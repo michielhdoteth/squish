@@ -10,27 +10,19 @@ import { clearSchemaCache } from './schema.js';
 const dbInstances = new Map<string, any>();
 const dbInitPromises = new Map<string, Promise<any>>();
 
-// Transient error cache: errors expire after 5 minutes so the system can
-// recover from transient failures without requiring a manual resetDb() call.
-const DB_ERROR_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-const dbErrors = new Map<string, { message: string; timestamp: number }>();
+// Failed initialization is NOT cached: the init promise is removed in a
+// finally block, so the next getDb() call retries immediately. This lets the
+// system self-heal from transient failures (SQLite lock, disk full) without
+// requiring a manual resetDb() call.
 
 function getDbCacheKey(): string {
-  return process.env.SQUISH_DATA_DIR || '';
+  const mode = config.mode; // 'team' | 'local'
+  const dataDir = process.env.SQUISH_DATA_DIR || '';
+  return `${mode}:${dataDir}`;
 }
 
 export async function getDb() {
   const cacheKey = getDbCacheKey();
-
-  const cachedError = dbErrors.get(cacheKey);
-  if (cachedError) {
-    // Expire transient errors after TTL so the system can recover
-    if (Date.now() - cachedError.timestamp > DB_ERROR_CACHE_TTL_MS) {
-      dbErrors.delete(cacheKey);
-    } else {
-      throw new Error(cachedError.message);
-    }
-  }
 
   const cachedDb = dbInstances.get(cacheKey);
   if (cachedDb) {
@@ -44,12 +36,18 @@ export async function getDb() {
 
   const initPromise = (async () => {
     try {
-      const createdDb = await createDb();
+      let createdDb: any;
+      if (config.mode === 'team') {
+        const { createPgDb } = await import('./adapters/postgres.js');
+        createdDb = createPgDb();
+      } else {
+        createdDb = await createDb();
+      }
       dbInstances.set(cacheKey, createdDb);
       return createdDb;
     } catch (error) {
+      // Do not cache the failure: the next getDb() call will retry init
       const dbError = error instanceof Error ? error.message : 'Database initialization failed';
-      dbErrors.set(cacheKey, { message: dbError, timestamp: Date.now() });
       throw new Error(dbError);
     } finally {
       dbInitPromises.delete(cacheKey);
@@ -63,9 +61,24 @@ export async function getDb() {
 export function resetDb(): void {
   const cacheKey = getDbCacheKey();
   dbInstances.delete(cacheKey);
-  dbErrors.delete(cacheKey);
   dbInitPromises.delete(cacheKey);
   // Clear schema cache so it re-resolves for the new db
+  clearSchemaCache();
+}
+
+export async function closeAllDbs(): Promise<void> {
+  for (const [cacheKey, database] of dbInstances.entries()) {
+    try {
+      const client = (database as any)?.$client ?? database;
+      if (client && typeof client.close === 'function') {
+        await client.close();
+      }
+    } catch (error) {
+      logger.error('Failed to close database connection', error);
+    }
+    dbInstances.delete(cacheKey);
+  }
+  dbInitPromises.clear();
   clearSchemaCache();
 }
 

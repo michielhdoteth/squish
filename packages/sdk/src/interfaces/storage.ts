@@ -184,8 +184,10 @@ export interface ProjectRecord {
   id: string;
   name: string;
   path: string;
-  createdAt: Date;
-  updatedAt: Date;
+  description?: string | null;
+  metadata?: Record<string, unknown> | null;
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
 export interface LearningInput {
@@ -196,18 +198,22 @@ export interface LearningInput {
   target?: string;
   project?: string;
   memoryId?: string;
+  autoLink?: boolean;
 }
 
 export interface LearningRecord {
   id: string;
   type: string;
-  content: string;
+  /** Learning summary/content (core returns 'summary') */
+  content?: string;
+  /** Summary text (core field name) */
+  summary?: string;
   context?: string;
   action?: string;
-  target?: string;
+  target?: string | null;
+  createdAt?: string | Date | null;
   project?: string;
-  memoryId?: string;
-  createdAt: Date;
+  memoryId?: string | null;
 }
 
 export interface LearningFilter {

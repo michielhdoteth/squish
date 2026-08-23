@@ -1154,3 +1154,341 @@ export type StrategyEdge = typeof strategyEdges.$inferSelect;
 export type NewStrategyEdge = typeof strategyEdges.$inferInsert;
 export type StrategyBeliefEdge = typeof strategyBeliefEdges.$inferSelect;
 export type NewStrategyBeliefEdge = typeof strategyBeliefEdges.$inferInsert;
+
+// Skills System (v2.1.0)
+// ============================================================================
+
+/**
+ * Skills - reusable SOPs with versions, triggers, steps, and validation
+ */
+export const skills = sqliteTable('skills', {
+  id: text('id').primaryKey().$default(() => crypto.randomUUID()),
+  projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }),
+  userId: text('user_id').references(() => users.id, { onDelete: 'set null' }),
+  name: text('name').notNull(),
+  description: text('description'),
+  skillType: text('skill_type').notNull().default('workflow'),
+  status: text('status').notNull().default('draft'),
+  visibility: text('visibility').notNull().default('private'),
+  triggerConditions: text('trigger_conditions').$type<Record<string, unknown>>(),
+  steps: text('steps').$type<Array<{ step: number; action: string; description: string; tool?: string }>>(),
+  resources: text('resources').$type<string[]>(),
+  validationRules: text('validation_rules').$type<Record<string, unknown>>(),
+  successCriteria: text('success_criteria'),
+  failureIndicators: text('failure_indicators'),
+  tags: text('tags').$type<string[]>(),
+  metadata: text('metadata').$type<Record<string, unknown>>(),
+  usageCount: integer('usage_count').default(0),
+  successCount: integer('success_count').default(0),
+  failureCount: integer('failure_count').default(0),
+  lastUsedAt: integer('last_used_at', { mode: 'timestamp' }),
+  lastSuccessAt: integer('last_success_at', { mode: 'timestamp' }),
+  lastFailureAt: integer('last_failure_at', { mode: 'timestamp' }),
+  version: integer('version').default(1),
+  supersedes: text('supersedes').references((): any => skills.id, { onDelete: 'set null' }),
+  agentId: text('agent_id'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('skills_project_idx').on(table.projectId),
+  index('skills_type_idx').on(table.skillType),
+  index('skills_status_idx').on(table.status),
+  index('skills_visibility_idx').on(table.visibility),
+  index('skills_user_idx').on(table.userId),
+  index('skills_agent_idx').on(table.agentId),
+  index('skills_name_idx').on(table.name),
+]);
+
+/**
+ * Skill Versions - version history for skills
+ */
+export const skillVersions = sqliteTable('skill_versions', {
+  id: text('id').primaryKey().$default(() => crypto.randomUUID()),
+  skillId: text('skill_id').notNull().references(() => skills.id, { onDelete: 'cascade' }),
+  version: integer('version').notNull(),
+  name: text('name').notNull(),
+  description: text('description'),
+  triggerConditions: text('trigger_conditions').$type<Record<string, unknown>>(),
+  steps: text('steps').$type<Array<{ step: number; action: string; description: string; tool?: string }>>(),
+  resources: text('resources').$type<string[]>(),
+  validationRules: text('validation_rules').$type<Record<string, unknown>>(),
+  changeSummary: text('change_summary'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('skill_versions_skill_idx').on(table.skillId),
+  unique('skill_versions_unique').on(table.skillId, table.version),
+]);
+
+/**
+ * Skill Assignments - bind skills to agents
+ */
+export const skillAssignments = sqliteTable('skill_assignments', {
+  id: text('id').primaryKey().$default(() => crypto.randomUUID()),
+  skillId: text('skill_id').notNull().references(() => skills.id, { onDelete: 'cascade' }),
+  agentId: text('agent_id').notNull(),
+  priority: integer('priority').default(0),
+  enabled: integer('enabled', { mode: 'boolean' }).default(true),
+  contextFilter: text('context_filter').$type<Record<string, unknown>>(),
+  assignedBy: text('assigned_by').references(() => users.id, { onDelete: 'set null' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('skill_assignments_skill_idx').on(table.skillId),
+  index('skill_assignments_agent_idx').on(table.agentId),
+  unique('skill_assignments_unique').on(table.skillId, table.agentId),
+]);
+
+/**
+ * Skill Memory Links - connect skills to source memories
+ */
+export const skillMemoryLinks = sqliteTable('skill_memory_links', {
+  id: text('id').primaryKey().$default(() => crypto.randomUUID()),
+  skillId: text('skill_id').notNull().references(() => skills.id, { onDelete: 'cascade' }),
+  memoryId: text('memory_id').notNull().references(() => memories.id, { onDelete: 'cascade' }),
+  linkType: text('link_type').notNull().default('derived_from'),
+  confidence: real('confidence').default(1.0),
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('skill_memory_links_skill_idx').on(table.skillId),
+  index('skill_memory_links_memory_idx').on(table.memoryId),
+  unique('skill_memory_links_unique').on(table.skillId, table.memoryId),
+]);
+
+// Wiki System (v2.1.0)
+// ============================================================================
+
+/**
+ * Wiki Pages - structured document pages with link graphs
+ */
+export const wikiPages = sqliteTable('wiki_pages', {
+  id: text('id').primaryKey().$default(() => crypto.randomUUID()),
+  projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }),
+  userId: text('user_id').references(() => users.id, { onDelete: 'set null' }),
+  title: text('title').notNull(),
+  slug: text('slug').notNull(),
+  content: text('content'),
+  summary: text('summary'),
+  pageType: text('page_type').notNull().default('article'),
+  status: text('status').notNull().default('draft'),
+  visibility: text('visibility').notNull().default('private'),
+  tags: text('tags').$type<string[]>(),
+  metadata: text('metadata').$type<Record<string, unknown>>(),
+  wordCount: integer('word_count').default(0),
+  lastIndexedAt: integer('last_indexed_at', { mode: 'timestamp' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('wiki_pages_project_idx').on(table.projectId),
+  index('wiki_pages_slug_idx').on(table.slug),
+  index('wiki_pages_type_idx').on(table.pageType),
+  index('wiki_pages_status_idx').on(table.status),
+  index('wiki_pages_visibility_idx').on(table.visibility),
+  index('wiki_pages_user_idx').on(table.userId),
+  unique('wiki_pages_project_slug_unique').on(table.projectId, table.slug),
+]);
+
+/**
+ * Wiki Links - wikilink graph between pages
+ */
+export const wikiLinks = sqliteTable('wiki_links', {
+  id: text('id').primaryKey().$default(() => crypto.randomUUID()),
+  sourcePageId: text('source_page_id').notNull().references(() => wikiPages.id, { onDelete: 'cascade' }),
+  targetPageId: text('target_page_id').references(() => wikiPages.id, { onDelete: 'set null' }),
+  targetSlug: text('target_slug').notNull(),
+  context: text('context'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('wiki_links_source_idx').on(table.sourcePageId),
+  index('wiki_links_target_idx').on(table.targetPageId),
+  index('wiki_links_slug_idx').on(table.targetSlug),
+  unique('wiki_links_unique').on(table.sourcePageId, table.targetSlug),
+]);
+
+/**
+ * Wiki Page Versions - edit history
+ */
+export const wikiPageVersions = sqliteTable('wiki_page_versions', {
+  id: text('id').primaryKey().$default(() => crypto.randomUUID()),
+  pageId: text('page_id').notNull().references(() => wikiPages.id, { onDelete: 'cascade' }),
+  version: integer('version').notNull(),
+  title: text('title').notNull(),
+  content: text('content'),
+  changeSummary: text('change_summary'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('wiki_page_versions_page_idx').on(table.pageId),
+  unique('wiki_page_versions_unique').on(table.pageId, table.version),
+]);
+
+// Agent Loadout & Visibility (v2.1.0)
+// ============================================================================
+
+/**
+ * Agent Loadouts - bind memory assets to specific agents
+ */
+export const agentLoadouts = sqliteTable('agent_loadouts', {
+  id: text('id').primaryKey().$default(() => crypto.randomUUID()),
+  agentId: text('agent_id').notNull(),
+  assetType: text('asset_type').notNull(),
+  assetId: text('asset_id').notNull(),
+  priority: integer('priority').default(0),
+  enabled: integer('enabled', { mode: 'boolean' }).default(true),
+  injectionMode: text('injection_mode').default('append'),
+  metadata: text('metadata').$type<Record<string, unknown>>(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('agent_loadouts_agent_idx').on(table.agentId),
+  index('agent_loadouts_asset_idx').on(table.assetType, table.assetId),
+  unique('agent_loadouts_unique').on(table.agentId, table.assetType, table.assetId),
+]);
+
+/**
+ * Visibility Rules - fine-grained ACL for assets
+ */
+export const visibilityRules = sqliteTable('visibility_rules', {
+  id: text('id').primaryKey().$default(() => crypto.randomUUID()),
+  assetType: text('asset_type').notNull(),
+  assetId: text('asset_id').notNull(),
+  ruleType: text('rule_type').notNull(),
+  granteeType: text('grantee_type').notNull(),
+  granteeId: text('grantee_id').notNull(),
+  permission: text('permission').notNull().default('read'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('visibility_rules_asset_idx').on(table.assetType, table.assetId),
+  index('visibility_rules_grantee_idx').on(table.granteeType, table.granteeId),
+  unique('visibility_rules_unique').on(table.assetType, table.assetId, table.granteeType, table.granteeId),
+]);
+
+// Team Tables
+// ============================================================================
+
+/**
+ * Teams - organization containers
+ */
+export const teams = sqliteTable('teams', {
+  id: text('id').primaryKey().$default(() => crypto.randomUUID()),
+  name: text('name').notNull(),
+  slug: text('slug').notNull().unique(),
+  description: text('description'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('teams_slug_idx').on(table.slug),
+]);
+
+/**
+ * Team Members - membership join table
+ */
+export const team_members = sqliteTable('team_members', {
+  id: text('id').primaryKey().$default(() => crypto.randomUUID()),
+  teamId: text('team_id').notNull().references(() => teams.id, { onDelete: 'cascade' }),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  role: text('role').notNull().default('member'), // 'owner' | 'admin' | 'member'
+  joinedAt: integer('joined_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  unique('team_members_team_user_unique').on(table.teamId, table.userId),
+  index('team_members_team_idx').on(table.teamId),
+  index('team_members_user_idx').on(table.userId),
+]);
+
+/**
+ * Team Invitations - pending invitations
+ */
+export const team_invitations = sqliteTable('team_invitations', {
+  id: text('id').primaryKey().$default(() => crypto.randomUUID()),
+  teamId: text('team_id').notNull().references(() => teams.id, { onDelete: 'cascade' }),
+  email: text('email').notNull(),
+  role: text('role').notNull().default('member'),
+  code: text('code').notNull().unique(),
+  expiresAt: integer('expires_at', { mode: 'timestamp' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('team_invitations_team_idx').on(table.teamId),
+  index('team_invitations_code_idx').on(table.code),
+]);
+
+/**
+ * Team Shares - memory sharing between teams
+ */
+export const team_shares = sqliteTable('team_shares', {
+  id: text('id').primaryKey().$default(() => crypto.randomUUID()),
+  memoryId: text('memory_id').notNull().references(() => memories.id, { onDelete: 'cascade' }),
+  teamId: text('team_id').notNull().references(() => teams.id, { onDelete: 'cascade' }),
+  sharedBy: text('shared_by').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  permission: text('permission').notNull().default('read'), // 'read' | 'write'
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  unique('team_shares_memory_team_unique').on(table.memoryId, table.teamId),
+  index('team_shares_memory_idx').on(table.memoryId),
+  index('team_shares_team_idx').on(table.teamId),
+]);
+
+// ============================================================================
+// Audit Tables
+// ============================================================================
+
+/**
+ * Audit Logs - tracks all actions in the system
+ */
+export const audit_logs = sqliteTable('audit_logs', {
+  id: text('id').primaryKey().$default(() => crypto.randomUUID()),
+  userId: text('user_id').references(() => users.id, { onDelete: 'set null' }),
+  action: text('action').notNull(),
+  entityType: text('entity_type').notNull(),
+  entityId: text('entity_id').notNull(),
+  teamId: text('team_id').references(() => teams.id, { onDelete: 'set null' }),
+  metadata: text('metadata', { mode: 'json' }),
+  ipAddress: text('ip_address'),
+  userAgent: text('user_agent'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('audit_logs_user_idx').on(table.userId),
+  index('audit_logs_action_idx').on(table.action),
+  index('audit_logs_entity_idx').on(table.entityType, table.entityId),
+  index('audit_logs_team_idx').on(table.teamId),
+  index('audit_logs_created_idx').on(table.createdAt),
+]);
+
+/**
+ * Audit Log Changes - detailed change tracking
+ */
+export const audit_log_changes = sqliteTable('audit_log_changes', {
+  id: text('id').primaryKey().$default(() => crypto.randomUUID()),
+  auditLogId: text('audit_log_id').notNull().references(() => audit_logs.id, { onDelete: 'cascade' }),
+  field: text('field').notNull(),
+  oldValue: text('old_value'),
+  newValue: text('new_value'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('audit_log_changes_audit_idx').on(table.auditLogId),
+]);
+
+// Team type exports
+export type Team = typeof teams.$inferSelect;
+export type TeamMember = typeof team_members.$inferSelect;
+export type TeamInvitation = typeof team_invitations.$inferSelect;
+export type TeamShare = typeof team_shares.$inferSelect;
+
+// Skills type exports
+export type Skill = typeof skills.$inferSelect;
+export type NewSkill = typeof skills.$inferInsert;
+export type SkillVersion = typeof skillVersions.$inferSelect;
+export type NewSkillVersion = typeof skillVersions.$inferInsert;
+export type SkillAssignment = typeof skillAssignments.$inferSelect;
+export type NewSkillAssignment = typeof skillAssignments.$inferInsert;
+export type SkillMemoryLink = typeof skillMemoryLinks.$inferSelect;
+export type NewSkillMemoryLink = typeof skillMemoryLinks.$inferInsert;
+
+// Wiki type exports
+export type WikiPage = typeof wikiPages.$inferSelect;
+export type NewWikiPage = typeof wikiPages.$inferInsert;
+export type WikiLink = typeof wikiLinks.$inferSelect;
+export type NewWikiLink = typeof wikiLinks.$inferInsert;
+export type WikiPageVersion = typeof wikiPageVersions.$inferSelect;
+export type NewWikiPageVersion = typeof wikiPageVersions.$inferInsert;
+
+// Agent Loadout type exports
+export type AgentLoadout = typeof agentLoadouts.$inferSelect;
+export type NewAgentLoadout = typeof agentLoadouts.$inferInsert;
+export type VisibilityRule = typeof visibilityRules.$inferSelect;
+export type NewVisibilityRule = typeof visibilityRules.$inferInsert;

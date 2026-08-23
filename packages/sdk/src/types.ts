@@ -281,3 +281,143 @@ export interface RecallClientOptions {
   /** Strategy override (hybrid_search, entity_aware, etc.) */
   strategy?: string;
 }
+
+// ─── Governance Types ────────────────────────────────────────────────────────
+
+/**
+ * Options for pinning/unpinning memories.
+ */
+export interface PinOptions {
+  /** Project path to scope the operation */
+  project?: string;
+}
+
+/**
+ * Options for listing sessions.
+ */
+export interface SessionOptions {
+  /** Project path to scope the operation */
+  project?: string;
+  /** Maximum number of sessions to return */
+  limit?: number;
+}
+
+/**
+ * Options for maintenance operations.
+ */
+export interface MaintenanceOptions {
+  /** Project path to scope the operation */
+  project?: string;
+  /** Dry run without making changes */
+  dryRun?: boolean;
+  /** Specific maintenance steps to run */
+  steps?: ('dedup' | 'stale' | 'consolidate' | 'inbox')[];
+  /** Age threshold in days */
+  age?: number;
+  /** Whether to use LLM for enhanced steps */
+  llmEnabled?: boolean;
+}
+
+/**
+ * Result of a schema health check.
+ */
+export interface SchemaHealthResult {
+  /** Whether the schema is healthy */
+  healthy: boolean;
+  /** List of detected issues */
+  issues: string[];
+  /** List of applied or available fixes */
+  fixes: string[];
+}
+
+/**
+ * Trust state for a project's runtime context.
+ */
+export interface TrustState {
+  /** Project path */
+  project: string;
+  /** Current mode (e.g. 'local', 'server') */
+  mode: string;
+  /** Aggregate statistics */
+  stats: Record<string, unknown>;
+  /** Runtime context data */
+  context: Record<string, unknown>;
+}
+
+/**
+ * Result of memory signal detection.
+ */
+export interface SignalResult {
+  /** Detected signal labels */
+  signals: string[];
+  /** Whether any signal was detected */
+  hasSignal: boolean;
+}
+
+/**
+ * An association between two memories.
+ */
+export interface AssociationResult {
+  /** Association ID */
+  id: string;
+  /** Source memory ID */
+  fromId: string;
+  /** Target memory ID */
+  toId: string;
+  /** Association type label */
+  type: string;
+}
+
+/**
+ * A memory place record.
+ */
+export interface PlaceRecord {
+  /** Place ID */
+  id: string;
+  /** Place name */
+  name: string;
+  /** Memory IDs linked to this place */
+  memories: string[];
+}
+
+/**
+ * A session record.
+ */
+export interface SessionRecord {
+  /** Session ID */
+  id: string;
+  /** Session title */
+  title?: string;
+  /** Project path */
+  project?: string;
+  /** Git branch */
+  branch?: string;
+  /** Agent identifier */
+  agent: string;
+  /** ISO timestamp when the session started */
+  startedAt: string;
+  /** ISO timestamp when the session ended */
+  endedAt?: string;
+  /** Session status */
+  status?: string;
+  /** Number of chunks in the session */
+  chunkCount: number;
+  /** Number of memories created in the session (alias for chunkCount) */
+  memoryCount: number;
+}
+
+/**
+ * A session chunk record.
+ */
+export interface ChunkRecord {
+  /** Chunk ID */
+  id: string;
+  /** Session ID this chunk belongs to */
+  sessionId: string;
+  /** Chunk content */
+  content: string;
+  /** Chunk type */
+  type?: string;
+  /** ISO timestamp of the chunk */
+  timestamp?: string;
+}

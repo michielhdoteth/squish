@@ -334,6 +334,8 @@ export async function checkHealth(): Promise<{
 export async function unload(): Promise<void> {
   if (rerankerPipeline) {
     rerankerPipeline = null;
+    isLoading = false;
+    loadPromise = null;
     logger.info('Cross-encoder reranker pipeline unloaded');
   }
 }

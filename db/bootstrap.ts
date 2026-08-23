@@ -776,6 +776,177 @@ CREATE TABLE IF NOT EXISTS strategy_belief_edges (
 CREATE INDEX IF NOT EXISTS strategy_belief_edges_strategy_idx ON strategy_belief_edges(strategy_id);
 CREATE INDEX IF NOT EXISTS strategy_belief_edges_belief_idx ON strategy_belief_edges(belief_id);
 
+-- Skills System (v2.1.0) - Reusable SOPs with versions, triggers, steps
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS skills (
+  id TEXT PRIMARY KEY,
+  project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+  user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+  name TEXT NOT NULL,
+  description TEXT,
+  skill_type TEXT NOT NULL DEFAULT 'workflow',
+  status TEXT NOT NULL DEFAULT 'draft',
+  visibility TEXT NOT NULL DEFAULT 'private',
+  trigger_conditions TEXT,
+  steps TEXT,
+  resources TEXT,
+  validation_rules TEXT,
+  success_criteria TEXT,
+  failure_indicators TEXT,
+  tags TEXT,
+  metadata TEXT,
+  usage_count INTEGER DEFAULT 0,
+  success_count INTEGER DEFAULT 0,
+  failure_count INTEGER DEFAULT 0,
+  last_used_at INTEGER,
+  last_success_at INTEGER,
+  last_failure_at INTEGER,
+  version INTEGER DEFAULT 1,
+  supersedes TEXT REFERENCES skills(id) ON DELETE SET NULL,
+  agent_id TEXT,
+  created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL,
+  updated_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL
+);
+CREATE INDEX IF NOT EXISTS skills_project_idx ON skills(project_id);
+CREATE INDEX IF NOT EXISTS skills_type_idx ON skills(skill_type);
+CREATE INDEX IF NOT EXISTS skills_status_idx ON skills(status);
+CREATE INDEX IF NOT EXISTS skills_visibility_idx ON skills(visibility);
+CREATE INDEX IF NOT EXISTS skills_user_idx ON skills(user_id);
+CREATE INDEX IF NOT EXISTS skills_agent_idx ON skills(agent_id);
+CREATE INDEX IF NOT EXISTS skills_name_idx ON skills(name);
+
+CREATE TABLE IF NOT EXISTS skill_versions (
+  id TEXT PRIMARY KEY,
+  skill_id TEXT NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
+  version INTEGER NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT,
+  trigger_conditions TEXT,
+  steps TEXT,
+  resources TEXT,
+  validation_rules TEXT,
+  change_summary TEXT,
+  created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL,
+  UNIQUE(skill_id, version)
+);
+CREATE INDEX IF NOT EXISTS skill_versions_skill_idx ON skill_versions(skill_id);
+
+CREATE TABLE IF NOT EXISTS skill_assignments (
+  id TEXT PRIMARY KEY,
+  skill_id TEXT NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
+  agent_id TEXT NOT NULL,
+  priority INTEGER DEFAULT 0,
+  enabled INTEGER DEFAULT 1,
+  context_filter TEXT,
+  assigned_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+  created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL,
+  UNIQUE(skill_id, agent_id)
+);
+CREATE INDEX IF NOT EXISTS skill_assignments_skill_idx ON skill_assignments(skill_id);
+CREATE INDEX IF NOT EXISTS skill_assignments_agent_idx ON skill_assignments(agent_id);
+
+CREATE TABLE IF NOT EXISTS skill_memory_links (
+  id TEXT PRIMARY KEY,
+  skill_id TEXT NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
+  memory_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+  link_type TEXT NOT NULL DEFAULT 'derived_from',
+  confidence REAL DEFAULT 1.0,
+  created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL,
+  UNIQUE(skill_id, memory_id)
+);
+CREATE INDEX IF NOT EXISTS skill_memory_links_skill_idx ON skill_memory_links(skill_id);
+CREATE INDEX IF NOT EXISTS skill_memory_links_memory_idx ON skill_memory_links(memory_id);
+
+-- Wiki System (v2.1.0) - Structured document pages with link graphs
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS wiki_pages (
+  id TEXT PRIMARY KEY,
+  project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+  user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+  title TEXT NOT NULL,
+  slug TEXT NOT NULL,
+  content TEXT,
+  summary TEXT,
+  page_type TEXT NOT NULL DEFAULT 'article',
+  status TEXT NOT NULL DEFAULT 'draft',
+  visibility TEXT NOT NULL DEFAULT 'private',
+  tags TEXT,
+  metadata TEXT,
+  word_count INTEGER DEFAULT 0,
+  last_indexed_at INTEGER,
+  created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL,
+  updated_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL,
+  UNIQUE(project_id, slug)
+);
+CREATE INDEX IF NOT EXISTS wiki_pages_project_idx ON wiki_pages(project_id);
+CREATE INDEX IF NOT EXISTS wiki_pages_slug_idx ON wiki_pages(slug);
+CREATE INDEX IF NOT EXISTS wiki_pages_type_idx ON wiki_pages(page_type);
+CREATE INDEX IF NOT EXISTS wiki_pages_status_idx ON wiki_pages(status);
+CREATE INDEX IF NOT EXISTS wiki_pages_visibility_idx ON wiki_pages(visibility);
+CREATE INDEX IF NOT EXISTS wiki_pages_user_idx ON wiki_pages(user_id);
+
+CREATE TABLE IF NOT EXISTS wiki_links (
+  id TEXT PRIMARY KEY,
+  source_page_id TEXT NOT NULL REFERENCES wiki_pages(id) ON DELETE CASCADE,
+  target_page_id TEXT REFERENCES wiki_pages(id) ON DELETE SET NULL,
+  target_slug TEXT NOT NULL,
+  context TEXT,
+  created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL,
+  UNIQUE(source_page_id, target_slug)
+);
+CREATE INDEX IF NOT EXISTS wiki_links_source_idx ON wiki_links(source_page_id);
+CREATE INDEX IF NOT EXISTS wiki_links_target_idx ON wiki_links(target_page_id);
+CREATE INDEX IF NOT EXISTS wiki_links_slug_idx ON wiki_links(target_slug);
+
+CREATE TABLE IF NOT EXISTS wiki_page_versions (
+  id TEXT PRIMARY KEY,
+  page_id TEXT NOT NULL REFERENCES wiki_pages(id) ON DELETE CASCADE,
+  version INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  content TEXT,
+  change_summary TEXT,
+  created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL,
+  UNIQUE(page_id, version)
+);
+CREATE INDEX IF NOT EXISTS wiki_page_versions_page_idx ON wiki_page_versions(page_id);
+
+-- Agent Loadout (v2.1.0) - Bind memory assets to agents
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS agent_loadouts (
+  id TEXT PRIMARY KEY,
+  agent_id TEXT NOT NULL,
+  asset_type TEXT NOT NULL,
+  asset_id TEXT NOT NULL,
+  priority INTEGER DEFAULT 0,
+  enabled INTEGER DEFAULT 1,
+  injection_mode TEXT DEFAULT 'append',
+  metadata TEXT,
+  created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL,
+  UNIQUE(agent_id, asset_type, asset_id)
+);
+CREATE INDEX IF NOT EXISTS agent_loadouts_agent_idx ON agent_loadouts(agent_id);
+CREATE INDEX IF NOT EXISTS agent_loadouts_asset_idx ON agent_loadouts(asset_type, asset_id);
+
+-- Visibility ACL (v2.1.0) - Fine-grained access control
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS visibility_rules (
+  id TEXT PRIMARY KEY,
+  asset_type TEXT NOT NULL,
+  asset_id TEXT NOT NULL,
+  rule_type TEXT NOT NULL,
+  grantee_type TEXT NOT NULL,
+  grantee_id TEXT NOT NULL,
+  permission TEXT NOT NULL DEFAULT 'read',
+  created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL,
+  UNIQUE(asset_type, asset_id, grantee_type, grantee_id)
+);
+CREATE INDEX IF NOT EXISTS visibility_rules_asset_idx ON visibility_rules(asset_type, asset_id);
+CREATE INDEX IF NOT EXISTS visibility_rules_grantee_idx ON visibility_rules(grantee_type, grantee_id);
+
 `;
 
 
@@ -818,6 +989,9 @@ const SCHEMA_VERSIONS = [
   { version: '1.2.0-place-sort', description: 'Add place_sort_order column to places' },
   { version: '1.2.0-mem-place', description: 'Add place_sort_order to memories and memory_places' },
   { version: '1.2.0-agent-prefs', description: 'Add agent_preferences table for agent evolution' },
+  { version: '2.1.0-skills', description: 'Add skills, skill_versions, skill_assignments, skill_memory_links tables' },
+  { version: '2.1.0-wiki', description: 'Add wiki_pages, wiki_links, wiki_page_versions tables' },
+  { version: '2.1.0-loadout', description: 'Add agent_loadouts, visibility_rules tables' },
 ];
 
 async function initializeSchemaVersionTable(sqlite: Database): Promise<void> {

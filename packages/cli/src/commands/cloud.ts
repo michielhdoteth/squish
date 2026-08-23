@@ -2,74 +2,37 @@
  * Cloud Command Group - Connect CLI to Squish Cloud
  *
  * Usage:
- *   squish cloud login              # Login or signup
+ *   squish cloud login              # Login or signup (OAuth / email+password)
  *   squish cloud status             # Show cloud connection status
  *   squish cloud sync               # Sync local memories to cloud
  *   squish cloud logout             # Remove cloud credentials
  */
 
 import { Command } from 'commander';
-import { intro, outro, text, confirm, spinner, password } from '@clack/prompts';
+import { intro, outro, text, confirm, select, spinner, password } from '@clack/prompts';
 import picocolors from 'picocolors';
-import fs from 'node:fs';
-import path from 'node:path';
-import os from 'node:os';
+import {
+  loadCloudAuth,
+  saveCloudAuth,
+  clearCloudAuth,
+  loginWithEmail,
+  loginWithBrowser,
+  type CloudAuth,
+} from './cloud-login.js';
 
 const c = picocolors;
 
+// Re-export auth helpers so other modules (status, sync) can use them.
+export { loadCloudAuth, saveCloudAuth, clearCloudAuth };
+export type { CloudAuth };
+
 // ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
-/** Convert ISO string or epoch to epoch seconds for SQLite */
-function toEpoch(val: any): number {
-  if (!val) return Math.floor(Date.now() / 1000);
-  if (typeof val === 'number') return val;
-  if (typeof val === 'string') {
-    const d = new Date(val);
-    return isNaN(d.getTime()) ? Math.floor(Date.now() / 1000) : Math.floor(d.getTime() / 1000);
-  }
-  return Math.floor(Date.now() / 1000);
-}
-
-// ---------------------------------------------------------------------------
-// Auth storage
-// ---------------------------------------------------------------------------
-
-interface CloudAuth {
-  email: string;
-  apiKey: string;
-  projectId: string;
-  projectName: string;
-  cloudUrl: string;
-  loggedInAt: string;
-}
-
-const AUTH_FILE = path.join(os.homedir(), '.squish', 'auth.json');
-
-function loadAuth(): CloudAuth | null {
-  try {
-    if (fs.existsSync(AUTH_FILE)) {
-      return JSON.parse(fs.readFileSync(AUTH_FILE, 'utf-8'));
-    }
-  } catch {
-    // corrupted auth file
-  }
-  return null;
-}
-
-function saveAuth(auth: CloudAuth): void {
-  const dir = path.dirname(AUTH_FILE);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-  fs.writeFileSync(AUTH_FILE, JSON.stringify(auth, null, 2), 'utf-8');
-}
-
-function clearAuth(): void {
-  if (fs.existsSync(AUTH_FILE)) {
-    fs.unlinkSync(AUTH_FILE);
-  }
+/** Convert ISO date string to Unix epoch seconds (for SQLite). */
+function toEpoch(dateStr: string | null | undefined): number {
+  if (!dateStr) return Math.floor(Date.now() / 1000);
+  return Math.floor(new Date(dateStr).getTime() / 1000);
 }
 
 // ---------------------------------------------------------------------------
@@ -124,13 +87,13 @@ async function apiCall(cloudUrl: string, endpoint: string, options: {
 // Login command
 // ---------------------------------------------------------------------------
 
-async function runLogin(opts: { email?: string; url?: string }) {
+async function runLogin(opts: { email?: string; url?: string; browser?: boolean }) {
   intro(c.cyan('Squish Cloud Login'));
 
   const cloudUrl = opts.url || 'https://api.squishplugin.dev';
 
   // Check if already logged in
-  const existing = loadAuth();
+  const existing = loadCloudAuth();
   if (existing) {
     const proceed = await confirm({
       message: `Already logged in as ${c.cyan(existing.email)}. Switch account?`,
@@ -142,110 +105,63 @@ async function runLogin(opts: { email?: string; url?: string }) {
     }
   }
 
-  // Get email
-  let email = opts.email;
-  if (!email) {
-    const input = await text({
-      message: 'Email address:',
-      validate: (val) => {
-        if (!val || !val.includes('@')) return 'Please enter a valid email address';
-        return undefined;
-      },
+  // Choose login method (skip prompt if --email or --browser provided)
+  let method: 'browser' | 'email' = 'browser';
+  if (opts.email) {
+    method = 'email';
+  } else if (!opts.browser) {
+    const choice = await select({
+      message: 'How would you like to log in?',
+      options: [
+        { value: 'browser', label: 'Browser (Google OAuth)', hint: 'Opens your browser' },
+        { value: 'email', label: 'Email & Password', hint: 'Enter credentials directly' },
+      ],
     });
-    if (typeof input === 'symbol') { outro('Cancelled.'); return; }
-    email = input;
+    if (typeof choice === 'symbol') { outro('Cancelled.'); return; }
+    method = choice as 'browser' | 'email';
   }
 
-  // Try login first, then signup if not found
   const s = spinner();
   let auth: CloudAuth;
 
   try {
-    // Try login
-    s.start('Connecting to Squish Cloud...');
-    const loginResult = await apiCall(cloudUrl, '/api/auth/login', {
-      method: 'POST',
-      body: { email },
-    });
-
-    // API returns snake_case: api_key, project_id
-    const loginApiKey = loginResult.api_key || loginResult.apiKey;
-    if (loginApiKey && loginResult.success) {
-      // Login succeeded
-      s.stop('Logged in successfully');
-
-      auth = {
-        email,
-        apiKey: loginApiKey,
-        projectId: loginResult.project_id || '',
-        projectName: email.split('@')[0],
-        cloudUrl,
-        loggedInAt: new Date().toISOString(),
-      };
-
-      // Try to get richer project info from /me
-      try {
-        const meResult = await apiCall(cloudUrl, '/api/auth/me', {
-          apiKey: loginApiKey,
+    if (method === 'browser') {
+      // --- Browser OAuth flow ---
+      s.start('Waiting for browser login...');
+      auth = await loginWithBrowser(cloudUrl);
+      s.stop('Authenticated via browser');
+    } else {
+      // --- Email/password flow ---
+      let email = opts.email;
+      if (!email) {
+        const input = await text({
+          message: 'Email address:',
+          validate: (val) => {
+            if (!val || !val.includes('@')) return 'Please enter a valid email address';
+            return undefined;
+          },
         });
-        if (meResult.name) auth.projectName = meResult.name;
-        if (meResult.id) auth.projectId = meResult.id;
-      } catch {
-        // Use what we have from login
+        if (typeof input === 'symbol') { outro('Cancelled.'); return; }
+        email = input;
       }
 
-      saveAuth(auth);
-      showLoginSuccess(auth);
-      return;
-    }
-  } catch (err: any) {
-    // Login failed - try signup
-    s.message('Account not found. Creating new account...');
-  }
-
-  try {
-    // Signup
-    s.start('Creating account...');
-    const signupResult = await apiCall(cloudUrl, '/api/auth/signup', {
-      method: 'POST',
-      body: { email, name: email.split('@')[0] },
-    });
-
-    // API returns snake_case: api_key, project_id
-    const signupApiKey = signupResult.api_key || signupResult.apiKey;
-    if (!signupApiKey) {
-      throw new Error(signupResult.error || 'Failed to create account');
-    }
-
-    s.stop('Account created');
-
-    auth = {
-      email,
-      apiKey: signupApiKey,
-      projectId: signupResult.project_id || '',
-      projectName: email.split('@')[0],
-      cloudUrl,
-      loggedInAt: new Date().toISOString(),
-    };
-
-    // Try to get richer project info from /me
-    try {
-      const meResult = await apiCall(cloudUrl, '/api/auth/me', {
-        apiKey: signupApiKey,
+      const pw = await password({
+        message: 'Password:',
       });
-      if (meResult.name) auth.projectName = meResult.name;
-      if (meResult.id) auth.projectId = meResult.id;
-    } catch {
-      // Use what we have from signup
-    }
+      if (typeof pw === 'symbol') { outro('Cancelled.'); return; }
 
-    saveAuth(auth);
-    showLoginSuccess(auth);
+      s.start('Connecting to Squish Cloud...');
+      auth = await loginWithEmail(cloudUrl, email, pw);
+      s.stop('Logged in successfully');
+    }
   } catch (err: any) {
-    s.stop('Failed to connect');
+    s.stop('Login failed');
     outro(c.red(`Error: ${err.message}`));
     process.exit(1);
   }
+
+  saveCloudAuth(auth);
+  showLoginSuccess(auth);
 }
 
 function showLoginSuccess(auth: CloudAuth) {
@@ -266,7 +182,7 @@ function showLoginSuccess(auth: CloudAuth) {
 // ---------------------------------------------------------------------------
 
 async function runStatus() {
-  const auth = loadAuth();
+  const auth = loadCloudAuth();
 
   if (!auth) {
     console.log(c.yellow('Not connected to Squish Cloud'));
@@ -353,7 +269,7 @@ async function runSync(opts: {
   since?: string;
   retry?: number;
 }) {
-  const auth = loadAuth();
+  const auth = loadCloudAuth();
 
   if (!auth) {
     console.log(c.yellow('Not connected to Squish Cloud'));
@@ -636,7 +552,7 @@ async function runSync(opts: {
 // ---------------------------------------------------------------------------
 
 async function runLogout() {
-  const auth = loadAuth();
+  const auth = loadCloudAuth();
 
   if (!auth) {
     console.log(c.yellow('Not connected to Squish Cloud'));
@@ -653,7 +569,7 @@ async function runLogout() {
     return;
   }
 
-  clearAuth();
+  clearCloudAuth();
   outro(c.green('Logged out from Squish Cloud'));
   console.log(c.gray('  Local memories are preserved.'));
   console.log('');
@@ -673,6 +589,7 @@ export function registerCloudCommand(program: Command) {
     .description('Login or create a Squish Cloud account')
     .option('-e, --email <email>', 'Email address (skip prompt)')
     .option('-u, --url <url>', 'Cloud API URL', 'https://api.squishplugin.dev')
+    .option('-b, --browser', 'Open browser for Google OAuth login')
     .action(runLogin);
 
   cloud

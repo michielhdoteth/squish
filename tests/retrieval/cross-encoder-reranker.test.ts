@@ -66,6 +66,7 @@ describe('Cross-Encoder Reranker', () => {
 
   describe('scorePair', () => {
     it('should return null when model not loaded', async () => {
+      delete process.env.SQUISH_RERANKER_ENABLED;
       const score = await scorePair('test query', 'test document');
       // Will be null since model is not loaded in test environment
       expect(score === null || typeof score === 'number').toBe(true);
@@ -74,11 +75,13 @@ describe('Cross-Encoder Reranker', () => {
 
   describe('scoreBatch', () => {
     it('should return empty array for empty input', async () => {
+      delete process.env.SQUISH_RERANKER_ENABLED;
       const scores = await scoreBatch('test query', []);
       expect(scores).toEqual([]);
     });
 
     it('should return array of same length as documents', async () => {
+      delete process.env.SQUISH_RERANKER_ENABLED;
       const documents = ['doc1', 'doc2', 'doc3'];
       const scores = await scoreBatch('test query', documents);
       expect(scores.length).toBe(documents.length);

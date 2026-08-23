@@ -34,6 +34,7 @@ import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
 import { calculateImportance } from './importance.js';
 import { normalizeMemory, getOrCreateUser } from './memory-crud.js';
+import { emit } from '../event-bus.js';
 import type { RememberInput, MemoryRecord, VisibilityScope } from './memory-types.js';
 
 // ---------------------------------------------------------------------------
@@ -393,6 +394,16 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
   visibilityScope,
   importance: importance.score as number,
 };
+
+  emit({
+    type: 'memory:stored',
+    payload: {
+      memoryId: id,
+      content: input.content,
+      type: type ?? 'note',
+      project: input.project,
+    },
+  });
 
   return memoryRecord;
 }

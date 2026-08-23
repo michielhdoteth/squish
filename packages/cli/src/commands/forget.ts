@@ -5,9 +5,7 @@
  */
 
 import { Command } from 'commander';
-import { eq } from 'drizzle-orm';
-import { getDbClient } from '../../../../core/lib/db-client.js';
-import { search } from '../../../../core/memory/memories.js';
+import { client } from '../program.js';
 import { filterByDateRange } from '../../../../core/lib/utils.js';
 import { getRemediationForError } from '../errors.js';
 import { colors } from '../colors.js';
@@ -29,10 +27,8 @@ export function registerForgetCommand(program: Command) {
         process.env.SQUISH_QUIET = '1';
       }
       try {
-        const { db, schema } = await getDbClient();
-        
         if (memoryId && memoryId !== 'all') {
-          await db.delete(schema.memories).where(eq(schema.memories.id, memoryId));
+          await client.forget(memoryId);
           if (options.json) {
             console.log(JSON.stringify({ ok: true, deleted: 1, memoryId }));
           } else {
@@ -52,22 +48,21 @@ export function registerForgetCommand(program: Command) {
           process.exit(1);
         }
         
-        const results = await search({
-          query: options.search || '',
+        const results = await client.search(options.search || '', {
           project: options.project,
           limit: parseInt(options.limit) || 100,
-          type: options.type,
         });
         
-        let filtered = results;
+        // Extract memory records and apply date filter
+        let memoryRecords = results.map(r => r.memory);
         if (options.olderThan) {
-          filtered = filterByDateRange(results, '', options.olderThan);
+          memoryRecords = filterByDateRange(memoryRecords as any, '', options.olderThan);
         }
         
         const deleted = [];
         if (options.confirm) {
-          for (const mem of filtered) {
-            await db.delete(schema.memories).where(eq(schema.memories.id, mem.id));
+          for (const mem of memoryRecords) {
+            await client.forget(mem.id);
             deleted.push(mem.id);
           }
         }
@@ -75,13 +70,13 @@ export function registerForgetCommand(program: Command) {
         if (options.json) {
           console.log(JSON.stringify({
             ok: true,
-            matched: filtered.length,
+            matched: memoryRecords.length,
             deleted: deleted.length,
             dryRun: !options.confirm
           }, null, 2));
         } else {
           if (!options.confirm) {
-            console.log(`${colors.yellow('DRY RUN')} Would delete ${colors.bold(String(filtered.length))} memories. Use --confirm to apply.`);
+            console.log(`${colors.yellow('DRY RUN')} Would delete ${colors.bold(String(memoryRecords.length))} memories. Use --confirm to apply.`);
           } else {
             console.log(`${colors.green('OK')} Deleted ${colors.bold(String(deleted.length))} memories`);
           }

@@ -11,11 +11,23 @@ import express from "express";
 // z4mini.toJSONSchema which crashes with Zod v4 classic schemas (schema._zod.def mismatch)
 import { z } from "zod/v3";
 import { config, detectProjectScope } from "../../../config.js";
-import { getDb } from "../../../db/index.js";
-import { getSchema } from "../../../db/schema.js";
-import { isSchemaDriftError, probeSchemaHealth, type SchemaProbeResult } from "../../../db/schema-health.js";
-import { eq } from "drizzle-orm";
-import { initializeScheduler } from "../../../core/scheduler/cron-scheduler.js";
+import {
+  isSchemaDriftError,
+  probeSchemaHealth,
+  type SchemaProbeResult,
+  getQMDClient,
+  createLearning,
+  buildHealthState,
+  buildStatsState,
+  buildInspectState,
+} from "@squish/sdk";
+// buildContextState and resolveProjectScope need raw core return types
+// (SDK wrappers return different shapes — TrustState vs ContextReportInput/TrustProjectScope)
+import {
+  buildContextState,
+  resolveProjectScope,
+} from "../../../core/runtime/trust-state.js";
+import { logger } from "../../../core/logger.js";
 // Internal utilities for multimodal ingestion and LLM consolidation
 // (functionality wired into squish_remember and squish_stats, not exposed as separate tools)
 import {
@@ -28,19 +40,9 @@ import {
   getConsolidationStatus,
   getConsolidationConfig,
 } from "./consolidation-utils.js";
-import {
-  buildContextState,
-  buildHealthState,
-  buildInspectState,
-  buildStatsState,
-  resolveProjectScope,
-} from "../../../core/runtime/trust-state.js";
-import { rememberMemory, search as searchMemories, getMemory } from "../../../core/memory/memories.js";
-import { getQMDClient } from "../../../core/embeddings/qmd-client.js";
-import { createAssociation, getRelatedMemories } from "../../../core/associations.js";
-import { createLearning } from "../../../core/ingestion/learnings.js";
-import { getAllProjects } from "../../../core/projects.js";
-import { logger } from "../../../core/logger.js";
+// SDK client — replaces direct core imports for recall, search, remember, forget,
+// listProjects, associations, scheduler, and graph operations
+import { SquishClient, type SearchResult, type ProjectRecord } from "@squish/sdk";
 
 // CRITICAL: Redirect console.log to stderr AFTER all imports
 
@@ -52,6 +54,12 @@ console.info = console.error;
 
 const SERVER_NAME = "squish-memory";
 const SERVER_VERSION = "2.0.0";
+
+// Reference to the HTTP server (when running in http mode) so shutdown can close it
+let httpServerRef: { close: (cb?: () => void) => void } | null = null;
+
+// Create shared SDK client — wraps core storage/embeddings for clean API access
+const sdkClient = new SquishClient();
 
 // Create server instance ONCE (not per-session)
 const { server: SQUISH_SERVER, toolCount: SQUISH_TOOL_COUNT } = createSquishServer();
@@ -76,7 +84,7 @@ function parseArgs(): { mode: "stdio" | "http"; port: number; health: boolean } 
     }
   }
 
-  if (process.env.SQUISH_MCP_MODE === "http") {
+  if (process.env.SQUISH_MCP_MODE === "http" || process.env.SQUISH_MCP_HTTP === "true") {
     mode = "http";
   }
 
@@ -289,13 +297,12 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
         });
         result = { id: learning.id, type: "learning", learningType: finalLearningType, content };
       } else {
-        const memory = await rememberMemory({
-          content,
+        const memory = await sdkClient.remember(content, {
           type: inferredType as any,
           tags,
           project: resolvedProject,
           user,
-          source: 'mcp',
+          metadata: { source: 'mcp' },
         });
 
         result = { id: memory.id, type: "memory", memoryType: inferredType, content, pinned: false };
@@ -347,18 +354,15 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
       const resolvedProject = resolveProjectPath(project);
 
       if (isUuid) {
-        const memory = await getMemory(query, true);
+        const memory = await sdkClient.getById(query);
         if (!memory) {
           return errorResponse("not_found", "Memory not found", query, "Check the memory ID or try a different query");
         }
         return { content: [{ type: "text", text: JSON.stringify({ ok: true, count: 1, results: [memory], version: SERVER_VERSION }, null, 2) }] };
       }
 
-      const results = await searchMemories({
-        query,
-        limit,
-        project: resolvedProject,
-      });
+      const searchResults = await sdkClient.search(query, { limit, project: resolvedProject });
+      const results = searchResults.map((r: SearchResult) => ({ ...r.memory, similarity: r.score }));
 
       return { content: [{ type: "text", text: JSON.stringify({ ok: true, count: results.length, results, version: SERVER_VERSION }, null, 2) }] };
     }
@@ -377,19 +381,16 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
       }
     },
     async ({ memoryId, search }: { memoryId?: string; search?: string }) => {
-      const db = await getDb();
-      const schema = await getSchema();
-      const sqliteDb = db as any;
       const resolvedProject = resolveProjectPath();
 
       // Single memory deletion (auto-confirm)
       if (memoryId) {
-        const memory = await getMemory(memoryId, false);
-        if (!memory) {
+        try {
+          await sdkClient.forget(memoryId);
+          return { content: [{ type: "text", text: JSON.stringify({ ok: true, deleted: 1, memoryId, version: SERVER_VERSION }) }] };
+        } catch {
           return errorResponse("not_found", "Memory not found or not accessible", memoryId);
         }
-        await sqliteDb.delete(schema.memories).where(eq(schema.memories.id, memoryId));
-        return { content: [{ type: "text", text: JSON.stringify({ ok: true, deleted: 1, memoryId, version: SERVER_VERSION }) }] };
       }
 
       // Bulk deletion
@@ -397,13 +398,9 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
         return errorResponse("invalid_args", "Provide memoryId or search query for bulk delete");
       }
 
-      const results = await searchMemories({
-        query: search,
-        limit: 10,
-        project: resolvedProject,
-      });
+      const searchResults = await sdkClient.search(search, { limit: 10, project: resolvedProject });
 
-      return { content: [{ type: "text", text: JSON.stringify({ ok: true, matched: results.length, deleted: 0, dryRun: true, message: "Dry run. Re-call with confirm=true to execute.", version: SERVER_VERSION }, null, 2) }] };
+      return { content: [{ type: "text", text: JSON.stringify({ ok: true, matched: searchResults.length, deleted: 0, dryRun: true, message: "Dry run. Re-call with confirm=true to execute.", version: SERVER_VERSION }, null, 2) }] };
     }
   )) toolCount++;
 
@@ -427,7 +424,7 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
         if (!memoryId) {
           return errorResponse("invalid_args", "memoryId required for find action");
         }
-        const related = await getRelatedMemories(memoryId, 10);
+        const related = await sdkClient.getRelatedMemories(memoryId);
         const formatted = related.map((r: any, i: number) =>
           `${i + 1}. [${r.type || "memory"}] ${r.content?.substring(0, 100)}... (weight: ${r.weight?.toFixed(2)})`
         ).join("\n");
@@ -438,7 +435,7 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
         if (!fromId || !toId) {
           return errorResponse("invalid_args", "fromId and toId required for add action");
         }
-        await createAssociation(fromId, toId, "relates_to", 0.5);
+        await sdkClient.createAssociation(fromId, toId, "relates_to");
 
         // Auto-update knowledge graph
         try {
@@ -472,7 +469,7 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
     async ({ project, limit = 10, listProjects = false }: { project?: string; limit?: number; listProjects?: boolean }) => {
       const resolvedProject = resolveProjectPath(project);
       if (listProjects) {
-        const projects = await getAllProjects();
+        const projects = await sdkClient.listProjects();
         const scope = await resolveProjectScope(resolvedProject);
         return {
           content: [{
@@ -482,7 +479,7 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
               count: projects.length,
               currentProject: scope.currentProject,
               otherProjects: scope.otherProjects,
-              projects: projects.map((entry) => ({
+              projects: projects.map((entry: ProjectRecord) => ({
                 id: entry.id,
                 name: entry.name,
                 path: entry.path,
@@ -579,6 +576,388 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
         return errorResponse("not_found", "Memory not found", memoryId);
       }
       return { content: [{ type: "text", text: JSON.stringify({ ok: true, inspection, version: SERVER_VERSION }, null, 2) }] };
+    }
+  )) toolCount++;
+
+  // squish_skill - SKILL MANAGEMENT
+  // CRUD, versioning, assignment, and search for reusable SOPs
+  if (safeRegisterTool(
+    server,
+    "squish_skill",
+    {
+      description: "Manage reusable skills (SOPs). Actions: list, get, create, update, delete, search, versions, assign, unassign, record_usage. Skills are versioned workflows with triggers, steps, and validation rules.",
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+      inputSchema: {
+        action: z.enum(["list", "get", "create", "update", "delete", "search", "versions", "assign", "unassign", "record_usage"]).describe("Action to perform"),
+        skillId: z.string().optional().describe("Skill ID (required for get, update, delete, versions, assign, unassign, record_usage)"),
+        name: z.string().optional().describe("Skill name (required for create, optional for update)"),
+        description: z.string().optional().describe("Skill description"),
+        skillType: z.enum(["workflow", "troubleshooting", "checklist", "template", "playbook"]).optional().describe("Skill type"),
+        visibility: z.enum(["private", "team", "restricted"]).optional().describe("Visibility level"),
+        steps: z.array(z.object({
+          step: z.number(),
+          action: z.string(),
+          description: z.string(),
+          tool: z.string().optional(),
+        })).optional().describe("Ordered execution steps"),
+        triggerConditions: z.record(z.unknown()).optional().describe("When this skill should be used"),
+        tags: z.array(z.string()).optional().describe("Tags for organization"),
+        agentId: z.string().optional().describe("Agent to assign skill to (for assign action)"),
+        query: z.string().optional().describe("Search query (for search action)"),
+        status: z.string().optional().describe("Filter by status"),
+        success: z.boolean().optional().describe("Whether usage was successful (for record_usage)"),
+        changeSummary: z.string().optional().describe("Summary of changes (for update)"),
+      }
+    },
+    async (input: any) => {
+      const { createSkill, getSkillById, listSkills, updateSkill, deleteSkill, searchSkills, getSkillVersions, assignSkill, unassignSkill, recordSkillUsage } = await import('../../../core/skills/skills.js');
+      const project = resolveProjectPath();
+
+      try {
+        switch (input.action) {
+          case "list": {
+            const skills = await listSkills({ projectId: project, status: input.status, limit: 50 });
+            return { content: [{ type: "text", text: JSON.stringify({ ok: true, skills, count: skills.length }, null, 2) }] };
+          }
+          case "get": {
+            if (!input.skillId) return errorResponse("missing_param", "skillId is required");
+            const skill = await getSkillById(input.skillId);
+            if (!skill) return errorResponse("not_found", "Skill not found", input.skillId);
+            return { content: [{ type: "text", text: JSON.stringify({ ok: true, skill }, null, 2) }] };
+          }
+          case "create": {
+            if (!input.name) return errorResponse("missing_param", "name is required");
+            const skill = await createSkill({
+              projectId: project,
+              name: input.name,
+              description: input.description,
+              skillType: input.skillType,
+              visibility: input.visibility,
+              steps: input.steps,
+              triggerConditions: input.triggerConditions,
+              tags: input.tags,
+            });
+            return { content: [{ type: "text", text: JSON.stringify({ ok: true, skill }, null, 2) }] };
+          }
+          case "update": {
+            if (!input.skillId) return errorResponse("missing_param", "skillId is required");
+            const skill = await updateSkill(input.skillId, {
+              name: input.name,
+              description: input.description,
+              skillType: input.skillType,
+              visibility: input.visibility,
+              steps: input.steps,
+              triggerConditions: input.triggerConditions,
+              tags: input.tags,
+              status: input.status,
+              changeSummary: input.changeSummary,
+            });
+            return { content: [{ type: "text", text: JSON.stringify({ ok: true, skill }, null, 2) }] };
+          }
+          case "delete": {
+            if (!input.skillId) return errorResponse("missing_param", "skillId is required");
+            await deleteSkill(input.skillId);
+            return { content: [{ type: "text", text: JSON.stringify({ ok: true, deleted: input.skillId }, null, 2) }] };
+          }
+          case "search": {
+            if (!input.query) return errorResponse("missing_param", "query is required");
+            const skills = await searchSkills(input.query, { projectId: project, limit: 20 });
+            return { content: [{ type: "text", text: JSON.stringify({ ok: true, skills, count: skills.length }, null, 2) }] };
+          }
+          case "versions": {
+            if (!input.skillId) return errorResponse("missing_param", "skillId is required");
+            const versions = await getSkillVersions(input.skillId);
+            return { content: [{ type: "text", text: JSON.stringify({ ok: true, versions, count: versions.length }, null, 2) }] };
+          }
+          case "assign": {
+            if (!input.skillId || !input.agentId) return errorResponse("missing_param", "skillId and agentId are required");
+            const assignment = await assignSkill(input.skillId, input.agentId);
+            return { content: [{ type: "text", text: JSON.stringify({ ok: true, assignment }, null, 2) }] };
+          }
+          case "unassign": {
+            if (!input.skillId || !input.agentId) return errorResponse("missing_param", "skillId and agentId are required");
+            await unassignSkill(input.skillId, input.agentId);
+            return { content: [{ type: "text", text: JSON.stringify({ ok: true, unassigned: true }, null, 2) }] };
+          }
+          case "record_usage": {
+            if (!input.skillId) return errorResponse("missing_param", "skillId is required");
+            await recordSkillUsage(input.skillId, input.success ?? true);
+            return { content: [{ type: "text", text: JSON.stringify({ ok: true, recorded: true }, null, 2) }] };
+          }
+          default:
+            return errorResponse("invalid_action", `Unknown action: ${input.action}`);
+        }
+      } catch (error: any) {
+        return errorResponse("skill_error", error.message);
+      }
+    }
+  )) toolCount++;
+
+  // squish_wiki - WIKI MANAGEMENT
+  // CRUD, link graphs, version history for structured document pages
+  if (safeRegisterTool(
+    server,
+    "squish_wiki",
+    {
+      description: "Manage wiki pages - structured documents with [[wikilinks]]. Actions: list, get, create, update, delete, search, links, backlinks, graph, versions. Use [[Page Title]] syntax in content to link pages.",
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+      inputSchema: {
+        action: z.enum(["list", "get", "create", "update", "delete", "search", "links", "backlinks", "graph", "versions"]).describe("Action to perform"),
+        pageId: z.string().optional().describe("Page ID (required for get, update, delete, links, backlinks, versions)"),
+        slug: z.string().optional().describe("Page slug (alternative to pageId for get)"),
+        title: z.string().optional().describe("Page title (required for create, optional for update)"),
+        content: z.string().optional().describe("Page content in markdown with [[wikilinks]]"),
+        summary: z.string().optional().describe("Page summary"),
+        pageType: z.enum(["article", "reference", "guide", "decision", "meeting", "note"]).optional().describe("Page type"),
+        visibility: z.enum(["private", "team", "public"]).optional().describe("Visibility level"),
+        tags: z.array(z.string()).optional().describe("Tags for organization"),
+        status: z.string().optional().describe("Page status (draft, published, archived)"),
+        query: z.string().optional().describe("Search query (for search action)"),
+        changeSummary: z.string().optional().describe("Summary of changes (for update)"),
+      }
+    },
+    async (input: any) => {
+      const { createWikiPage, getWikiPageById, getWikiPageBySlug, listWikiPages, updateWikiPage, deleteWikiPage, searchWikiPages, getPageLinks, getBacklinks, getLinkGraph, getWikiPageVersions } = await import('../../../core/wiki/wiki.js');
+      const project = resolveProjectPath();
+
+      try {
+        switch (input.action) {
+          case "list": {
+            const pages = await listWikiPages({ projectId: project, status: input.status, limit: 50 });
+            return { content: [{ type: "text", text: JSON.stringify({ ok: true, pages, count: pages.length }, null, 2) }] };
+          }
+          case "get": {
+            let page = null;
+            if (input.pageId) page = await getWikiPageById(input.pageId);
+            else if (input.slug && project) page = await getWikiPageBySlug(project, input.slug);
+            if (!page) return errorResponse("not_found", "Wiki page not found", input.pageId || input.slug);
+            return { content: [{ type: "text", text: JSON.stringify({ ok: true, page }, null, 2) }] };
+          }
+          case "create": {
+            if (!input.title) return errorResponse("missing_param", "title is required");
+            const page = await createWikiPage({
+              projectId: project,
+              title: input.title,
+              content: input.content,
+              summary: input.summary,
+              pageType: input.pageType,
+              visibility: input.visibility,
+              tags: input.tags,
+            });
+            return { content: [{ type: "text", text: JSON.stringify({ ok: true, page }, null, 2) }] };
+          }
+          case "update": {
+            if (!input.pageId) return errorResponse("missing_param", "pageId is required");
+            const page = await updateWikiPage(input.pageId, {
+              title: input.title,
+              content: input.content,
+              summary: input.summary,
+              pageType: input.pageType,
+              visibility: input.visibility,
+              tags: input.tags,
+              status: input.status,
+              changeSummary: input.changeSummary,
+            });
+            return { content: [{ type: "text", text: JSON.stringify({ ok: true, page }, null, 2) }] };
+          }
+          case "delete": {
+            if (!input.pageId) return errorResponse("missing_param", "pageId is required");
+            await deleteWikiPage(input.pageId);
+            return { content: [{ type: "text", text: JSON.stringify({ ok: true, deleted: input.pageId }, null, 2) }] };
+          }
+          case "search": {
+            if (!input.query) return errorResponse("missing_param", "query is required");
+            const pages = await searchWikiPages(input.query, { projectId: project, limit: 20 });
+            return { content: [{ type: "text", text: JSON.stringify({ ok: true, pages, count: pages.length }, null, 2) }] };
+          }
+          case "links": {
+            if (!input.pageId) return errorResponse("missing_param", "pageId is required");
+            const links = await getPageLinks(input.pageId);
+            return { content: [{ type: "text", text: JSON.stringify({ ok: true, links, count: links.length }, null, 2) }] };
+          }
+          case "backlinks": {
+            if (!input.pageId) return errorResponse("missing_param", "pageId is required");
+            const links = await getBacklinks(input.pageId);
+            return { content: [{ type: "text", text: JSON.stringify({ ok: true, backlinks: links, count: links.length }, null, 2) }] };
+          }
+          case "graph": {
+            if (!project) return errorResponse("missing_param", "project context required for graph");
+            const graph = await getLinkGraph(project);
+            return { content: [{ type: "text", text: JSON.stringify({ ok: true, ...graph }, null, 2) }] };
+          }
+          case "versions": {
+            if (!input.pageId) return errorResponse("missing_param", "pageId is required");
+            const versions = await getWikiPageVersions(input.pageId);
+            return { content: [{ type: "text", text: JSON.stringify({ ok: true, versions, count: versions.length }, null, 2) }] };
+          }
+          default:
+            return errorResponse("invalid_action", `Unknown action: ${input.action}`);
+        }
+      } catch (error: any) {
+        return errorResponse("wiki_error", error.message);
+      }
+    }
+  )) toolCount++;
+
+  // squish_loadout - AGENT LOADOUT & VISIBILITY
+  // Bind memory assets to agents, manage access control
+  if (safeRegisterTool(
+    server,
+    "squish_loadout",
+    {
+      description: "Manage agent loadouts (bind memory assets to agents) and visibility rules (ACL). Actions: add_loadout, remove_loadout, get_loadout, set_visibility, check_visibility, get_rules.",
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+      inputSchema: {
+        action: z.enum(["add_loadout", "remove_loadout", "get_loadout", "set_visibility", "remove_visibility", "check_visibility", "get_rules"]).describe("Action to perform"),
+        agentId: z.string().optional().describe("Agent ID (required for loadout operations)"),
+        assetType: z.enum(["memory", "skill", "wiki", "belief", "strategy", "learning"]).optional().describe("Asset type"),
+        assetId: z.string().optional().describe("Asset ID"),
+        priority: z.number().optional().describe("Priority (higher = loaded first)"),
+        injectionMode: z.enum(["append", "prepend", "replace"]).optional().describe("How to inject into context"),
+        ruleType: z.enum(["owner", "team", "user", "role", "everyone"]).optional().describe("Visibility rule type"),
+        granteeType: z.enum(["user", "team", "everyone"]).optional().describe("Grantee type"),
+        granteeId: z.string().optional().describe("Grantee ID (user ID, team ID, etc.)"),
+        permission: z.enum(["read", "write", "admin"]).optional().describe("Permission level"),
+        userId: z.string().optional().describe("User ID for visibility check"),
+        teamIds: z.array(z.string()).optional().describe("Team IDs for visibility check"),
+      }
+    },
+    async (input: any) => {
+      const { addLoadout, removeLoadout, getAgentLoadout, setVisibilityRule, removeVisibilityRule, getVisibilityRules, checkVisibility } = await import('../../../core/loadout/loadout.js');
+
+      try {
+        switch (input.action) {
+          case "add_loadout": {
+            if (!input.agentId || !input.assetType || !input.assetId) return errorResponse("missing_param", "agentId, assetType, and assetId are required");
+            const loadout = await addLoadout({
+              agentId: input.agentId,
+              assetType: input.assetType,
+              assetId: input.assetId,
+              priority: input.priority,
+              injectionMode: input.injectionMode,
+            });
+            return { content: [{ type: "text", text: JSON.stringify({ ok: true, loadout }, null, 2) }] };
+          }
+          case "remove_loadout": {
+            if (!input.agentId || !input.assetType || !input.assetId) return errorResponse("missing_param", "agentId, assetType, and assetId are required");
+            await removeLoadout(input.agentId, input.assetType, input.assetId);
+            return { content: [{ type: "text", text: JSON.stringify({ ok: true, removed: true }, null, 2) }] };
+          }
+          case "get_loadout": {
+            if (!input.agentId) return errorResponse("missing_param", "agentId is required");
+            const loadout = await getAgentLoadout(input.agentId);
+            return { content: [{ type: "text", text: JSON.stringify({ ok: true, loadout, count: loadout.length }, null, 2) }] };
+          }
+          case "set_visibility": {
+            if (!input.assetType || !input.assetId || !input.ruleType || !input.granteeType || !input.granteeId) return errorResponse("missing_param", "assetType, assetId, ruleType, granteeType, and granteeId are required");
+            const rule = await setVisibilityRule({
+              assetType: input.assetType,
+              assetId: input.assetId,
+              ruleType: input.ruleType,
+              granteeType: input.granteeType,
+              granteeId: input.granteeId,
+              permission: input.permission,
+            });
+            return { content: [{ type: "text", text: JSON.stringify({ ok: true, rule }, null, 2) }] };
+          }
+          case "remove_visibility": {
+            if (!input.assetType || !input.assetId || !input.granteeType || !input.granteeId) return errorResponse("missing_param", "assetType, assetId, granteeType, and granteeId are required");
+            await removeVisibilityRule(input.assetType, input.assetId, input.granteeType, input.granteeId);
+            return { content: [{ type: "text", text: JSON.stringify({ ok: true, removed: true }, null, 2) }] };
+          }
+          case "check_visibility": {
+            if (!input.assetType || !input.assetId || !input.userId) return errorResponse("missing_param", "assetType, assetId, and userId are required");
+            const result = await checkVisibility(input.assetType, input.assetId, input.userId, input.teamIds ?? []);
+            return { content: [{ type: "text", text: JSON.stringify({ ok: true, ...result }, null, 2) }] };
+          }
+          case "get_rules": {
+            if (!input.assetType || !input.assetId) return errorResponse("missing_param", "assetType and assetId are required");
+            const rules = await getVisibilityRules(input.assetType, input.assetId);
+            return { content: [{ type: "text", text: JSON.stringify({ ok: true, rules, count: rules.length }, null, 2) }] };
+          }
+          default:
+            return errorResponse("invalid_action", `Unknown action: ${input.action}`);
+        }
+      } catch (error: any) {
+        return errorResponse("loadout_error", error.message);
+      }
+    }
+  )) toolCount++;
+
+  // squish_extract - AUTO-EXTRACTION PIPELINE
+  // Extract skills and wiki pages from accumulated memories
+  if (safeRegisterTool(
+    server,
+    "squish_extract",
+    {
+      description: "Auto-extract reusable skills and wiki pages from accumulated memories using LLM analysis. Actions: run (batch extraction), status (last run info).",
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+      inputSchema: {
+        action: z.enum(["run", "status"]).describe("Action to perform"),
+        hoursBack: z.number().optional().describe("How many hours back to look for memories (default: 24)"),
+        projectId: z.string().optional().describe("Project ID to extract from"),
+      }
+    },
+    async (input: any) => {
+      try {
+        const { extractSkillFromMemories, extractWikiFromMemories } = await import('../../../core/extraction/extraction.js');
+        const project = resolveProjectPath(input.projectId);
+
+        if (input.action === "status") {
+          return { content: [{ type: "text", text: JSON.stringify({ ok: true, status: "Extraction pipeline ready", features: ["skill_extraction", "wiki_extraction", "pattern_detection"] }, null, 2) }] };
+        }
+
+        // Get recent memories to analyze
+        const searchResults = await sdkClient.search("", { limit: 50, project });
+        const memories = (searchResults as any).results || searchResults || [];
+
+        if (memories.length < 5) {
+          return { content: [{ type: "text", text: JSON.stringify({ ok: true, message: "Not enough memories for extraction (need 5+)", count: memories.length }, null, 2) }] };
+        }
+
+        // Group memories by tags for pattern detection
+        const tagGroups = new Map<string, any[]>();
+        for (const mem of memories) {
+          const tags = mem.tags || [];
+          for (const tag of tags) {
+            if (tag === "auto-captured") continue;
+            const group = tagGroups.get(tag) || [];
+            group.push(mem);
+            tagGroups.set(tag, group);
+          }
+        }
+
+        let skillsExtracted = 0;
+        let wikiExtracted = 0;
+        const errors: string[] = [];
+
+        // Process groups with 3+ memories
+        for (const [tag, group] of tagGroups) {
+          if (group.length < 3) continue;
+
+          try {
+            const skill = await extractSkillFromMemories(group, project || "default");
+            if (skill) {
+              skillsExtracted++;
+            }
+          } catch (e: any) {
+            errors.push(`Skill extraction for "${tag}": ${e.message}`);
+          }
+
+          try {
+            const wiki = await extractWikiFromMemories(group, tag, project || "default");
+            if (wiki) {
+              wikiExtracted++;
+            }
+          } catch (e: any) {
+            errors.push(`Wiki extraction for "${tag}": ${e.message}`);
+          }
+        }
+
+        return { content: [{ type: "text", text: JSON.stringify({ ok: true, skills_extracted: skillsExtracted, wiki_pages_extracted: wikiExtracted, errors, message: "Extraction completed. Skills and wiki pages saved to database." }, null, 2) }] };
+      } catch (error: any) {
+        return errorResponse("extraction_error", error.message);
+      }
     }
   )) toolCount++;
 
@@ -831,12 +1210,14 @@ async function runHttp(server: McpServer, port: number): Promise<void> {
     }
   });
 
-  await new Promise<void>((resolve) => app.listen(port, () => {
-    console.error(`[MCP] HTTP server listening on port ${port}`);
-    console.error(`[MCP] Streamable HTTP endpoint: http://localhost:${port}/mcp`);
-    console.error(`[MCP] Health: http://localhost:${port}/health`);
-    resolve();
-  }));
+  await new Promise<void>((resolve) => {
+    httpServerRef = app.listen(port, () => {
+      console.error(`[MCP] HTTP server listening on port ${port}`);
+      console.error(`[MCP] Streamable HTTP endpoint: http://localhost:${port}/mcp`);
+      console.error(`[MCP] Health: http://localhost:${port}/health`);
+      resolve();
+    });
+  });
 }
 
 async function runHealthCheck(): Promise<void> {
@@ -874,14 +1255,46 @@ async function main(): Promise<void> {
 
     // Initialize cron scheduler for scheduled jobs
     try {
-      await initializeScheduler();
+      await sdkClient.initializeScheduler();
       console.error(`[${SERVER_NAME}] Cron scheduler initialized`);
     } catch (error) {
       console.error(`[${SERVER_NAME}] Warning: Failed to initialize scheduler:`, error);
     }
 
+    let shuttingDown = false;
     const shutdown = async () => {
-      console.error(`[${SERVER_NAME}] Shutting down...`);
+      if (shuttingDown) return;
+      shuttingDown = true;
+      console.error(`[${SERVER_NAME}] Shutting down gracefully...`);
+
+      // Hard-exit safety timer in case keep-alive connections stall close
+      const hardExitTimer = setTimeout(() => {
+        console.error(`[${SERVER_NAME}] Graceful shutdown timed out, forcing exit...`);
+        httpServerRef?.closeAllConnections?.();
+        process.exit(0);
+      }, 5000);
+      hardExitTimer.unref();
+
+      // Stop accepting new work
+      if (httpServerRef) {
+        try {
+          await new Promise<void>((resolve) => httpServerRef!.close(() => resolve()));
+          clearTimeout(hardExitTimer);
+          console.error(`[${SERVER_NAME}] HTTP server closed`);
+        } catch (error) {
+          console.error(`[${SERVER_NAME}] Error closing HTTP server:`, error);
+        }
+      }
+
+      // Close DB connections cleanly
+      try {
+        const { closeAllDbs } = await import("../../../db/index.js");
+        await closeAllDbs();
+        console.error(`[${SERVER_NAME}] Database connections closed`);
+      } catch (error) {
+        console.error(`[${SERVER_NAME}] Error closing database connections:`, error);
+      }
+
       process.exit(0);
     };
 
