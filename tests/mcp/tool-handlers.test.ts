@@ -5,13 +5,21 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 
-const TEST_TIMEOUT = 45_000;
+const TEST_TIMEOUT = 90_000;
 
 function resolveServerCommand(): { command: string; args: string[] } {
   const rootDir = join(import.meta.dir, "..", "..");
   const entryPath = join(rootDir, "packages", "mcp", "src", "index.ts");
 
-  // Detect bun (same logic as runtime-launcher.mjs)
+  // When tests already run under bun, use the same runtime directly.
+  // Probing PATH via execFileSync("where"/"--version") is fragile under
+  // full-suite load and can spuriously fail into the node+tsx fallback,
+  // which breaks when bun re-executes the tsx loader.
+  if (typeof (globalThis as { Bun?: unknown }).Bun !== "undefined") {
+    return { command: process.execPath, args: [entryPath, "--stdio"] };
+  }
+
+  // Detect bun on PATH for non-bun runners
   try {
     const bunPath = execFileSync(
       process.platform === "win32" ? "bun.exe" : "bun",
@@ -51,17 +59,31 @@ async function spawnServer(tmpDir: string): Promise<ServerHandle> {
   const { command, args } = resolveServerCommand();
   const rootDir = join(import.meta.dir, "..", "..");
 
+  const childEnv: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    // Strip leaked SQUISH_*/DATABASE_URL state from other test files so the
+    // server always boots in local mode against the isolated tmp data dir.
+    if (v !== undefined && !k.startsWith("SQUISH_") && k !== "DATABASE_URL" && k !== "NODE_OPTIONS" && k !== "BUN_OPTIONS") {
+      childEnv[k] = v;
+    }
+  }
+  childEnv.SQUISH_DATA_DIR = tmpDir;
+  childEnv.SQUISH_QUIET = "1";
+
   const child = spawn(command, args, {
     stdio: ["pipe", "pipe", "pipe"],
     cwd: rootDir,
-      env: {
-        ...process.env,
-        SQUISH_DATA_DIR: tmpDir,
-        SQUISH_QUIET: "1",
-      },
+    env: childEnv,
   });
 
   let stdoutBuf = "";
+  // Must drain stderr: if left unconsumed, the OS pipe buffer fills with
+  // server logs and blocks the child process entirely.
+  let stderrBuf = "";
+  child.stderr!.on("data", (chunk: Buffer) => {
+    stderrBuf += chunk.toString();
+    if (stderrBuf.length > 1_000_000) stderrBuf = stderrBuf.slice(-100_000);
+  });
   const pendingReaders: Array<{
     matcher: (line: any) => boolean;
     resolve: (v: any) => void;
@@ -159,8 +181,20 @@ async function spawnServer(tmpDir: string): Promise<ServerHandle> {
     return resp;
   }
 
-  // Wait for server process to fully start (schema health check, McpServer setup, transport)
-  await new Promise((r) => setTimeout(r, 10_000));
+  // Wait for the server to finish booting by polling its stderr for the
+  // post-connect banner. A fixed sleep is fragile under full-suite CPU load:
+  // cold-starting the MCP server (transpile + schema init) can take >60s.
+  const readyMarker = "Connected via stdio";
+  const bootDeadline = Date.now() + 150_000;
+  while (!stderrBuf.includes(readyMarker)) {
+    if (Date.now() > bootDeadline) {
+      throw new Error(`MCP server did not become ready within 150s. Last stderr:\n${stderrBuf.slice(-2000)}`);
+    }
+    if (child.exitCode !== null) {
+      throw new Error(`MCP server exited during boot (code ${child.exitCode}). Stderr:\n${stderrBuf.slice(-2000)}`);
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
 
   return { child, send, readLine, close, callTool, nextId };
 }
@@ -177,7 +211,7 @@ async function initializeServer(handle: ServerHandle): Promise<void> {
       clientInfo: { name: "test-tool-handlers", version: "1.0.0" },
     },
   });
-  await handle.readLine((r: any) => r.id === id, 45_000);
+  await handle.readLine((r: any) => r.id === id, 90_000);
 
   handle.send({ jsonrpc: "2.0", method: "notifications/initialized" });
 }
@@ -205,7 +239,7 @@ beforeAll(async () => {
   sharedTmpDir = await mkdtemp(join(tmpdir(), "squish-tool-handlers-"));
   sharedServer = await spawnServer(sharedTmpDir);
   await initializeServer(sharedServer);
-}, 60_000);
+}, 180_000);
 
 afterAll(async () => {
   if (sharedServer) {

@@ -10,15 +10,18 @@ describe("background services graceful degradation", () => {
   it("MCP server source imports scheduler", async () => {
     const source = await readFile(MCP_INDEX, "utf-8");
 
-    expect(source).toContain("initializeScheduler");
-    expect(source).toContain("core/scheduler/cron-scheduler");
+    expect(source).toContain("sdkClient.initializeScheduler");
+
+    // The scheduler itself lives in the SDK layer
+    const sdkSource = await readFile(join(import.meta.dir, "..", "..", "packages", "sdk", "src", "index.ts"), "utf-8");
+    expect(sdkSource).toContain("core/scheduler/cron-scheduler");
   });
 
   it("server startup does not crash if scheduler throws", async () => {
     const source = await readFile(MCP_INDEX, "utf-8");
 
     // Find the main() function and look for try/catch around initializeScheduler
-    const schedulerCallIdx = source.indexOf("await initializeScheduler()");
+    const schedulerCallIdx = source.indexOf("await sdkClient.initializeScheduler()");
     expect(schedulerCallIdx).toBeGreaterThan(-1);
 
     // Walk backwards to find the enclosing try block

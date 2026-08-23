@@ -145,7 +145,7 @@ export async function archiveStaleMemories(daysOld: number): Promise<number> {
   // Soft-archive: mark stale memories as archived and inactive
   // Sets status='archived' so decay/retrieval queries filtering on status='active'
   // skip these rows, plus contextStatus='archived' per v0.5.0 lifecycle conventions
-  const result = await sqliteDb
+  const updated = await sqliteDb
     .update(memories)
     .set({
       status: 'archived',
@@ -159,9 +159,12 @@ export async function archiveStaleMemories(daysOld: number): Promise<number> {
       lt(memories.importanceScore, 30),
       eq(memories.isProtected, false),
       eq(memories.isPinned, false),
-    ));
+    ))
+    .returning({ id: memories.id });
 
-  return result?.changes ?? 0;
+  // Count via returning(): drizzle-orm/bun-sqlite run results do not
+  // reliably report `changes` for UPDATE statements.
+  return Array.isArray(updated) ? updated.length : 0;
 }
 
 async function cleanupOldFeedbackRecords(daysOld: number): Promise<number> {

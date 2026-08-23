@@ -307,8 +307,15 @@ export function matrixTrace(matrix: number[][]): number {
  */
 export function powerIteration(matrix: number[][], maxIter: number = 100, tol: number = 1e-10): number {
   const n = matrix.length;
-  let b = new Array(n).fill(1).map(() => Math.random());
-  let lambda = 0;
+  // Deterministic pseudo-random start (seeded LCG): Math.random() can converge
+  // to a different eigenvector on near-degenerate matrices, making callers
+  // (e.g. GAC strategy selection) nondeterministic.
+  let seed = 0x2f6e2b1;
+  const nextRandom = () => {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    return seed / 0xffffffff;
+  };
+  let b = new Array(n).fill(1).map(() => nextRandom());
 
   for (let iter = 0; iter < maxIter; iter++) {
     // Multiply matrix * b
@@ -361,10 +368,16 @@ function computeTopEigenvalues(matrix: number[][], k: number): number[] {
   const n = matrix.length;
   const eigenvalues: number[] = [];
   let workingMatrix = matrix.map(row => [...row]);
+  let largestLambda = 0;
 
   for (let i = 0; i < k; i++) {
     const lambda = powerIteration(workingMatrix);
     if (lambda === 0 || !Number.isFinite(lambda)) break;
+    // Stop once we hit numerical noise: after deflating a (near) rank-deficient
+    // matrix, remaining "eigenvalues" are floating-point residue. Including them
+    // corrupts downstream statistics (e.g. participation ratio / d_eff).
+    if (i > 0 && lambda <= largestLambda * 1e-6) break;
+    if (i === 0) largestLambda = lambda;
     eigenvalues.push(lambda);
     // Deflate
     const v = getEigenvector(workingMatrix, lambda);

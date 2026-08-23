@@ -427,7 +427,15 @@ function powerIterationWithVector(
   tol: number = 1e-10
 ): { eigenvalue: number; eigenvector: number[] } {
   const n = matrix.length;
-  let b = new Array(n).fill(0).map(() => Math.random());
+  // Deterministic pseudo-random start (seeded LCG): power iteration must be
+  // reproducible, and Math.random() can converge to a different eigenvector
+  // on near-degenerate covariance matrices, flipping strategy decisions.
+  let seed = 0x2f6e2b1;
+  const nextRandom = () => {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    return seed / 0xffffffff;
+  };
+  let b = new Array(n).fill(0).map(() => nextRandom());
   let lambda = 0;
 
   for (let iter = 0; iter < maxIter; iter++) {
