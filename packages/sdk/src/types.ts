@@ -204,6 +204,8 @@ export interface SearchOptions {
   limit?: number;
   /** Project path to scope the search */
   project?: string;
+  /** Acting user for ACL read-gate visibility checks */
+  user?: string;
   /** Minimum similarity score (0-1) */
   minScore?: number;
 }

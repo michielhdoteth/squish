@@ -134,20 +134,21 @@ export async function checkContradictions(
   useLLM: boolean = false
 ): Promise<ContradictionResult[]> {
   try {
-    const { getDb } = await import('../../db/index.js');
-    const rawDb: any = await getDb();
-    const sqlite = rawDb?.$client ?? rawDb;
+    // Driver-aware fetch via drizzle (works on SQLite and Postgres alike).
+    const { getDbClient } = await import('../lib/db-client.js');
+    const { eq, and } = await import('drizzle-orm');
 
-    // Fetch recent memories of same project (limit to 20 for performance)
-    let existing: any[] = [];
+    const { db, schema } = await getDbClient();
+    const conditions = [eq(schema.memories.status, 'active')];
+    if (newMemory.projectId) {
+      conditions.push(eq(schema.memories.projectId, newMemory.projectId));
+    }
 
-    // SQLite query
-    const query = newMemory.projectId
-      ? `SELECT id, content FROM memories WHERE project_id = ? AND status = 'active' LIMIT 20`
-      : `SELECT id, content FROM memories WHERE status = 'active' LIMIT 20`;
-
-    const params = newMemory.projectId ? [newMemory.projectId] : [];
-    existing = sqlite.prepare(query).all(params);
+    const existing: Array<{ id: any; content: any }> = await (db as any)
+      .select({ id: schema.memories.id, content: schema.memories.content })
+      .from(schema.memories)
+      .where(and(...conditions))
+      .limit(20);
 
     const results: ContradictionResult[] = [];
 

@@ -10,13 +10,31 @@
  * supplied, and memories without any visibility rules are always served.
  */
 
-import { checkVisibility, getVisibilityRules } from '../loadout/loadout.js';
+import { checkVisibility, getVisibilityRules, hasVisibilityRules } from '../loadout/loadout.js';
 import { isAclEnforce } from '../engines/flags.js';
 import { pushEngineLog } from '../engines/engine-log.js';
 
 export interface AclContext {
   userId: string;
   teamIds?: string[];
+}
+
+/**
+ * Build an ACL context automatically for search paths that were not given one
+ * explicitly. Cheap by design: returns null (no gating, zero per-result cost)
+ * unless at least one visibility rule exists for memories. The userId falls
+ * back to 'local-agent' when no explicit user is on the input.
+ */
+export async function buildAutoAclContext(userId?: string | null): Promise<AclContext | null> {
+  try {
+    if (!(await hasVisibilityRules('memory'))) {
+      return null;
+    }
+  } catch {
+    // Rule table unavailable -> fail open, no gating
+    return null;
+  }
+  return { userId: userId ?? 'local-agent' };
 }
 
 export async function applyAclReadGate<T extends { id?: string }>(

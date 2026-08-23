@@ -412,6 +412,7 @@ export class SquishClient {
         query: query.trim(),
         limit: options?.limit ?? 10,
         project: options?.project ?? this._activeProject,
+        user: options?.user,
       });
 
       let results = coreResults.map(mapCoreSearchResultToSdk);

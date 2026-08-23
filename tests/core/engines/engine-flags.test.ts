@@ -101,10 +101,9 @@ describe('engine flags (P5)', () => {
       expect(result.explanation).not.toContain('importance-v2');
       // emotional content makes v1 (type-weight driven) and v2 diverge -> logged
       const disagreements = getEngineLog('importance_shadow_disagreement');
-      expect(disagreements.length).toBeGreaterThanOrEqual(0);
-      for (const d of disagreements) {
-        expect(d.kind).toBe('importance_shadow_disagreement');
-      }
+      expect(disagreements.length).toBe(1);
+      expect(disagreements[0].kind).toBe('importance_shadow_disagreement');
+      expect(Math.abs((disagreements[0] as any).v2 - (disagreements[0] as any).v1)).toBeGreaterThanOrEqual(5);
     });
   });
 

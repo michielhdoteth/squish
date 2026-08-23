@@ -45,6 +45,7 @@ import {
 import { SquishClient, type SearchResult, type ProjectRecord } from "@squish/sdk";
 // Tool-call tracing (in-memory ring buffer) + additive capability tools
 import { traceToolCall, getTraceSummary } from "./tracing.js";
+import { getEngineLog } from "../../../core/engines/engine-log.js";
 import {
   registerPlacesTools,
   registerSessionsTools,
@@ -515,12 +516,13 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
       inputSchema: {
         project: z.string().optional().describe("Project path filter (global if omitted)"),
-        action: z.enum(["status", "start_watcher", "stop_watcher", "consolidate", "traces"]).optional().describe(
+        action: z.enum(["status", "start_watcher", "stop_watcher", "consolidate", "traces", "engines"]).optional().describe(
           "status (default): return stats + health + watcher status + consolidation config. " +
           "start_watcher: start file watcher for multimodal ingestion. " +
           "stop_watcher: stop file watcher. " +
           "consolidate: run LLM cross-connection finding between memories. " +
-          "traces: tool-call trace summary (durations, errors, recent calls)."
+          "traces: tool-call trace summary (durations, errors, recent calls). " +
+          "engines: engine shadow-log summary and recent disagreements/ACL decisions."
         ),
       }
     },
@@ -546,6 +548,23 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
       // --- Traces action ---
       if (action === "traces") {
         return { content: [{ type: "text", text: JSON.stringify({ ok: true, action: "traces", ...getTraceSummary(), version: SERVER_VERSION }, null, 2) }] };
+      }
+
+      // --- Engines action ---
+      if (action === "engines") {
+        const entries = getEngineLog();
+        const byKind: Record<string, number> = {};
+        for (const e of entries) {
+          byKind[e.kind] = (byKind[e.kind] ?? 0) + 1;
+        }
+        return { content: [{ type: "text", text: JSON.stringify({
+          ok: true,
+          action: "engines",
+          total: entries.length,
+          byKind,
+          recent: entries.slice(-20),
+          version: SERVER_VERSION,
+        }, null, 2) }] };
       }
 
       // --- Default: status (includes everything) ---

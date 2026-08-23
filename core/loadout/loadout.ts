@@ -198,6 +198,22 @@ export async function getVisibilityRules(
   return rows.map(normalizeVisibilityRule);
 }
 
+/**
+ * Cheap existence check: are there ANY visibility rules for a given asset type?
+ * Single indexed lookup used by search paths to skip ACL work entirely
+ * when no rules exist.
+ */
+export async function hasVisibilityRules(assetType: string): Promise<boolean> {
+  const db = createDatabaseClient(await getDb());
+  const schema = await getSchema();
+  const rows = await db
+    .select({ id: schema.visibilityRules.id })
+    .from(schema.visibilityRules)
+    .where(eq(schema.visibilityRules.assetType, assetType))
+    .limit(1);
+  return rows.length > 0;
+}
+
 export async function checkVisibility(
   assetType: string,
   assetId: string,

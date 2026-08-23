@@ -7,6 +7,14 @@ import type { Memory } from '../../db/drizzle/schema.js';
 import { eq } from 'drizzle-orm';
 import { cosineSimilarity as vectorCosineSimilarity } from '../utils/vector-operations.js';
 import { getDbClient } from '../lib/db-client.js';
+import { getImportanceEngine } from '../engines/flags.js';
+import {
+  calculateImportanceV2,
+  normalizeImportanceScore,
+  denormalizeImportanceScore,
+  detectSurprise,
+  detectEmotion,
+} from '../scoring/importance-v2.js';
 
 export interface ImportanceScore {
   score: number; // 0-100
@@ -200,12 +208,27 @@ export async function updateImportanceScore(
 
   const memory = memories[0];
 
-  // Calculate new importance score
+  // Calculate new importance score (v1 baseline, v2 override via flag —
+  // mirrors computeInitialImportance dispatch in core/engines/importance-engine.ts)
   const importance = calculateImportance(memory);
+  let finalScore = importance.score;
+  if (getImportanceEngine() === 'v2') {
+    try {
+      finalScore = denormalizeImportanceScore(
+        calculateImportanceV2({
+          baseImportance: normalizeImportanceScore(importance.score),
+          surprise: detectSurprise({ content: memory.content ?? '', type: memory.type ?? 'observation' }, []),
+          emotion: detectEmotion(memory.content ?? ''),
+        })
+      );
+    } catch {
+      // v2 failure -> keep v1 score
+    }
+  }
 
   // Update memory with new score
   const updateData: any = {
-    importanceScore: importance.score,
+    importanceScore: finalScore,
     lastImportanceRecalc: new Date(),
   };
 
