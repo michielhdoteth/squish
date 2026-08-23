@@ -117,14 +117,14 @@ function createDiverseCluster(count: number = 6): any[] {
  * Uses a moderate angular spread that puts d_bar between spreadSafe and spreadUnsafe.
  * The key: vectors are similar enough to not be diverse (not orthogonal), but different
  * enough that rho_C < 0.55 or d_bar exceeds spread_safe.
- *
- * For theta=0.15, d_eff ~3, spread_safe ~0.14, spread_unsafe ~0.24.
- * We need d_bar in [0.14, 0.24] range.
- * Using 90-degree total spread (PI*0.32 max angle) gives d_bar ~0.16.
- */
+  *
+  * For theta=0.15, d_eff ~1.16, spread_safe ~0.20, spread_unsafe ~0.34
+  * (factor = 2^(1/d_eff)). We need d_bar in [0.20, 0.34] range.
+  * Using 81-degree total spread (PI*0.45 max angle) gives d_bar ~0.28.
+  */
 function createBorderlineCluster(count: number = 5): any[] {
   const embeddings = Array.from({ length: count }, (_, i) => {
-    const angle = (i / count) * Math.PI * 0.32; // ~58-degree max spread
+    const angle = (i / count) * Math.PI * 0.45; // ~81-degree max spread
     return [
       Math.cos(angle) * 0.8,
       Math.sin(angle) * 0.8,

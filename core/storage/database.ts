@@ -33,9 +33,15 @@ async function rawExec(client: any, sql: string): Promise<void> {
 }
 
 /**
- * Runs fn inside a SQLite/Postgres transaction using the underlying client.
- * Falls back to running without a transaction if the driver cannot execute
- * transaction control statements.
+ * Runs fn inside a transaction on the underlying database client.
+ *
+ * IMPORTANT: This helper is SQLite-connection-level only (bun:sqlite,
+ * better-sqlite3, sql.js). It must NOT be used with pool-based drivers
+ * (e.g. postgres.js/pg pools), where BEGIN/COMMIT issued on the raw client
+ * do not pin a single pooled connection and would corrupt session state.
+ *
+ * If BEGIN fails, this throws -- it never silently runs fn without a
+ * transaction, since callers rely on atomicity.
  */
 export async function runInTransaction<T>(
   db: any,
@@ -43,14 +49,8 @@ export async function runInTransaction<T>(
 ): Promise<T> {
   const client = (db as any)?.$client ?? db;
 
-  let began = false;
-  try {
-    await rawExec(client, 'BEGIN');
-    began = true;
-  } catch {
-    // Driver does not support manual transaction control; proceed without one
-  }
-
+  await rawExec(client, 'BEGIN');
+  let began = true;
   try {
     const result = await fn(db);
     if (began) {

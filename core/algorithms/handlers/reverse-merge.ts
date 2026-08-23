@@ -41,6 +41,8 @@ interface SourceSnapshot {
   tags?: unknown;
   metadata?: unknown;
   createdAt?: Date | string | null;
+  embedding?: unknown;
+  embeddingJson?: unknown;
 }
 
 export async function handleReverseMerge(input: ReverseMergeInput): Promise<ReverseMergeResponse> {
@@ -150,6 +152,10 @@ export async function handleReverseMerge(input: ReverseMergeInput): Promise<Reve
             summary: snapshotData.summary ?? undefined,
             tags: snapshotData.tags as any,
             metadata: snapshotData.metadata as any,
+            // Restore embeddings from the snapshot when present; otherwise
+            // null them so they regenerate lazily on next access.
+            embedding: (snapshotData.embedding ?? null) as any,
+            embeddingJson: (snapshotData.embeddingJson ?? null) as any,
             updatedAt: now,
           })
           .where(
