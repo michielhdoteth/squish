@@ -105,6 +105,20 @@ export function detectProjectScope(): string | null {
 }
 
 /**
+ * Expands a leading `~` in a path to the user's home directory.
+ * Fixes the bug where `~/.squish` was treated as a literal directory
+ * named "~" relative to cwd (creating stray ./~ folders).
+ */
+export function expandTilde(inputPath: string): string {
+  if (!inputPath) return inputPath;
+  if (inputPath === '~') return homedir();
+  if (inputPath.startsWith('~/') || inputPath.startsWith('~\\')) {
+    return join(homedir(), inputPath.slice(2));
+  }
+  return inputPath;
+}
+
+/**
  * Returns the global data directory path (~/.squish/)
  */
 export function globalDataDir(): string {
@@ -120,11 +134,12 @@ export function findSquishDir(_startPath?: string): string {
 }
 
 export function getDataDir(): string {
-  // 1. If SQUISH_DATA_DIR is explicitly set, use it
+  // 1. If SQUISH_DATA_DIR is explicitly set, use it (with ~ expansion)
   if (process.env.SQUISH_DATA_DIR) {
-    const dir = isAbsolute(process.env.SQUISH_DATA_DIR)
-      ? process.env.SQUISH_DATA_DIR
-      : resolve(process.cwd(), process.env.SQUISH_DATA_DIR);
+    const expanded = expandTilde(process.env.SQUISH_DATA_DIR);
+    const dir = isAbsolute(expanded)
+      ? expanded
+      : resolve(process.cwd(), expanded);
     if (!existsSync(dir)) {
       try {
         mkdirSync(dir, { recursive: true });
@@ -141,10 +156,11 @@ export function getDataDir(): string {
     return dir;
   }
 
-  // 2. Check settings.json for data.dir
+  // 2. Check settings.json for data.dir (with ~ expansion)
   const projectRoot = detectProjectRoot();
-  const settingsDir = readPath('data.dir');
-  if (typeof settingsDir === 'string' && settingsDir.length > 0) {
+  const settingsDirRaw = readPath('data.dir');
+  if (typeof settingsDirRaw === 'string' && settingsDirRaw.length > 0) {
+    const settingsDir = expandTilde(settingsDirRaw);
     const dir = isAbsolute(settingsDir) ? settingsDir : resolve(projectRoot, settingsDir);
     if (!existsSync(dir)) {
       try {
@@ -174,14 +190,16 @@ export function getDataDir(): string {
 function resolveDataDir(): string {
   // Match the same priority as getDataDir but don't create dirs
   if (process.env.SQUISH_DATA_DIR) {
-    const dir = isAbsolute(process.env.SQUISH_DATA_DIR)
-      ? process.env.SQUISH_DATA_DIR
-      : resolve(process.cwd(), process.env.SQUISH_DATA_DIR);
+    const expanded = expandTilde(process.env.SQUISH_DATA_DIR);
+    const dir = isAbsolute(expanded)
+      ? expanded
+      : resolve(process.cwd(), expanded);
     return dir;
   }
 
-  const settingsDir = readPath('data.dir');
-  if (typeof settingsDir === 'string' && settingsDir.length > 0) {
+  const settingsDirRaw = readPath('data.dir');
+  if (typeof settingsDirRaw === 'string' && settingsDirRaw.length > 0) {
+    const settingsDir = expandTilde(settingsDirRaw);
     return isAbsolute(settingsDir) ? settingsDir : resolve(process.cwd(), settingsDir);
   }
 

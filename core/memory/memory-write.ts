@@ -33,6 +33,7 @@ import { findOrCreateCluster, updateClusterStats } from '../clustering/cluster-e
 import { evaluateCluster } from '../clustering/consolidation-check.js';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
+import { withBusyRetry } from '../../db/busy-retry.js';
 import { computeInitialImportance as computeImportanceFlagged } from '../engines/importance-engine.js';
 import { normalizeMemory, getOrCreateUser } from './memory-crud.js';
 import { emit } from '../event-bus.js';
@@ -180,7 +181,9 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
     insertValues.is_encrypted = false;
   }
 
-  await db.insert(schema.memories).values(insertValues);
+  await withBusyRetry(() => db.insert(schema.memories).values(insertValues), {
+    label: 'rememberMemory.insert',
+  });
 
   let knowledgeRecordId: string | null = null;
 

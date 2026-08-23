@@ -51,7 +51,6 @@ squish/
 │   ├── 📄 serialization.ts         # Data serialization
 │   ├── 📄 bridge-discovery.ts      # Cross-context linking (v0.4.1)
 │   ├── 📄 entity-extractor.ts      # Entity extraction (v0.4.1)
-│   ├── 📄 hybrid-scorer.ts         # Hybrid relevance scoring (v0.4.1)
 │   ├── 📄 temporal-parser.ts       # Temporal analysis (v0.4.1)
 │   └── 📄 index.ts
 ├── 📁 search/
@@ -431,7 +430,7 @@ Response Formatting
 ### **Advanced Memory Features**
 - **Bridge Discovery** (`features/memory/bridge-discovery.ts`): Cross-context relationship detection
 - **Entity Extractor** (`features/memory/entity-extractor.ts`): Named entity recognition and extraction
-- **Hybrid Scorer** (`features/memory/hybrid-scorer.ts`): Multi-algorithm relevance scoring (30-100x faster)
+- Hybrid Scorer: removed in Batch 0 (zero production callers; superseded by search-scoring pipeline)
 - **Temporal Parser** (`features/memory/temporal-parser.ts`): Time-based memory analysis
 
 ### **Performance Improvements**

@@ -3,9 +3,48 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getDataDir } from '../config.js';
 import { ensureSqliteSchema } from './bootstrap.js';
+import { maybeMergeLegacyClientDbs } from './merge-client-dbs.js';
 import { logger } from '../core/logger.js';
 
 const SQL_JS_WASM_RELATIVE_PATH = '../vendor/sql.js/sql-wasm.wasm';
+
+/**
+ * sql.js fallback policy.
+ *
+ * sql.js is a pure-JS SQLite compiled to WASM. It has NO file handle: every
+ * write serializes and rewrites the ENTIRE database file (see
+ * persistSqlJsDatabase). Under concurrent processes that means lost writes
+ * and corrupted state. It exists only as a last-resort fallback when no
+ * native driver (bun:sqlite / better-sqlite3) can load.
+ *
+ * Default behavior: allowed with a LOUD warning (single-process, read-mostly
+ * use and some test environments rely on it). Set SQUISH_ALLOW_SQLJS_FALLBACK=false
+ * to fail startup instead of silently running in this unsafe mode.
+ */
+function enforceSqlJsFallbackPolicy(): void {
+  const raw = process.env.SQUISH_ALLOW_SQLJS_FALLBACK;
+  const explicitlyDenied =
+    raw !== undefined && ['false', '0', 'no', 'off'].includes(raw.trim().toLowerCase());
+
+  if (explicitlyDenied) {
+    throw new Error(
+      'sql.js fallback is disabled via SQUISH_ALLOW_SQLJS_FALLBACK=false.\n' +
+        'Squish could not load a native SQLite driver (bun:sqlite / better-sqlite3).\n' +
+        'Install better-sqlite3 (npm/bun install better-sqlite3) or remove the env override.'
+    );
+  }
+
+  logger.warn(
+    '================================================================\n' +
+      'WARNING: Falling back to sql.js (pure-JS SQLite). This driver\n' +
+      'REWRITES THE ENTIRE DATABASE FILE ON EVERY WRITE. Concurrent\n' +
+      'processes WILL lose data or corrupt the DB. Only acceptable for\n' +
+      'single-process, read-mostly usage. Install better-sqlite3 for a\n' +
+      'safe native driver. To refuse this fallback, set\n' +
+      'SQUISH_ALLOW_SQLJS_FALLBACK=false.\n' +
+      '================================================================'
+  );
+}
 
 function isBunRuntime(): boolean {
   return typeof (globalThis as { Bun?: unknown }).Bun !== 'undefined';
@@ -68,8 +107,12 @@ async function createBunSqliteDb(dbPath: string) {
   // @ts-ignore - bun:sqlite module not found in types but works at runtime
   const sqlite = new (await import('bun:sqlite')).default(dbPath);
 
-  // Enable foreign keys
+  // Enable foreign keys + concurrency pragmas
+  // WAL: readers do not block writers and vice versa (multi-process safe).
+  // busy_timeout: wait up to 5s for a lock instead of failing immediately.
   sqlite.exec('PRAGMA foreign_keys = ON');
+  sqlite.exec('PRAGMA journal_mode = WAL');
+  sqlite.exec('PRAGMA busy_timeout = 5000');
 
   if (!fs.existsSync(dbPath) || sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().length === 0) {
     await ensureSqliteSchema(sqlite);
@@ -86,6 +129,16 @@ export async function createDb() {
 async function createSqliteDb() {
   const dbPath = `${getDataDir()}/squish.db`;
   const errors: string[] = [];
+
+  // One-time migration: fold legacy per-client DBs (~/.squish/<client>/squish.db)
+  // into the shared database before any driver opens it. Never blocks startup.
+  try {
+    await maybeMergeLegacyClientDbs(dbPath);
+  } catch (error) {
+    logger.warn('[merge-client-dbs] Legacy data-dir merge skipped', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 
   if (isBunRuntime()) {
     try {
@@ -112,6 +165,7 @@ async function createSqliteDb() {
   }
 
   try {
+    enforceSqlJsFallbackPolicy();
     return await createSqlJsDb(dbPath);
   } catch (error) {
     errors.push(formatInitializationError('sql.js', error));
@@ -133,8 +187,12 @@ async function createBetterSqliteDb(dbPath: string) {
 
   const sqlite = new Database(dbPath);
 
-  // Enable foreign keys
+  // Enable foreign keys + concurrency pragmas
+  // WAL: readers do not block writers and vice versa (multi-process safe).
+  // busy_timeout: wait up to 5s for a lock instead of failing immediately.
   sqlite.pragma('foreign_keys = ON');
+  sqlite.pragma('journal_mode = WAL');
+  sqlite.pragma('busy_timeout = 5000');
 
   const tableCount = sqlite.prepare("SELECT COUNT(*) as count FROM sqlite_master WHERE type='table'").get() as { count?: number };
   if (shouldBootstrapSchema || Number(tableCount?.count ?? 0) === 0) {

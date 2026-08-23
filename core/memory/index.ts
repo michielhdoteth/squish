@@ -30,12 +30,6 @@ export {
 } from './entity-extractor.js';
 export type { EntityType, ExtractedEntity } from './entity-extractor.js';
 export {
-  hybridScore,
-  scoreAndRankMemories,
-  getScoreDistribution,
-} from './hybrid-scorer.js';
-export type { ScoredMemory, HybridScorerOptions } from './hybrid-scorer.js';
-export {
   discoverBridges,
   getMemoryBridges,
   analyzeNetworkConnectivity,

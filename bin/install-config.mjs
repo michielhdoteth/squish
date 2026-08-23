@@ -8,14 +8,18 @@ export function getInstalledMcpCommand() {
   return process.platform === 'win32' ? 'squish-mcp.cmd' : 'squish-mcp';
 }
 
-function buildBaseMcpServer(name, dataDir) {
+// All clients share the default data dir (~/.squish) so memories are unified.
+// We deliberately do NOT write a per-client SQUISH_DATA_DIR here anymore.
+// Users can still set SQUISH_DATA_DIR manually in their client config to
+// override the shared location; config.ts expands a leading ~ correctly.
+
+function buildBaseMcpServer(name) {
   return {
     [name]: {
       command: getInstalledMcpCommand(),
       args: ['--stdio'],
       env: {
         SQUISH_MODE: 'local',
-        SQUISH_DATA_DIR: dataDir,
       },
     },
   };
@@ -23,7 +27,7 @@ function buildBaseMcpServer(name, dataDir) {
 
 export function buildClaudeCodeMcpConfig() {
   return {
-    mcpServers: buildBaseMcpServer('squish', '~/.squish/claude'),
+    mcpServers: buildBaseMcpServer('squish'),
   };
 }
 
@@ -34,7 +38,6 @@ export function buildOpenCodeMcpConfig() {
       command: [getInstalledMcpCommand(), '--stdio'],
       environment: {
         SQUISH_MODE: 'local',
-        SQUISH_DATA_DIR: '~/.squish/opencode',
       },
       enabled: true,
     },
@@ -47,7 +50,6 @@ export function buildOpenCodeInlineMcpConfig() {
     command: [getInstalledMcpCommand(), '--stdio'],
     environment: {
       SQUISH_MODE: 'local',
-      SQUISH_DATA_DIR: '~/.squish/opencode',
     },
     enabled: true,
   };
@@ -55,7 +57,7 @@ export function buildOpenCodeInlineMcpConfig() {
 
 export function buildOpenClawMcpConfig() {
   return {
-    mcpServers: buildBaseMcpServer('squish', '~/.squish/openclaw'),
+    mcpServers: buildBaseMcpServer('squish'),
   };
 }
 
@@ -68,7 +70,6 @@ enabled = true
 
   [mcp_servers.squish-memory.env]
   SQUISH_MODE = "local"
-  SQUISH_DATA_DIR = "~/.squish/codex"
 `.trim();
 }
 
