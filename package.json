@@ -132,6 +132,7 @@
     "dev": "tsx --watch core/index.ts",
     "dev:mcp": "tsx --watch packages/mcp/src/index.ts",
     "test": "bun test --isolate",
+    "eval": "bun tests/golden/run-eval.ts",
     "verify:mcp": "tsx packages/mcp/src/index.ts --health",
     "bench": "tsx benchmark/memory.ts",
     "bench:db": "tsx benchmark/run.ts",
