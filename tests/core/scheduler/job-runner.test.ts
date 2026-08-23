@@ -16,6 +16,8 @@ const testDataDir = join(
   `squish-job-runner-${Date.now()}-${Math.random().toString(36).slice(2)}`
 );
 mkdirSync(testDataDir, { recursive: true });
+const originalDataDir = process.env.SQUISH_DATA_DIR;
+const originalDatabaseUrl = process.env.DATABASE_URL;
 process.env.SQUISH_DATA_DIR = testDataDir;
 process.env.DATABASE_URL = '';
 
@@ -85,6 +87,16 @@ describe('archiveStaleMemories', () => {
       rmSync(testDataDir, { recursive: true, force: true });
     } catch {
       // Windows may hold the file briefly; temp dir is harmless
+    }
+    if (originalDataDir === undefined) {
+      delete process.env.SQUISH_DATA_DIR;
+    } else {
+      process.env.SQUISH_DATA_DIR = originalDataDir;
+    }
+    if (originalDatabaseUrl === undefined) {
+      delete process.env.DATABASE_URL;
+    } else {
+      process.env.DATABASE_URL = originalDatabaseUrl;
     }
   });
 

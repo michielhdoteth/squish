@@ -174,9 +174,12 @@ async function cleanupOldFeedbackRecords(daysOld: number): Promise<number> {
   const oldThreshold = new Date(Date.now() - daysOld * 24 * 60 * 60 * 1000);
   const sqliteDb = db as any;
 
-  const result = await sqliteDb
+  const deleted = await sqliteDb
     .delete(memoryFeedback)
-    .where(lt(memoryFeedback.createdAt, oldThreshold));
+    .where(lt(memoryFeedback.createdAt, oldThreshold))
+    .returning({ id: memoryFeedback.id });
 
-  return result?.changes ?? 0;
+  // Count via returning(): drizzle-orm/bun-sqlite run results do not
+  // reliably report `changes` for DELETE statements.
+  return Array.isArray(deleted) ? deleted.length : 0;
 }
