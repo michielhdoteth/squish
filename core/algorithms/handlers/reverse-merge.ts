@@ -7,6 +7,7 @@ import { getDb } from '../../../db/index.js';
 import { getSchema } from '../../../db/schema.js';
 import { createDatabaseClient } from '../../../core/storage/database.js';
 import { eq } from 'drizzle-orm';
+import { asArray } from '../utils/json-fields.js';
 
 interface ReverseMergeInput {
   mergeHistoryId: string;
@@ -80,8 +81,8 @@ export async function handleReverseMerge(input: ReverseMergeInput): Promise<Reve
     const now = new Date();
 
     // Step 3: Restore source memories from snapshot
-    const sourceSnapshot = (history.sourceMemoriesSnapshot as unknown as Array<Record<string, any>>) || [];
-    const sourceMemoryIds = (history.sourceMemoryIds as unknown as string[]) || [];
+    const sourceSnapshot = asArray<Record<string, any>>(history.sourceMemoriesSnapshot);
+    const sourceMemoryIds = asArray<string>(history.sourceMemoryIds);
 
     if (sourceSnapshot.length === 0) {
       return {

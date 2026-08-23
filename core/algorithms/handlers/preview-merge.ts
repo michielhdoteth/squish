@@ -9,6 +9,7 @@ import { createDatabaseClient } from '../../../core/storage/database.js';
 import { eq } from 'drizzle-orm';
 import { estimateMergeSavingsPreview } from '../analytics/token-estimator.js';
 import { mergeMemories } from '../strategies/merge-strategies.js';
+import { asArray, toIsoString } from '../utils/json-fields.js';
 
 interface PreviewMergeInput {
   proposalId: string;
@@ -75,7 +76,7 @@ export async function handlePreviewMerge(input: PreviewMergeInput): Promise<Prev
     }
 
     // Load source memories
-    const sourceIds = (proposal.sourceMemoryIds as unknown as string[]) || [];
+    const sourceIds = asArray<string>(proposal.sourceMemoryIds);
     const sourceMemories: Memory[] = [];
 
     for (const id of sourceIds) {
@@ -111,7 +112,7 @@ export async function handlePreviewMerge(input: PreviewMergeInput): Promise<Prev
           content: m.content,
           summary: m.summary,
           tags: m.tags || [],
-          createdAt: m.createdAt?.toISOString() || '',
+          createdAt: toIsoString(m.createdAt),
         })),
         mergedResult: {
           content: merged.content,

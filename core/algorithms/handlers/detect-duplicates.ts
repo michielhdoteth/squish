@@ -16,6 +16,7 @@ import { getSchema } from '../../../db/schema.js';
 import { createDatabaseClient } from '../../../core/storage/database.js';
 import { eq } from 'drizzle-orm';
 import { buildSuccessResponse, buildErrorResponse } from '../utils/response-builder.js';
+import { toSqliteJson } from '../../../core/memory/serialization.js';
 
 interface DetectDuplicatesInput {
   projectId?: string;
@@ -152,16 +153,16 @@ export async function handleDetectDuplicates(input: DetectDuplicatesInput): Prom
         id: proposalId as unknown as UUID,
         projectId: projectId as unknown as UUID,
         userId: candidate.memory1.userId,
-        sourceMemoryIds: [candidate.memory1.id, candidate.memory2.id],
+        sourceMemoryIds: toSqliteJson([candidate.memory1.id, candidate.memory2.id]),
         proposedContent: merged.content,
         proposedSummary: merged.summary,
-        proposedTags: merged.tags,
-        proposedMetadata: merged.metadata,
+        proposedTags: toSqliteJson(merged.tags),
+        proposedMetadata: toSqliteJson(merged.metadata),
         detectionMethod: candidate.detectionMethod,
         similarityScore: candidate.similarityScore,
         confidenceLevel: candidate.confidenceLevel,
         mergeReason: candidate.mergeReason,
-        conflictWarnings: merged.conflictWarnings,
+        conflictWarnings: toSqliteJson(merged.conflictWarnings),
         status: 'pending',
         createdAt: new Date(),
       } as any);

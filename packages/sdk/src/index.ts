@@ -999,6 +999,240 @@ export class SquishClient {
     }
   }
 
+  // ─── Dedup / Merge Workflow ──────────────────────────────────────────────
+
+  /**
+   * Scan a project for duplicate memories and create merge proposals.
+   * Detection only + proposal creation; no merges are executed.
+   */
+  async dedupScan(input: DedupScanInput = {}): Promise<DedupScanResult> {
+    try {
+      const { handleDetectDuplicates } = await import('../../../core/algorithms/handlers/detect-duplicates.js');
+      const result = await handleDetectDuplicates({
+        projectId: input.projectId,
+        threshold: input.threshold,
+        memoryType: input.memoryType as any,
+        limit: input.limit,
+        autoCreateProposals: input.autoCreateProposals ?? true,
+      });
+
+      if (result.ok && result.data && result.data.proposalIds.length > 0) {
+        const distribution = await this.getMergeConfidenceDistribution(result.data.proposalIds);
+        (result.data as Record<string, unknown>).confidenceDistribution = distribution;
+      }
+
+      return result as DedupScanResult;
+    } catch (error) {
+      if (error instanceof SquishError) throw error;
+      throw new StorageError('Failed to scan for duplicates', error as Error);
+    }
+  }
+
+  /** List merge proposals for a project, optionally filtered by status. */
+  async listMergeProposals(input: MergeProposalListInput): Promise<MergeListResult> {
+    try {
+      const { handleListProposals } = await import('../../../core/algorithms/handlers/list-proposals.js');
+      return await handleListProposals({
+        projectId: input.projectId,
+        status: input.status,
+        limit: input.limit,
+      }) as MergeListResult;
+    } catch (error) {
+      if (error instanceof SquishError) throw error;
+      throw new StorageError('Failed to list merge proposals', error as Error);
+    }
+  }
+
+  /** Preview the before/after of a pending merge proposal. */
+  async previewMerge(proposalId: string): Promise<MergePreviewResult> {
+    try {
+      const { handlePreviewMerge } = await import('../../../core/algorithms/handlers/preview-merge.js');
+      return await handlePreviewMerge({ proposalId }) as MergePreviewResult;
+    } catch (error) {
+      if (error instanceof SquishError) throw error;
+      throw new StorageError('Failed to preview merge', error as Error);
+    }
+  }
+
+  /** Approve and execute a pending merge proposal (records undo data). */
+  async approveMerge(input: { proposalId: string; reviewNotes?: string }): Promise<MergeActionResult> {
+    try {
+      const { handleApproveMerge } = await import('../../../core/algorithms/handlers/approve-merge.js');
+      return await handleApproveMerge(input) as MergeActionResult;
+    } catch (error) {
+      if (error instanceof SquishError) throw error;
+      throw new StorageError('Failed to approve merge', error as Error);
+    }
+  }
+
+  /** Reject a pending merge proposal without executing it. */
+  async rejectMerge(input: { proposalId: string; reviewNotes?: string }): Promise<MergeActionResult> {
+    try {
+      const { handleRejectMerge } = await import('../../../core/algorithms/handlers/reject-merge.js');
+      return await handleRejectMerge(input) as MergeActionResult;
+    } catch (error) {
+      if (error instanceof SquishError) throw error;
+      throw new StorageError('Failed to reject merge', error as Error);
+    }
+  }
+
+  /** Reverse an executed merge using its history record ID. */
+  async reverseMerge(input: { mergeHistoryId: string; reason?: string }): Promise<MergeReversalResult> {
+    try {
+      const { handleReverseMerge } = await import('../../../core/algorithms/handlers/reverse-merge.js');
+      return await handleReverseMerge(input) as MergeReversalResult;
+    } catch (error) {
+      if (error instanceof SquishError) throw error;
+      throw new StorageError('Failed to reverse merge', error as Error);
+    }
+  }
+
+  /**
+   * Auto-approve-and-merge all pending proposals above `threshold`
+   * (default 0.95), capped at `cap` merges per invocation (default 25).
+   *
+   * Gated behind SQUISH_DEDUP_AUTO=true; returns instructions when off.
+   * Each executed merge is recorded in memory_merge_history (undo log).
+   */
+  async dedupAutoMerge(input: { threshold?: number; cap?: number } = {}): Promise<DedupAutoResult> {
+    if (process.env.SQUISH_DEDUP_AUTO !== 'true') {
+      return {
+        ok: false,
+        gated: true,
+        approved: 0,
+        merges: [],
+        message:
+          'Auto-merge is disabled by default. Set environment variable SQUISH_DEDUP_AUTO=true to enable, then re-run.',
+      };
+    }
+
+    const threshold = input.threshold ?? 0.95;
+    const cap = Math.max(1, input.cap ?? 25);
+
+    const projects = await this.listProjects();
+    const merges: DedupAutoMergeRecord[] = [];
+
+    for (const project of projects) {
+      if (merges.length >= cap) break;
+
+      const listing = await this.listMergeProposals({ projectId: project.id, status: 'pending', limit: cap * 2 });
+      if (!listing.ok || !listing.data) continue;
+
+      const eligible = listing.data.proposals
+        .filter((p) => p.similarityScore >= threshold)
+        .sort((a, b) => b.similarityScore - a.similarityScore);
+
+      for (const proposal of eligible) {
+        if (merges.length >= cap) break;
+        const result = await this.approveMerge({
+          proposalId: proposal.id,
+          reviewNotes: `auto-merge: similarity=${proposal.similarityScore.toFixed(3)} >= ${threshold}`,
+        });
+        if (result.ok && result.data) {
+          merges.push({
+            proposalId: result.data.proposalId,
+            canonicalMemoryId: result.data.canonicalMemoryId,
+            mergedMemoryIds: result.data.mergedMemoryIds,
+            mergeHistoryId: result.data.mergeHistoryId ?? null,
+            tokensSaved: result.data.tokensSaved,
+          });
+        }
+      }
+    }
+
+    return { ok: true, gated: false, approved: merges.length, merges };
+  }
+
+  private async getMergeConfidenceDistribution(proposalIds: string[]): Promise<Record<string, number>> {
+    const distribution: Record<string, number> = { high: 0, medium: 0, low: 0 };
+    try {
+      const { getDb } = await import('../../../db/index.js');
+      const { getSchema } = await import('../../../db/schema.js');
+      const { createDatabaseClient } = await import('../../../core/storage/database.js');
+      const { inArray } = await import('drizzle-orm');
+
+      const db = createDatabaseClient(await getDb());
+      const schema = await getSchema();
+      const rows = await db
+        .select()
+        .from(schema.memoryMergeProposals)
+        .where(inArray(schema.memoryMergeProposals.id, proposalIds));
+
+      for (const row of rows) {
+        const level = (row.confidenceLevel as string) || 'low';
+        distribution[level] = (distribution[level] || 0) + 1;
+      }
+    } catch {
+      // Distribution is best-effort enrichment
+    }
+    return distribution;
+  }
+
+  // ─── Batch Memory Fetch ──────────────────────────────────────────────────
+
+  /**
+   * Fetch multiple memories in a single query (batch alternative to getById).
+   *
+   * @param ids - Array of memory UUIDs
+   * @returns Found memory records (missing IDs are omitted)
+   */
+  async getMemoriesByIds(ids: string[]): Promise<SdkMemoryRecord[]> {
+    try {
+      if (!ids || ids.length === 0) return [];
+      const { getDb } = await import('../../../db/index.js');
+      const { getSchema } = await import('../../../db/schema.js');
+      const { createDatabaseClient } = await import('../../../core/storage/database.js');
+      const { inArray } = await import('drizzle-orm');
+
+      const db = createDatabaseClient(await getDb());
+      const schema = await getSchema();
+      const rows = await db.select().from(schema.memories).where(inArray(schema.memories.id, ids));
+      return rows.map(mapCoreMemoryToSdk);
+    } catch (error) {
+      if (error instanceof SquishError) throw error;
+      throw new StorageError('Failed to fetch memories by IDs', error as Error);
+    }
+  }
+
+  // ─── Place Memories ──────────────────────────────────────────────────────
+
+  /**
+   * Get the memory IDs assigned to a place (by place ID or type such as inbox/hot/warm/cold/archive).
+   *
+   * @param placeIdOrType - Place ID or canonical place type
+   * @param limit - Maximum number of memory IDs to return
+   */
+  async getPlaceMemories(placeIdOrType: string, limit: number = 50): Promise<string[]> {
+    try {
+      const { getPlaceMemories } = await import('../../../core/places/memory-places.js');
+      return await getPlaceMemories(placeIdOrType, limit);
+    } catch (error) {
+      if (error instanceof SquishError) throw error;
+      throw new StorageError('Failed to get place memories', error as Error);
+    }
+  }
+
+  // ─── Related Sessions ────────────────────────────────────────────────────
+
+  /**
+   * Find sessions related to a repository path / working files.
+   *
+   * @param input - repo_path plus optional files and limit
+   */
+  async findRelatedSessions(input: {
+    repo_path: string;
+    files?: string[];
+    limit?: number;
+  }): Promise<unknown[]> {
+    try {
+      const { findRelatedSessions } = await import('../../../core/sessions/store.js');
+      return await findRelatedSessions(input);
+    } catch (error) {
+      if (error instanceof SquishError) throw error;
+      throw new StorageError('Failed to find related sessions', error as Error);
+    }
+  }
+
   // ─── Consolidation ───────────────────────────────────────────────────────
 
   /**
@@ -1225,6 +1459,85 @@ export class SquishClient {
   async close(): Promise<void> {
     // No persistent resources to clean up in the SDK wrapper
   }
+}
+
+// ─── Dedup / Merge Workflow Types ───────────────────────────────────────────
+
+export interface DedupScanInput {
+  projectId?: string;
+  threshold?: number;
+  memoryType?: string;
+  limit?: number;
+  autoCreateProposals?: boolean;
+}
+
+export interface MergeProposalSummary {
+  id: string;
+  projectId: string;
+  sourceMemoryIds: string[];
+  status: 'pending' | 'approved' | 'rejected' | 'expired';
+  confidenceLevel: string;
+  similarityScore: number;
+  mergeReason: string;
+  createdAt: string;
+  conflictWarnings: string[];
+}
+
+export interface MergeListResult {
+  ok: boolean;
+  message: string;
+  data?: {
+    projectId: string;
+    count: number;
+    proposals: MergeProposalSummary[];
+    byStatus: { pending: number; approved: number; rejected: number; expired: number };
+  };
+  error?: string;
+}
+
+export interface MergePreviewResult {
+  ok: boolean;
+  message: string;
+  data?: Record<string, unknown>;
+  error?: string;
+}
+
+export interface MergeActionResult {
+  ok: boolean;
+  message: string;
+  data?: {
+    proposalId: string;
+    canonicalMemoryId?: string;
+    mergedMemoryIds?: string[];
+    tokensSaved?: number;
+    mergedAt?: string;
+    mergeHistoryId?: string;
+    [key: string]: unknown;
+  };
+  error?: string;
+}
+
+export interface MergeReversalResult {
+  ok: boolean;
+  message: string;
+  data?: Record<string, unknown>;
+  error?: string;
+}
+
+export interface DedupAutoMergeRecord {
+  proposalId: string;
+  canonicalMemoryId: string;
+  mergedMemoryIds: string[];
+  mergeHistoryId: string | null;
+  tokensSaved: number | undefined;
+}
+
+export interface DedupAutoResult {
+  ok: boolean;
+  gated: boolean;
+  approved: number;
+  merges: DedupAutoMergeRecord[];
+  message?: string;
 }
 
 // ─── Mapping Helpers ────────────────────────────────────────────────────────

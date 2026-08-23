@@ -34,7 +34,32 @@ function record(entry: ToolTrace): void {
 }
 
 /**
+ * Detect MCP tool results that carry an error payload even though the
+ * handler did not throw: the shared errorResponse(...) shape sets
+ * isError=true, and handler-level results may embed { ok: false } JSON.
+ */
+function looksLikeErrorResult(result: unknown): boolean {
+  if (!result || typeof result !== 'object') return false;
+  const r = result as Record<string, unknown>;
+  if (r.isError === true) return true;
+  try {
+    const content = Array.isArray(r.content) ? (r.content as Array<Record<string, unknown>>) : [];
+    const text = content[0]?.type === 'text' ? content[0].text : null;
+    if (typeof text === 'string') {
+      const parsed = JSON.parse(text);
+      if (parsed && typeof parsed === 'object' && (parsed as Record<string, unknown>).ok === false) {
+        return true;
+      }
+    }
+  } catch {
+    // Not JSON or not an error-shaped result
+  }
+  return false;
+}
+
+/**
  * Wrap a tool handler with tracing. Records tool name, duration ms, ok/error.
+ * Results carrying the shared error-response shape are counted as errors.
  */
 export async function traceToolCall<T>(
   tool: string,
@@ -43,7 +68,9 @@ export async function traceToolCall<T>(
   const start = Date.now();
   let ok = true;
   try {
-    return await fn();
+    const result = await fn();
+    if (looksLikeErrorResult(result)) ok = false;
+    return result;
   } catch (error) {
     ok = false;
     throw error;

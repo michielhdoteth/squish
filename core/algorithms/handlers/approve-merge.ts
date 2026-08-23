@@ -11,6 +11,8 @@ import { eq, inArray } from 'drizzle-orm';
 import { mergeMemories } from '../strategies/merge-strategies.js';
 import { estimateTokensSaved } from '../analytics/token-estimator.js';
 import { getEmbedding } from '../../../core/embeddings.js';
+import { toSqliteJson } from '../../../core/memory/serialization.js';
+import { asArray } from '../utils/json-fields.js';
 
 interface ApproveMergeInput {
   proposalId: string;
@@ -26,6 +28,7 @@ interface ApproveMergeResponse {
     mergedMemoryIds: string[];
     tokensSaved: number;
     mergedAt: string;
+    mergeHistoryId?: string;
   };
   error?: string;
 }
@@ -67,7 +70,7 @@ export async function handleApproveMerge(input: ApproveMergeInput): Promise<Appr
     }
 
     // Step 2: Load source memories
-    const sourceIds = (proposal.sourceMemoryIds as unknown as string[]) || [];
+    const sourceIds = asArray<string>(proposal.sourceMemoryIds);
     if (sourceIds.length === 0) {
       return {
         ok: false,
@@ -124,13 +127,13 @@ export async function handleApproveMerge(input: ApproveMergeInput): Promise<Appr
       content: merged.content,
       summary: merged.summary,
       embedding: embedding || undefined,
-      tags: merged.tags,
-      metadata: merged.metadata,
+      tags: toSqliteJson(merged.tags),
+      metadata: toSqliteJson(merged.metadata),
       source: 'merge',
       confidence: 85, // Merged confidence slightly lower than source
       isActive: true,
       isCanonical: true,
-      mergeSourceIds: sourceIds,
+      mergeSourceIds: toSqliteJson(sourceIds),
       isMergeable: true,
       mergeVersion: 1,
       createdAt: now,
@@ -166,9 +169,9 @@ export async function handleApproveMerge(input: ApproveMergeInput): Promise<Appr
       projectId: sourceMemories[0].projectId,
       userId: sourceMemories[0].userId,
       proposalId,
-      sourceMemoryIds: sourceIds,
+      sourceMemoryIds: toSqliteJson(sourceIds),
       canonicalMemoryId: canonicalId,
-      sourceMemoriesSnapshot: sourceMemories.map((m) => ({
+      sourceMemoriesSnapshot: toSqliteJson(sourceMemories.map((m) => ({
         id: m.id,
         type: m.type,
         content: m.content,
@@ -176,7 +179,7 @@ export async function handleApproveMerge(input: ApproveMergeInput): Promise<Appr
         tags: m.tags,
         metadata: m.metadata,
         createdAt: m.createdAt,
-      })),
+      }))),
       mergeStrategy: sourceMemories[0].type === 'preference' ? 'latest' : 'union',
       tokensSaved,
       isReversed: false,
@@ -203,6 +206,8 @@ export async function handleApproveMerge(input: ApproveMergeInput): Promise<Appr
         mergedMemoryIds: sourceIds,
         tokensSaved,
         mergedAt: now.toISOString(),
+        // Undo-log anchor: use with reverse action to restore source memories
+        mergeHistoryId: historyId,
       },
     };
   } catch (error) {

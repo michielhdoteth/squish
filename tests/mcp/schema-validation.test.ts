@@ -8,11 +8,18 @@ import { join } from "node:path";
 
 const MCP_SRC = join(process.cwd(), "packages", "mcp", "src", "index.ts");
 const MCP_EXTRAS_SRC = join(process.cwd(), "packages", "mcp", "src", "tools", "extras.ts");
+const MCP_DEDUP_SRC = join(process.cwd(), "packages", "mcp", "src", "tools", "dedup.ts");
 
 function readSource(): string {
-  // Tool definitions live in both index.ts (core tools) and tools/extras.ts
-  // (additive capability tools: places, sessions, tier, maintenance)
-  return readFileSync(MCP_SRC, "utf8") + "\n" + readFileSync(MCP_EXTRAS_SRC, "utf8");
+  // Tool definitions live in index.ts (core tools), tools/extras.ts
+  // (places, sessions, tier, maintenance) and tools/dedup.ts (dedup workflow)
+  return (
+    readFileSync(MCP_SRC, "utf8") +
+    "\n" +
+    readFileSync(MCP_EXTRAS_SRC, "utf8") +
+    "\n" +
+    readFileSync(MCP_DEDUP_SRC, "utf8")
+  );
 }
 
 interface ToolInfo {
@@ -95,7 +102,7 @@ describe("MCP schema validation", () => {
     const source = readSource();
     const tools = extractTools(source);
 
-    expect(tools.length).toBe(15);
+    expect(tools.length).toBe(16);
 
     const validPropertyTypes = new Set([
       "string", "number", "boolean", "object", "array", "integer",
@@ -132,7 +139,7 @@ describe("MCP schema validation", () => {
     const source = readSource();
     const tools = extractTools(source);
 
-    expect(tools.length).toBe(15);
+    expect(tools.length).toBe(16);
 
     for (const tool of tools) {
       expect(tool.description.length).toBeGreaterThan(0);
@@ -162,6 +169,7 @@ describe("MCP schema validation", () => {
       "squish_sessions",
       "squish_tier",
       "squish_maintenance",
+      "squish_dedup",
     ]);
 
     const actual = new Set(tools.map((t) => t.name));
@@ -240,7 +248,7 @@ describe("MCP schema validation", () => {
     const source = readSource();
     const tools = extractTools(source);
 
-    expect(tools.length).toBe(15);
+    expect(tools.length).toBe(16);
 
     for (const tool of tools) {
       const schemaObj = evalZodSchema(tool.inputSchemaZod);

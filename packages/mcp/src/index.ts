@@ -51,6 +51,7 @@ import {
   registerTierTools,
   registerMaintenanceTools,
 } from "./tools/extras.js";
+import { registerDedupTools } from "./tools/dedup.js";
 
 // CRITICAL: Redirect console.log to stderr AFTER all imports
 
@@ -988,6 +989,7 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
   toolCount += registerSessionsTools(extrasCtx);
   toolCount += registerTierTools(extrasCtx);
   toolCount += registerMaintenanceTools(extrasCtx);
+  toolCount += registerDedupTools(extrasCtx);
 
   console.error(`[MCP] Tool registration complete. Registered ${toolCount} tools.`);
 

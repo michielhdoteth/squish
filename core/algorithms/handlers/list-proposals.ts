@@ -9,6 +9,7 @@ import { getDb } from '../../../db/index.js';
 import { getSchema } from '../../../db/schema.js';
 import { createDatabaseClient } from '../../../core/storage/database.js';
 import { eq, and, desc } from 'drizzle-orm';
+import { asArray, toIsoString } from '../utils/json-fields.js';
 
 interface ListProposalsInput {
   projectId: string;
@@ -101,13 +102,13 @@ export async function handleListProposals(input: ListProposalsInput): Promise<Li
     const formattedProposals: ProposalSummary[] = proposals.map((p) => ({
       id: p.id,
       projectId: p.projectId,
-      sourceMemoryIds: (p.sourceMemoryIds as unknown as string[]) || [],
+      sourceMemoryIds: asArray<string>(p.sourceMemoryIds),
       status: (p.status as 'pending' | 'approved' | 'rejected' | 'expired') || 'pending',
       confidenceLevel: (p.confidenceLevel as 'high' | 'medium' | 'low') || 'medium',
       similarityScore: typeof p.similarityScore === 'string' ? parseFloat(p.similarityScore) : p.similarityScore || 0,
       mergeReason: p.mergeReason || '',
-      createdAt: p.createdAt?.toISOString() || '',
-      conflictWarnings: (p.conflictWarnings as unknown as string[]) || [],
+      createdAt: toIsoString(p.createdAt),
+      conflictWarnings: asArray<string>(p.conflictWarnings),
     }));
 
     return {

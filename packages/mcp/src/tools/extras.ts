@@ -53,18 +53,8 @@ export function registerPlacesTools(ctx: ToolCtx): number {
       if (!placeId) {
         return errorResponse("missing_param", "placeId is required for get action");
       }
-      const { getPlaceMemories } = await import('../../../../core/places/memory-places.js');
-      const memoryIds = await getPlaceMemories(placeId, limit);
-
-      const memories = [];
-      for (const id of memoryIds.slice(0, limit)) {
-        try {
-          const mem = await sdkClient.getById(id);
-          if (mem) memories.push(mem);
-        } catch {
-          // skip missing memories
-        }
-      }
+      const memoryIds = await sdkClient.getPlaceMemories(placeId, limit);
+      const memories = await sdkClient.getMemoriesByIds(memoryIds.slice(0, limit));
 
       return jsonResult({
         ok: true,
@@ -131,12 +121,11 @@ export function registerSessionsTools(ctx: ToolCtx): number {
           return jsonResult({ ok: true, query: input.query, count: chunks.length, chunks }, SERVER_VERSION);
         }
         case "related": {
-          const { findRelatedSessions } = await import('../../../../core/sessions/store.js');
-          const results = await findRelatedSessions({
+          const results = await sdkClient.findRelatedSessions({
             repo_path: input.repoPath || resolvedProject || process.cwd(),
             files: input.files,
             limit,
-          });
+          }) as Array<Record<string, any>>;
           return jsonResult({
             ok: true,
             count: results.length,

@@ -280,6 +280,96 @@ const tierMaintenanceHandler = async (context: JobExecutionContext) => {
 };
 registerJobHandler('tier_maintenance', tierMaintenanceHandler);
 
+// Dedup maintenance handler - scans for duplicate memories and creates merge
+// proposals for review. Executes auto-merges ONLY when SQUISH_DEDUP_AUTO=true,
+// above the configured similarity threshold and capped per run. Every executed
+// merge is recorded in memory_merge_history (undo log) so reverse works.
+const dedupMaintenanceHandler = async (context: JobExecutionContext) => {
+  const jobConfig = context.config as {
+    enabled?: boolean;
+    threshold?: number;
+    cap?: number;
+  };
+
+  if (jobConfig.enabled === false) {
+    return { recordsProcessed: 0, summary: { skipped: true, reason: 'dedup maintenance disabled' } };
+  }
+
+  const { getAllProjects } = await import('../projects.js');
+  const { handleDetectDuplicates } = await import('../algorithms/handlers/detect-duplicates.js');
+
+  const projects = await getAllProjects();
+  let totalProposals = 0;
+  let scanErrors = 0;
+
+  for (const project of projects) {
+    try {
+      const result = await handleDetectDuplicates({ projectId: project.id });
+      if (result.ok && result.data) {
+        totalProposals += result.data.proposalsCreated;
+      }
+    } catch (err) {
+      scanErrors++;
+      logger.error(`[Dedup] Scan failed for project ${project.id}:`, err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  // Auto-merge phase - strictly gated, capped, high-confidence only
+  const autoEnabled = process.env.SQUISH_DEDUP_AUTO === 'true';
+  const threshold = jobConfig.threshold ?? 0.95;
+  const cap = Math.max(1, jobConfig.cap ?? 25);
+  let autoApproved = 0;
+  let remaining = cap;
+
+  if (autoEnabled && totalProposals >= 0 && remaining > 0) {
+    try {
+      const { getDbClient } = await import('../lib/db-client.js');
+      const { eq, desc } = await import('drizzle-orm');
+      const { handleApproveMerge } = await import('../algorithms/handlers/approve-merge.js');
+      const { db, schema } = await getDbClient();
+
+      const pending = await db
+        .select()
+        .from(schema.memoryMergeProposals)
+        .where(eq(schema.memoryMergeProposals.status, 'pending'))
+        .orderBy(desc(schema.memoryMergeProposals.similarityScore));
+
+      for (const proposal of pending) {
+        if (remaining <= 0) break;
+        const score = parseFloat(String(proposal.similarityScore));
+        if (!(score >= threshold)) continue;
+
+        const result = await handleApproveMerge({
+          proposalId: proposal.id,
+          reviewNotes: `auto-merge (scheduler): similarity=${score.toFixed(3)} >= ${threshold}`,
+        });
+        if (result.ok) {
+          autoApproved++;
+          remaining--;
+        }
+      }
+    } catch (err) {
+      logger.error('[Dedup] Auto-merge phase failed:', err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  logger.info(`[Dedup] Maintenance complete: ${totalProposals} new proposals, ${autoApproved} auto-merged (gated=${!autoEnabled})`);
+
+  return {
+    recordsProcessed: totalProposals + autoApproved,
+    summary: {
+      projectsScanned: projects.length,
+      proposalsCreated: totalProposals,
+      scanErrors,
+      autoEnabled,
+      threshold,
+      cap,
+      autoMerged: autoApproved,
+    },
+  };
+};
+registerJobHandler('dedup_maintenance', dedupMaintenanceHandler);
+
 // Consolidation sleep cycle handler - runs DBSCAN clustering and pattern extraction
 const consolidationHandler = async (context: JobExecutionContext) => {
   const jobConfig = context.config as {
@@ -549,6 +639,17 @@ async function ensureDefaultJobs(db: any): Promise<void> {
         dryRun: true,
         steps: ['dedup', 'stale'],
         age: 30,
+      },
+    },
+    {
+      jobName: 'dedup_maintenance',
+      jobType: 'nightly' as JobType,
+      cronExpression: '45 3 * * *', // Nightly at 3:45 AM (after auto_maintenance)
+      enabled: true,
+      jobConfig: {
+        enabled: true,
+        threshold: 0.95,
+        cap: 25,
       },
     },
     // Phase 6: Weekly consolidation
