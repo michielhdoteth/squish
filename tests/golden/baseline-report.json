@@ -1,8 +1,8 @@
 {
   "meta": {
-    "generatedAt": "2026-08-24T03:55:18.920Z",
-    "gitSha": "a8bc739",
-    "gitDirty": true,
+    "generatedAt": "2026-08-24T04:01:38.318Z",
+    "gitSha": "0f7277b",
+    "gitDirty": false,
     "corpusSize": 60,
     "queryCount": 46,
     "topK": 10,
@@ -16,7 +16,7 @@
       "scoringServeV2": true
     },
     "envPinned": true,
-    "durationMs": 2226,
+    "durationMs": 3026,
     "deterministic": true
   },
   "thresholds": {
@@ -70,8 +70,8 @@
     }
   },
   "calibration": {
-    "ece": 0.09261952892545658,
-    "brier": 0.12296367192962702,
+    "ece": 0.09262045664737374,
+    "brier": 0.12296392432748535,
     "count": 46,
     "maxEceThreshold": 0.15,
     "reliability": [
@@ -80,7 +80,7 @@
         "low": 0.7,
         "high": 0.8,
         "count": 39,
-        "avgConfidence": 0.7630219718265844,
+        "avgConfidence": 0.7630206003997818,
         "hitRate": 0.8717948717948718
       },
       {
@@ -88,7 +88,7 @@
         "low": 0.8,
         "high": 0.9,
         "count": 7,
-        "avgConfidence": 0.8597650331153989,
+        "avgConfidence": 0.8597634887672403,
         "hitRate": 0.8571428571428571
       }
     ],
@@ -393,7 +393,7 @@
         {
           "goldenId": "golden_004",
           "score": 1,
-          "recallConfidence": 0.7627,
+          "recallConfidence": 0.7626,
           "confidenceTier": "QUALIFIED"
         },
         {
@@ -452,7 +452,7 @@
         }
       ],
       "recallStrategy": "graph_expanded",
-      "top1RecallConfidence": 0.7627,
+      "top1RecallConfidence": 0.7626,
       "recallAtK": 1,
       "rr": 1,
       "hitAt1": true
@@ -1339,7 +1339,7 @@
         {
           "goldenId": "golden_011",
           "score": 0.5945,
-          "recallConfidence": 0.4844,
+          "recallConfidence": 0.4843,
           "confidenceTier": "LOW"
         },
         {
@@ -2178,7 +2178,7 @@
         {
           "goldenId": "golden_004",
           "score": 0.9843,
-          "recallConfidence": 0.7627,
+          "recallConfidence": 0.7626,
           "confidenceTier": "QUALIFIED"
         },
         {
@@ -3141,7 +3141,7 @@
         {
           "goldenId": "golden_038",
           "score": 0.4805,
-          "recallConfidence": 0.3518,
+          "recallConfidence": 0.3517,
           "confidenceTier": "LOW"
         },
         {
@@ -3492,7 +3492,7 @@
         {
           "goldenId": "golden_039",
           "score": 0.9243,
-          "recallConfidence": 0.8204,
+          "recallConfidence": 0.8203,
           "confidenceTier": "QUALIFIED"
         },
         {
