@@ -1105,11 +1105,13 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
         targetType: z.enum(["memory", "belief", "strategy"]).describe("Which store the id belongs to"),
         id: z.string().describe("Target record ID (from a recall result)"),
         signal: z.enum(["confirm", "contradict", "used"]).describe("Feedback signal"),
+        project: z.string().optional().describe("Project path (defaults to detected workspace; feedback is rejected when the target belongs to a different project)"),
       }
     },
-    async ({ targetType, id, signal }: { targetType: "memory" | "belief" | "strategy"; id: string; signal: "confirm" | "contradict" | "used" }) => {
+    async ({ targetType, id, signal, project }: { targetType: "memory" | "belief" | "strategy"; id: string; signal: "confirm" | "contradict" | "used"; project?: string }) => {
       const { applyFeedback } = await import('../../../core/memory/reinforcement.js');
-      const result = await applyFeedback({ targetType, id, signal });
+      const resolvedProject = resolveProjectPath(project);
+      const result = await applyFeedback({ targetType, id, signal, project: resolvedProject });
       if (!result.ok) {
         return errorResponse("feedback_failed", result.detail ?? "feedback could not be applied", id);
       }

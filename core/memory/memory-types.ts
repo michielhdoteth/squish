@@ -103,7 +103,8 @@ export interface SearchResult extends MemoryRecord {
   /**
    * Batch 6b: which corpus produced this result.
    * 'memory' = memories table (vector/keyword/graph legs), 'belief' = unified
-   * knowledge table (beliefs/constraints/decisions/strategies leg).
+   * knowledge table (active belief + strategy kinds; decisions/constraints
+   * appear as belief subtypes).
    * Always present on results leaving hybridSearch.
    */
   corpus?: 'memory' | 'belief';

@@ -269,16 +269,20 @@ describe('end-to-end smoke eval through SDK surface', () => {
     }
 
     // Same deterministic ISO timestamp rewrite as run-eval.ts: raw epoch
-    // integers crash the SDK result mapper on the vector-search read path.
+    // integers crash the SDK result mapper on the vector-search read path,
+    // and ALL temporal columns (created_at, updated_at, last_decay_at) must
+    // share one consistent format or computeRetention's anchor goes NaN.
     const { getDb } = await import('../../db/index.js');
     const db = await getDb();
     const sqlite = (db as any)?.$client;
     if (sqlite && typeof sqlite.prepare === 'function') {
-      const update = sqlite.prepare('UPDATE memories SET created_at = ?, updated_at = ? WHERE id = ?');
+      const update = sqlite.prepare(
+        'UPDATE memories SET created_at = ?, updated_at = ?, last_decay_at = ? WHERE id = ?'
+      );
       let i = 0;
       for (const [uuid] of uuidToGolden) {
         const iso = new Date(Date.UTC(2026, 0, 1) + i * 3600_000).toISOString();
-        update.run(iso, iso, uuid);
+        update.run(iso, iso, iso, uuid);
         i += 1;
       }
     }

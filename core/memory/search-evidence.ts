@@ -25,6 +25,18 @@ import { computeRetention, type RetentionRow } from '../decay/retention.js';
 /** Association types that indicate competing versions of a fact. */
 const CONFLICT_ASSOCIATION_TYPES = ['supersedes', 'contradicts', 'updates', 'merged', 'duplicate'] as const;
 
+/**
+ * Freshness kill switch, used by the golden eval's freshness ablation
+ * (SQUISH_EVIDENCE_FRESHNESS=false): when off, the freshness evidence signal
+ * is reported as null for every result - the honest "signal not observed"
+ * state - instead of silently degrading to a constant.
+ */
+export function isFreshnessEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  const raw = env.SQUISH_EVIDENCE_FRESHNESS;
+  if (raw === undefined || raw === '') return true;
+  return !['false', '0', 'no', 'off'].includes(raw.trim().toLowerCase());
+}
+
 interface MemoryMetaRow {
   id: string;
   confidenceLevel: string | null;
@@ -93,12 +105,14 @@ export function buildEvidence(
   // the decay columns are available; falls back to the naive age-only curve
   // for rows without a memories-table anchor (belief-corpus results).
   let freshness: number | null = null;
-  if (typeof retention === 'number' && Number.isFinite(retention)) {
-    freshness = Math.max(0, Math.min(1, retention));
-  } else if (result.createdAt) {
-    const t = new Date(result.createdAt).getTime();
-    if (Number.isFinite(t)) {
-      freshness = retentionFromAge((nowMs - t) / 86_400_000);
+  if (isFreshnessEnabled()) {
+    if (typeof retention === 'number' && Number.isFinite(retention)) {
+      freshness = Math.max(0, Math.min(1, retention));
+    } else if (result.createdAt) {
+      const t = new Date(result.createdAt).getTime();
+      if (Number.isFinite(t)) {
+        freshness = retentionFromAge((nowMs - t) / 86_400_000);
+      }
     }
   }
 

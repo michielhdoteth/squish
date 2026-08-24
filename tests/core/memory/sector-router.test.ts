@@ -53,6 +53,23 @@ describe('sector-router routeSector', () => {
       type: 'observation',
       content: 'Release process:\n1. bump version\n2. build\n3. tag',
     })).toBe('procedural');
+    // >=2 enumerated items IS list context even without a keyword.
+    expect(routeSector({
+      type: 'observation',
+      content: 'Steps observed on stream:\n1. clone repo\n2. install deps',
+    })).toBe('procedural');
+  });
+
+  test('a lone enumerated line without procedural keywords stays episodic (false-positive fix)', () => {
+    expect(routeSector({
+      type: 'note',
+      content: 'The changelog mentions 1. performance improvements across the board today',
+    })).toBe('episodic');
+    // One item + one procedural keyword co-present -> procedural.
+    expect(routeSector({
+      type: 'note',
+      content: 'Checklist progress:\n1. rotate the API keys',
+    })).toBe('procedural');
   });
 
   test('session chunks / event observations default to episodic', () => {

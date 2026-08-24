@@ -311,10 +311,12 @@ export async function hybridSearch(
   // This is the industry standard (TrueMemory episodic layer, MemPalace FTS5, etc.)
   const keywordResults = await keywordSearch(input, limit * 2, searchCtx);
 
-  // Batch 6b: OPTIONAL third corpus leg - active beliefs/constraints/
-  // decisions/strategies from the unified knowledge table. SQUISH_SEARCH_BELIEFS
-  // (default ON). Empty when disabled or no matching belief rows, in which
-  // case fusion below is byte-identical to the previous two-leg behavior.
+  // Batch 6b: OPTIONAL third corpus leg - active belief + strategy knowledge
+  // rows from the unified knowledge table. SQUISH_SEARCH_BELIEFS
+  // (default ON). Empty when disabled, when explicit type/tags filters are
+  // set (belief leg excluded - see belief-search.ts), or no matching belief
+  // rows exist, in which case fusion below is byte-identical to the previous
+  // two-leg behavior.
   let beliefResults: SearchResult[] = [];
   if (areBeliefsEnabled() && !isEmptyQuery && input.query.trim().length > 0) {
     try {

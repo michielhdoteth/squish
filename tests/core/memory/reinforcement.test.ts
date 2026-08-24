@@ -15,6 +15,14 @@ const { resetDb, getDb } = await import('../../../db/index.js');
 const { applyFeedback } = await import('../../../core/memory/reinforcement.js');
 const { rememberMemory } = await import('../../../core/memory/memories.js');
 const { createKnowledge } = await import('../../../core/knowledge/knowledge-crud.js');
+const { getOrCreateProject } = await import('../../../core/projects.js');
+
+// File-level cleanup ONCE (describe-scoped afterAll would tear down the temp
+// DB between the two suites below).
+afterAll(() => {
+  try { rmSync(tempDir, { recursive: true, force: true }); } catch {}
+  delete process.env.SQUISH_DATA_DIR;
+});
 
 describe('applyFeedback (Batch 6b reinforcement loop)', () => {
   let memoryId: string;
@@ -47,11 +55,6 @@ describe('applyFeedback (Batch 6b reinforcement loop)', () => {
       status: 'active',
     });
     strategyId = strategy.id;
-  });
-
-  afterAll(() => {
-    try { rmSync(tempDir, { recursive: true, force: true }); } catch {}
-    delete process.env.SQUISH_DATA_DIR;
   });
 
   test('memory confirm bumps priority and usage anchors', async () => {
@@ -136,5 +139,118 @@ describe('applyFeedback (Batch 6b reinforcement loop)', () => {
     const result = await applyFeedback({ targetType: 'belief', id: '', signal: 'confirm' });
     expect(result.ok).toBe(false);
     expect(result.detail).toContain('id required');
+  });
+});
+
+describe('applyFeedback project scoping (Batch 6b fix)', () => {
+  let scopedMemoryId: string;
+  let scopedBeliefId: string;
+  let otherProjectId: string;
+
+  beforeAll(async () => {
+    resetDb();
+
+    // Two registered projects.
+    await getOrCreateProject('/proj/alpha');
+    const other = await getOrCreateProject('/proj/beta');
+    otherProjectId = other!.id;
+    const mem = await rememberMemory({
+      content: 'Alpha-scoped fact: the ingest queue runs on redis',
+      type: 'fact',
+      project: '/proj/alpha',
+    });
+    scopedMemoryId = mem.id;
+
+    const belief = await createKnowledge({
+      projectId: (await getOrCreateProject('/proj/alpha'))!.id,
+      knowledgeKind: 'belief',
+      knowledgeType: 'decision',
+      content: 'Alpha believes bun is faster for CLI startup',
+      confidence: 0.6,
+      status: 'active',
+    });
+    scopedBeliefId = belief.id;
+  });
+
+  test('same-project memory feedback succeeds', async () => {
+    const result = await applyFeedback({
+      targetType: 'memory', id: scopedMemoryId, signal: 'confirm', project: '/proj/alpha',
+    });
+    expect(result.ok).toBe(true);
+    expect(result.applied).toBe(true);
+  });
+
+  test('cross-project memory feedback is rejected with a clear error and mutates nothing', async () => {
+    const db = await getDb();
+    const sqlite = (db as any).$client;
+    const before = sqlite.prepare('SELECT usage_count, retrieval_priority FROM memories WHERE id = ?').get(scopedMemoryId);
+
+    const result = await applyFeedback({
+      targetType: 'memory', id: scopedMemoryId, signal: 'confirm', project: '/proj/beta',
+    });
+    expect(result.ok).toBe(false);
+    expect(result.detail).toContain('cross-project feedback rejected');
+
+    const after = sqlite.prepare('SELECT usage_count, retrieval_priority FROM memories WHERE id = ?').get(scopedMemoryId);
+    expect(after.usage_count).toBe(before.usage_count);
+    expect(after.retrieval_priority).toBe(before.retrieval_priority);
+  });
+
+  test('unregistered project path is rejected loudly, not silently bypassed', async () => {
+    const result = await applyFeedback({
+      targetType: 'memory', id: scopedMemoryId, signal: 'used', project: '/proj/does-not-exist',
+    });
+    expect(result.ok).toBe(false);
+    expect(result.detail).toContain('project context not found');
+  });
+
+  test('omitting project keeps global scope (back-compat) and still applies', async () => {
+    const result = await applyFeedback({ targetType: 'memory', id: scopedMemoryId, signal: 'used' });
+    expect(result.ok).toBe(true);
+  });
+
+  test('same-project belief feedback succeeds; cross-project belief feedback is rejected', async () => {
+    const okResult = await applyFeedback({
+      targetType: 'belief', id: scopedBeliefId, signal: 'confirm', project: '/proj/alpha',
+    });
+    expect(okResult.ok).toBe(true);
+    expect(typeof okResult.confidence).toBe('number');
+
+    const badResult = await applyFeedback({
+      targetType: 'belief', id: scopedBeliefId, signal: 'contradict', project: '/proj/beta',
+    });
+    expect(badResult.ok).toBe(false);
+    expect(badResult.detail).toContain('cross-project feedback rejected');
+
+    // The belief must remain active - the contradict never landed.
+    const sqlite = (await getDb() as any).$client;
+    const row = sqlite.prepare('SELECT status FROM knowledge WHERE id = ?').get(scopedBeliefId);
+    expect(row.status).not.toBe('disputed');
+  });
+
+  test('strategy scoping: same-project applies, cross-project rejects', async () => {
+    const strategy = await createKnowledge({
+      projectId: otherProjectId,
+      knowledgeKind: 'strategy',
+      knowledgeType: 'procedure',
+      content: 'Beta deploy runbook: pull, build, healthcheck, promote',
+      confidence: 0.5,
+      status: 'active',
+    });
+
+    const wrongScope = await applyFeedback({
+      targetType: 'strategy', id: strategy.id, signal: 'used', project: '/proj/alpha',
+    });
+    expect(wrongScope.ok).toBe(false);
+    expect(wrongScope.detail).toContain('cross-project feedback rejected');
+
+    const rightScope = await applyFeedback({
+      targetType: 'strategy', id: strategy.id, signal: 'used', project: '/proj/beta',
+    });
+    expect(rightScope.ok).toBe(true);
+
+    const sqlite = (await getDb() as any).$client;
+    const row = sqlite.prepare('SELECT usage_count FROM knowledge WHERE id = ?').get(strategy.id);
+    expect(row.usage_count).toBe(1); // only the in-scope call landed
   });
 });

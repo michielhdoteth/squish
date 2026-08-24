@@ -13,6 +13,11 @@
  * against must-hit correctness (ECE, Brier, reliability table, selective
  * accuracy/coverage curve, precision@conf>=0.90). Gate: ECE <= 0.15.
  *
+ * Batch 6b additionally reports an HONEST freshness signal: seeds write
+ * created_at AND last_decay_at in one consistent format so the Ebbinghaus
+ * retention factor is live, and the meta records an ablation note with
+ * freshness-on vs freshness-off ECE/Brier.
+ *
  * Run: bun tests/golden/run-eval.ts [--out <path>] [--top-k <n>] [--quiet]
  *      [--real-model] [--precision-stack]
  *
@@ -364,20 +369,27 @@ async function seedCorpus(goldenSet: GoldenSet, dataDir: string) {
 
   // Deterministic recency ordering: rewrite created_at to fixed hourly steps
   // in corpus order so run-to-run wall-clock jitter cannot flip near-ties.
-  // Stored as ISO-8601 TEXT (SQLite dynamic typing) because the vector-search
-  // read path stringifies raw values and the SDK mapper requires a
-  // Date-parseable representation; epoch integers would crash it.
+  // Batch 6b freshness fix: created_at, updated_at AND last_decay_at are all
+  // rewritten to the SAME consistent format (ISO-8601 TEXT, Date-parseable -
+  // raw epoch integers crash the SDK result mapper on the vector-search read
+  // path). Before this fix last_decay_at stayed at its write-time default and
+  // the mixed epoch/ISO columns made computeRetention's Math.max anchor NaN,
+  // collapsing the freshness factor to a constant 1.0 (inert signal).
+  // Anchoring last_decay_at = created_at gives every row a deterministic age
+  // so the Ebbinghaus retention factor is live and reproducible.
   const db = await getDb();
   const sqlite = (db as any)?.$client;
   if (!sqlite || typeof sqlite.prepare !== 'function') {
     throw new Error('Expected SQLite client for eval harness');
   }
-  const update = sqlite.prepare('UPDATE memories SET created_at = ?, updated_at = ? WHERE id = ?');
+  const update = sqlite.prepare(
+    'UPDATE memories SET created_at = ?, updated_at = ?, last_decay_at = ? WHERE id = ?'
+  );
   const baseMs = Date.UTC(2026, 0, 1);
   let i = 0;
   for (const [uuid] of uuidToGolden) {
     const iso = new Date(baseMs + i * 3600_000).toISOString();
-    update.run(iso, iso, uuid);
+    update.run(iso, iso, iso, uuid);
     i += 1;
   }
 
@@ -462,56 +474,86 @@ async function main() {
 
   const { client, uuidToGolden } = await seedCorpus(goldenSet, dataDir);
 
-  const perQuery: Array<Record<string, unknown>> = [];
-  const scored: Array<{ category: string; recallAtK: number; rr: number; hitAt1: boolean }> = [];
-  const calibrationObservations: CalibrationObservation[] = [];
+  /**
+   * One full retrieval+scoring pass over every query through the production
+   * SDK surface. Used twice: canonical run (freshness signal live) and the
+   * freshness-off ablation pass whose only difference is the
+   * SQUISH_EVIDENCE_FRESHNESS env kill switch.
+   */
+  async function runQueryPass(): Promise<{
+    perQuery: Array<Record<string, unknown>>;
+    scored: Array<{ category: string; recallAtK: number; rr: number; hitAt1: boolean }>;
+    observations: CalibrationObservation[];
+  }> {
+    const perQuery: Array<Record<string, unknown>> = [];
+    const scored: Array<{ category: string; recallAtK: number; rr: number; hitAt1: boolean }> = [];
+    const observations: CalibrationObservation[] = [];
 
-  for (const q of goldenSet.queries) {
-    // Production retrieval surface.
-    const results = await client.search(q.query, { limit: topK });
-    const rankedGoldenIds = results
-      .map((r: any) => uuidToGolden.get((r as any)?.memory?.id ?? r?.id))
-      .filter((id: string | undefined): id is string => Boolean(id));
+    for (const q of goldenSet.queries) {
+      // Production retrieval surface.
+      const results = await client.search(q.query, { limit: topK });
+      const rankedGoldenIds = results
+        .map((r: any) => uuidToGolden.get((r as any)?.memory?.id ?? r?.id))
+        .filter((id: string | undefined): id is string => Boolean(id));
 
-    // Diagnostics only: which strategy the recall router picks for this query.
-    let recallStrategy: string | null = null;
-    try {
-      const recalled = await client.recall(q.query, { limit: 3 });
-      recallStrategy = recalled.routing?.strategy ?? null;
-    } catch {
-      recallStrategy = 'error';
+      // Diagnostics only: which strategy the recall router picks for this query.
+      let recallStrategy: string | null = null;
+      try {
+        const recalled = await client.recall(q.query, { limit: 3 });
+        recallStrategy = recalled.routing?.strategy ?? null;
+      } catch {
+        recallStrategy = 'error';
+      }
+
+      const s = scoreRanking(rankedGoldenIds, q.mustHit, 5);
+      scored.push({ category: q.category, ...s });
+
+      // Batch 6a calibration observation: the top-1 result's calibrated
+      // confidence vs whether it actually hit. Empty result sets are honest
+      // observations too (confidence 0, miss) - abstention must be measured.
+      const top1 = results[0] as any;
+      const top1Confidence = typeof top1?.recallConfidence === 'number' ? top1.recallConfidence : 0;
+      const hasTop1 = results.length > 0 && typeof top1Confidence === 'number' && results.length > 0;
+
+      perQuery.push({
+        id: q.id,
+        category: q.category,
+        query: q.query,
+        mustHit: q.mustHit,
+        mayHit: q.mayHit,
+        retrieved: results.map((r: any) => ({
+          goldenId: uuidToGolden.get((r as any)?.memory?.id ?? r?.id) ?? null,
+          score: Number(((r as any)?.score ?? 0).toFixed(4)),
+          recallConfidence: (r as any)?.recallConfidence != null ? Number(((r as any).recallConfidence).toFixed(4)) : null,
+          confidenceTier: (r as any)?.confidenceTier ?? null,
+        })),
+        recallStrategy,
+        top1RecallConfidence: results.length > 0 ? Number(top1Confidence.toFixed(4)) : 0,
+        ...s,
+      });
+      observations.push({ confidence: hasTop1 ? top1Confidence : 0, hit: s.hitAt1 });
     }
 
-    const s = scoreRanking(rankedGoldenIds, q.mustHit, 5);
-    scored.push({ category: q.category, ...s });
-
-    // Batch 6a calibration observation: the top-1 result's calibrated
-    // confidence vs whether it actually hit. Empty result sets are honest
-    // observations too (confidence 0, miss) - abstention must be measured.
-    const top1 = results[0] as any;
-    const top1Confidence = typeof top1?.recallConfidence === 'number' ? top1.recallConfidence : 0;
-    const hasTop1 = results.length > 0 && typeof top1Confidence === 'number' && results.length > 0;
-
-    perQuery.push({
-      id: q.id,
-      category: q.category,
-      query: q.query,
-      mustHit: q.mustHit,
-      mayHit: q.mayHit,
-      retrieved: results.map((r: any) => ({
-        goldenId: uuidToGolden.get((r as any)?.memory?.id ?? r?.id) ?? null,
-        score: Number(((r as any)?.score ?? 0).toFixed(4)),
-        recallConfidence: (r as any)?.recallConfidence != null ? Number(((r as any).recallConfidence).toFixed(4)) : null,
-        confidenceTier: (r as any)?.confidenceTier ?? null,
-      })),
-      recallStrategy,
-      top1RecallConfidence: results.length > 0 ? Number(top1Confidence.toFixed(4)) : 0,
-      ...s,
-    });
-    calibrationObservations.push({ confidence: hasTop1 ? top1Confidence : 0, hit: s.hitAt1 });
+    return { perQuery, scored, observations };
   }
 
-  const { overall, byCategory } = aggregate(scored);
+  // Canonical pass: freshness signal live (default env).
+  const canonical = await runQueryPass();
+
+  // Batch 6b freshness ablation: rerun the identical deterministic retrieval
+  // with the freshness evidence signal disabled so the report can show what
+  // the freshness factor contributes to calibration honestly.
+  const prevFreshnessEnv = process.env.SQUISH_EVIDENCE_FRESHNESS;
+  process.env.SQUISH_EVIDENCE_FRESHNESS = 'off';
+  let ablationObservations: CalibrationObservation[] = [];
+  try {
+    ablationObservations = (await runQueryPass()).observations;
+  } finally {
+    if (prevFreshnessEnv === undefined) delete process.env.SQUISH_EVIDENCE_FRESHNESS;
+    else process.env.SQUISH_EVIDENCE_FRESHNESS = prevFreshnessEnv;
+  }
+
+  const { overall, byCategory } = aggregate(canonical.scored);
   const thresholds = getThresholds();
   const breaches: string[] = [];
   if (overall.recallAt5 < thresholds.recallAt5) breaches.push(`recallAt5 ${overall.recallAt5.toFixed(3)} < ${thresholds.recallAt5}`);
@@ -519,10 +561,13 @@ async function main() {
   if (overall.hitAt1 < thresholds.hitAt1) breaches.push(`hitAt1 ${overall.hitAt1.toFixed(3)} < ${thresholds.hitAt1}`);
 
   // Batch 6a: calibration of recall confidence against must-hit correctness.
-  const calibration = computeCalibrationMetrics(calibrationObservations);
+  const calibration = computeCalibrationMetrics(canonical.observations);
   if (calibration.ece > thresholds.maxEce) {
     breaches.push(`ece ${calibration.ece.toFixed(3)} > ${thresholds.maxEce}`);
   }
+
+  // Batch 6b: honest freshness ablation (freshness-on vs freshness-off ECE).
+  const freshnessOff = computeCalibrationMetrics(ablationObservations);
 
   const durationMs = Date.now() - startedAt;
 
@@ -563,8 +608,17 @@ async function main() {
       reliability: calibration.reliability,
       selective: calibration.selective,
       precisionAtConf90: calibration.precisionAtConf90 ?? null,
+      // Batch 6b ablation note: ECE/Brier with the freshness evidence signal
+      // disabled (SQUISH_EVIDENCE_FRESHNESS=off) vs the canonical on-state
+      // above. Documents what the honest freshness factor contributes.
+      freshnessAblation: {
+        signal: 'SQUISH_EVIDENCE_FRESHNESS',
+        on: { ece: calibration.ece, brier: calibration.brier, count: calibration.count },
+        off: { ece: freshnessOff.ece, brier: freshnessOff.brier, count: freshnessOff.count },
+        note: 'canonical metrics gate on the freshness-on run; off-run reruns identical deterministic retrieval with the signal nulled',
+      },
     },
-    queries: perQuery,
+    queries: canonical.perQuery,
   };
 
   mkdirSync(dirname(resolve(outPath)), { recursive: true });
@@ -602,6 +656,14 @@ async function main() {
         ['Precision@conf>=0.90', calibration.precisionAtConf90 != null ? calibration.precisionAtConf90.toFixed(3) : 'n/a', '-'],
       ],
     );
+    console.log('\n-- Freshness ablation (Batch 6b) --');
+    printTable(
+      ['Signal', 'ECE', 'Brier', 'N'],
+      [
+        ['on  (canonical)', calibration.ece.toFixed(4), calibration.brier.toFixed(4), String(calibration.count)],
+        ['off (ablation)', freshnessOff.ece.toFixed(4), freshnessOff.brier.toFixed(4), String(freshnessOff.count)],
+      ],
+    );
     console.log('\n-- Reliability table --');
     printTable(
       ['Band', 'N', 'AvgConf', 'HitRate@1', 'Gap'],
@@ -619,7 +681,7 @@ async function main() {
       calibration.selective.map((p) => [p.threshold.toFixed(2), p.coverage.toFixed(3), p.accuracy.toFixed(3)]),
     );
 
-    const worst = [...scored]
+    const worst = [...canonical.scored]
       .map((s, i) => ({ ...s, q: goldenSet.queries[i], rank: s.rr > 0 ? 1 / s.rr : Infinity }))
       .filter((s) => !s.hitAt1)
       .slice(0, 12);

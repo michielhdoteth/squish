@@ -93,10 +93,25 @@ the overhaul should attack; see `baseline-report.json` for per-query detail.
   flag OFF by default. The `notes` field inside documents reproduction steps
   and diagnosis (flat staleness penalty too blunt on aged corpora).
 
-Known harness-discovered defect: the vector-search read path stringifies raw
-`created_at` integers and the SDK result mapper then produces an Invalid Date
-(`core/memory/vector-search.ts:41`). The harness sidesteps it by seeding
-ISO-8601 timestamps; product code was intentionally not touched here.
+Known harness-discovered defect: raw epoch integers crashed the SDK result
+mapper on the vector-search read path (`core/memory/vector-search.ts`), so the
+harness originally seeded ISO-8601 text into `created_at`/`updated_at`. Batch
+6b fix: ALL temporal columns (`created_at`, `updated_at`, `last_decay_at`) are
+now seeded in the same consistent ISO format - mixed formats made
+`computeRetention`'s anchor go NaN and silently collapsed the freshness factor
+to a constant 1.0 (inert signal). The retention module itself was also
+hardened to parse Date/epoch-seconds/epoch-ms/ISO robustly and to log+fallback
+instead of silently returning full retention on unparseable dates.
+
+## Freshness ablation (Batch 6b)
+
+Each run reports an ablation note in the report's `calibration.freshnessAblation`
+and prints freshness-on vs freshness-off ECE/Brier. The off-state reruns the
+identical deterministic retrieval with `SQUISH_EVIDENCE_FRESHNESS=off`, which
+nulls the freshness evidence signal. First honest numbers after the fix:
+freshness-on ECE 0.0413 / Brier 0.1139 vs freshness-off ECE 0.0304 / Brier
+0.1148 - i.e. the previously reported 0.0304 was measured while the signal was
+inert. The ECE gate applies to the freshness-on (canonical) numbers.
 
 ## Threshold gating
 

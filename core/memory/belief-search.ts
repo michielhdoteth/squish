@@ -1,11 +1,13 @@
 /**
  * Beliefs corpus search leg (Batch 6b).
  *
- * Adds active knowledge rows (beliefs / constraints / decisions / strategies)
- * as an OPTIONAL third retrieval corpus alongside vector + FTS5 keyword legs.
+ * Adds active knowledge rows (knowledge_kind IN ('belief','strategy')) as an
+ * OPTIONAL third retrieval corpus alongside vector + FTS5 keyword legs.
  * Rows are converted into candidate shape and fused via RRF like any other
  * leg, so "what do we believe about X" works through plain squish_recall -
  * mixing memory-corpus and belief-corpus results in one ranking is intended.
+ * (Decisions and constraints are belief SUBTYPES via knowledge_type, not
+ * separate kinds - the SQL matches the unified-knowledge kind vocabulary.)
  *
  * Identity: every result carries `corpus: 'memory' | 'belief'` so consumers
  * know which table produced it. Evidence collection handles both.
@@ -17,6 +19,22 @@
  *    beliefs rank low naturally without hard exclusion.
  *  - Only status='active' rows participate; deprecated/superseded beliefs do
  *    not surface at all.
+ *
+ * Governance (Batch 6b):
+ *  - ACL: results gate under asset type 'knowledge' in the read-gate
+ *    (wired through hybridSearch -> search()); rules are authored per
+ *    knowledge-row id with assetType='knowledge'.
+ *  - Filters: when input.type or input.tags is set, this leg is EXCLUDED
+ *    entirely rather than half-honored. Rationale (documented choice): the
+ *    knowledge table uses its own type vocabulary (procedure/heuristic/...)
+ *    so mapping memory `type` filters would be guesswork, and silently
+ *    ignoring a caller's explicit filter would be dishonest; skipping the
+ *    optional leg keeps filter semantics exact on the memory corpus.
+ *  - Candidate ordering: confidence-weighted-recency
+ *    (confidence / (1 + ageDays/30)) instead of pure confidence DESC, so
+ *    low-confidence beliefs remain reachable within the 200-candidate window
+ *    instead of being permanently buried by older high-confidence rows.
+ *    Final ranking stays cosine-driven; this only shapes the candidate pool.
  *
  * Env: SQUISH_SEARCH_BELIEFS (default ON, parseEnvFlag semantics).
  */
@@ -38,6 +56,18 @@ export const BELIEF_CONFIDENCE_FLOOR = 0.5;
 const MAX_BELIEF_CANDIDATES = 200;
 /** Embedding cache bound (LRU-ish via Map re-insertion). */
 const CACHE_MAX = 2000;
+
+/**
+ * Batch 6b: confidence-weighted-recency candidate ordering (exported so tests
+ * can exercise the exact shipped expression against seeded data):
+ * weight = confidence / (1 + ageDays/30). Pure confidence DESC permanently
+ * buried low-confidence beliefs beyond the 200-row candidate window; this
+ * keeps fresh low-confidence rows reachable while cosine still owns ranking.
+ */
+export const BELIEF_CANDIDATE_ORDER_SQL =
+  "(confidence * 30.0) / " +
+  "(30.0 + MAX(0, (CAST(strftime('%s','now') AS REAL) - " +
+  "COALESCE(created_at, strftime('%s','now'))) / 86400.0)) DESC, created_at DESC";
 
 export function areBeliefsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   const raw = env.SQUISH_SEARCH_BELIEFS;
@@ -105,6 +135,12 @@ export async function beliefSearch(
   ctx?: SearchDbContext
 ): Promise<SearchResult[]> {
   try {
+    // Batch 6b governance: exclude the belief leg when explicit type/tags
+    // filters are present (see header - documented choice, not an oversight).
+    const hasTypeFilter = typeof input.type === 'string' && input.type.trim().length > 0;
+    const hasTagFilter = Array.isArray(input.tags) && input.tags.length > 0;
+    if (hasTypeFilter || hasTagFilter) return [];
+
     const dbClient = ctx?.dbClient ?? createDatabaseClient(await getDb());
     const sqlite = dbClient.$client as any;
     if (!sqlite || typeof sqlite.prepare !== 'function') return [];
@@ -122,13 +158,17 @@ export async function beliefSearch(
       params.push(project.id);
     }
 
+    // Confidence-weighted-recency candidate ordering: pure confidence DESC
+    // permanently buried low-confidence beliefs beyond the 200-candidate cap
+    // (see BELIEF_CANDIDATE_ORDER_SQL). The cosine pass below still owns the
+    // final ranking; this only shapes which candidates get scored.
     const rows = sqlite.prepare(
       `SELECT id, project_id AS projectId, knowledge_kind AS knowledgeKind,
               knowledge_type AS knowledgeType, content, summary,
               confidence, status, tags, created_at AS createdAt, updated_at AS updatedAt
        FROM knowledge
        WHERE ${conditions.join(' AND ')}
-       ORDER BY confidence DESC, created_at DESC
+       ORDER BY ${BELIEF_CANDIDATE_ORDER_SQL}
        LIMIT ?`
     ).all(...params, MAX_BELIEF_CANDIDATES) as KnowledgeCandidateRow[];
 

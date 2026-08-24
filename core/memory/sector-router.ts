@@ -52,7 +52,32 @@ const REFLECTIVE_TAGS = new Set(['insight', 'insights', 'belief', 'beliefs', 're
 const REFLECTIVE_SOURCES = new Set(['llm-consolidator', 'consolidation-insight']);
 
 /** Content/tag markers for procedure-shaped knowledge. */
-const PROCEDURAL_MARKERS = [
+const PROCEDURAL_KEYWORD_RE =
+  /\b(how to|step[- ]by[- ]step|sop|procedure|runbook|workflow|release process|onboarding guide|checklist)\b/i;
+/** A single enumerated item line, e.g. "1. bump version" or "2) run tests". */
+const NUMBERED_ITEM_LINE_RE = /^\s*\d+[.)]\s+\w+/;
+
+/**
+ * Batch 6b fix: a lone "N. word" line is NOT enough to call content
+ * procedural (false positives: version notes, quotes, references like
+ * "see 2. Overview"). Require list context: at least TWO enumerated item
+ * lines, OR one enumerated item plus a procedural keyword co-present.
+ */
+function hasEnumeratedListContext(content: string): boolean {
+  const lines = content.split(/\r?\n/);
+  let itemCount = 0;
+  for (const line of lines) {
+    if (NUMBERED_ITEM_LINE_RE.test(line)) {
+      itemCount += 1;
+      if (itemCount >= 2) return true; // >=2 items = real list context
+    }
+  }
+  if (itemCount === 1 && PROCEDURAL_KEYWORD_RE.test(content)) return true;
+  return false;
+}
+
+/** Content/tag markers for procedure-shaped knowledge (non-enumerated). */
+const PROCEDURAL_MARKERS: RegExp[] = [
   /\bhow to\b/i,
   /\bstep[- ]by[- ]step\b/i,
   /\bsop\b/i,
@@ -61,7 +86,6 @@ const PROCEDURAL_MARKERS = [
   /\bworkflow\b/i,
   /\brelease process\b/i,
   /\bonboarding guide\b/i,
-  /^\s*\d+\.\s+\w+/m, // numbered step lists
 ];
 
 export function routeSector(
@@ -94,7 +118,9 @@ export function routeSector(
   if (type === 'procedure' || type === 'procedural') return 'procedural';
   if ([...tagSet].some(t => t === 'procedure' || t === 'sop' || t === 'how-to')) return 'procedural';
   const content = signals.content ?? '';
-  if (content && PROCEDURAL_MARKERS.some(re => re.test(content))) return 'procedural';
+  if (!content) return 'episodic';
+  if (PROCEDURAL_MARKERS.some(re => re.test(content))) return 'procedural';
+  if (hasEnumeratedListContext(content)) return 'procedural';
 
   // Rule 6: default episodic.
   return 'episodic';

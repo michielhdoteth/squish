@@ -7,7 +7,14 @@
  * SQUISH_ACL_ENFORCE=true: actually filters disallowed results.
  *
  * Cheap by design: only activates when an ACL context with a userId is
- * supplied, and memories without any visibility rules are always served.
+ * supplied, and rows without any visibility rules are always served.
+ *
+ * Resource types (Batch 6b): memory-corpus results gate under asset type
+ * 'memory'; belief-corpus results (unified knowledge table) gate under asset
+ * type 'knowledge'. Visibility rules for knowledge rows are authored against
+ * the row's own id with assetType='knowledge'. Rows of either type without
+ * any rule are served by default, exactly like unruled memories - the gate
+ * adds governance where rules exist without inventing default-deny semantics.
  */
 
 import { checkVisibility, getVisibilityRules, hasVisibilityRules } from '../loadout/loadout.js';
@@ -19,15 +26,25 @@ export interface AclContext {
   teamIds?: string[];
 }
 
+/** Asset types that participate in auto-built ACL contexts. */
+const GATED_ASSET_TYPES = ['memory', 'knowledge'] as const;
+
 /**
  * Build an ACL context automatically for search paths that were not given one
  * explicitly. Cheap by design: returns null (no gating, zero per-result cost)
- * unless at least one visibility rule exists for memories. The userId falls
- * back to 'local-agent' when no explicit user is on the input.
+ * unless at least one visibility rule exists for a gated asset type. The
+ * userId falls back to 'local-agent' when no explicit user is on the input.
  */
 export async function buildAutoAclContext(userId?: string | null): Promise<AclContext | null> {
   try {
-    if (!(await hasVisibilityRules('memory'))) {
+    let anyRules = false;
+    for (const assetType of GATED_ASSET_TYPES) {
+      if (await hasVisibilityRules(assetType)) {
+        anyRules = true;
+        break;
+      }
+    }
+    if (!anyRules) {
       return null;
     }
   } catch {
@@ -39,7 +56,13 @@ export async function buildAutoAclContext(userId?: string | null): Promise<AclCo
 
 export async function applyAclReadGate<T extends { id?: string }>(
   results: T[],
-  ctx?: AclContext | null
+  ctx?: AclContext | null,
+  /**
+   * Batch 6b: resolve which asset type a result gates under. Defaults to
+   * 'memory' for every result; hybrid search passes a resolver mapping
+   * belief-corpus rows (corpus === 'belief') to 'knowledge'.
+   */
+  resolveAssetType: (result: T) => string = () => 'memory'
 ): Promise<T[]> {
   if (!ctx || !ctx.userId || results.length === 0) {
     return results;
@@ -56,14 +79,16 @@ export async function applyAclReadGate<T extends { id?: string }>(
       continue;
     }
 
-    // Fast skip: no rules for this memory -> serve without DB permission walk
-    const rules = await getVisibilityRules('memory', memoryId);
+    const assetType = resolveAssetType(result);
+
+    // Fast skip: no rules for this row -> serve without DB permission walk
+    const rules = await getVisibilityRules(assetType, memoryId);
     if (rules.length === 0) {
       kept.push(result);
       continue;
     }
 
-    const verdict = await checkVisibility('memory', memoryId, ctx.userId, teamIds);
+    const verdict = await checkVisibility(assetType, memoryId, ctx.userId, teamIds);
     if (verdict.allowed) {
       kept.push(result);
     } else if (enforce) {
@@ -71,6 +96,7 @@ export async function applyAclReadGate<T extends { id?: string }>(
     } else {
       pushEngineLog('acl_would_filter', {
         memoryId,
+        assetType,
         rule: rules.map((r) => `${r.granteeType}:${r.granteeId}`).join(','),
       });
       kept.push(result);

@@ -17,6 +17,13 @@
  */
 
 /**
+ * Shared NULL/invalid decay_rate fallback, aligned across the decay engine and
+ * the ranking-side retention mirror (Batch 6b fix): both use the engine's
+ * value, tau = 1 day.
+ */
+export const DEFAULT_TAU_DAYS = 1.0;
+
+/**
  * Parameters for Ebbinghaus decay calculation
  */
 export interface DecayParams {
@@ -101,11 +108,8 @@ function daysSinceLastDecay(lastDecayAt: Date): number {
 export function getDefaultDecayParams(memoryType: string): DecayParams {
   const now = new Date();
 
-  // Default tau (time constant) is 1.0 day for all types
-  const tau = 1.0;
-
   return {
-    tau,
+    tau: DEFAULT_TAU_DAYS,
     beta: betaForMemoryType(memoryType),
     lastDecayAt: now,
     createdAt: now

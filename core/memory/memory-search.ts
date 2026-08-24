@@ -70,10 +70,16 @@ export async function search(input: SearchInput): Promise<SearchResult[]> {
   }
 
   // ACL read gate (P5): log-only by default, filters when SQUISH_ACL_ENFORCE=true.
-  // Auto-builds a context when visibility rules exist for the current project's
-  // memories; skips entirely (zero cost) when no rules are defined.
+  // Auto-builds a context when visibility rules exist for gated asset types;
+  // skips entirely (zero cost) when no rules are defined.
+  // Batch 6b: belief-corpus rows (unified knowledge table) gate under asset
+  // type 'knowledge' - rules for them are authored per knowledge-row id.
   const acl = input.acl ?? (await buildAutoAclContext(input.user));
-  dbResults = await applyAclReadGate(dbResults, acl);
+  dbResults = await applyAclReadGate(
+    dbResults,
+    acl,
+    (r) => ((r as { corpus?: string }).corpus === 'belief' ? 'knowledge' : 'memory')
+  );
 
   // Post-filter by userId if user filter was provided
   if (userId) {
