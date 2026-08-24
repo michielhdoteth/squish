@@ -81,6 +81,20 @@ export interface SearchResult extends MemoryRecord {
   finalScore?: number;
   /** Per-component additive adjustments applied on top of semanticScore. */
   scoreBreakdown?: import('../scoring/three-field.js').ScoreBreakdown;
+  /**
+   * Batch 6a: itemized evidence vector behind the calibrated recall
+   * confidence. Absent signals are null - never fabricated zeros.
+   * Additive metadata: never used for ranking/ordering.
+   */
+  evidence?: import('../scoring/recall-confidence.js').RecallEvidence;
+  /**
+   * Batch 6a: calibrated, query-conditioned recall confidence in [0,1] -
+   * "how likely is this the correct memory to recall", derived from
+   * agreement/disagreement of independent evidence signals. NOT finalScore.
+   */
+  recallConfidence?: number;
+  /** Batch 6a: tier band for recallConfidence (HIGH >= 0.90 | QUALIFIED | LOW). */
+  confidenceTier?: 'HIGH' | 'QUALIFIED' | 'LOW';
   /** Retrieval trace for debugging (Phase 8) - populated when trace: true */
   _trace?: import('../retrieval/config.js').RetrievalTrace;
 }

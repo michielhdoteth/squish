@@ -29,6 +29,11 @@ import {
   scoreRanking,
   aggregate,
   QUERY_CATEGORIES,
+  computeCalibrationMetrics,
+  confidenceBand,
+  CALIBRATION_BANDS,
+  DEFAULT_MAX_ECE,
+  getThresholds,
 } from './run-eval.js';
 
 const goldenSet = loadGoldenSet(join(__dirname, 'golden-set.json'));
@@ -149,6 +154,101 @@ describe('scoreRanking metrics', () => {
   });
 });
 
+describe('calibration metrics (Batch 6a)', () => {
+  test('confidenceBand buckets [0,1) into 10 equal bands with 1.0 in the last', () => {
+    expect(CALIBRATION_BANDS).toBe(10);
+    expect(confidenceBand(0)).toBe(0);
+    expect(confidenceBand(0.05)).toBe(0);
+    expect(confidenceBand(0.1)).toBe(1);
+    expect(confidenceBand(0.95)).toBe(9);
+    expect(confidenceBand(1.0)).toBe(9);
+    // Out-of-range values clamp instead of throwing.
+    expect(confidenceBand(-0.5)).toBe(0);
+    expect(confidenceBand(7)).toBe(9);
+  });
+
+  test('perfectly calibrated observations give ECE near zero', () => {
+    // Hits claim high confidence in band 9; misses claim low confidence in
+    // band 0 - each band's average confidence tracks its hit-rate closely.
+    const obs = [
+      { confidence: 0.95, hit: true },
+      { confidence: 0.93, hit: true },
+      { confidence: 0.05, hit: false },
+      { confidence: 0.03, hit: false },
+    ];
+    const m = computeCalibrationMetrics(obs);
+    expect(m.count).toBe(4);
+    expect(m.ece).toBeLessThan(0.10);
+    expect(m.brier).toBeLessThan(0.02);
+    expect(m.reliability.length).toBeGreaterThanOrEqual(2);
+  });
+
+  test('overconfident observations produce large ECE', () => {
+    // Everything claims ~0.9 confidence but only half actually hits.
+    const obs = Array.from({ length: 10 }, (_, i) => ({
+      confidence: 0.91,
+      hit: i % 2 === 0,
+    }));
+    const m = computeCalibrationMetrics(obs);
+    expect(m.ece).toBeGreaterThan(0.35);
+  });
+
+  test('brier is mean squared error of confidence vs outcome', () => {
+    const m = computeCalibrationMetrics([
+      { confidence: 1.0, hit: true },   // (1-1)^2 = 0
+      { confidence: 1.0, hit: false },  // (1-0)^2 = 1
+      { confidence: 0.5, hit: true },   // (0.5-1)^2 = 0.25
+    ]);
+    expect(m.brier).toBeCloseTo((0 + 1 + 0.25) / 3, 5);
+  });
+
+  test('selective accuracy/coverage curve covers thresholds 0.50..0.95', () => {
+    const obs = [
+      { confidence: 0.97, hit: true },
+      { confidence: 0.80, hit: false },
+      { confidence: 0.60, hit: false },
+      { confidence: 0.30, hit: false },
+    ];
+    const m = computeCalibrationMetrics(obs);
+    const thresholds = m.selective.map((p) => p.threshold);
+    expect(thresholds[0]).toBe(0.50);
+    expect(thresholds[thresholds.length - 1]).toBe(0.95);
+    // Tighter thresholds accept fewer queries.
+    for (let i = 1; i < m.selective.length; i++) {
+      expect(m.selective[i].coverage).toBeLessThanOrEqual(m.selective[i - 1].coverage);
+    }
+    // At threshold 0.95 only the single high-confidence query survives.
+    const at095 = m.selective.find((p) => p.threshold === 0.95)!;
+    expect(at095.coverage).toBeCloseTo(0.25);
+    expect(at095.accuracy).toBe(1);
+  });
+
+  test('precisionAtConf90 is defined only when some observation reaches the band', () => {
+    const none = computeCalibrationMetrics([{ confidence: 0.8, hit: true }]);
+    expect(none.precisionAtConf90).toBeUndefined();
+
+    const some = computeCalibrationMetrics([
+      { confidence: 0.95, hit: true },
+      { confidence: 0.92, hit: false },
+    ]);
+    expect(some.precisionAtConf90).toBeCloseTo(0.5);
+  });
+
+  test('empty observation set yields zeroed metrics without NaN', () => {
+    const m = computeCalibrationMetrics([]);
+    expect(m.count).toBe(0);
+    expect(m.ece).toBe(0);
+    expect(m.brier).toBe(0);
+    expect(m.reliability).toEqual([]);
+    expect(Number.isNaN(m.ece)).toBe(false);
+  });
+
+  test('ECE gate default is 0.15 and env-overridable', () => {
+    expect(DEFAULT_MAX_ECE).toBe(0.15);
+    expect(getThresholds().maxEce).toBe(DEFAULT_MAX_ECE);
+  });
+});
+
 describe('end-to-end smoke eval through SDK surface', () => {
   test('seeding + search retrieves the target memory via goldenId mapping', async () => {
     const { SquishClient } = await import('../../packages/sdk/src/index.js');
@@ -190,5 +290,34 @@ describe('end-to-end smoke eval through SDK surface', () => {
 
     const scoredResult = scoreRanking(ranked, ['smoke_001'], 3);
     expect(scoredResult.hitAt1).toBe(true);
+
+    // Batch 6a integration: results carry calibrated recall confidence +
+    // tier, and every result's evidence block is itemized and honest
+    // (semantic signal present; absent signals null, never fabricated).
+    const top1: any = results[0];
+    expect(typeof top1.recallConfidence).toBe('number');
+    expect(top1.recallConfidence).toBeGreaterThanOrEqual(0);
+    expect(top1.recallConfidence).toBeLessThanOrEqual(1);
+    expect(['HIGH', 'QUALIFIED', 'LOW']).toContain(top1.confidenceTier);
+    for (const r of results as any[]) {
+      expect(r.evidence).toBeDefined();
+      expect(typeof r.evidence.semantic === 'number' || r.evidence.semantic === null).toBe(true);
+      expect(Array.isArray(Object.keys(r.evidence))).toBe(true);
+    }
+
+    // The report-shape calibration pipeline consumes exactly these values:
+    // build observations from this smoke run and assert the metrics exist.
+    const observations = (results as any[]).map((r, i) => ({
+      confidence: typeof r.recallConfidence === 'number' ? r.recallConfidence : 0,
+      hit: i === 0 && ranked[0] === 'smoke_001',
+    }));
+    const calibration = computeCalibrationMetrics(observations);
+    expect(calibration).toHaveProperty('ece');
+    expect(calibration).toHaveProperty('brier');
+    expect(calibration).toHaveProperty('reliability');
+    expect(calibration).toHaveProperty('selective');
+    expect(calibration.count).toBe(observations.length);
+    expect(Number.isFinite(calibration.ece)).toBe(true);
+    expect(Number.isFinite(calibration.brier)).toBe(true);
   }, 30000);
 });

@@ -270,4 +270,14 @@ export interface RetrievalTrace {
   reranker?: { applied: boolean; skipped: number; reason?: string };
   /** Batch 5: which graph-boost mode served this search. */
   graphBoostMode?: 'legacy' | 'normalized';
+  /**
+   * Batch 6a: abstention-aware recall assessment for the response as a whole
+   * (best calibrated confidence across results + verdict). Metadata only.
+   */
+  recallAssessment?: {
+    bestConfidence: number;
+    tier: 'HIGH' | 'QUALIFIED' | 'LOW';
+    verdict: 'confident' | 'qualified' | 'no_reliable_memory';
+    message: string;
+  };
 }

@@ -8,6 +8,11 @@
  * overall. Exit code 1 when a threshold is breached so this can gate flag
  * flips and retrieval changes.
  *
+ * Batch 6a additionally measures CALIBRATION of the recall-confidence model:
+ * every query's top-1 result is bucketed into 10 confidence bands and scored
+ * against must-hit correctness (ECE, Brier, reliability table, selective
+ * accuracy/coverage curve, precision@conf>=0.90). Gate: ECE <= 0.15.
+ *
  * Run: bun tests/golden/run-eval.ts [--out <path>] [--top-k <n>] [--quiet]
  *      [--real-model] [--precision-stack]
  *
@@ -81,11 +86,146 @@ export const DEFAULT_THRESHOLDS = {
   hitAt1: 0.78,
 };
 
+/** Batch 6a: expected-calibration-error gate. Initial threshold; expect tuning once real-world data accumulates. */
+export const DEFAULT_MAX_ECE = 0.15;
+
 export function getThresholds() {
   return {
     recallAt5: numEnv('GOLDEN_MIN_RECALL5', DEFAULT_THRESHOLDS.recallAt5),
     mrr: numEnv('GOLDEN_MIN_MRR', DEFAULT_THRESHOLDS.mrr),
     hitAt1: numEnv('GOLDEN_MIN_HIT1', DEFAULT_THRESHOLDS.hitAt1),
+    maxEce: numEnv('GOLDEN_MAX_ECE', DEFAULT_MAX_ECE),
+  };
+}
+
+// ─── Calibration metrics (Batch 6a, pure - unit-tested in golden-set.test.ts) ─
+
+/** Number of equal-width confidence bands spanning [0,1]. */
+export const CALIBRATION_BANDS = 10;
+
+/**
+ * Band index for a confidence value: band i covers [i/10, (i+1)/10).
+ * Confidence exactly 1.0 lands in the last band.
+ */
+export function confidenceBand(confidence: number): number {
+  const clamped = Math.max(0, Math.min(1, confidence));
+  return Math.min(CALIBRATION_BANDS - 1, Math.floor(clamped * CALIBRATION_BANDS));
+}
+
+export interface CalibrationObservation {
+  /** Calibrated recall confidence of the query's top-1 result. */
+  confidence: number;
+  /** Whether the top-1 result was a must-hit. */
+  hit: boolean;
+}
+
+export interface ReliabilityBin {
+  band: number;
+  low: number;
+  high: number;
+  count: number;
+  avgConfidence: number;
+  /** Fraction of observations in this band whose top-1 was a must-hit. */
+  hitRate: number;
+}
+
+export interface SelectivePoint {
+  threshold: number;
+  /** Fraction of queries accepted at this threshold. */
+  coverage: number;
+  /** Hit-rate@1 among accepted queries (NaN-safe 0 when nothing accepted). */
+  accuracy: number;
+}
+
+export interface CalibrationMetrics {
+  /** Expected calibration error across 10 equal-width bands. */
+  ece: number;
+  /** Mean (confidence - outcome)^2 over all queries. */
+  brier: number;
+  /** Total observations contributing to the metrics. */
+  count: number;
+  /** Per-band reliability table (only non-empty bins). */
+  reliability: ReliabilityBin[];
+  /** Accuracy/coverage curve for selective prediction, thresholds 0.50..0.95 step 0.05. */
+  selective: SelectivePoint[];
+  /** Hit-rate@1 among queries whose top-1 confidence >= 0.9 (undefined when none). */
+  precisionAtConf90?: number;
+}
+
+/**
+ * Compute calibration metrics from (confidence, hit) observations.
+ * Deterministic, offline, pure.
+ */
+export function computeCalibrationMetrics(observations: CalibrationObservation[]): CalibrationMetrics {
+  const n = observations.length;
+
+  // Per-band accumulation for ECE + reliability table.
+  const bandCount = new Array<number>(CALIBRATION_BANDS).fill(0);
+  const bandConfSum = new Array<number>(CALIBRATION_BANDS).fill(0);
+  const bandHitSum = new Array<number>(CALIBRATION_BANDS).fill(0);
+
+  let brierSum = 0;
+  let hitsAtHighConf = 0;
+  let highConfCount = 0;
+
+  for (const obs of observations) {
+    const conf = Math.max(0, Math.min(1, obs.confidence));
+    const outcome = obs.hit ? 1 : 0;
+    const band = confidenceBand(conf);
+    bandCount[band] += 1;
+    bandConfSum[band] += conf;
+    bandHitSum[band] += outcome;
+    brierSum += (conf - outcome) * (conf - outcome);
+    if (conf >= 0.9) {
+      highConfCount += 1;
+      hitsAtHighConf += outcome;
+    }
+  }
+
+  let ece = 0;
+  const reliability: ReliabilityBin[] = [];
+  for (let b = 0; b < CALIBRATION_BANDS; b++) {
+    if (bandCount[b] === 0) continue;
+    const avgConfidence = bandConfSum[b] / bandCount[b];
+    const hitRate = bandHitSum[b] / bandCount[b];
+    ece += (bandCount[b] / n) * Math.abs(hitRate - avgConfidence);
+    reliability.push({
+      band: b,
+      low: b / CALIBRATION_BANDS,
+      high: (b + 1) / CALIBRATION_BANDS,
+      count: bandCount[b],
+      avgConfidence,
+      hitRate,
+    });
+  }
+  if (n === 0) ece = 0;
+
+  // Selective accuracy/coverage curve.
+  const selective: SelectivePoint[] = [];
+  for (let t = 0.5; t <= 0.951; t += 0.05) {
+    const rounded = Math.round(t * 100) / 100;
+    let accepted = 0;
+    let acceptedHits = 0;
+    for (const obs of observations) {
+      if (obs.confidence >= rounded - 1e-9) {
+        accepted += 1;
+        if (obs.hit) acceptedHits += 1;
+      }
+    }
+    selective.push({
+      threshold: rounded,
+      coverage: n > 0 ? accepted / n : 0,
+      accuracy: accepted > 0 ? acceptedHits / accepted : 0,
+    });
+  }
+
+  return {
+    ece,
+    brier: n > 0 ? brierSum / n : 0,
+    count: n,
+    reliability,
+    selective,
+    precisionAtConf90: highConfCount > 0 ? hitsAtHighConf / highConfCount : undefined,
   };
 }
 
@@ -324,6 +464,7 @@ async function main() {
 
   const perQuery: Array<Record<string, unknown>> = [];
   const scored: Array<{ category: string; recallAtK: number; rr: number; hitAt1: boolean }> = [];
+  const calibrationObservations: CalibrationObservation[] = [];
 
   for (const q of goldenSet.queries) {
     // Production retrieval surface.
@@ -343,6 +484,14 @@ async function main() {
 
     const s = scoreRanking(rankedGoldenIds, q.mustHit, 5);
     scored.push({ category: q.category, ...s });
+
+    // Batch 6a calibration observation: the top-1 result's calibrated
+    // confidence vs whether it actually hit. Empty result sets are honest
+    // observations too (confidence 0, miss) - abstention must be measured.
+    const top1 = results[0] as any;
+    const top1Confidence = typeof top1?.recallConfidence === 'number' ? top1.recallConfidence : 0;
+    const hasTop1 = results.length > 0 && typeof top1Confidence === 'number' && results.length > 0;
+
     perQuery.push({
       id: q.id,
       category: q.category,
@@ -352,10 +501,14 @@ async function main() {
       retrieved: results.map((r: any) => ({
         goldenId: uuidToGolden.get((r as any)?.memory?.id ?? r?.id) ?? null,
         score: Number(((r as any)?.score ?? 0).toFixed(4)),
+        recallConfidence: (r as any)?.recallConfidence != null ? Number(((r as any).recallConfidence).toFixed(4)) : null,
+        confidenceTier: (r as any)?.confidenceTier ?? null,
       })),
       recallStrategy,
+      top1RecallConfidence: results.length > 0 ? Number(top1Confidence.toFixed(4)) : 0,
       ...s,
     });
+    calibrationObservations.push({ confidence: hasTop1 ? top1Confidence : 0, hit: s.hitAt1 });
   }
 
   const { overall, byCategory } = aggregate(scored);
@@ -364,6 +517,12 @@ async function main() {
   if (overall.recallAt5 < thresholds.recallAt5) breaches.push(`recallAt5 ${overall.recallAt5.toFixed(3)} < ${thresholds.recallAt5}`);
   if (overall.mrr < thresholds.mrr) breaches.push(`mrr ${overall.mrr.toFixed(3)} < ${thresholds.mrr}`);
   if (overall.hitAt1 < thresholds.hitAt1) breaches.push(`hitAt1 ${overall.hitAt1.toFixed(3)} < ${thresholds.hitAt1}`);
+
+  // Batch 6a: calibration of recall confidence against must-hit correctness.
+  const calibration = computeCalibrationMetrics(calibrationObservations);
+  if (calibration.ece > thresholds.maxEce) {
+    breaches.push(`ece ${calibration.ece.toFixed(3)} > ${thresholds.maxEce}`);
+  }
 
   const durationMs = Date.now() - startedAt;
 
@@ -396,6 +555,15 @@ async function main() {
     thresholds,
     overall,
     byCategory,
+    calibration: {
+      ece: calibration.ece,
+      brier: calibration.brier,
+      count: calibration.count,
+      maxEceThreshold: thresholds.maxEce,
+      reliability: calibration.reliability,
+      selective: calibration.selective,
+      precisionAtConf90: calibration.precisionAtConf90 ?? null,
+    },
     queries: perQuery,
   };
 
@@ -422,6 +590,33 @@ async function main() {
       Object.entries(byCategory)
         .sort((a, b) => a[1].recallAt5 - b[1].recallAt5)
         .map(([cat, a]) => [cat, String(a.count), a.recallAt5.toFixed(3), a.mrr.toFixed(3), a.hitAt1.toFixed(3)]),
+    );
+
+    // Batch 6a: calibration reporting.
+    console.log('\n-- Calibration (Batch 6a) --');
+    printTable(
+      ['Metric', 'Value', 'Threshold'],
+      [
+        ['ECE (10-bin)', calibration.ece.toFixed(3), `<= ${thresholds.maxEce}`],
+        ['Brier', calibration.brier.toFixed(3), '-'],
+        ['Precision@conf>=0.90', calibration.precisionAtConf90 != null ? calibration.precisionAtConf90.toFixed(3) : 'n/a', '-'],
+      ],
+    );
+    console.log('\n-- Reliability table --');
+    printTable(
+      ['Band', 'N', 'AvgConf', 'HitRate@1', 'Gap'],
+      calibration.reliability.map((b) => [
+        `${b.low.toFixed(1)}-${b.high.toFixed(1)}`,
+        String(b.count),
+        b.avgConfidence.toFixed(3),
+        b.hitRate.toFixed(3),
+        (b.hitRate - b.avgConfidence).toFixed(3),
+      ]),
+    );
+    console.log('\n-- Selective accuracy/coverage --');
+    printTable(
+      ['Threshold', 'Coverage', 'Accuracy'],
+      calibration.selective.map((p) => [p.threshold.toFixed(2), p.coverage.toFixed(3), p.accuracy.toFixed(3)]),
     );
 
     const worst = [...scored]

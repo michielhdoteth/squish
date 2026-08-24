@@ -77,6 +77,8 @@ import {
   recordShadowDelta,
 } from '../scoring/three-field.js';
 import { getLastRerankMeta } from '../retrieval/cross-encoder-reranker.js';
+// Batch 6a: calibrated recall confidence + itemized evidence (additive metadata).
+import { attachRecallConfidence } from './search-evidence.js';
 
 // Re-export from sub-modules for backward compatibility
 export { keywordSearch, rrfFusion } from './keyword-search.js';
@@ -306,6 +308,23 @@ export async function hybridSearch(
   // FTS5 keyword search + RRF fusion: add keyword signal and fuse with vector results
   // This is the industry standard (TrueMemory episodic layer, MemPalace FTS5, etc.)
   const keywordResults = await keywordSearch(input, limit * 2, searchCtx);
+
+  // Batch 6a evidence: capture the lexical leg's OWN ranking before fusion so
+  // recall-confidence can measure independent agreement. rank = 1-based FTS
+  // position; score = bm25 strength normalized within the leg (keywordSearch
+  // already negates FTS5's negative rank, so larger similarity = better).
+  // Read-only bookkeeping - fusion below is unchanged.
+  const lexicalRanks = new Map<string, { rank: number; score: number }>();
+  if (keywordResults.length > 0) {
+    let maxLex = 0;
+    for (const k of keywordResults) maxLex = Math.max(maxLex, k.similarity ?? 0);
+    keywordResults.forEach((k, idx) => {
+      if (!lexicalRanks.has(k.id)) {
+        lexicalRanks.set(k.id, { rank: idx + 1, score: maxLex > 0 ? Math.max(0, k.similarity ?? 0) / maxLex : 1 });
+      }
+    });
+  }
+
   if (keywordResults.length > 0) {
     vectorResults = rrfFusion(vectorResults, keywordResults, limit * 3);
   }
@@ -379,6 +398,9 @@ export async function hybridSearch(
   const graphMode = getGraphBoostFlags();
   const graphWeight = effectiveGraphBoostWeight(graphMode.legacy);
   const candidateIds = vectorResults.map(r => r.id);
+
+  // Batch 6a: rerank-agreement fraction, filled in by the cross-encoder branch below.
+  let rerankAgreement: number | null = null;
 
   let results: SearchResult[];
   if (graphMode.legacy) {
@@ -492,6 +514,9 @@ export async function hybridSearch(
   // transformers module is unavailable or the model cannot load within the
   // timeout cap, reranking skips silently and skips are counted in the trace.
   if (precision.reranker && input.query && input.query.trim().length > 5) {
+    // Batch 6a evidence: snapshot the pre-rerank order so rerankAgreement can
+    // quantify how much the independent reranker agreed with the fused ranking.
+    const preRerankTop5 = results.slice(0, 5).map(r => r.id);
     try {
       const reranked = await rerankResults(input.query, results, {
         topK: config.rerankerTopK,
@@ -501,6 +526,11 @@ export async function hybridSearch(
       // Batch 3: cross-encoder replaces the ranking signal. Fold the delta
       // into boostScore (rerankResidual) so the three-field identity holds.
       results = reranked.map(r => applyReplacement(r, r.similarity ?? 0));
+      // Batch 6a: fraction of pre-rerank top-5 preserved post-rerank (order-insensitive overlap).
+      const postSet = new Set(results.slice(0, 5).map(r => r.id));
+      rerankAgreement = postSet.size > 0
+        ? preRerankTop5.filter(id => postSet.has(id)).length / Math.max(1, Math.min(5, results.length))
+        : null;
       const rerankMeta = getLastRerankMeta();
       trace.reranker = rerankMeta
         ? { applied: rerankMeta.applied, skipped: rerankMeta.skipped, reason: rerankMeta.reason }
@@ -508,6 +538,7 @@ export async function hybridSearch(
       logger.debug(`[HybridSearch] Cross-encoder reranking applied, ${results.length} results`);
     } catch (e) {
       // Cross-encoder reranking failed silently - never blocks search
+      rerankAgreement = null;
       trace.reranker = { applied: false, skipped: results.length, reason: String(e) };
       logger.debug(`[HybridSearch] Cross-encoder reranking failed: ${e}`);
     }
@@ -565,6 +596,25 @@ export async function hybridSearch(
   for (const r of results) {
     // memoryId -> served score (finalScore under v2, legacy composite under legacy)
     trace.scoreBreakdown[r.id] = r.similarity ?? 0;
+  }
+
+  // Batch 6a: calibrated recall confidence + itemized evidence.
+  // Strictly additive metadata attached AFTER ranking is final; ordering,
+  // scores, and result contents are untouched. Evidence collection is
+  // best-effort: any failure leaves results unannotated rather than breaking
+  // search.
+  try {
+    const { bestConfidence, bestTier, assessment } = await attachRecallConfidence(results, {
+      candidateSemanticScores: results.map(r => (typeof r.semanticScore === 'number' ? r.semanticScore : null)),
+      multiSignalQuery: keywordResults.length > 0,
+      lexicalRanks,
+      rerankAgreement,
+    });
+    trace.recallAssessment = { ...assessment };
+    void bestConfidence;
+    void bestTier;
+  } catch (e) {
+    logger.debug(`[HybridSearch] recall-confidence attachment failed: ${e}`);
   }
 
   logger.debug(

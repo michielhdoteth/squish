@@ -42,7 +42,8 @@ import {
 } from "./consolidation-utils.js";
 // SDK client — replaces direct core imports for recall, search, remember, forget,
 // listProjects, associations, scheduler, and graph operations
-import { SquishClient, type SearchResult, type ProjectRecord } from "@squish/sdk";
+import { SquishClient, type SearchResult, type RecallAssessment, type ProjectRecord } from "@squish/sdk";
+import { assessRecall } from "../../../core/scoring/recall-confidence.js";
 // Tool-call tracing (in-memory ring buffer) + additive capability tools
 import { traceToolCall, getTraceSummary } from "./tracing.js";
 import { getEngineLog } from "../../../core/engines/engine-log.js";
@@ -357,7 +358,14 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
     server,
     "squish_recall",
     {
-      description: "Recall memories by query, or retrieve a specific memory by ID",
+      // Batch 6a: the three verdicts are part of the public contract so ANY
+      // agent harness can react to weak memory without parsing per-result scores.
+      description:
+        "Recall memories by query, or retrieve a specific memory by ID. " +
+        "Query responses include a top-level recallAssessment with a calibrated confidence verdict: " +
+        "'confident' (best match >= 0.90, rely on it), " +
+        "'qualified' (best match plausible but not certain, verify before relying on it), or " +
+        "'no_reliable_memory' (no result clears the reliability floor - treat as no memory found and consider storing new knowledge).",
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
       inputSchema: {
         query: z.string().describe("Query text or memory ID to recall"),
@@ -380,7 +388,24 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
       const searchResults = await sdkClient.search(query, { limit, project: resolvedProject });
       const results = searchResults.map((r: SearchResult) => ({ ...r.memory, similarity: r.score }));
 
-      return { content: [{ type: "text", text: JSON.stringify({ ok: true, count: results.length, results, version: SERVER_VERSION }, null, 2) }] };
+      // Batch 6a: first-class abstention. The verdict is computed from
+      // calibrated recall confidence; whatever ranked is still returned -
+      // never silently empty.
+      let recallAssessment: RecallAssessment;
+      if (searchResults.length === 0 || searchResults.every((r: SearchResult) => r.recallConfidence == null)) {
+        recallAssessment = {
+          bestConfidence: 0,
+          tier: "LOW",
+          verdict: "no_reliable_memory",
+          message: searchResults.length === 0
+            ? "no reliable memory found for this query"
+            : "confidence unavailable for this candidate set; treat as no reliable memory found for this query",
+        };
+      } else {
+        recallAssessment = assessRecall(searchResults);
+      }
+
+      return { content: [{ type: "text", text: JSON.stringify({ ok: true, count: results.length, results, recallAssessment, version: SERVER_VERSION }, null, 2) }] };
     }
   )) toolCount++;
 

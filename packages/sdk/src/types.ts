@@ -89,10 +89,48 @@ export interface SearchResult {
    * rerankResidual, ...) that compose boostScore.
    */
   scoreBreakdown?: Record<string, number>;
+  /**
+   * Batch 6a: calibrated, query-conditioned recall confidence in [0,1] -
+   * "how likely is this the correct memory to recall", derived from
+   * agreement/disagreement of independent evidence signals (semantic,
+   * lexical, graph legs + margin + conflict + freshness). NOT finalScore
+   * and never used for ranking.
+   */
+  recallConfidence?: number;
+  /** Batch 6a: tier band for recallConfidence. */
+  confidenceTier?: 'HIGH' | 'QUALIFIED' | 'LOW';
+  /**
+   * Batch 6a: itemized evidence behind recallConfidence. Absent signals are
+   * null - never fabricated zeros.
+   */
+  evidence?: {
+    semantic: number | null;
+    lexical: { rank: number | null; score: number | null };
+    graph: number | null;
+    temporal: { stale: boolean | null; supersededBy: string | null };
+    conflictPenalty: number | null;
+    memoryConfidence: 'certain' | 'speculative' | 'outdated' | null;
+    supportingCount: number;
+    contradictingCount: number;
+    freshness: number | null;
+    rerankAgreement?: number | null;
+  };
   /** Source that found this result */
   source: 'vector' | 'fts' | 'graph' | 'hybrid';
   /** Optional explanation of why this matched */
   explanation?: string;
+}
+
+/**
+ * Batch 6a: abstention-aware assessment attached at the response level so any
+ * agent harness can react to weak memory without parsing per-result scores.
+ */
+export interface RecallAssessment {
+  /** Highest recallConfidence across returned results (0 when none). */
+  bestConfidence: number;
+  tier: 'HIGH' | 'QUALIFIED' | 'LOW';
+  verdict: 'confident' | 'qualified' | 'no_reliable_memory';
+  message: string;
 }
 
 /**

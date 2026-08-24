@@ -22,6 +22,7 @@ export type {
   SquishConfig,
   ClientOptions,
   SearchResult,
+  RecallAssessment,
   PluginHook,
   PluginHookContext,
   EventType,
@@ -219,6 +220,7 @@ import type {
   MemoryRecord as SdkMemoryRecord,
   RecallResult,
   SearchResult,
+  RecallAssessment,
   EntityRecord,
   EntityRelation,
   GraphTraversalResult,
@@ -1619,6 +1621,10 @@ function mapCoreSearchResultToSdk(core: any): SearchResult {
     boostScore: core.boostScore,
     finalScore: core.finalScore,
     scoreBreakdown: core.scoreBreakdown,
+    // Batch 6a: calibrated recall confidence + itemized evidence (additive metadata).
+    recallConfidence: core.recallConfidence,
+    confidenceTier: core.confidenceTier,
+    evidence: core.evidence,
     source: 'hybrid',
   };
 }
