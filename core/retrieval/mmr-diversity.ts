@@ -18,7 +18,7 @@
 
 import { config } from '../../config.js';
 import { logger } from '../logger.js';
-import { cosineSimilarity } from '../utils/vector-operations.js';
+import { cosineSimilarity, DimensionMismatchError } from '../utils/vector-operations.js';
 import type { SearchResult } from '../memory/memories.js';
 
 export interface MMRConfig {
@@ -42,10 +42,17 @@ export function getMMRConfig(): MMRConfig {
 }
 
 /**
- * Calculate cosine similarity between two vectors
+ * Calculate cosine similarity between two vectors.
+ * Batch 4: mixed-model (dimension-mismatched) pairs score 0 for MMR
+ * purposes - an explicit, logged degradation rather than a silent helper 0.
  */
 function sim(a: number[], b: number[]): number {
-  return cosineSimilarity(a, b);
+  try {
+    return cosineSimilarity(a, b);
+  } catch (error) {
+    if (error instanceof DimensionMismatchError) return 0;
+    throw error;
+  }
 }
 
 /**

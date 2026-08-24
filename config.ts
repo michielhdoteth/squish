@@ -15,6 +15,15 @@ const GRAPH_EXTRACTION_METHODS = ['llm', 'regex', 'auto'] as const;
 const SCHEDULER_MODES = ['cron', 'interval', 'heartbeat'] as const;
 const DECAY_ENGINES = ['sector', 'ebbinghaus'] as const;
 
+/**
+ * Default vector scan mode (SQUISH_VECTOR_SCAN=full|recency).
+ * Flipped to 'full' per the Batch 4 gate: benchmark p95 at 10k rows x 768d
+ * measured 190ms (< 300ms). Caveat: linear scaling means ~1.8s p95 at 100k
+ * rows - operators of very large corpora should set SQUISH_VECTOR_SCAN=recency.
+ * Benchmark: scripts/bench-vector-scan.ts
+ */
+const VECTOR_SCAN_DEFAULT: 'recency' | 'full' = 'full';
+
 function loadSettings(): Settings {
   const settingsPath = join(__dirname, 'config', 'settings.json');
   try {
@@ -353,6 +362,25 @@ function buildConfig() {
     },
     get transformersLocalModel() {
       return getString('embeddings.models.transformers.model', 'SQUISH_LOCAL_MODEL', '');
+    },
+    /**
+     * Bundled local model auto-loaded in the background by the "local"
+     * provider (TF-IDF stays the instant boot provider; the real model takes
+     * over once loaded). Set SQUISH_LOCAL_BUNDLED_MODEL=off to pin TF-IDF
+     * deterministically (offline evals, tests).
+     */
+    get localBundledModel() {
+      const value = getString('embeddings.models.local.bundledModel', 'SQUISH_LOCAL_BUNDLED_MODEL', 'Xenova/all-MiniLM-L6-v2');
+      const normalized = value.trim().toLowerCase();
+      if (!value.trim() || ['off', 'none', 'false', 'disabled'].includes(normalized)) return '';
+      return value.trim();
+    },
+    get localBundledDtype() {
+      return getString('embeddings.models.local.dtype', 'SQUISH_LOCAL_BUNDLED_DTYPE', 'q8');
+    },
+    /** Vector scan candidate selection: recency window or chunked full-corpus scan. */
+    get vectorScanMode() {
+      return getEnum('retrieval.vectorScan', 'SQUISH_VECTOR_SCAN', ['recency', 'full'] as const, VECTOR_SCAN_DEFAULT);
     },
 
     get clientEncryptionEnabled() {

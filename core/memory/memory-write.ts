@@ -11,7 +11,7 @@ import { eq } from 'drizzle-orm';
 import { config } from '../../config.js';
 import { logger } from '../logger.js';
 import { getOrCreateProject } from '../../core/projects.js';
-import { getEmbedding } from '../../core/embeddings.js';
+import { getEmbedding, getActiveEmbeddingModelId } from '../../core/embeddings.js';
 import { enrichContent } from '../retrieval/contextual-enrichment.js';
 import { normalizeTags, serializeTags, serializeMetadata } from '../../core/memory/serialization.js';
 import { prepareEmbedding } from '../lib/utils.js';
@@ -108,7 +108,8 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
     isImmutable: false,
   });
 
-  const embeddingValues = prepareEmbedding(embedding);
+  // Batch 4: L2-normalized float32 blob (primary) + JSON compat + model stamp
+  const embeddingValues = prepareEmbedding(embedding, { model: getActiveEmbeddingModelId() });
 
   const tokensEstimate = estimateTokens(input.content);
 

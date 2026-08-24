@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { cosineSimilarity } from '../../core/utils/vector-operations.js';
+import { cosineSimilarity, dotProduct, DimensionMismatchError } from '../../core/utils/vector-operations.js';
 
 describe('cosineSimilarity', () => {
   test('returns 0 for empty arrays', () => {
@@ -13,9 +13,29 @@ describe('cosineSimilarity', () => {
     expect(cosineSimilarity(undefined as any, undefined as any)).toBe(0);
   });
 
-  test('returns 0 for arrays of different lengths', () => {
-    expect(cosineSimilarity([1, 2], [1, 2, 3])).toBe(0);
-    expect(cosineSimilarity([1, 2, 3], [1, 2])).toBe(0);
+  test('THROWS DimensionMismatchError for arrays of different lengths (Batch 4 policy)', () => {
+    // Batch 4: cosine helpers never silently return 0 on dimension mismatch -
+    // a mismatched comparison is a corpus bug and must surface.
+    expect(() => cosineSimilarity([1, 2], [1, 2, 3])).toThrow(DimensionMismatchError);
+    expect(() => cosineSimilarity([1, 2, 3], [1, 2])).toThrow(DimensionMismatchError);
+    const err = (() => {
+      try {
+        cosineSimilarity([1, 2], [1, 2, 3]);
+        return null;
+      } catch (e) {
+        return e as DimensionMismatchError;
+      }
+    })();
+    expect(err).not.toBeNull();
+    expect(err!.name).toBe('DimensionMismatchError');
+    expect(err!.dimA).toBe(2);
+    expect(err!.dimB).toBe(3);
+  });
+
+  test('dotProduct THROWS DimensionMismatchError on length mismatch', () => {
+    expect(() => dotProduct([1, 2], [1, 2, 3])).toThrow(DimensionMismatchError);
+    expect(dotProduct(null as any, [1])).toBe(0); // null inputs still yield 0
+    expect(dotProduct([1, 2], null as any)).toBe(0);
   });
 
   test('returns 0 for zero vectors', () => {

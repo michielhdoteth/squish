@@ -281,6 +281,8 @@ export function findMedoid(memories: any[], centroid: number[]): any {
   for (const mem of memories) {
     const emb = extractEmbedding(mem);
     if (emb) {
+      // Batch 4 mismatch policy: skip mixed-model vectors.
+      if (emb.length !== centroid.length) continue;
       const sim = cosineSimilarity(emb, centroid);
       if (sim > bestSim) {
         bestSim = sim;
@@ -536,6 +538,8 @@ function computeDistinctnessScore(memory: any, allMemories: any[]): number {
     if (other.id === memory.id) continue;
     const otherEmb = extractEmbedding(other);
     if (otherEmb) {
+      // Batch 4 mismatch policy: skip mixed-model pairs.
+      if (otherEmb.length !== emb.length) continue;
       totalSimilarity += cosineSimilarity(emb, otherEmb);
       count++;
     }

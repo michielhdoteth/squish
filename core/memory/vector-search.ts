@@ -1,5 +1,16 @@
 /**
  * Vector Search - Pure semantic search with cosine similarity on embeddings
+ *
+ * Batch 4: candidate selection is flag-controlled via SQUISH_VECTOR_SCAN:
+ * - 'recency': legacy behavior - most recent N rows are candidates
+ * - 'full':    chunked keyset-paginated scan over the whole filtered corpus,
+ *              scoring float32 blobs directly (dot product == cosine because
+ *              vectors are L2-normalized at write time)
+ *
+ * Read path prefers embedding_blob (zero JSON.parse); falls back to the
+ * legacy `embedding` blob column, then embedding_json for un-migrated rows.
+ * Dimension mismatches (mixed embedding models) throw DimensionMismatchError
+ * from the helpers; here we catch, count, log, and continue.
  */
 
 import type { SearchResult, SearchInput } from './memories.js';
@@ -10,8 +21,23 @@ import { requireProject } from '../../core/projects.js';
 import { deserializeTags, deserializeMetadata, normalizeTags } from './serialization.js';
 import { normalizeTimestamp } from '../lib/utils.js';
 import { parseEmbedding } from '../lib/parse-embedding.js';
-import { cosineSimilarity } from '../utils/vector-operations.js';
+import { decodeEmbeddingBlob } from '../lib/embedding-codec.js';
+import { cosineSimilarity, dotProduct, DimensionMismatchError } from '../utils/vector-operations.js';
 import { logger } from '../logger.js';
+import { config } from '../../config.js';
+
+export type VectorScanMode = 'recency' | 'full';
+
+/** Chunk size for the full-corpus keyset scan. */
+const SCAN_CHUNK_SIZE = 500;
+
+/** Candidate multiplier + floor for the recency window (legacy behavior). */
+const RECENCY_WINDOW_MULTIPLIER = 20;
+const RECENCY_WINDOW_FLOOR = 200;
+
+export function getVectorScanMode(): VectorScanMode {
+  return config.vectorScanMode;
+}
 
 /**
  * Cached DB context for a single search operation.
@@ -30,6 +56,28 @@ type HybridSearchOptions = {
   type?: string;
   tags?: string[];
 };
+
+interface CandidateRow {
+  id: string;
+  projectId: string | null;
+  type: string;
+  content: string;
+  summary: string | null;
+  tags: string | null;
+  metadata: string | null;
+  embedding: any;
+  embeddingBlob: any;
+  embeddingJson: any;
+  createdAt: string | null;
+}
+
+/** Lightweight row for the score pass of the full scan. */
+interface ScoreRow {
+  id: string;
+  embedding: any;
+  embeddingBlob: any;
+  embeddingJson: any;
+}
 
 function rowToSearchResult(row: any, similarity: number): SearchResult {
   // created_at is stored as an epoch number (seconds); a bare numeric string
@@ -55,31 +103,49 @@ function rowToSearchResult(row: any, similarity: number): SearchResult {
   };
 }
 
-export async function vectorSearch(
+/**
+ * Decode a candidate's embedding with the Batch 4 priority chain:
+ * float32 blob -> legacy blob column -> JSON text. Returns null when the
+ * row has no usable stored vector.
+ */
+function decodeCandidateEmbedding(row: { embeddingBlob?: any; embedding?: any; embeddingJson?: any }): number[] | Float32Array | null {
+  const fromBlob = decodeEmbeddingBlob(row.embeddingBlob);
+  if (fromBlob && fromBlob.length > 0) return fromBlob;
+  const fromLegacy = parseEmbedding(row.embedding);
+  if (fromLegacy && fromLegacy.length > 0) return fromLegacy;
+  const fromJson = parseEmbedding(row.embeddingJson);
+  if (fromJson && fromJson.length > 0) return fromJson;
+  return null;
+}
+
+/**
+ * Similarity against the query with the Batch 4 mismatch policy:
+ * dimension mismatches surface as DimensionMismatchError (counted upstream),
+ * everything else returns an honest cosine. Blob-decoded vectors are already
+ * normalized at write time, so the plain dot product IS the cosine there.
+ */
+function querySimilarity(queryF32: Float32Array, candidate: number[] | Float32Array): number {
+  try {
+    if (candidate instanceof Float32Array) {
+      return dotProduct(queryF32, candidate);
+    }
+    return cosineSimilarity(Array.from(queryF32), candidate);
+  } catch (error) {
+    if (error instanceof DimensionMismatchError) {
+      throw error; // caller counts the skip and continues
+    }
+    throw error;
+  }
+}
+
+function buildWhereConditions(
   input: SearchInput,
   options: HybridSearchOptions,
-  precomputedEmbedding?: number[] | null,
-  ctx?: SearchDbContext
-): Promise<SearchResult[]> {
-  const dbClient = ctx?.dbClient ?? createDatabaseClient(await getDb());
-  const sqlite = dbClient.$client as any;
-  const limit = options.limit ?? 10;
-  const tags = normalizeTags(options.tags ?? input.tags);
-
-  // Check for empty query
-  const isEmptyQuery = !input.query || input.query.trim() === '';
-
-  // Use pre-computed embedding if provided, otherwise compute it
-  let queryEmbedding: number[] | null = null;
-  if (precomputedEmbedding !== undefined) {
-    queryEmbedding = precomputedEmbedding;
-  } else if (!isEmptyQuery) {
-    queryEmbedding = await getEmbedding(input.query);
-  }
-
-  // Build WHERE conditions
+  projectId: string | null,
+  paramsOut: any[]
+): string[] {
   const conditions: string[] = [];
-  const params: any[] = [];
+  const tags = normalizeTags(options.tags ?? input.tags);
 
   // Batch 2 candidate correctness: expired/archived memories never become
   // candidates. 'superseded'/'merged' intentionally stay - the scoring layer
@@ -95,27 +161,109 @@ export async function vectorSearch(
 
   if (input.type) {
     conditions.push('m.type = ?');
-    params.push(input.type);
+    paramsOut.push(input.type);
   }
 
   if (tags.length) {
     conditions.push('(' + tags.map(() => 'm.tags LIKE ?').join(' OR ') + ')');
-    params.push(...tags.map((tag) => `%${tag}%`));
+    paramsOut.push(...tags.map((tag) => `%${tag}%`));
   }
 
-  let projectId: string | null = null;
-  if (input.project) {
-    const project = await requireProject(input.project);
-    projectId = project.id;
+  if (projectId) {
     conditions.push('m.project_id = ?');
-    params.push(project.id);
+    paramsOut.push(projectId);
   }
 
-  const whereClause = conditions.length > 0
-    ? 'WHERE ' + conditions.join(' AND ')
-    : '';
+  return conditions;
+}
 
-  // Fetch candidates for vector search
+async function resolveProjectId(input: SearchInput): Promise<string | null> {
+  if (!input.project) return null;
+  const project = await requireProject(input.project);
+  return project.id;
+}
+
+export async function vectorSearch(
+  input: SearchInput,
+  options: HybridSearchOptions,
+  precomputedEmbedding?: number[] | null,
+  ctx?: SearchDbContext
+): Promise<SearchResult[]> {
+  const dbClient = ctx?.dbClient ?? createDatabaseClient(await getDb());
+  const sqlite = dbClient.$client as any;
+  const limit = options.limit ?? 10;
+
+  // Check for empty query
+  const isEmptyQuery = !input.query || input.query.trim() === '';
+
+  // Use pre-computed embedding if provided, otherwise compute it
+  let queryEmbedding: number[] | null = null;
+  if (precomputedEmbedding !== undefined) {
+    queryEmbedding = precomputedEmbedding;
+  } else if (!isEmptyQuery) {
+    queryEmbedding = await getEmbedding(input.query);
+  }
+
+  const projectId = await resolveProjectId(input);
+
+  // No embedding available: both modes fall back to recency-ordered results
+  // (nothing to score against). Filters still apply.
+  if (!queryEmbedding) {
+    return recencyWindowResults(input, options, sqlite, limit, projectId);
+  }
+
+  const mode = getVectorScanMode();
+  if (mode === 'full') {
+    return fullScanResults(sqlite, input, options, projectId, limit, queryEmbedding);
+  }
+  return recencyScoredResults(sqlite, input, options, projectId, limit, queryEmbedding);
+}
+
+// ---------------------------------------------------------------------------
+// Recency-window mode (legacy candidate selection)
+// ---------------------------------------------------------------------------
+
+function recencyWindowResults(
+  input: SearchInput,
+  options: HybridSearchOptions,
+  sqlite: any,
+  limit: number,
+  projectId: string | null
+): SearchResult[] {
+  const params: any[] = [];
+  const conditions = buildWhereConditions(input, options, projectId, params);
+
+  const statement = sqlite.prepare(`
+    SELECT
+      m.id as id,
+      m.project_id as projectId,
+      m.type as type,
+      m.content as content,
+      m.summary as summary,
+      m.tags as tags,
+      m.metadata as metadata,
+      m.created_at as createdAt
+    FROM memories m
+    ${conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : ''}
+    ORDER BY m.created_at DESC
+    LIMIT ?
+  `);
+
+  const rows = statement.all(...params, limit * 2) as Array<CandidateRow>;
+  return rows.map((item) => rowToSearchResult(item, 0));
+}
+
+function recencyScoredResults(
+  sqlite: any,
+  input: SearchInput,
+  options: HybridSearchOptions,
+  projectId: string | null,
+  limit: number,
+  queryEmbedding: number[]
+): SearchResult[] {
+  const params: any[] = [];
+  const conditions = buildWhereConditions(input, options, projectId, params);
+
   const statement = sqlite.prepare(`
     SELECT
       m.id as id,
@@ -126,55 +274,176 @@ export async function vectorSearch(
       m.tags as tags,
       m.metadata as metadata,
       m.embedding as embedding,
+      m.embedding_blob as embeddingBlob,
       m.embedding_json as embeddingJson,
       m.created_at as createdAt
     FROM memories m
-    ${whereClause}
+    ${conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : ''}
     ORDER BY m.created_at DESC
     LIMIT ?
   `);
 
-  const rows = statement.all(...params, Math.max(limit * 20, 200)) as Array<{
-    id: string;
-    projectId: string | null;
-    type: string;
-    content: string;
-    summary: string | null;
-    tags: string | null;
-    metadata: string | null;
-    embedding: any;
-    embeddingJson: any;
-    createdAt: string | null;
-  }>;
+  const rows = statement.all(
+    ...params,
+    Math.max(limit * RECENCY_WINDOW_MULTIPLIER, RECENCY_WINDOW_FLOOR)
+  ) as Array<CandidateRow>;
 
-  // If no embedding available, return results ordered by recency
-  if (!queryEmbedding) {
-    return rows.slice(0, limit * 2).map((item) => rowToSearchResult(item, 0));
+  return scoreAndShape(rows, queryEmbedding, limit * 2);
+}
+
+// ---------------------------------------------------------------------------
+// Full-corpus scan mode (Batch 4)
+// ---------------------------------------------------------------------------
+
+function fullScanResults(
+  sqlite: any,
+  input: SearchInput,
+  options: HybridSearchOptions,
+  projectId: string | null,
+  limit: number,
+  queryEmbedding: number[]
+): SearchResult[] {
+  const startedAt = Date.now();
+  const params: any[] = [];
+  const conditions = buildWhereConditions(input, options, projectId, params);
+
+  const whereClause = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
+
+  // Prepared once per search, reused across all chunks (keyset pagination).
+  const scoreStmt = sqlite.prepare(`
+    SELECT
+      m.id as id,
+      m.embedding as embedding,
+      m.embedding_blob as embeddingBlob,
+      m.embedding_json as embeddingJson
+    FROM memories m
+    ${whereClause}${whereClause ? ' AND' : ' WHERE'} m.id > ?
+    ORDER BY m.id
+    LIMIT ${SCAN_CHUNK_SIZE}
+  `);
+
+  const queryF32 = Float32Array.from(queryEmbedding);
+
+  let lastId = '';
+  let scanned = 0;
+  let skippedDimMismatch = 0;
+  let skippedNoVector = 0;
+
+  // Top-K via bounded insertion into a small array (K <= limit*2, tiny).
+  const keep = Math.max(limit * 2, 1);
+  const top: Array<{ id: string; similarity: number }> = [];
+
+  for (;;) {
+    const chunk = scoreStmt.all(...params, lastId) as Array<ScoreRow>;
+    if (chunk.length === 0) break;
+    lastId = chunk[chunk.length - 1].id;
+    scanned += chunk.length;
+
+    for (const row of chunk) {
+      const vec = decodeCandidateEmbedding(row);
+      if (!vec) {
+        skippedNoVector += 1;
+        continue;
+      }
+      let similarity: number;
+      try {
+        similarity = querySimilarity(queryF32, vec);
+      } catch (error) {
+        if (error instanceof DimensionMismatchError) {
+          skippedDimMismatch += 1;
+          continue;
+        }
+        throw error;
+      }
+      insertTop(top, keep, row.id, similarity);
+    }
+
+    if (chunk.length < SCAN_CHUNK_SIZE) break;
   }
 
-  // Calculate cosine similarity for each result
-  const scored = rows
-    .map((row) => {
-      const embedding = parseEmbedding(row.embedding) ?? parseEmbedding(row.embeddingJson);
-      if (!embedding) return null;
+  if (skippedDimMismatch > 0 || skippedNoVector > 0) {
+    logger.debug(
+      `[vector-search] full scan: skipped ${skippedDimMismatch} dimension-mismatched and ${skippedNoVector} vector-less row(s)` +
+      `(scanned=${scanned}, mode=full)`
+    );
+  }
 
-      const similarity = cosineSimilarity(queryEmbedding!, embedding);
-      return {
-        id: row.id,
-        projectId: row.projectId,
-        type: row.type,
-        content: row.content,
-        summary: row.summary,
-        tags: row.tags,
-        metadata: row.metadata,
-        createdAt: row.createdAt,
-        similarity,
-      };
-    })
-    .filter((item): item is NonNullable<typeof item> => item !== null);
+  if (top.length === 0) return [];
 
-  // Sort by similarity (descending) and return
+  // Hydrate full rows for winners only.
+  const hydrated = hydrateRows(sqlite, top.map((t) => t.id));
+  const byId = new Map(hydrated.map((r) => [r.id, r]));
+  const results: SearchResult[] = [];
+  for (const t of top) {
+    const row = byId.get(t.id);
+    if (row) results.push(rowToSearchResult(row, t.similarity));
+  }
+
+  logger.debug(`[vector-search] full scan finished: scanned=${scanned} hits=${results.length} in ${Date.now() - startedAt}ms`);
+  return results;
+}
+
+/** Bounded top-K insertion (descending by similarity). */
+function insertTop(top: Array<{ id: string; similarity: number }>, keep: number, id: string, similarity: number): void {
+  if (top.length >= keep && similarity <= top[top.length - 1].similarity) return;
+  const entry = { id, similarity };
+  let pos = top.length;
+  top.push(entry);
+  while (pos > 0 && top[pos - 1].similarity < entry.similarity) {
+    top[pos] = top[pos - 1];
+    pos -= 1;
+  }
+  top[pos] = entry;
+  if (top.length > keep) top.length = keep;
+}
+
+function hydrateRows(sqlite: any, ids: string[]): Array<CandidateRow> {
+  const stmt = sqlite.prepare(`
+    SELECT
+      m.id as id,
+      m.project_id as projectId,
+      m.type as type,
+      m.content as content,
+      m.summary as summary,
+      m.tags as tags,
+      m.metadata as metadata,
+      m.created_at as createdAt
+    FROM memories m
+    WHERE m.id IN (${ids.map(() => '?').join(',')})
+  `);
+  return stmt.all(...ids) as Array<CandidateRow>;
+}
+
+// ---------------------------------------------------------------------------
+// Shared scoring
+// ---------------------------------------------------------------------------
+
+function scoreAndShape(rows: Array<CandidateRow>, queryEmbedding: number[], maxResults: number): SearchResult[] {
+  const queryF32 = Float32Array.from(queryEmbedding);
+  let skippedDimMismatch = 0;
+
+  const scored: Array<{ row: CandidateRow; similarity: number }> = [];
+  for (const row of rows) {
+    const embedding = decodeCandidateEmbedding(row);
+    if (!embedding) continue;
+
+    let similarity: number;
+    try {
+      similarity = querySimilarity(queryF32, embedding);
+    } catch (error) {
+      if (error instanceof DimensionMismatchError) {
+        skippedDimMismatch += 1;
+        continue;
+      }
+      throw error;
+    }
+    scored.push({ row, similarity });
+  }
+
+  if (skippedDimMismatch > 0) {
+    logger.debug(`[vector-search] skipped ${skippedDimMismatch} dimension-mismatched row(s) in recency window`);
+  }
+
   scored.sort((a, b) => b.similarity - a.similarity);
-
-  return scored.slice(0, limit * 2).map((item) => rowToSearchResult(item, item.similarity));
+  return scored.slice(0, maxResults).map(({ row, similarity }) => rowToSearchResult(row, similarity));
 }

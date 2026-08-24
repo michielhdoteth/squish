@@ -85,6 +85,9 @@ export async function findOrCreateCluster(
       centroid = computeCentroid(vecs);
     }
     if (centroid) {
+      // Batch 4 mismatch policy: mixed-model centroids can't be compared;
+      // skip that cluster rather than faking a similarity.
+      if (centroid.length !== embedding.length) continue;
       const sim = cosineSimilarity(embedding, centroid);
       if (sim > bestSimilarity) {
         bestSimilarity = sim;

@@ -25,6 +25,7 @@ import {
   powerIteration,
   matrixTrace,
   computeEigenvalues,
+  DimensionMismatchError,
 } from '../utils/vector-operations.js';
 
 /**
@@ -80,12 +81,26 @@ export function computePairwiseMeanCosineDistance(vectors: number[][]): number {
 
   let totalSimilarity = 0;
   let count = 0;
+  let skippedMismatch = 0;
 
   for (let i = 0; i < vectors.length; i++) {
     for (let j = i + 1; j < vectors.length; j++) {
-      totalSimilarity += cosineSimilarity(vectors[i], vectors[j]);
+      try {
+        totalSimilarity += cosineSimilarity(vectors[i], vectors[j]);
+      } catch (error) {
+        if (error instanceof DimensionMismatchError) {
+          skippedMismatch += 1; // mixed-model pair: excluded from geometry
+          continue;
+        }
+        throw error;
+      }
       count++;
     }
+  }
+
+  if (skippedMismatch > 0 && skippedMismatch === count + skippedMismatch) {
+    // Every pair was mismatched - geometry is undefined, not zero-distance.
+    return 0;
   }
 
   return count > 0 ? 1 - (totalSimilarity / count) : 0;

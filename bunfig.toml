@@ -1,3 +1,5 @@
 [test]
 # Exclude stale task-verification tests that check old file locations
 exclude = ["tests/archive/**"]
+# Batch 4: pin TF-IDF deterministically for the suite (see setup-batch4.ts)
+preload = ["./tests/setup-batch4.ts"]

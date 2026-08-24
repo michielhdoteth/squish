@@ -9,7 +9,7 @@ import { eq, and, or, sql } from 'drizzle-orm';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
 import { getEmbedding } from '../embeddings.js';
-import { cosineSimilarity } from '../utils/vector-operations.js';
+import { cosineSimilarity, DimensionMismatchError } from '../utils/vector-operations.js';
 import { parseEmbedding } from '../lib/parse-embedding.js';
 import { logger } from '../logger.js';
 
@@ -172,9 +172,14 @@ async function computeEntitySimilarity(entity1: any, entity2: any): Promise<numb
   const embedding2 = parseEmbedding(entity2.embedding || entity2.embedding_json);
 
   if (embedding1 && embedding2) {
-    const embSimilarity = cosineSimilarity(embedding1, embedding2);
-    if (embSimilarity >= similarityThreshold) {
-      return embSimilarity;
+    // Batch 4 mismatch policy: mixed-model entities fall through to text score.
+    try {
+      const embSimilarity = cosineSimilarity(embedding1, embedding2);
+      if (embSimilarity >= similarityThreshold) {
+        return embSimilarity;
+      }
+    } catch (error) {
+      if (!(error instanceof DimensionMismatchError)) throw error;
     }
   }
 

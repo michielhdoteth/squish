@@ -34,6 +34,35 @@ let embeddingPipeline: Pipeline | null = null;
 let isLoading = false;
 let loadPromise: Promise<Pipeline | null> | null = null;
 
+// Model explicitly activated by the embeddings orchestrator (bundled-model
+// path). SQUISH_LOCAL_MODEL always wins over this.
+let activeModelOverride = '';
+
+/** Activate a model for pipelines created without SQUISH_LOCAL_MODEL set. */
+export function setActiveModel(model: string): void {
+  activeModelOverride = model;
+  if (embeddingPipeline) {
+    embeddingPipeline = null; // force rebuild with the new model
+  }
+}
+
+function resolveActiveModel(): string {
+  return config.transformersLocalModel || activeModelOverride;
+}
+
+// Dimension observed from the last successful embed, plus known output dims
+// for common bundled models so getEmbeddingDimension() is meaningful even
+// before the first inference (fixes the hardcoded-0 bug).
+let lastKnownDim = 0;
+
+const KNOWN_MODEL_DIMS: Record<string, number> = {
+  'Xenova/all-MiniLM-L6-v2': 384,
+  'Xenova/bge-small-en-v1.5': 384,
+  'Xenova/all-mpnet-base-v2': 768,
+  'Xenova/e5-small-v2': 384,
+  'Xenova/multilingual-e5-small': 384,
+};
+
 /**
  * Get or initialize the embedding pipeline (lazy loading)
  */
@@ -50,7 +79,7 @@ async function getPipeline(): Promise<Pipeline | null> {
 
   // Start loading
   isLoading = true;
-  const model = config.transformersLocalModel;
+  const model = resolveActiveModel();
   if (!model) {
     isLoading = false;
     throw new Error('Transformers provider requires SQUISH_LOCAL_MODEL to be set');
@@ -92,10 +121,28 @@ export function isReady(): boolean {
 }
 
 /**
- * Get embedding dimension for current model
+ * Get embedding dimension for current model.
+ *
+ * Resolution order:
+ * 1. Dimension observed from the last successful inference (authoritative)
+ * 2. Known static dim for the configured model
+ * 3. 0 when the model is unknown and has not run yet
  */
 export function getEmbeddingDimension(): number {
+  if (lastKnownDim > 0) return lastKnownDim;
+  const model = resolveActiveModel();
+  if (model) {
+    for (const [key, dim] of Object.entries(KNOWN_MODEL_DIMS)) {
+      if (model.includes(key)) return dim;
+    }
+  }
   return 0;
+}
+
+/** Identifier stamped into embedding_model on writes, e.g. "transformers:Xenova/all-MiniLM-L6-v2:q8". */
+export function getModelId(): string {
+  const model = resolveActiveModel() || 'unknown';
+  return `transformers:${model}:${DEFAULT_CONFIG.dtype}`;
 }
 
 /**
@@ -124,6 +171,9 @@ export async function getEmbedding(text: string): Promise<number[] | null> {
 
     // Convert tensor to array
     const embedding = Array.from(output.data) as number[];
+    if (embedding.length > 0) {
+      lastKnownDim = embedding.length;
+    }
 
     return embedding;
   } catch (error) {
@@ -190,7 +240,7 @@ export async function checkHealth(): Promise<{
   model?: string;
   dimension?: number;
 }> {
-  const model = config.transformersLocalModel;
+  const model = resolveActiveModel();
   if (!model) {
     return {
       available: false,
@@ -255,6 +305,7 @@ export async function warmup(): Promise<boolean> {
 export default {
   isReady,
   getEmbeddingDimension,
+  getModelId,
   getEmbedding,
   getBatchEmbeddings,
   checkHealth,

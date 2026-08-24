@@ -13,6 +13,126 @@ async function getTransformersLocal() {
 
 export type EmbeddingProvider = 'local' | 'openai' | 'ollama' | 'lmstudio' | 'transformers' | 'google' | 'none' | 'auto';
 
+// ---------------------------------------------------------------------------
+// Local provider: TF-IDF boot + bundled real model upgrade (Batch 4)
+//
+// Zero-config contract: getEmbedding() NEVER blocks on a model download.
+// The first calls answer instantly with hashed TF-IDF while the bundled
+// transformers model loads in the background; once ready, subsequent calls
+// produce real embeddings. Rows written before/after the switch carry
+// different embedding_model stamps + dims; search skips dimension-mismatched
+// rows and scripts/reembed.ts migrates stale ones.
+// ---------------------------------------------------------------------------
+
+export const TFIDF_MODEL_ID = 'tfidf-hashed-ngram-768';
+
+type BundledModelState = 'disabled' | 'idle' | 'loading' | 'ready' | 'failed';
+let bundledModelState: BundledModelState = 'idle';
+let bundledModelAttemptAt = 0;
+let cachedTransformersModule: typeof import('./transformers-local.js') | null = null;
+const BUNDLED_RETRY_COOLDOWN_MS = 10 * 60 * 1000;
+
+/** Effective bundled model: explicit SQUISH_LOCAL_MODEL wins over the default. */
+function effectiveBundledModel(): string {
+  return config.transformersLocalModel || config.localBundledModel;
+}
+
+function bundledModelId(): string {
+  const model = effectiveBundledModel();
+  if (!model) return '';
+  return `transformers:${model}:${config.localBundledDtype}`;
+}
+
+/**
+ * Identifier of the embedding model that getEmbedding() resolves to RIGHT NOW.
+ * Stamped into memories.embedding_model on writes so the reembed worker can
+ * target rows produced by an older model.
+ */
+export function getActiveEmbeddingModelId(): string {
+  const provider = config.embeddingsProvider;
+  if (provider === 'none') return 'none';
+  if (provider === 'openai') return `openai:${config.openAiEmbeddingModel || 'text-embedding-3-small'}`;
+  if (provider === 'ollama') return `ollama:${config.ollamaEmbeddingModel}`;
+  if (provider === 'lmstudio') return `lmstudio:${config.lmStudioEmbeddingModel}`;
+  if (provider === 'google') return `google:${config.googleEmbeddingModel}`;
+  if (provider === 'transformers' && config.transformersLocalModel) {
+    return `transformers:${config.transformersLocalModel}:${config.localBundledDtype}`;
+  }
+  // local / auto / fallback resolution
+  const bundled = bundledModelId();
+  if (bundledModelState === 'ready' && bundled) return bundled;
+  return TFIDF_MODEL_ID;
+}
+
+/** Sync peek at the already-imported transformers module; null when not loaded. */
+function peekTransformersModule(): typeof import('./transformers-local.js') | null {
+  return cachedTransformersModule;
+}
+
+/**
+ * Dimension of the vector space getEmbedding() resolves to right now.
+ * The TF-IDF boot provider hashes to 768 dims; bundled MiniLM-class models
+ * produce 384-dim vectors.
+ */
+export function getActiveEmbeddingDim(): number {
+  if (bundledModelState === 'ready') {
+    const dim = peekTransformersModule()?.getEmbeddingDimension() ?? 0;
+    if (dim > 0) return dim;
+    return 384; // known bundled-model family dim, inference observation pending
+  }
+  return 768;
+}
+
+function startBundledModelLoad(): void {
+  if (bundledModelState === 'ready' || bundledModelState === 'loading') return;
+  const model = effectiveBundledModel();
+  if (!model) {
+    bundledModelState = 'disabled';
+    return;
+  }
+  if (bundledModelState === 'failed' && Date.now() - bundledModelAttemptAt < BUNDLED_RETRY_COOLDOWN_MS) {
+    return;
+  }
+
+  bundledModelState = 'loading';
+  bundledModelAttemptAt = Date.now();
+  logger.info(`[embeddings] loading bundled model ${model} (${config.localBundledDtype}) in background - searches continue on TF-IDF until ready`);
+
+  void (async () => {
+    try {
+      const mod = await getTransformersLocal();
+      cachedTransformersModule = mod ?? null;
+      mod!.setActiveModel(model);
+      // Force pipeline construction now (downloads weights on first use).
+      await mod!.getEmbedding('bundled model warmup');
+      bundledModelState = 'ready';
+      const dim = mod!.getEmbeddingDimension();
+      logger.info(`[embeddings] bundled model ready (model=${model}, dim=${dim}) - new memories use real embeddings; run scripts/reembed.ts to migrate older rows`);
+    } catch (error) {
+      bundledModelState = 'failed';
+      bundledModelAttemptAt = Date.now();
+      logger.debug(`[embeddings] bundled model unavailable, staying on TF-IDF: ${(error as Error).message}`);
+    }
+  })();
+}
+
+/**
+ * Await bundled model readiness (used by tools that SHOULD block, e.g. the
+ * reembed worker and eval harness opt-in). Resolves false when disabled or
+ * still unavailable after timeoutMs.
+ */
+export async function ensureLocalModelReady(timeoutMs = 120_000): Promise<boolean> {
+  if (!effectiveBundledModel()) return false;
+  startBundledModelLoad();
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (bundledModelState === 'ready') return true;
+    if (bundledModelState === 'failed') return false;
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  return bundledModelState === 'ready';
+}
+
 function missingModelError(provider: string, envVar: string): Error {
   return new Error(`Embedding provider "${provider}" requires ${envVar} to be set`);
 }
@@ -196,16 +316,16 @@ export async function getEmbedding(input: string | MultimodalInput): Promise<num
            result = getLocalEmbedding(textInput);
          }
        } else if (provider === 'local') {
-         // Local provider: prefer transformers-local (lazy import, only loaded
-         // when this provider is selected); fall back to TF-IDF if the
-         // transformers module or model is unavailable.
-         try {
-           const mod = await getTransformersLocal();
-           if (mod && config.transformersLocalModel) {
-             result = await mod.getEmbedding(textInput);
+         // Local provider (Batch 4): TF-IDF answers instantly while the
+         // bundled real model loads in the background; once ready, real
+         // embeddings take over. Never blocks on download.
+         startBundledModelLoad();
+         if (bundledModelState === 'ready' && cachedTransformersModule) {
+           try {
+             result = await cachedTransformersModule.getEmbedding(textInput);
+           } catch (error) {
+             logger.debug(`Transformers local embed failed, using TF-IDF: ${error}`);
            }
-         } catch (error) {
-           logger.debug(`Transformers local not available, falling back to TF-IDF: ${error}`);
          }
          if (!result) {
            result = getLocalEmbedding(textInput);

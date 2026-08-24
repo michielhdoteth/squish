@@ -95,6 +95,9 @@ export async function shouldMergeClusters(
 
   if (!geoA || !geoB) return false;
 
+  // Batch 4 mismatch policy: mixed-model clusters are never merged.
+  if (geoA.centroid.length !== geoB.centroid.length) return false;
+
   const similarity = cosineSimilarity(geoA.centroid, geoB.centroid);
   if (similarity === null || similarity === undefined) return false;
 

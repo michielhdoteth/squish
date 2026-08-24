@@ -16,6 +16,10 @@ export const memoriesSchema: TableSchema = {
     summary: { type: 'TEXT' },
     embedding_json: { type: 'TEXT' },
     embedding: { type: 'BLOB' },
+    // Batch 4: primary float32 LE blob storage + model provenance stamps
+    embedding_blob: { type: 'BLOB' },
+    embedding_model: { type: 'TEXT' },
+    embedding_dim: { type: 'INTEGER' },
     source: { type: 'TEXT' },
     confidence: { type: 'INTEGER', default: '50' },
     confidence_level: { type: 'TEXT', default: "'speculative'" },

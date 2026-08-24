@@ -18,7 +18,7 @@ import { createDatabaseClient } from '../storage/database.js';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
 import { getEmbedding } from '../../core/embeddings.js';
-import { cosineSimilarity } from '../utils/vector-operations.js';
+import { cosineSimilarity, DimensionMismatchError } from '../utils/vector-operations.js';
 import { parseEmbedding } from '../lib/parse-embedding.js';
 import { getLowImportanceMemories } from './importance.js';
 import { rememberMemory } from './memories.js';
@@ -190,7 +190,15 @@ async function calculateMemorySimilarity(
     return textSimilarity(memory1.content, memory2.content);
   }
 
-  return cosineSimilarity(embedding1, embedding2);
+  // Batch 4 mismatch policy: mixed-model pairs fall back to text similarity.
+  try {
+    return cosineSimilarity(embedding1, embedding2);
+  } catch (error) {
+    if (error instanceof DimensionMismatchError) {
+      return textSimilarity(memory1.content, memory2.content);
+    }
+    throw error;
+  }
 }
 
 /**
@@ -235,7 +243,13 @@ function findNearestToCentroid(memories: any[], centroid: number[]): any {
   for (const mem of memories) {
     const emb = parseEmbedding(mem.embedding) ?? parseEmbedding(mem.embedding_json);
     if (emb) {
-      const sim = cosineSimilarity(emb, centroid);
+      let sim: number;
+      try {
+        sim = cosineSimilarity(emb, centroid);
+      } catch (error) {
+        if (error instanceof DimensionMismatchError) continue; // mixed-model row
+        throw error;
+      }
       if (sim > bestSim) {
         bestSim = sim;
         bestMemory = mem;

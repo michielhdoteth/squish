@@ -5,7 +5,7 @@
 
 import { getDbClient } from '../lib/db-client.js';
 import { logger } from '../logger.js';
-import { cosineSimilarity } from '../utils/vector-operations.js';
+import { cosineSimilarity, DimensionMismatchError } from '../utils/vector-operations.js';
 import { parseEmbedding } from '../lib/parse-embedding.js';
 
 export interface ConsolidationConfig {
@@ -192,7 +192,12 @@ export function findNeighbors(target: any, memories: any[], eps: number, useEmbe
       // Use cosine similarity on embeddings
       const memEmbedding = parseEmbedding(m.embedding) ?? parseEmbedding(m.embedding_json);
       if (memEmbedding) {
-        similarity = cosineSimilarity(targetEmbedding, memEmbedding);
+        try {
+          similarity = cosineSimilarity(targetEmbedding, memEmbedding);
+        } catch (error) {
+          if (error instanceof DimensionMismatchError) return false; // mixed-model pair
+          throw error;
+        }
         return similarity >= eps;
       }
       // Fall through to tag-based if no embedding

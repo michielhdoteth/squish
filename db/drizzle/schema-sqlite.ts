@@ -54,6 +54,11 @@ export const memories = sqliteTable(
     // v0.2.0: Vector embedding for local search
     embedding: blob('embedding'),
 
+    // Batch 4: primary float32 LE blob storage + model provenance stamps
+    embeddingBlob: blob('embedding_blob'),
+    embeddingModel: text('embedding_model'),
+    embeddingDim: integer('embedding_dim'),
+
 	// Metadata
 	source: text('source'),
 	confidence: integer('confidence').default(50), // 0-100 confidence score (default: speculative)

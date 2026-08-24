@@ -262,6 +262,26 @@ async function main() {
   delete process.env.SQUISH_DATABASE_URL;
   process.env.SQUISH_EMBEDDINGS_PROVIDER ||= 'local'; // repo default; TF-IDF fallback keeps it offline
 
+  // Batch 4: the local provider now background-loads a real bundled model.
+  // The golden gate must stay deterministic + offline, so the bundled model
+  // is pinned off UNLESS the caller explicitly opts in with --real-model
+  // (which blocks until the model is ready before seeding).
+  const realModelMode = argv.includes('--real-model');
+  if (!process.env.SQUISH_LOCAL_BUNDLED_MODEL) {
+    process.env.SQUISH_LOCAL_BUNDLED_MODEL = realModelMode ? 'Xenova/all-MiniLM-L6-v2' : 'off';
+  }
+  if (realModelMode) {
+    const { ensureLocalModelReady } = await import('../../core/embeddings/embeddings.js');
+    console.log('[eval] real-model mode: waiting for bundled model to load...');
+    const ready = await ensureLocalModelReady(300_000);
+    if (!ready) {
+      console.error('EVAL FAILED - --real-model requested but the bundled model did not load in time');
+      try { rmSync(dataDir, { recursive: true, force: true }); } catch { /* ignore */ }
+      process.exit(1);
+    }
+    console.log('[eval] bundled model ready; seeding + querying with real embeddings');
+  }
+
   const goldenPath = join(__dirname, 'golden-set.json');
   const goldenSet = loadGoldenSet(goldenPath);
 
@@ -320,6 +340,7 @@ async function main() {
       queryCount: goldenSet.queries.length,
       topK,
       embeddingsProvider: process.env.SQUISH_EMBEDDINGS_PROVIDER,
+      bundledModel: process.env.SQUISH_LOCAL_BUNDLED_MODEL ?? 'off',
       durationMs,
       deterministic: true,
     },
@@ -334,7 +355,7 @@ async function main() {
 
   if (!quiet) {
     console.log('\n=== Golden Retrieval Eval ===');
-    console.log(`corpus=${goldenSet.memories.length} queries=${goldenSet.queries.length} topK=${topK} provider=${process.env.SQUISH_EMBEDDINGS_PROVIDER} runtime=${durationMs}ms`);
+    console.log(`corpus=${goldenSet.memories.length} queries=${goldenSet.queries.length} topK=${topK} provider=${process.env.SQUISH_EMBEDDINGS_PROVIDER} bundledModel=${process.env.SQUISH_LOCAL_BUNDLED_MODEL} runtime=${durationMs}ms`);
 
     console.log('\n-- Overall --');
     printTable(

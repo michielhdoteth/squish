@@ -7,7 +7,7 @@
 import { randomUUID } from 'crypto';
 import { desc, eq, sql, and } from 'drizzle-orm';
 import { config } from '../../config.js';
-import { getEmbedding } from '../embeddings.js';
+import { getEmbedding, getActiveEmbeddingModelId } from '../embeddings.js';
 import { getOrCreateProject, requireProject } from '../projects.js';
 import { serializeMetadata, deserializeMetadata } from '../memory/serialization.js';
 import { normalizeTimestamp, prepareEmbedding } from '../lib/utils.js';
@@ -66,7 +66,9 @@ export async function createLearning(input: LearningInput): Promise<LearningReco
     learningContext: input.context,
   });
 
-  const embeddingValues = prepareEmbedding(embedding);
+  // Batch 4: blob+stamp prepared, but the learnings table only persists the
+  // JSON compat column today (no embedding_blob columns on that table yet).
+  const { embeddingJson } = prepareEmbedding(embedding, { model: getActiveEmbeddingModelId() });
 
   // Insert the learning
   await db.insert(schema.learnings).values({
@@ -78,7 +80,7 @@ export async function createLearning(input: LearningInput): Promise<LearningReco
     target: input.target ?? null,
     details,
     memoryId: input.memoryId ?? null,
-    ...embeddingValues,
+    embeddingJson,
     createdAt: new Date(),
   });
 

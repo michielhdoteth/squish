@@ -4,7 +4,7 @@
  */
 
 import type { Memory } from '../../../db/drizzle/schema.js';
-import { cosineSimilarity } from '../../../core/utils/vector-operations.js';
+import { cosineSimilarity, DimensionMismatchError } from '../../../core/utils/vector-operations.js';
 
 export interface RankedCandidate {
   memoryId1: string;
@@ -126,6 +126,10 @@ export async function rankCandidates(
       continue;
     }
 
+    // Batch 4 mismatch policy: skip mixed-model pairs explicitly (they can
+    // never be genuine duplicates across embedding spaces).
+    if (embedding1.length !== embedding2.length) continue;
+
     const similarity = cosineSimilarity(embedding1, embedding2);
 
     if (similarity < semanticThreshold) {
@@ -180,6 +184,10 @@ export function analyzePair(
     contentLengthSimilarity: number;
   };
 } {
+  // Batch 4 mismatch policy: mixed-model pairs are not duplicates.
+  if (embedding1.length !== embedding2.length) {
+    throw new DimensionMismatchError(embedding1.length, embedding2.length);
+  }
   const similarity = cosineSimilarity(embedding1, embedding2);
   const confidence = calculateConfidence(memory1, memory2, similarity);
   const mergeReason = generateMergeReason(memory1, memory2, similarity, confidence);

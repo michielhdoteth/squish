@@ -61,7 +61,7 @@ async function clearData() {
  * Create a deterministic embedding from text content.
  * Uses a simple hash to generate a consistent vector.
  */
-function textToEmbedding(text: string, dim: number = 32): number[] {
+function textToEmbedding(text: string, dim: number = 768): number[] {
   const embedding = new Array(dim).fill(0);
   const words = text.toLowerCase().split(/\s+/);
   for (let i = 0; i < words.length; i++) {
@@ -200,7 +200,7 @@ describe('hybridSearch Pipeline Integration', () => {
     });
 
     it('respects the limit parameter', async () => {
-      const dim = 32;
+      const dim = 768;
       for (let i = 0; i < 20; i++) {
         await insertMemoryWithEmbedding(
           `fact number ${i} about a specific topic ${i}`,
@@ -218,7 +218,7 @@ describe('hybridSearch Pipeline Integration', () => {
     });
 
     it('returns results sorted by similarity descending', async () => {
-      const dim = 32;
+      const dim = 768;
       const query = 'python programming language';
 
       // Store highly relevant memory
@@ -255,7 +255,7 @@ describe('hybridSearch Pipeline Integration', () => {
     });
 
     it('filters by type when type is specified', async () => {
-      const dim = 32;
+      const dim = 768;
       const query = 'important decision';
 
       await insertMemoryWithEmbedding(
@@ -286,7 +286,7 @@ describe('hybridSearch Pipeline Integration', () => {
 
   describe('2. Graph boost', () => {
     it('boosts ranking of memories with associations', async () => {
-      const dim = 32;
+      const dim = 768;
 
       // Create two related memories
       const memA = await insertMemoryWithEmbedding(
@@ -330,7 +330,7 @@ describe('hybridSearch Pipeline Integration', () => {
 
   describe('3. Place scoring', () => {
     it('boosts memories in place-relevant positions', async () => {
-      const dim = 32;
+      const dim = 768;
 
       // Initialize default places
       await initializeDefaultPlaces();
@@ -366,7 +366,7 @@ describe('hybridSearch Pipeline Integration', () => {
 
   describe('4. Cross-encoder reranking', () => {
     it('applies reranking when enabled via config', async () => {
-      const dim = 32;
+      const dim = 768;
 
       // Store diverse memories
       await insertMemoryWithEmbedding(
@@ -405,7 +405,7 @@ describe('hybridSearch Pipeline Integration', () => {
 
   describe('5. MMR diversity', () => {
     it('returns diverse results when MMR is enabled', async () => {
-      const dim = 32;
+      const dim = 768;
 
       // Store similar documents on the same topic
       await insertMemoryWithEmbedding(
@@ -455,7 +455,7 @@ describe('hybridSearch Pipeline Integration', () => {
 
   describe('6. Temporal queries', () => {
     it('detects temporal queries and returns results', async () => {
-      const dim = 32;
+      const dim = 768;
 
       await insertMemoryWithEmbedding(
         'the meeting was scheduled for January 15 2024',
@@ -483,7 +483,7 @@ describe('hybridSearch Pipeline Integration', () => {
     });
 
     it('temporal boost gives higher rank to date-containing memories', async () => {
-      const dim = 32;
+      const dim = 768;
 
       // Memory with explicit date
       const dateMemId = await insertMemoryWithEmbedding(
@@ -515,7 +515,7 @@ describe('hybridSearch Pipeline Integration', () => {
 
   describe('7. Multi-session queries', () => {
     it('expands multi-session queries for broader coverage', async () => {
-      const dim = 32;
+      const dim = 768;
 
       // Store memories that would be in different sessions
       await insertMemoryWithEmbedding(
@@ -546,7 +546,7 @@ describe('hybridSearch Pipeline Integration', () => {
     });
 
     it('session boost improves ranking of same-session memories', async () => {
-      const dim = 32;
+      const dim = 768;
 
       // Create memories
       const mem1 = await insertMemoryWithEmbedding(
@@ -624,7 +624,7 @@ describe('hybridSearch Pipeline Integration', () => {
 
   describe('9. Trace mode', () => {
     it('attaches trace metadata when trace is enabled', async () => {
-      const dim = 32;
+      const dim = 768;
 
       await insertMemoryWithEmbedding(
         'test trace memory for debugging',
@@ -650,7 +650,7 @@ describe('hybridSearch Pipeline Integration', () => {
 
   describe('10. Edge cases', () => {
     it('handles empty query gracefully', async () => {
-      const dim = 32;
+      const dim = 768;
 
       await insertMemoryWithEmbedding(
         'some memory content',
@@ -668,7 +668,7 @@ describe('hybridSearch Pipeline Integration', () => {
     });
 
     it('handles very long query', async () => {
-      const dim = 32;
+      const dim = 768;
 
       await insertMemoryWithEmbedding(
         'short memory',
@@ -688,7 +688,7 @@ describe('hybridSearch Pipeline Integration', () => {
     });
 
     it('handles special characters in query', async () => {
-      const dim = 32;
+      const dim = 768;
 
       await insertMemoryWithEmbedding(
         'regex patterns use special characters like ( ) [ ] * + ?',
@@ -705,7 +705,7 @@ describe('hybridSearch Pipeline Integration', () => {
     });
 
     it('handles multiple tags in filter', async () => {
-      const dim = 32;
+      const dim = 768;
 
       await insertMemoryWithEmbedding(
         'react and typescript project setup guide',

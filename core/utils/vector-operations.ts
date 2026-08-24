@@ -9,6 +9,27 @@
  */
 
 /**
+ * Typed error thrown when two vectors of incompatible dimensionality are
+ * compared. Batch 4 policy: similarity helpers NEVER silently return 0 on a
+ * dimension mismatch — a mismatched comparison is a corpus-consistency bug
+ * (mixed embedding models), and faking a 0 similarity silently corrupts
+ * rankings. Callers that expect mixed corpora (vector search over rows
+ * written by an older embedding model) must catch this error, count the
+ * skip, and continue.
+ */
+export class DimensionMismatchError extends Error {
+  readonly dimA: number;
+  readonly dimB: number;
+
+  constructor(dimA: number, dimB: number) {
+    super(`Embedding dimension mismatch: ${dimA} vs ${dimB} (mixed embedding models in corpus? run scripts/reembed.ts)`);
+    this.name = 'DimensionMismatchError';
+    this.dimA = dimA;
+    this.dimB = dimB;
+  }
+}
+
+/**
  * Calculates the cosine similarity between two vectors.
  *
  * Cosine similarity measures the cosine of the angle between two vectors,
@@ -20,12 +41,13 @@
  *
  * Edge case handling:
  * - Returns 0 if either vector is null/undefined
- * - Returns 0 if vectors have different lengths
+ * - THROWS DimensionMismatchError if vectors have different lengths
  * - Returns 0 if either vector has zero magnitude (norm = 0)
  *
  * @param a - First vector as array of numbers
  * @param b - Second vector as array of numbers
  * @returns Cosine similarity value in range [-1, 1], or 0 for invalid inputs
+ * @throws {DimensionMismatchError} when vector dimensions differ
  *
  * @example
  * ```typescript
@@ -39,12 +61,14 @@
  * - Space complexity: O(1) - uses only accumulator variables
  * - Optimized with single-pass computation of dot product and norms
  */
-export function cosineSimilarity(a: number[] | null | undefined, b: number[] | null | undefined): number {
+export function cosineSimilarity(a: number[] | Float32Array | null | undefined, b: number[] | Float32Array | null | undefined): number {
   // Guard against null/undefined inputs
   if (!a || !b) return 0;
 
-  // Vectors must have same dimensions
-  if (a.length !== b.length) return 0;
+  // Vectors must have same dimensions - never fake a 0 similarity
+  if (a.length !== b.length) {
+    throw new DimensionMismatchError(a.length, b.length);
+  }
 
   let dotProduct = 0;
   let normA = 0;
@@ -105,12 +129,19 @@ export function normalizeVector(vec: number[] | null | undefined): number[] | nu
 /**
  * Computes the dot product of two vectors.
  *
+ * For L2-normalized vectors (the Batch 4 storage invariant), the dot product
+ * equals cosine similarity, which lets hot scan paths skip norm computation.
+ *
  * @param a - First vector
  * @param b - Second vector
- * @returns Dot product, or 0 if vectors are invalid or different lengths
+ * @returns Dot product, or 0 if vectors are invalid
+ * @throws {DimensionMismatchError} when vector dimensions differ
  */
-export function dotProduct(a: number[] | null | undefined, b: number[] | null | undefined): number {
-  if (!a || !b || a.length !== b.length) return 0;
+export function dotProduct(a: number[] | Float32Array | null | undefined, b: number[] | Float32Array | null | undefined): number {
+  if (!a || !b) return 0;
+  if (a.length !== b.length) {
+    throw new DimensionMismatchError(a.length, b.length);
+  }
 
   let result = 0;
   for (let i = 0; i < a.length; i++) {

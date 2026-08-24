@@ -4,6 +4,7 @@
 
 import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 import { toSqliteJson } from '../memory/serialization.js';
+import { encodeEmbeddingBlob, normalizeForStorage } from './embedding-codec.js';
 
 export function normalizeTimestamp(value: any): string | null {
   if (!value) return null;
@@ -73,8 +74,47 @@ export function clampLimit(value: number | undefined, defaultValue: number, min:
   return Math.min(Math.max(value ?? defaultValue, min), max);
 }
 
-export function prepareEmbedding(embedding: number[] | null): { embeddingJson?: string | null } {
-  return { embeddingJson: toSqliteJson(embedding ?? null) };
+/**
+ * Embedding model stamp metadata attached to every write (Batch 4).
+ * Identifies which provider/model produced the vector so the reembed
+ * worker can find stale rows and search can reason about mixed corpora.
+ */
+export interface EmbeddingStampMeta {
+  /** e.g. "tfidf-hashed-ngram-768" or "transformers:Xenova/all-MiniLM-L6-v2:q8" */
+  model?: string;
+  /** Vector dimensionality (defaults to vector.length when available) */
+  dim?: number;
+}
+
+export interface PreparedEmbeddingValues {
+  /** JSON text of the (normalized) vector - compat column during migration */
+  embeddingJson?: string | null;
+  /** Little-endian float32 BLOB of the L2-normalized vector - primary format */
+  embeddingBlob?: Buffer | null;
+  /** Model stamp for provenance + reembed targeting */
+  embeddingModel?: string | null;
+  embeddingDim?: number | null;
+}
+
+/**
+ * Prepare an embedding vector for storage: L2-normalize, then emit BOTH the
+ * compact float32 blob (primary read path) and the legacy JSON text (compat)
+ * plus model/dim stamps. Normalizing at write time makes cosine == dot.
+ */
+export function prepareEmbedding(
+  embedding: number[] | null,
+  meta?: EmbeddingStampMeta
+): PreparedEmbeddingValues {
+  if (!embedding || embedding.length === 0) {
+    return { embeddingJson: null, embeddingBlob: null, embeddingModel: meta?.model ?? null, embeddingDim: null };
+  }
+  const normalized = normalizeForStorage(embedding);
+  return {
+    embeddingJson: toSqliteJson(normalized),
+    embeddingBlob: encodeEmbeddingBlob(normalized),
+    embeddingModel: meta?.model ?? null,
+    embeddingDim: meta?.dim ?? normalized.length,
+  };
 }
 
 export function determineOverallStatus(dbStatus: string, redisOk: boolean): string {

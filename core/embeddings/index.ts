@@ -5,6 +5,8 @@ export * from './qmd-client'
 export {
   isReady,
   getEmbeddingDimension,
+  getModelId,
+  setActiveModel,
   getBatchEmbeddings as transformersBatchEmbeddings,
   checkHealth,
   unload,
