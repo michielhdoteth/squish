@@ -1,8 +1,8 @@
 {
   "meta": {
-    "generatedAt": "2026-08-24T05:56:48.693Z",
-    "gitSha": "6b33fe6",
-    "gitDirty": true,
+    "generatedAt": "2026-08-24T06:16:58.030Z",
+    "gitSha": "2e6a69c",
+    "gitDirty": false,
     "corpusSize": 60,
     "queryCount": 46,
     "topK": 10,
@@ -16,7 +16,7 @@
       "scoringServeV2": true
     },
     "envPinned": true,
-    "durationMs": 2888,
+    "durationMs": 2740,
     "deterministic": true
   },
   "thresholds": {
