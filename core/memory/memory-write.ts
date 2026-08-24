@@ -565,12 +565,16 @@ async function assignMemoryToDefaultPlace(
         const stmt = client.prepare(
           'UPDATE memories SET primary_place = ?, place_id = ? WHERE id = ?'
         );
-        stmt.run(primaryPlace, placeId, memoryId);
+        await withBusyRetry(() => stmt.run(primaryPlace, placeId, memoryId), {
+          label: 'placeAssignment.updateWithPlaceId',
+        });
       } else {
         const stmt = client.prepare(
           'UPDATE memories SET primary_place = ? WHERE id = ?'
         );
-        stmt.run(primaryPlace, memoryId);
+        await withBusyRetry(() => stmt.run(primaryPlace, memoryId), {
+          label: 'placeAssignment.update',
+        });
       }
     } catch {
       // Fallback to drizzle

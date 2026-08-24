@@ -38,6 +38,10 @@ export interface MergeTableReport {
   sourceRows: number;
   skippedDuplicates: number;
   inserted: number;
+  /** Same-id rows whose content differed from the target row (not silent dupes). */
+  conflicts: number;
+  /** Ids of conflicting rows (memories table only). */
+  conflictIds?: string[];
 }
 
 export interface MergeSourceReport {
@@ -52,6 +56,7 @@ export interface MergeManifest {
   totalSourceRowsScanned: number;
   totalInserted: number;
   totalSkippedDuplicates: number;
+  totalConflicts: number;
 }
 
 interface SqliteRow { [column: string]: unknown }
@@ -257,6 +262,7 @@ export async function maybeMergeLegacyClientDbs(
     let totalSourceRowsScanned = 0;
     let totalInserted = 0;
     let totalSkippedDuplicates = 0;
+    let totalConflicts = 0;
     let ftsRebuildNeeded = false;
 
     for (const sourceFile of sources) {
@@ -347,17 +353,23 @@ export async function maybeMergeLegacyClientDbs(
           sourceRows: sourceRows.length,
           skippedDuplicates: 0,
           inserted: 0,
+          conflicts: 0,
+          ...(table.isMemories ? { conflictIds: [] as string[] } : {}),
         };
 
         // Track keys already contributed during this run so later sources (and
         // later rows in the same source) are deduped against them too.
         const seenKeysThisRun = new Set<string>();
+        // Content of memory ids already contributed this run, so same-id
+        // different-content collisions can be detected without re-querying.
+        const seenMemoryContentById = new Map<string, string>();
 
         for (const row of sourceRows) {
           const values = table.columns.map((column) => row[column] ?? null);
 
           let duplicate = false;
           let seenKey: string | null = null;
+          let wasConflict = false;
 
           if (table.isMemories) {
             // Content-level dedupe for memories: same id OR identical content.
@@ -366,14 +378,22 @@ export async function maybeMergeLegacyClientDbs(
             const idKey = idValue !== null && idValue !== undefined ? String(idValue) : null;
             seenKey = idKey !== null ? `id:${idKey}` : null;
 
+            let existingContent: string | null = null;
+            let idAlreadyPresent = false;
             if (seenKey !== null && seenKeysThisRun.has(seenKey)) {
-              duplicate = true;
+              idAlreadyPresent = true;
+              existingContent = seenMemoryContentById.get(idKey!) ?? null;
             } else if (seenKey !== null) {
-              const idCheck = target
-                .prepare(`SELECT COUNT(*) as count FROM ${quotedName} WHERE id = ?`)
-                .get(idValue) as { count?: number | bigint };
-              duplicate = Number(idCheck?.count ?? 0) > 0;
+              const existingRow = target
+                .prepare(`SELECT content FROM ${quotedName} WHERE id = ?`)
+                .get(idValue) as { content?: unknown } | undefined;
+              if (existingRow) {
+                idAlreadyPresent = true;
+                existingContent = typeof existingRow.content === 'string' ? existingRow.content : null;
+              }
             }
+            duplicate = idAlreadyPresent;
+
             if (
               !duplicate &&
               typeof contentValue === 'string' &&
@@ -383,6 +403,27 @@ export async function maybeMergeLegacyClientDbs(
             ) {
               duplicate = true;
             }
+
+            // Same id but different content is a CONFLICT, not a silent
+            // duplicate: count it explicitly and log the pair so manual
+            // review can reconcile the two versions.
+            if (
+              idAlreadyPresent &&
+              typeof contentValue === 'string' &&
+              contentValue.length > 0 &&
+              existingContent !== null &&
+              sha256(existingContent) !== sha256(contentValue)
+            ) {
+              tableReport.conflicts++;
+              tableReport.conflictIds?.push(String(idKey));
+              wasConflict = true;
+              logger.warn(
+                `[merge-client-dbs] CONFLICT memories id=${String(idKey)} (${sourceFile}): ` +
+                  `same id, different content. Target: "${existingContent.slice(0, 80)}" | ` +
+                  `Source: "${contentValue.slice(0, 80)}". Keeping target version.`
+              );
+            }
+
             if (
               !duplicate &&
               typeof contentValue === 'string' &&
@@ -403,10 +444,22 @@ export async function maybeMergeLegacyClientDbs(
           }
 
           if (duplicate) {
-            tableReport.skippedDuplicates++;
+            // Conflicts are counted separately (not silently lumped with
+            // duplicates); everything else that matched an existing row is a
+            // plain duplicate.
+            if (!wasConflict) {
+              tableReport.skippedDuplicates++;
+            }
             continue;
           }
           if (seenKey !== null) seenKeysThisRun.add(seenKey);
+          if (table.isMemories) {
+            const idValue = values[table.columns.indexOf('id')];
+            const contentValue = values[table.columns.indexOf('content')];
+            if (idValue !== null && idValue !== undefined && typeof contentValue === 'string') {
+              seenMemoryContentById.set(String(idValue), contentValue);
+            }
+          }
 
           try {
             insertStmt.run(...values);
@@ -442,6 +495,7 @@ export async function maybeMergeLegacyClientDbs(
         totalSourceRowsScanned += tableReport.sourceRows;
         totalInserted += tableReport.inserted;
         totalSkippedDuplicates += tableReport.skippedDuplicates;
+        totalConflicts += tableReport.conflicts;
       }
 
       manifestSources.push(report);
@@ -479,6 +533,7 @@ export async function maybeMergeLegacyClientDbs(
       totalSourceRowsScanned,
       totalInserted,
       totalSkippedDuplicates,
+      totalConflicts,
     };
 
     // Atomic marker write: tmp file + rename so a crash mid-write cannot
@@ -488,7 +543,8 @@ export async function maybeMergeLegacyClientDbs(
     fs.renameSync(tmpPath, manifestPath);
 
     logger.info(
-      `[merge-client-dbs] Merge complete: +${totalInserted} rows inserted, ${totalSkippedDuplicates} duplicates skipped across ${manifestSources.length} source(s). Manifest: ${manifestPath}`
+      `[merge-client-dbs] Merge complete: +${totalInserted} rows inserted, ${totalSkippedDuplicates} duplicates skipped, ` +
+        `${totalConflicts} same-id/different-content conflict(s) across ${manifestSources.length} source(s). Manifest: ${manifestPath}`
     );
     return manifest;
   } catch (error) {

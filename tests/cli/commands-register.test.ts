@@ -29,5 +29,8 @@ describe('CLI command registration', () => {
 
     // Status command
     expect(commandNames).toContain('status');
+
+    // Context command (restored first-class public surface)
+    expect(commandNames).toContain('context');
   });
 });

@@ -181,4 +181,42 @@ describe('maybeMergeLegacyClientDbs', () => {
       t.cleanup();
     }
   });
+
+  test('reports same-id/different-content collisions as explicit conflicts, not duplicates', async () => {
+    const t = await makeTempRoot();
+    try {
+      await t.seedClientDb('claude', [
+        { id: 'conflict-1', content: 'Version A from claude' },
+        { id: 'unique-a', content: 'Unique to claude' },
+      ]);
+      await t.seedClientDb('opencode', [
+        // Same id as above but DIFFERENT content -> conflict, not a dupe.
+        { id: 'conflict-1', content: 'Version B from opencode' },
+        { id: 'unique-b', content: 'Unique to opencode' },
+      ]);
+
+      const manifest = await maybeMergeLegacyClientDbs(t.targetDb, { force: true });
+      expect(manifest).not.toBeNull();
+
+      const m = manifest as MergeManifest;
+      expect(m.totalConflicts).toBe(1);
+
+      // The collision is reported on the SECOND source (opencode re-sends an
+      // id that claude already contributed with different content).
+      const conflictingReports = m.sources
+        .map((source) => source.tables.memories)
+        .filter((report) => (report?.conflicts ?? 0) > 0);
+      expect(conflictingReports).toHaveLength(1);
+      const memoriesReport = conflictingReports[0];
+      expect(memoriesReport?.conflictIds).toContain('conflict-1');
+
+      // Conflicts are not silently lumped into duplicates.
+      expect(memoriesReport?.skippedDuplicates).toBe(0);
+
+      // Target keeps the first-seen version; conflicting row is not inserted.
+      expect(await t.countMemories(t.targetDb)).toBe(3);
+    } finally {
+      t.cleanup();
+    }
+  });
 });

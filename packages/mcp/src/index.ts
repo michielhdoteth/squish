@@ -65,6 +65,12 @@ console.info = console.error;
 const SERVER_NAME = "squish-memory";
 const SERVER_VERSION = "2.0.0";
 
+// Shown to agents at connection time (MCP initialize response).
+// Harness-agnostic: this server is universal pluggable memory.
+const SERVER_INSTRUCTIONS = `Squish is your persistent memory across all sessions and harnesses. Memory is project-scoped: what you save here is available next time you or any other agent works on this project.
+
+Use squish_remember to store facts, decisions, preferences, and lessons worth keeping. Use squish_recall before starting work to surface prior context; search by topic, not by date. Use squish_sessions to review past sessions, and squish_skill or squish_extract when accumulated memories contain reusable procedures. Use squish_forget carefully: single deletes are immediate; bulk deletes are dry-run only until you pass confirm=true. Store proactively when you learn something durable; recall proactively when context would change your answer.`;
+
 // Reference to the HTTP server (when running in http mode) so shutdown can close it
 let httpServerRef: { close: (cb?: () => void) => void } | null = null;
 
@@ -183,7 +189,7 @@ function resolveProjectPath(projectArg?: string): string | undefined {
 function createSquishServer(): { server: McpServer; toolCount: number } {
   const server = new McpServer(
     { name: SERVER_NAME, version: SERVER_VERSION },
-    { capabilities: { tools: {} } }
+    { capabilities: { tools: {} }, instructions: SERVER_INSTRUCTIONS }
   );
 
   let toolCount = 0;
@@ -388,9 +394,10 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
       inputSchema: {
         memoryId: z.string().optional().describe("Memory ID to delete (single)"),
         search: z.string().optional().describe("Search query to match specific memories for bulk delete"),
+        confirm: z.boolean().optional().describe("Must be true to execute a destructive bulk delete (required after a dry run)"),
       }
     },
-    async ({ memoryId, search }: { memoryId?: string; search?: string }) => {
+    async ({ memoryId, search, confirm }: { memoryId?: string; search?: string; confirm?: boolean }) => {
       const resolvedProject = resolveProjectPath();
 
       // Single memory deletion (auto-confirm)
@@ -410,7 +417,24 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
 
       const searchResults = await sdkClient.search(search, { limit: 10, project: resolvedProject });
 
-      return { content: [{ type: "text", text: JSON.stringify({ ok: true, matched: searchResults.length, deleted: 0, dryRun: true, message: "Dry run. Re-call with confirm=true to execute.", version: SERVER_VERSION }, null, 2) }] };
+      // Destructive gate: bulk delete only executes with explicit confirm=true
+      if (confirm !== true) {
+        return { content: [{ type: "text", text: JSON.stringify({ ok: true, matched: searchResults.length, deleted: 0, dryRun: true, message: "Dry run. Re-call with confirm=true to execute.", version: SERVER_VERSION }, null, 2) }] };
+      }
+
+      let deleted = 0;
+      const failed: Array<{ id: string; error: string }> = [];
+      for (const result of searchResults) {
+        try {
+          const removed = await sdkClient.forget(result.memory.id);
+          if (removed) deleted++;
+          else failed.push({ id: result.memory.id, error: "not_found" });
+        } catch (e: any) {
+          failed.push({ id: result.memory.id, error: e?.message ?? String(e) });
+        }
+      }
+
+      return { content: [{ type: "text", text: JSON.stringify({ ok: failed.length === 0, matched: searchResults.length, deleted, failed, dryRun: false, version: SERVER_VERSION }, null, 2) }] };
     }
   )) toolCount++;
 
@@ -941,9 +965,20 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
           return { content: [{ type: "text", text: JSON.stringify({ ok: true, status: "Extraction pipeline ready", features: ["skill_extraction", "wiki_extraction", "pattern_detection"] }, null, 2) }] };
         }
 
-        // Get recent memories to analyze
-        const searchResults = await sdkClient.search("", { limit: 50, project });
-        const memories = (searchResults as any).results || searchResults || [];
+        // Get recent memories to analyze (empty-query recency listing;
+        // hoursBack applies a created_at time filter)
+        const { ensureProject } = await import('../../../core/projects.js');
+        if (project) {
+          // Fresh installs may not have the detected project registered yet.
+          await ensureProject(project);
+        }
+        const memories = await sdkClient.listRecent({
+          limit: 50,
+          project,
+          ...(typeof input.hoursBack === "number" && input.hoursBack > 0
+            ? { hoursBack: input.hoursBack }
+            : {}),
+        });
 
         if (memories.length < 5) {
           return { content: [{ type: "text", text: JSON.stringify({ ok: true, message: "Not enough memories for extraction (need 5+)", count: memories.length }, null, 2) }] };

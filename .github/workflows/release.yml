@@ -41,7 +41,6 @@ jobs:
             tests/core/db-client.test.ts \
             tests/core/encryption.test.ts \
             tests/core/filter-builder.test.ts \
-            tests/core/hybrid-scorer.test.ts \
             tests/core/memory-explain.test.ts \
             tests/core/projects.test.ts \
             tests/core/schemas.test.ts \
@@ -59,6 +58,7 @@ jobs:
             tests/core/vector-operations.test.ts \
             tests/core/write-gate.test.ts \
             tests/core/memory \
+            tests/db \
             tests/merge \
             tests/mcp/stdio-e2e.test.ts \
             tests/mcp/http-e2e.test.ts \

@@ -211,6 +211,18 @@ export interface SearchOptions {
 }
 
 /**
+ * Options for the `listRecent()` method.
+ */
+export interface ListRecentOptions {
+  /** Maximum number of memories to return (default 50) */
+  limit?: number;
+  /** Project path to scope the listing (uses active project if omitted) */
+  project?: string;
+  /** Only return memories created within the last N hours (time filter) */
+  hoursBack?: number;
+}
+
+/**
  * Options for the `traverseGraph()` method.
  */
 export interface GraphOptions {

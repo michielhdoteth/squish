@@ -60,6 +60,7 @@ export type {
   PinOptions,
   SessionOptions,
   MaintenanceOptions,
+  ListRecentOptions,
   SchemaHealthResult,
   TrustState,
   SignalResult,
@@ -226,6 +227,7 @@ import type {
   MemoryType,
   RememberOptions,
   SearchOptions,
+  ListRecentOptions,
   RecallClientOptions,
   GraphOptions,
   ContextOptions,
@@ -818,6 +820,38 @@ export class SquishClient {
     } catch (error) {
       if (error instanceof SquishError) throw error;
       throw new StorageError('Failed to get recent memories', error as Error);
+    }
+  }
+
+  /**
+   * List the most recent memories without requiring a search query.
+   *
+   * Uses the recency listing path of vector search (empty query returns
+   * memories ordered by created_at DESC). Optionally restricted to a
+   * time window via hoursBack.
+   *
+   * @param options - Listing options (limit, project, hoursBack)
+   * @returns Array of recent memory records
+   */
+  async listRecent(options?: ListRecentOptions): Promise<SdkMemoryRecord[]> {
+    try {
+      const { vectorSearch } = await import('../../../core/memory/vector-search.js');
+      // Empty query hits the recency path inside vectorSearch (no embedding,
+      // results ordered by created_at DESC).
+      const results = await vectorSearch(
+        { query: '', project: options?.project ?? this._activeProject },
+        { limit: options?.limit ?? 50 }
+      );
+      let memories = results.map(mapCoreMemoryToSdk);
+      const hoursBack = options?.hoursBack;
+      if (hoursBack != null && hoursBack > 0) {
+        const cutoffMs = Date.now() - hoursBack * 3_600_000;
+        memories = memories.filter((memory) => memory.createdAt.getTime() >= cutoffMs);
+      }
+      return memories;
+    } catch (error) {
+      if (error instanceof SquishError) throw error;
+      throw new StorageError('Failed to list recent memories', error as Error);
     }
   }
 

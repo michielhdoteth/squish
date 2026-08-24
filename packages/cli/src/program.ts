@@ -16,6 +16,7 @@ import { registerPinCommand } from './commands/pin.js';
 import { registerSessionsCommand } from './commands/sessions.js';
 import { registerCloudCommand } from './commands/cloud.js';
 import { registerStatusCommand } from './commands/status.js';
+import { registerContextCommand } from './commands/context.js';
 
 /** Shared SDK client available to all command handlers. */
 export const client = new SquishClient();
@@ -89,6 +90,7 @@ export function createProgram(): Command {
   registerSessionsCommand(program);
   registerCloudCommand(program);
   registerStatusCommand(program);
+  registerContextCommand(program);
 
   return program;
 }
