@@ -92,21 +92,32 @@ describe("Ebbinghaus decay", () => {
   it("should get default decay params for different memory types", () => {
     const episodicParams = getDefaultDecayParams("episodic");
     expect(episodicParams.beta).toBe(0.07);
-    
+
     const semanticParams = getDefaultDecayParams("semantic");
     expect(semanticParams.beta).toBe(0.02);
-    
+
     const proceduralParams = getDefaultDecayParams("procedural");
     expect(proceduralParams.beta).toBe(0.03);
-    
+
     const selfModelParams = getDefaultDecayParams("self-model");
     expect(selfModelParams.beta).toBe(0.01);
-    
+
     const introspectiveParams = getDefaultDecayParams("introspective");
     expect(introspectiveParams.beta).toBe(0.02);
-    
+
+    // Batch 6b: real write-path vocabulary maps onto tier-class betas.
+    const observationParams = getDefaultDecayParams("observation");
+    expect(observationParams.beta).toBe(0.10); // fleeting-equivalent
+
+    const factParams = getDefaultDecayParams("fact");
+    expect(factParams.beta).toBe(0.02); // long-term-equivalent
+
+    const decisionParams = getDefaultDecayParams("decision");
+    expect(decisionParams.beta).toBe(0.01); // sturdy-equivalent
+
+    // Batch 6b: unknown types default to working-equivalent, NOT the old 0.3.
     const defaultParams = getDefaultDecayParams("unknown");
-    expect(defaultParams.beta).toBe(0.3);
+    expect(defaultParams.beta).toBe(0.05);
   });
 
   it("should calculate retention using hours-based function", () => {

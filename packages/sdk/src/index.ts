@@ -434,6 +434,43 @@ export class SquishClient {
   }
 
   /**
+   * Batch 6b: push a reinforcement signal back into memory, beliefs, or
+   * strategies. Confirmation strengthens the confidence columns that
+   * retrieval and recall-confidence read; contradiction weakens them.
+   *
+   * @param targetType - Which store the id belongs to
+   * @param id - Target record ID (from a search/recall result)
+   * @param signal - confirm | used | contradict
+   * @returns FeedbackResult describing what was applied
+   *
+   * @example
+   * ```ts
+   * await client.feedback('belief', beliefId, 'confirm');
+   * ```
+   */
+  async feedback(
+    targetType: 'memory' | 'belief' | 'strategy',
+    id: string,
+    signal: 'confirm' | 'contradict' | 'used'
+  ): Promise<{
+    ok: boolean;
+    applied: boolean;
+    targetType: string;
+    id: string;
+    signal: string;
+    confidence?: number;
+    detail?: string;
+  }> {
+    try {
+      const { applyFeedback } = await import('../../../core/memory/reinforcement.js');
+      return await applyFeedback({ targetType, id, signal });
+    } catch (error) {
+      if (error instanceof SquishError) throw error;
+      throw new StorageError('Failed to apply feedback', error as Error);
+    }
+  }
+
+  /**
    * Get a memory by its ID.
    *
    * @param id - The memory UUID
@@ -1625,6 +1662,8 @@ function mapCoreSearchResultToSdk(core: any): SearchResult {
     recallConfidence: core.recallConfidence,
     confidenceTier: core.confidenceTier,
     evidence: core.evidence,
+    // Batch 6b: corpus identity ('memory' | 'belief').
+    corpus: core.corpus,
     source: 'hybrid',
   };
 }

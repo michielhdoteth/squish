@@ -4,7 +4,7 @@
  * Integrates with the memory pipeline to automatically supersede outdated facts
  */
 
-import { eq, and, lt, gt } from 'drizzle-orm';
+import { eq, and, lt, gt, inArray } from 'drizzle-orm';
 import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
 import { logger } from '../logger.js';
@@ -169,7 +169,9 @@ export async function supersedeOldTemporalFacts(
     // Apply supersession
     if (toSupersede.length > 0) {
       const now = new Date();
-      
+
+      // Batch 6b fix: update ALL toSupersede ids (was: only toSupersede[0]
+      // despite the "Batch for all" comment).
       await (db as any)
         .update(schema.memories)
         .set({
@@ -178,8 +180,16 @@ export async function supersedeOldTemporalFacts(
           supersededAt: now,
           updatedAt: now,
         })
-        .where(eq(schema.memories.id, toSupersede[0])); // Batch for all
-      
+        .where(inArray(schema.memories.id, toSupersede));
+
+      // Batch 6b fix: persist the computed newValidFrom onto the superseding
+      // memory so its bi-temporal valid_from reflects the fact's actual
+      // validity start instead of staying null.
+      await (db as any)
+        .update(schema.memories)
+        .set({ validFrom: result.newValidFrom, updatedAt: now })
+        .where(eq(schema.memories.id, newMemoryId));
+
       // Create associations
       for (const oldId of toSupersede) {
         await createAssociation(newMemoryId, oldId, 'supersedes', 0.85);

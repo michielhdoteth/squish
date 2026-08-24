@@ -121,26 +121,37 @@ export function rrfFusion(
   limit: number,
   k: number = 60
 ): SearchResult[] {
+  return rrfFusionMulti([vectorResults, keywordResults], limit, k);
+}
+
+/**
+ * Batch 6b: N-leg RRF. Fuses any number of ranked legs (vector, keyword,
+ * beliefs...) with identical math to rrfFusion - per-leg rank contributions
+ * sum by id and are max-normalized afterwards. Single-leg input returns that
+ * leg unchanged except for score normalization, matching legacy behavior of
+ * not fusing at all when only one leg produced results (callers guard).
+ */
+export function rrfFusionMulti(
+  legs: SearchResult[][],
+  limit: number,
+  k: number = 60
+): SearchResult[] {
   const scores = new Map<string, { result: SearchResult; score: number }>();
 
-  // Add vector results with RRF score
-  vectorResults.forEach((result, index) => {
-    const rank = index + 1;
-    const rrfScore = 1.0 / (k + rank);
-    scores.set(result.id, { result, score: rrfScore });
-  });
-
-  // Add keyword results with RRF score (fused)
-  keywordResults.forEach((result, index) => {
-    const rank = index + 1;
-    const rrfScore = 1.0 / (k + rank);
-    const existing = scores.get(result.id);
-    if (existing) {
-      existing.score += rrfScore;
-    } else {
-      scores.set(result.id, { result, score: rrfScore });
-    }
-  });
+  for (const leg of legs) {
+    leg.forEach((result, index) => {
+      const rank = index + 1;
+      const rrfScore = 1.0 / (k + rank);
+      const existing = scores.get(result.id);
+      if (existing) {
+        existing.score += rrfScore;
+        // First-seen representation wins (vector-leg shape), mirroring the
+        // previous two-leg behavior byte-for-byte; scores still sum.
+      } else {
+        scores.set(result.id, { result, score: rrfScore });
+      }
+    });
+  }
 
   // Sort by fused RRF score descending
   const fused = Array.from(scores.values())

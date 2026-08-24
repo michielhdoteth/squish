@@ -83,6 +83,21 @@ const beliefDecayHandler = async (context: JobExecutionContext) => {
 };
 registerJobHandler('belief_decay', beliefDecayHandler);
 
+// Batch 6b: expire memories whose valid_to has passed (bi-temporal lifecycle).
+const temporalCleanupHandler = async (context: JobExecutionContext) => {
+  const { cleanupExpiredTemporalFacts } = await import('../memory/temporal-facts.js');
+  const jobConfig = context.config as { projectId?: string; enabled?: boolean };
+  if (jobConfig.enabled === false) {
+    return { recordsProcessed: 0, summary: { skipped: true, reason: 'temporal cleanup disabled' } };
+  }
+  const expiredCount = await cleanupExpiredTemporalFacts(jobConfig.projectId);
+  return {
+    recordsProcessed: expiredCount,
+    summary: { expiredMemories: expiredCount },
+  };
+};
+registerJobHandler('temporal_cleanup', temporalCleanupHandler);
+
 // Auto-clean handler - deletes stale memories automatically
 const autoCleanHandler = async (context: JobExecutionContext) => {
   const { getStaleMemories, deleteMemoryPermanently } = await import('../memory/stale-cleaner.js');
@@ -565,6 +580,14 @@ async function ensureDefaultJobs(db: any): Promise<void> {
       cronExpression: '0 4 * * *', // Run daily at 4 AM
       enabled: true,
       jobConfig: { applyBeliefDecay: true },
+    },
+    // Batch 6b: bi-temporal lifecycle - expire memories past valid_to
+    {
+      jobName: 'temporal_cleanup',
+      jobType: 'daily' as JobType,
+      cronExpression: '15 4 * * *', // Run daily at 4:15 AM (after belief decay)
+      enabled: true,
+      jobConfig: {},
     },
     {
       jobName: 'self_iteration',

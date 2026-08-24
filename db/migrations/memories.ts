@@ -7,6 +7,7 @@ import type { Database } from 'better-sqlite3';
 import { migrateTable } from '../schema/generator.js';
 import { memoriesSchema } from '../schema/memories.js';
 import { runEmbeddingBlobBackfill } from './embedding-blob-backfill.js';
+import { runBatch6bBackfill } from './batch6b-backfill.js';
 import { logger } from '../../core/logger.js';
 
 export async function runMemoriesMigrations(sqlite: Database): Promise<void> {
@@ -21,4 +22,7 @@ export async function runMemoriesMigrations(sqlite: Database): Promise<void> {
 
   await migrateTable(sqlite, memoriesSchema);
   await runEmbeddingBlobBackfill(sqlite);
+  // Batch 6b: sector re-classification + legacy hot-tier repair (one-time,
+  // marker-gated, O(1) after first successful pass).
+  await runBatch6bBackfill(sqlite);
 }

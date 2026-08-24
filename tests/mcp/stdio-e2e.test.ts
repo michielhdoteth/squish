@@ -6,7 +6,7 @@ import { join } from "node:path";
 
 const SERVER_VERSION = "2.0.0";
 const SERVER_NAME = "squish-memory";
-const EXPECTED_TOOL_COUNT = 15;
+const EXPECTED_TOOL_COUNT = 16;
 
 const EXPECTED_TOOLS = [
   "squish_remember",

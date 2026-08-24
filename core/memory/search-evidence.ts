@@ -19,6 +19,8 @@ import {
   type RecallAssessment,
   type ConfidenceTier,
 } from '../scoring/recall-confidence.js';
+// Batch 6b: per-memory Ebbinghaus retention replaces the naive age-only curve.
+import { computeRetention, type RetentionRow } from '../decay/retention.js';
 
 /** Association types that indicate competing versions of a fact. */
 const CONFLICT_ASSOCIATION_TYPES = ['supersedes', 'contradicts', 'updates', 'merged', 'duplicate'] as const;
@@ -27,6 +29,16 @@ interface MemoryMetaRow {
   id: string;
   confidenceLevel: string | null;
   status: string | null;
+}
+
+/** Decay columns fetched alongside meta for the Batch 6b retention factor. */
+interface MemoryDecayRow {
+  id: string;
+  type: string | null;
+  tier: string | null;
+  createdAt: number | null;
+  lastDecayAt: number | null;
+  decayRate: number | null;
 }
 
 interface AssociationEdgeRow {
@@ -55,7 +67,13 @@ export function buildEvidence(
   dbMeta: { confidenceLevel: string | null; status: string | null } | undefined,
   conflictEdges: { contradictingCount: number; supportingCount: number; supersededBy: string | null },
   ctx: EvidenceCollectionContext,
-  nowMs: number
+  nowMs: number,
+  /**
+   * Batch 6b: Ebbinghaus-decayed retention for this memory (0..1), from the
+   * same model the decay engine applies. null/undefined falls back to the
+   * naive age-only curve (belief-corpus rows and legacy paths).
+   */
+  retention?: number | null
 ): RecallEvidence {
   const breakdown = (result.scoreBreakdown ?? {}) as Record<string, number | undefined>;
 
@@ -71,9 +89,13 @@ export function buildEvidence(
   const graphComponent = breakdown.graph;
   const graph = typeof graphComponent === 'number' && graphComponent > 0 ? graphComponent : null;
 
-  // Freshness from createdAt age via the same retention curve the model uses.
+  // Freshness from the per-memory Ebbinghaus retention curve (Batch 6b) when
+  // the decay columns are available; falls back to the naive age-only curve
+  // for rows without a memories-table anchor (belief-corpus results).
   let freshness: number | null = null;
-  if (result.createdAt) {
+  if (typeof retention === 'number' && Number.isFinite(retention)) {
+    freshness = Math.max(0, Math.min(1, retention));
+  } else if (result.createdAt) {
     const t = new Date(result.createdAt).getTime();
     if (Number.isFinite(t)) {
       freshness = retentionFromAge((nowMs - t) / 86_400_000);
@@ -121,19 +143,22 @@ export function buildEvidence(
 }
 
 /**
- * Read DB metadata + association counts for the final result ids in TWO
- * batched queries. Never throws - evidence collection must not break search;
- * on failure callers proceed without meta (signals stay null).
+ * Read DB metadata + association counts + decay columns for the final result
+ * ids in batched queries. Never throws - evidence collection must not break
+ * search; on failure callers proceed without meta (signals stay null).
  */
 export async function collectDbMeta(
   ids: string[],
 ): Promise<{
   metaById: Map<string, { confidenceLevel: string | null; status: string | null }>;
   conflictsById: Map<string, { contradictingCount: number; supportingCount: number; supersededBy: string | null }>;
+  /** Batch 6b: per-id Ebbinghaus retention (0..1) from the decay engine's model. */
+  retentionById: Map<string, number>;
 }> {
   const empty = {
     metaById: new Map<string, { confidenceLevel: string | null; status: string | null }>(),
     conflictsById: new Map<string, { contradictingCount: number; supportingCount: number; supersededBy: string | null }>(),
+    retentionById: new Map<string, number>(),
   };
   if (ids.length === 0) return empty;
 
@@ -148,19 +173,60 @@ export async function collectDbMeta(
     // Raw parameterized SQL keeps this identical across SQLite/Postgres drivers.
     const placeholders = ids.map(() => '?').join(',');
     let metaMap = new Map<string, { confidenceLevel: string | null; status: string | null }>();
+    const decayRows: MemoryDecayRow[] = [];
     if (sqliteDb && typeof sqliteDb.prepare === 'function') {
+      // Batch 6b: one query now also carries the decay columns feeding the
+      // Ebbinghaus retention factor (replaces the naive age-only curve).
       const stmt = sqliteDb.prepare(
-        `SELECT id, confidence_level AS confidenceLevel, status FROM memories WHERE id IN (${placeholders})`
+        `SELECT id, confidence_level AS confidenceLevel, status,
+                type, tier, created_at AS createdAt, last_decay_at AS lastDecayAt, decay_rate AS decayRate
+         FROM memories WHERE id IN (${placeholders})`
       );
-      const rows = stmt.all(...ids) as Array<MemoryMetaRow>;
-      metaMap = new Map(rows.map(r => [r.id, r]));
+      const rows = stmt.all(...ids) as Array<MemoryMetaRow & MemoryDecayRow>;
+      for (const r of rows) {
+        metaMap.set(r.id, { confidenceLevel: r.confidenceLevel ?? null, status: r.status ?? null });
+        decayRows.push(r);
+      }
+    }
+
+    // Batch 6b: belief-corpus results (knowledge table) - fetch their meta so
+    // the evidence block works for both corpora. Only valid confidence-level
+    // enums are surfaced; everything else stays null (honest absence).
+    const missingIds = ids.filter(id => !metaMap.has(id));
+    if (missingIds.length > 0 && sqliteDb && typeof sqliteDb.prepare === 'function') {
+      try {
+        const kPlaceholders = missingIds.map(() => '?').join(',');
+        const kStmt = sqliteDb.prepare(
+          `SELECT id, confidence_level AS confidenceLevel, status FROM knowledge WHERE id IN (${kPlaceholders})`
+        );
+        const kRows = kStmt.all(...missingIds) as Array<MemoryMetaRow>;
+        for (const r of kRows) {
+          metaMap.set(r.id, { confidenceLevel: r.confidenceLevel ?? null, status: r.status ?? null });
+        }
+      } catch {
+        // knowledge table unavailable: belief rows keep null signals
+      }
+    }
+
+    // Batch 6b: retention computed locally from fetched columns (pure math).
+    const nowMs = Date.now();
+    const retentionById = new Map<string, number>();
+    for (const row of decayRows) {
+      retentionById.set(
+        row.id,
+        computeRetention(row as unknown as RetentionRow, nowMs)
+      );
     }
 
     // Association edges touching any final id (both directions), capped scan.
+    // Batch 6b fix: this must go through the DRIZZLE wrapper (`db`), not the
+    // raw $client - .select() is a drizzle builder method. Using the raw
+    // client made collectDbMeta throw on every call, silently disabling all
+    // DB-derived evidence signals (confidence level, conflicts, support).
     const conflictsById = new Map<string, { contradictingCount: number; supportingCount: number; supersededBy: string | null }>();
     const assocSchema = (schema as any).memoryAssociations;
-    if (assocSchema) {
-      const edgeRows = (await sqliteDb
+    if (assocSchema && typeof (db as any)?.select === 'function') {
+      const edgeRows = (await (db as any)
         .select({
           fromMemoryId: assocSchema.fromMemoryId,
           toMemoryId: assocSchema.toMemoryId,
@@ -205,8 +271,11 @@ export async function collectDbMeta(
       }
     }
 
-    return { metaById: metaMap, conflictsById };
-  } catch {
+    return { metaById: metaMap, conflictsById, retentionById };
+  } catch (e) {
+    if (process.env.SQUISH_EVIDENCE_DEBUG === 'true') {
+      console.error('[search-evidence] collectDbMeta failed:', e);
+    }
     return empty;
   }
 }
@@ -227,7 +296,7 @@ export async function attachRecallConfidence(
 
   const nowMs = Date.now();
   const ids = results.map(r => r.id);
-  const { metaById, conflictsById } = await collectDbMeta(ids);
+  const { metaById, conflictsById, retentionById } = await collectDbMeta(ids);
 
   let bestConfidence = 0;
   let bestTier: ConfidenceTier = 'LOW';
@@ -235,7 +304,9 @@ export async function attachRecallConfidence(
   for (const r of results) {
     const meta = metaById.get(r.id);
     const conflicts = conflictsById.get(r.id) ?? { contradictingCount: 0, supportingCount: 0, supersededBy: null };
-    const evidence = buildEvidence(r, meta, conflicts, ctx, nowMs);
+    // Batch 6b: decayed strength feeds the freshness factor when available.
+    const retention = retentionById.get(r.id) ?? null;
+    const evidence = buildEvidence(r, meta, conflicts, ctx, nowMs, retention);
     const scored = computeRecallConfidence(evidence, {
       candidateSemanticScores: ctx.candidateSemanticScores,
       multiSignalQuery: ctx.multiSignalQuery,

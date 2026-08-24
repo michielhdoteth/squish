@@ -37,6 +37,8 @@ import { withBusyRetry } from '../../db/busy-retry.js';
 import { computeInitialImportance as computeImportanceFlagged } from '../engines/importance-engine.js';
 import { normalizeMemory, getOrCreateUser } from './memory-crud.js';
 import { emit } from '../event-bus.js';
+// Batch 6b: signals-based sector classification (episodic|semantic|procedural|reflective).
+import { routeSector } from './sector-router.js';
 import type { RememberInput, MemoryRecord, VisibilityScope } from './memory-types.js';
 
 // ---------------------------------------------------------------------------
@@ -59,6 +61,22 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
   const id = randomUUID();
   const signals = detectMemorySignals(input.content);
   const type = input.type ?? signals.suggestedType;
+  // Batch 6b: route sector once from signals (type + tags + content + provenance).
+  // An explicit input.sector override wins; default episodic.
+  const now = new Date();
+  const sector = routeSector(
+    {
+      type,
+      tags,
+      content: input.content,
+      knowledgeKind: 'memory',
+      source: (input.metadata?.source as string | undefined) ?? input.source ?? null,
+    },
+    (input as { sector?: string | null }).sector ?? null
+  );
+  // Batch 6b: bi-temporal fields - validFrom defaults to write time unless
+  // explicitly provided; recordedAt is always the write time.
+  const validFromDate = input.validFrom ? new Date(input.validFrom) : now;
   const visibilityScope = 'project' as VisibilityScope;
   const policyRecommendation = recommendMemoryScope({
     content: input.content,
@@ -151,6 +169,15 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
     visibilityScope,
     readScope: serializedReadScope,
     writeScope: serializedWriteScope,
+    // Batch 6b: routed sector + bi-temporal fields on every new memory.
+    sector,
+    validFrom: validFromDate,
+    recordedAt: now,
+    // Batch 6b: explicit working tier at birth - the column DEFAULT 'hot'
+    // made fresh rows permanently decay-exempt until the first tier
+    // maintenance pass. Young memories are working-tier by definition;
+    // recalculateTiers promotes/demotes from there.
+    tier: 'working',
   };
 
   // Add namespace if specified
@@ -250,7 +277,8 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
         confidence: importance.score / 100,
         tags: tags,
         metadata: enrichedMetadata,
-        sector: 'episodic',
+        // Batch 6b: mirror the routed sector instead of hardcoding episodic.
+        sector,
         tier: importance.score >= 70 ? 'hot' : 'cold',
       };
       const knowledgeRecord = await createKnowledge(knowledgeInput);

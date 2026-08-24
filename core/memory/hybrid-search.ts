@@ -55,7 +55,9 @@ import { computeGraphBoost, calculateGraphBoostNormalized, effectiveGraphBoostWe
 
 // Imports from split modules
 import { vectorSearch, type SearchDbContext } from './vector-search.js';
-import { keywordSearch, rrfFusion } from './keyword-search.js';
+import { keywordSearch, rrfFusion, rrfFusionMulti } from './keyword-search.js';
+// Batch 6b: beliefs corpus leg (active knowledge rows as third retrieval corpus).
+import { beliefSearch, areBeliefsEnabled } from './belief-search.js';
 import {
   heuristicComponents,
   applyMultiPlaceScoring,
@@ -309,6 +311,22 @@ export async function hybridSearch(
   // This is the industry standard (TrueMemory episodic layer, MemPalace FTS5, etc.)
   const keywordResults = await keywordSearch(input, limit * 2, searchCtx);
 
+  // Batch 6b: OPTIONAL third corpus leg - active beliefs/constraints/
+  // decisions/strategies from the unified knowledge table. SQUISH_SEARCH_BELIEFS
+  // (default ON). Empty when disabled or no matching belief rows, in which
+  // case fusion below is byte-identical to the previous two-leg behavior.
+  let beliefResults: SearchResult[] = [];
+  if (areBeliefsEnabled() && !isEmptyQuery && input.query.trim().length > 0) {
+    try {
+      beliefResults = await beliefSearch(input, Math.ceil(limit * 2), searchCtx);
+      if (beliefResults.length > 0) {
+        logger.debug(`[HybridSearch] Beliefs leg produced ${beliefResults.length} candidate(s)`);
+      }
+    } catch (e) {
+      logger.debug(`[HybridSearch] Beliefs leg failed: ${e}`);
+    }
+  }
+
   // Batch 6a evidence: capture the lexical leg's OWN ranking before fusion so
   // recall-confidence can measure independent agreement. rank = 1-based FTS
   // position; score = bm25 strength normalized within the leg (keywordSearch
@@ -325,8 +343,12 @@ export async function hybridSearch(
     });
   }
 
-  if (keywordResults.length > 0) {
-    vectorResults = rrfFusion(vectorResults, keywordResults, limit * 3);
+  if (keywordResults.length > 0 || beliefResults.length > 0) {
+    // Batch 6b: N-leg RRF - vector + keyword + (optional) beliefs legs.
+    const legs: SearchResult[][] = [vectorResults];
+    if (keywordResults.length > 0) legs.push(keywordResults);
+    if (beliefResults.length > 0) legs.push(beliefResults);
+    vectorResults = rrfFusionMulti(legs, limit * 3);
   }
 
   // Batch 3: from here on every candidate carries the explicit three-field
@@ -596,6 +618,13 @@ export async function hybridSearch(
   for (const r of results) {
     // memoryId -> served score (finalScore under v2, legacy composite under legacy)
     trace.scoreBreakdown[r.id] = r.similarity ?? 0;
+  }
+
+  // Batch 6b: every result leaves with its true corpus identity. Belief-leg
+  // rows carry 'belief'; everything else (vector/keyword/graph/multi-hop/
+  // association legs) defaults to 'memory'.
+  for (const r of results) {
+    if (!r.corpus) r.corpus = 'memory';
   }
 
   // Batch 6a: calibrated recall confidence + itemized evidence.

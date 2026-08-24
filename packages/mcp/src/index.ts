@@ -386,7 +386,16 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
       }
 
       const searchResults = await sdkClient.search(query, { limit, project: resolvedProject });
-      const results = searchResults.map((r: SearchResult) => ({ ...r.memory, similarity: r.score }));
+      // Batch 6b: results carry their true corpus identity plus the 6a
+      // evidence block so consumers can tell memory rows from belief rows.
+      const results = searchResults.map((r: SearchResult) => ({
+        ...r.memory,
+        similarity: r.score,
+        recallConfidence: r.recallConfidence,
+        confidenceTier: r.confidenceTier,
+        evidence: r.evidence,
+        corpus: r.corpus ?? "memory",
+      }));
 
       // Batch 6a: first-class abstention. The verdict is computed from
       // calibrated recall confidence; whatever ranked is still returned -
@@ -1052,6 +1061,39 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
       } catch (error: any) {
         return errorResponse("extraction_error", error.message);
       }
+    }
+  )) toolCount++;
+
+  // squish_feedback - REINFORCEMENT LOOP (Batch 6b)
+  // Push confirm/used/contradict signals back into memory, beliefs, and
+  // strategies so confidence columns that retrieval + recallConfidence read
+  // stay honest.
+  if (safeRegisterTool(
+    server,
+    "squish_feedback",
+    {
+      description:
+        "Reinforce or weaken a recalled item: confirm (it was correct), used " +
+        "(you acted on it), or contradict (it was wrong). Targets: memory, " +
+        "belief (knowledge table), or strategy. Confirmation boosts the " +
+        "confidence signals retrieval and recall-confidence read; contradiction " +
+        "marks beliefs disputed / memories outdated so they rank lower.",
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+      inputSchema: {
+        targetType: z.enum(["memory", "belief", "strategy"]).describe("Which store the id belongs to"),
+        id: z.string().describe("Target record ID (from a recall result)"),
+        signal: z.enum(["confirm", "contradict", "used"]).describe("Feedback signal"),
+      }
+    },
+    async ({ targetType, id, signal }: { targetType: "memory" | "belief" | "strategy"; id: string; signal: "confirm" | "contradict" | "used" }) => {
+      const { applyFeedback } = await import('../../../core/memory/reinforcement.js');
+      const result = await applyFeedback({ targetType, id, signal });
+      if (!result.ok) {
+        return errorResponse("feedback_failed", result.detail ?? "feedback could not be applied", id);
+      }
+      const { ok, ...feedback } = result;
+      void ok;
+      return { content: [{ type: "text", text: JSON.stringify({ ...feedback, version: SERVER_VERSION }, null, 2) }] };
     }
   )) toolCount++;
 

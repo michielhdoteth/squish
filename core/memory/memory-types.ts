@@ -33,6 +33,11 @@ export interface RememberInput {
   toolName?: string;     // Tool that generated this memory
   // Place routing (Method of Loci / MemPalace wings)
   placeType?: string;    // Place type to route memory (inbox, ref, wip, etc.)
+  // Batch 6b: sector routing - explicit override wins over signals-based
+  // classification ('episodic' | 'semantic' | 'procedural' | 'reflective').
+  sector?: string;
+  // Batch 6b: bi-temporal validity start (defaults to write time).
+  validFrom?: string | Date;
 }
 
 export interface SearchInput {
@@ -95,6 +100,13 @@ export interface SearchResult extends MemoryRecord {
   recallConfidence?: number;
   /** Batch 6a: tier band for recallConfidence (HIGH >= 0.90 | QUALIFIED | LOW). */
   confidenceTier?: 'HIGH' | 'QUALIFIED' | 'LOW';
+  /**
+   * Batch 6b: which corpus produced this result.
+   * 'memory' = memories table (vector/keyword/graph legs), 'belief' = unified
+   * knowledge table (beliefs/constraints/decisions/strategies leg).
+   * Always present on results leaving hybridSearch.
+   */
+  corpus?: 'memory' | 'belief';
   /** Retrieval trace for debugging (Phase 8) - populated when trace: true */
   _trace?: import('../retrieval/config.js').RetrievalTrace;
 }

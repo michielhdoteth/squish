@@ -117,6 +117,12 @@ export interface SearchResult {
   };
   /** Source that found this result */
   source: 'vector' | 'fts' | 'graph' | 'hybrid';
+  /**
+   * Batch 6b: which corpus produced this result.
+   * 'memory' = memories table, 'belief' = unified knowledge table
+   * (beliefs/constraints/decisions/strategies).
+   */
+  corpus?: 'memory' | 'belief';
   /** Optional explanation of why this matched */
   explanation?: string;
 }

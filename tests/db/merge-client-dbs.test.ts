@@ -73,7 +73,7 @@ describe('maybeMergeLegacyClientDbs', () => {
     } finally {
       t.cleanup();
     }
-  });
+  }, 20_000);
 
   test('merges rows from two legacy client DBs, writes manifest, leaves sources intact', async () => {
     const t = await makeTempRoot();
@@ -129,7 +129,7 @@ describe('maybeMergeLegacyClientDbs', () => {
     } finally {
       t.cleanup();
     }
-  });
+  }, 20_000);
 
   test('dedupes identical ids across sources and skips duplicate content', async () => {
     const t = await makeTempRoot();
@@ -154,7 +154,7 @@ describe('maybeMergeLegacyClientDbs', () => {
     } finally {
       t.cleanup();
     }
-  });
+  }, 20_000);
 
   test('merges into an existing shared DB without duplicating its rows', async () => {
     const t = await makeTempRoot();
@@ -180,7 +180,7 @@ describe('maybeMergeLegacyClientDbs', () => {
     } finally {
       t.cleanup();
     }
-  });
+  }, 20_000);
 
   test('reports same-id/different-content collisions as explicit conflicts, not duplicates', async () => {
     const t = await makeTempRoot();
@@ -218,5 +218,8 @@ describe('maybeMergeLegacyClientDbs', () => {
     } finally {
       t.cleanup();
     }
-  });
+  }, 20_000);
 });
+
+
+

@@ -178,11 +178,11 @@ export async function promoteToSturdy(memoryId: string): Promise<boolean> {
     const now = Math.floor(Date.now() / 1000);
     sqlite
       .prepare(
-        `UPDATE memories SET tier = 'sturdy', is_pinned = 1, updated_at = ? WHERE id = ?`,
+        `UPDATE memories SET tier = 'sturdy', is_pinned = 1, sector = 'semantic', updated_at = ? WHERE id = ?`,
       )
       .run(now, memoryId);
 
-    logger.info(`Promoted memory to sturdy tier: ${memoryId}`);
+    logger.info(`Promoted memory to sturdy tier: ${memoryId} (sector -> semantic)`);
     return true;
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);

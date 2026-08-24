@@ -82,52 +82,80 @@ function daysSinceLastDecay(lastDecayAt: Date): number {
 
 /**
  * Get default decay parameters for a given memory type
- * 
+ *
  * Based on research from Squish v2.0 architecture:
  * - episodic: β=0.07 (slow decay)
  * - semantic: β=0.02 (very slow)
  * - procedural: β=0.03 (slow)
  * - self-model: β=0.01 (very slow)
  * - introspective: β=0.02 (slow)
- * 
+ *
+ * Batch 6b: the REAL write-path type vocabulary (observation/fact/decision/
+ * context/preference/note/task) is mapped onto Ebbinghaus tier classes
+ * (fleeting/working/long-term/sturdy equivalents) instead of falling through
+ * to the old one-size default β=0.3, which decayed everything far too fast.
+ *
  * @param memoryType - Type of memory
  * @returns Decay parameters with appropriate beta value
  */
 export function getDefaultDecayParams(memoryType: string): DecayParams {
   const now = new Date();
-  
+
   // Default tau (time constant) is 1.0 day for all types
   const tau = 1.0;
-  
-  // Beta values based on memory type research
-  let beta: number;
-  switch (memoryType.toLowerCase()) {
-    case 'episodic':
-      beta = 0.07;
-      break;
-    case 'semantic':
-      beta = 0.02;
-      break;
-    case 'procedural':
-      beta = 0.03;
-      break;
-    case 'self-model':
-      beta = 0.01;
-      break;
-    case 'introspective':
-      beta = 0.02;
-      break;
-    default:
-      // Default beta from task specification
-      beta = 0.3;
-  }
-  
+
   return {
     tau,
-    beta,
+    beta: betaForMemoryType(memoryType),
     lastDecayAt: now,
     createdAt: now
   };
+}
+
+/**
+ * Map the real memory-type vocabulary onto Ebbinghaus decay-tier betas
+ * (Batch 6b). Documented mapping:
+ *
+ *   fleeting-equivalent  observation, note          β = 0.10 (fast decay)
+ *   working-equivalent   task, context, session     β = 0.05
+ *   long-term-equivalent fact                        β = 0.02
+ *   sturdy-equivalent    decision, preference       β = 0.01 (near-stable)
+ *
+ * Sector names (episodic/semantic/procedural/...) keep their original values.
+ * Unknown types default to the working-equivalent β=0.05 rather than the old
+ * blanket 0.3 so unclassified rows no longer evaporate.
+ */
+export function betaForMemoryType(memoryType?: string | null): number {
+  switch ((memoryType ?? '').toLowerCase()) {
+    // Real write-path vocabulary -> tier-class equivalents
+    case 'observation':
+    case 'note':
+      return 0.10; // fleeting-equivalent
+    case 'task':
+    case 'context':
+    case 'session':
+      return 0.05; // working-equivalent
+    case 'fact':
+      return 0.02; // long-term-equivalent
+    case 'decision':
+    case 'preference':
+      return 0.01; // sturdy-equivalent
+
+    // Sector vocabulary (kept from v2.0 architecture research)
+    case 'episodic':
+      return 0.07;
+    case 'semantic':
+      return 0.02;
+    case 'procedural':
+      return 0.03;
+    case 'self-model':
+      return 0.01;
+    case 'introspective':
+      return 0.02;
+
+    default:
+      return 0.05; // working-equivalent default (was 0.3 pre-Batch-6b)
+  }
 }
 
 /**

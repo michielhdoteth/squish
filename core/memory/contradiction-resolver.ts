@@ -29,31 +29,47 @@ export interface ContradictionCheck {
 }
 
 /**
+ * Batch 6b: normalize a stored temporal value to ms. Drizzle timestamp-mode
+ * columns arrive as Date, raw SQL paths may deliver epoch SECONDS or ISO
+ * strings; values below 1e11 are treated as seconds (same heuristic as
+ * normalizeTimestamp in core/lib/utils.ts).
+ */
+function toMs(value: string | number | Date | null | undefined): number | null {
+  if (value == null) return null;
+  if (value instanceof Date) return isNaN(value.getTime()) ? null : value.getTime();
+  const num = typeof value === 'number' ? value : Number(value);
+  if (Number.isFinite(num) && String(value).trim() !== '' && /^\d+$/.test(String(value).trim())) {
+    return num < 1e11 ? num * 1000 : num; // seconds -> ms
+  }
+  const parsed = new Date(value as any).getTime();
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/**
  * Calculate temporal relationship between two time periods
  * Returns: 'existing_is_newer', 'existing_is_older', 'overlapping', or 'unknown'
  */
 function calculateTemporalRelationship(
-  existingValidFrom: string | null,
-  existingValidTo: string | null,
+  existingValidFrom: string | number | Date | null,
+  existingValidTo: string | number | Date | null,
   newTime: Date
 ): 'existing_is_newer' | 'existing_is_older' | 'overlapping' | 'unknown' {
-  if (!existingValidFrom && !existingValidTo) {
+  const fromMs = toMs(existingValidFrom);
+  const toMsVal = toMs(existingValidTo);
+  if (fromMs === null && toMsVal === null) {
     return 'unknown';
   }
-  
-  const existingFrom = existingValidFrom ? new Date(existingValidFrom) : null;
-  const existingTo = existingValidTo ? new Date(existingValidTo) : null;
-  
+
   // If existing fact is completely in the future compared to new time
-  if (existingFrom && existingFrom > newTime) {
+  if (fromMs !== null && fromMs > newTime.getTime()) {
     return 'existing_is_newer';
   }
-  
+
   // If existing fact is completely in the past compared to new time
-  if (existingTo && existingTo < newTime) {
+  if (toMsVal !== null && toMsVal < newTime.getTime()) {
     return 'existing_is_older';
   }
-  
+
   // If time periods overlap or we can't determine
   return 'overlapping';
 }

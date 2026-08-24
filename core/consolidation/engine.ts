@@ -350,6 +350,8 @@ async function promoteToSemantic(pattern: any, projectId?: string): Promise<void
       type: 'fact',
       project: projectId || undefined,
       tags: ['auto-promoted', 'semantic', ...(pattern.keyPoints || [])],
+      // Batch 6b: promotion flips sector - promoted patterns are semantic.
+      sector: 'semantic',
       metadata: {
         source: 'consolidation-engine',
         patternConfidence: pattern.confidence,
