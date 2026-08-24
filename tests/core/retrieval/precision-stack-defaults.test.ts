@@ -1,0 +1,110 @@
+/**
+ * Batch 5: precision stack default tests.
+ *
+ * Verifies per-component defaults after the eval gate:
+ * - Cross-encoder rerank:  ON by default, individually disableable.
+ * - Query expansion:       ON by default, individually disableable.
+ * - Temporal validity:     OFF by default (golden-eval breach), opt-in via env.
+ * - Graph boost legacy escape hatch defaults OFF (normalized mode serves).
+ * - LLM reranking is NOT part of the flip (still provider-gated, default off).
+ */
+
+import { describe, test, expect } from 'bun:test';
+
+import {
+  getPrecisionStackFlags,
+  getGraphBoostFlags,
+} from '../../../core/retrieval/config.js';
+import { getRerankerConfig } from '../../../core/retrieval/cross-encoder-reranker.js';
+import { config } from '../../../config.js';
+
+const SAVED: Record<string, string | undefined> = {};
+
+function saveEnv(...keys: string[]) {
+  for (const k of keys) SAVED[k] = process.env[k];
+}
+
+function restoreEnv(...keys: string[]) {
+  for (const k of keys) {
+    if (SAVED[k] === undefined) delete process.env[k];
+    else process.env[k] = SAVED[k];
+  }
+}
+
+describe('Precision stack flags (Batch 5)', () => {
+  test('rerank + expansion default ON, temporal validity OFF when env unset', () => {
+    const flags = getPrecisionStackFlags({});
+    expect(flags.reranker).toBe(true);
+    expect(flags.queryExpansion).toBe(true);
+    // Gated back off: golden-eval breach (recall@5 0.837 < 0.85 etc.) when ON
+    expect(flags.temporalValidity).toBe(false);
+  });
+
+  test('cross-encoder rerank individually disableable', () => {
+    const flags = getPrecisionStackFlags({ SQUISH_RERANKER_ENABLED: 'false' });
+    expect(flags.reranker).toBe(false);
+    // siblings unaffected
+    expect(flags.temporalValidity).toBe(false);
+    expect(flags.queryExpansion).toBe(true);
+  });
+
+  test('temporal validity opt-in enableable', () => {
+    const flags = getPrecisionStackFlags({ SQUISH_TEMPORAL_VALIDITY: 'true' });
+    expect(flags.temporalValidity).toBe(true);
+    expect(flags.reranker).toBe(true);
+    expect(flags.queryExpansion).toBe(true);
+  });
+
+  test('query expansion individually disableable', () => {
+    const flags = getPrecisionStackFlags({ SQUISH_QUERY_EXPANSION: 'false' });
+    expect(flags.queryExpansion).toBe(false);
+    expect(flags.reranker).toBe(true);
+    expect(flags.temporalValidity).toBe(false);
+  });
+
+  test('all falsy variants respected for a single component', () => {
+    for (const v of ['false', '0', 'no', 'off']) {
+      const flags = getPrecisionStackFlags({ SQUISH_QUERY_EXPANSION: v });
+      expect(flags.queryExpansion).toBe(false);
+    }
+  });
+
+  test('reranker env config mirrors the flag semantics', () => {
+    saveEnv('SQUISH_RERANKER_ENABLED');
+    try {
+      delete process.env.SQUISH_RERANKER_ENABLED;
+      expect(getRerankerConfig().enabled).toBe(true);
+      expect(getRerankerConfig().enabled).toBe(getPrecisionStackFlags().reranker);
+    } finally {
+      restoreEnv('SQUISH_RERANKER_ENABLED');
+    }
+  });
+});
+
+describe('Graph boost legacy escape hatch', () => {
+  test('defaults to normalized mode', () => {
+    expect(getGraphBoostFlags({}).legacy).toBe(false);
+  });
+
+  test('legacy mode only with explicit opt-in', () => {
+    expect(getGraphBoostFlags({ SQUISH_GRAPH_BOOST_LEGACY: 'true' }).legacy).toBe(true);
+    expect(getGraphBoostFlags({}).legacy).toBe(false);
+  });
+});
+
+describe('LLM rerank stays OUT of the Batch 5 flip', () => {
+  test('flags surface has no LLM rerank component', () => {
+    const flags = getPrecisionStackFlags({});
+    expect(Object.keys(flags).sort()).toEqual(['queryExpansion', 'reranker', 'temporalValidity']);
+  });
+
+  test('LLM remains provider-gated and disabled by default', () => {
+    saveEnv('SQUISH_LLM_ENABLED');
+    try {
+      delete process.env.SQUISH_LLM_ENABLED;
+      expect(config.llmEnabled).toBe(false);
+    } finally {
+      restoreEnv('SQUISH_LLM_ENABLED');
+    }
+  });
+});

@@ -298,3 +298,126 @@ export async function computeGraphBoost(memoryIds: string[]): Promise<Record<str
   const boostMap = await calculateGraphBoost(memoryIds);
   return Object.fromEntries(boostMap);
 }
+
+// ---------------------------------------------------------------------------
+// Batch 5: normalized graph boost
+//
+// The legacy path above returns raw capped sums (up to 3.0). Multiplied by the
+// configured weight that used to inject up to +0.6 ABSOLUTE onto scores where
+// a top hit is 1.0 - popularity takeover. The normalized path instead:
+//
+//   1. scales coactivationCount logarithmically (log1p) so hub memories do
+//      not dominate,
+//   2. min-max normalizes each candidate's contribution WITHIN the candidate
+//      set to 0..1, so the strongest-connected candidate contributes at most
+//      `weight` (default 0.10) and ranking is relative, not absolute.
+//
+// When every candidate has identical connectivity (range = 0) there is no
+// differentiation signal, so all contributions are 0.
+// ---------------------------------------------------------------------------
+
+/**
+ * Log-scaled coactivation influence. Monotonic but heavily compressive:
+ * log1p(1000) / log1p(100) ~ 1.33 where the linear ratio would be 10x.
+ */
+export function logScaleCoactivation(count: number): number {
+  return Math.log1p(Math.max(0, count));
+}
+
+/** Per-node contribution with log-scaled coactivation (uncapped). */
+function normalizedNodeContribution(node: GraphNode): number {
+  const recencyBonus = calculateRecencyBonus(node.lastAccessedAt);
+  return (node.weight * logScaleCoactivation(node.coactivationCount) * recencyBonus) / (node.depth + 1);
+}
+
+/**
+ * Min-max normalize a map of raw contributions within its own candidate set.
+ * Pure function; exported for unit testing.
+ *
+ * - All values land in [0, 1]; the maximum maps to exactly 1.
+ * - Empty input -> empty output.
+ * - Non-positive or uniform max (range <= 0) -> all zeros.
+ */
+export function normalizeGraphBoostMap(rawMap: Map<string, number>): Map<string, number> {
+  const out = new Map<string, number>();
+  if (rawMap.size === 0) return out;
+
+  let max = -Infinity;
+  let min = Infinity;
+  for (const v of rawMap.values()) {
+    if (v > max) max = v;
+    if (v < min) min = v;
+  }
+
+  const range = max - min;
+  if (!Number.isFinite(range) || range <= 0 || max <= 0) {
+    for (const k of rawMap.keys()) out.set(k, 0);
+    return out;
+  }
+
+  for (const [k, v] of rawMap) {
+    out.set(k, Math.min(1, Math.max(0, (v - min) / range)));
+  }
+  return out;
+}
+
+export interface NormalizedGraphBoost {
+  /** Min-max-normalized contributions within the candidate set, all in [0, 1]. */
+  normalized: Map<string, number>;
+  /** Raw log-scaled contributions before normalization. */
+  raw: Map<string, number>;
+}
+
+/**
+ * Calculate graph boost for a candidate set as an in-set normalized
+ * contribution (Batch 5). Same BFS traversal as calculateGraphBoost, but the
+ * summed contributions use log-scaled coactivation counts and are never
+ * treated as absolute score deltas.
+ */
+export async function calculateGraphBoostNormalized(
+  memoryIds: string[],
+  projectId?: string,
+  options: { maxDepth?: number; minWeight?: number } = {}
+): Promise<NormalizedGraphBoost> {
+  const { maxDepth = 2, minWeight = 0.3 } = options;
+  const raw = new Map<string, number>();
+
+  if (memoryIds.length === 0) {
+    return { normalized: new Map(), raw };
+  }
+
+  const sumNodes = (nodes: Array<{ weight: number; depth: number; coactivationCount: number; lastAccessedAt: string | Date }>): number => {
+    let total = 0;
+    for (const node of nodes) total += normalizedNodeContribution(node as GraphNode);
+    return total;
+  };
+
+  try {
+    const backend = await getGraphBackend();
+    await Promise.all(
+      memoryIds.map(async (memoryId) => {
+        try {
+          raw.set(memoryId, sumNodes(await backend.bfs(memoryId, maxDepth, minWeight)));
+        } catch (e: any) {
+          logger.warn(`Normalized graph boost failed for ${memoryId}:`, e);
+          raw.set(memoryId, 0);
+        }
+      })
+    );
+  } catch (e: any) {
+    logger.warn('Graph backend initialization failed, falling back to DB query method:', e);
+    await Promise.all(
+      memoryIds.map(async (memoryId) => {
+        try {
+          const nodes = await bfsTraverseFallback(memoryId, projectId, maxDepth, minWeight);
+          raw.set(memoryId, sumNodes(nodes));
+        } catch (err: any) {
+          logger.warn(`Normalized graph boost fallback failed for ${memoryId}:`, err);
+          raw.set(memoryId, 0);
+        }
+      })
+    );
+  }
+
+  return { normalized: normalizeGraphBoostMap(raw), raw };
+}

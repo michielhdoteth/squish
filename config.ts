@@ -237,7 +237,10 @@ function buildScoringWeights() {
     relevance: getNumber('scoring.weights.relevance', 'SQUISH_WEIGHT_RELEVANCE', 3),
     importance: getNumber('scoring.weights.importance', 'SQUISH_WEIGHT_IMPORTANCE', 2),
     vectorSim: getNumber('scoring.weights.vectorSim', 'SQUISH_WEIGHT_VECTOR_SIM', 3),
-    graphBoost: getNumber('scoring.weights.graphBoost', 'SQUISH_WEIGHT_GRAPH_BOOST', 0.2),
+    // Batch 5: graph boost weight applies to an in-set normalized contribution
+    // (0..1), so max absolute delta = weight (0.10). Legacy raw mode
+    // (SQUISH_GRAPH_BOOST_LEGACY=true) used 0.2 against capped raw sums.
+    graphBoost: getNumber('scoring.weights.graphBoost', 'SQUISH_WEIGHT_GRAPH_BOOST', 0.10),
   };
 }
 
@@ -540,8 +543,10 @@ function buildConfig() {
     },
 
     // Cross-Encoder Reranker
+    // Batch 5: default ON; individually disableable via SQUISH_RERANKER_ENABLED=false.
+    // Unavailability (missing module, load timeout) degrades gracefully to skip.
     get rerankerEnabled() {
-      return getBoolean('retrieval.reranker.enabled', 'SQUISH_RERANKER_ENABLED', false);
+      return getBoolean('retrieval.reranker.enabled', 'SQUISH_RERANKER_ENABLED', true);
     },
     get rerankerModel() {
       return getString('retrieval.reranker.model', 'SQUISH_RERANKER_MODEL', 'cross-encoder/ms-marco-MiniLM-L-6-v2');
@@ -551,6 +556,9 @@ function buildConfig() {
     },
     get rerankerReturnTopK() {
       return getNumber('retrieval.reranker.returnTopK', 'SQUISH_RERANKER_RETURN_TOP_K', 20);
+    },
+    get rerankerLoadTimeoutMs() {
+      return getNumber('retrieval.reranker.loadTimeoutMs', 'SQUISH_RERANKER_LOAD_TIMEOUT_MS', 10000);
     },
 
     // Contextual Retrieval

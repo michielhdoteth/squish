@@ -186,6 +186,62 @@ export function calculateCompositeScore(params: {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Batch 5 feature flags
+//
+// Precision stack defaults as of Batch 5, each individually disableable via
+// its env var ('false' | '0' | 'no' | 'off'):
+//   - Cross-encoder rerank:      ON by default. Unavailability degrades
+//                                gracefully (timeout cap ~10s, skips counted).
+//   - Temporal validity:         OFF by default - the golden-eval gate showed
+//                                a recall@5/mrr/hitAt1 breach when enabled
+//                                (flat staleness penalty is too blunt on aged
+//                                corpora). Opt in with SQUISH_TEMPORAL_VALIDITY=true.
+//   - Query expansion:           ON by default.
+// LLM reranking is intentionally NOT part of this flip - it requires a
+// provider and stays config-gated (llm.enabled, default false).
+// ---------------------------------------------------------------------------
+
+function parseEnvFlag(raw: string | undefined, fallback: boolean): boolean {
+  if (raw === undefined || raw === '') return fallback;
+  const v = raw.trim().toLowerCase();
+  if (['false', '0', 'no', 'off'].includes(v)) return false;
+  if (['true', '1', 'yes', 'on'].includes(v)) return true;
+  return fallback;
+}
+
+export interface PrecisionStackFlags {
+  /** Cross-encoder rerank (SQUISH_RERANKER_ENABLED, default true). */
+  reranker: boolean;
+  /** Temporal validity staleness penalty (SQUISH_TEMPORAL_VALIDITY, default false - gated off after eval breach). */
+  temporalValidity: boolean;
+  /** Rule-based query expansion (SQUISH_QUERY_EXPANSION, default true). */
+  queryExpansion: boolean;
+}
+
+export function getPrecisionStackFlags(env: NodeJS.ProcessEnv = process.env): PrecisionStackFlags {
+  return {
+    reranker: parseEnvFlag(env.SQUISH_RERANKER_ENABLED, true),
+    temporalValidity: parseEnvFlag(env.SQUISH_TEMPORAL_VALIDITY, false),
+    queryExpansion: parseEnvFlag(env.SQUISH_QUERY_EXPANSION, true),
+  };
+}
+
+export interface GraphBoostFlags {
+  /**
+   * Legacy absolute graph boost (raw capped sum x weight, up to +0.6).
+   * Default false: normalized in-set contribution (0..1 x weight).
+   * Set SQUISH_GRAPH_BOOST_LEGACY=true to restore pre-Batch-5 behavior.
+   */
+  legacy: boolean;
+}
+
+export function getGraphBoostFlags(env: NodeJS.ProcessEnv = process.env): GraphBoostFlags {
+  return {
+    legacy: parseEnvFlag(env.SQUISH_GRAPH_BOOST_LEGACY, false),
+  };
+}
+
 /**
  * Retrieval trace for debugging
  */
@@ -210,4 +266,8 @@ export interface RetrievalTrace {
   scoringServeMode?: 'v2' | 'legacy';
   /** Batch 3: shadow-mode ordering delta (top-5 legacy vs v2 + overlap). */
   shadowDelta?: import('../scoring/three-field.js').ShadowDelta;
+  /** Batch 5: cross-encoder rerank outcome for this search. */
+  reranker?: { applied: boolean; skipped: number; reason?: string };
+  /** Batch 5: which graph-boost mode served this search. */
+  graphBoostMode?: 'legacy' | 'normalized';
 }

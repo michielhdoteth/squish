@@ -17,7 +17,7 @@ import config from '../../config.js';
 import { multiHopSearch } from '../graph/multi-hop-retrieval.js';
 import { callLLM } from '../llm/client.js';
 import { logger } from '../logger.js';
-import { getRetrievalConfig, type SquishRetrievalConfig, type RetrievalScoringConfig, type RetrievalTrace } from '../retrieval/config.js';
+import { getRetrievalConfig, getPrecisionStackFlags, getGraphBoostFlags, type SquishRetrievalConfig, type RetrievalScoringConfig, type RetrievalTrace } from '../retrieval/config.js';
 import { questionPlaceType } from '../places/question-router.js';
 import { getAdjacentPlaces as getQuestionAdjacentPlaces } from '../places/rules.js';
 import { normalizeVisibilityScopes, type VisibilityScope } from '../lib/utils.js';
@@ -50,7 +50,8 @@ function deduplicateById(results: SearchResult[]): SearchResult[] {
 }
 
 // Graph boost
-import { computeGraphBoost } from '../search/graph-boost.js';
+// Batch 5: normalized (default) or legacy raw mode via SQUISH_GRAPH_BOOST_LEGACY.
+import { computeGraphBoost, calculateGraphBoostNormalized } from '../search/graph-boost.js';
 
 // Imports from split modules
 import { vectorSearch, type SearchDbContext } from './vector-search.js';
@@ -75,6 +76,7 @@ import {
   deriveShadowDelta,
   recordShadowDelta,
 } from '../scoring/three-field.js';
+import { getLastRerankMeta } from '../retrieval/cross-encoder-reranker.js';
 
 // Re-export from sub-modules for backward compatibility
 export { keywordSearch, rrfFusion } from './keyword-search.js';
@@ -201,9 +203,12 @@ export async function hybridSearch(
   const isTemporal = isTemporalQuery(input.query);
   const traceEnabled = input.trace === true;
 
+  // Batch 5: precision stack flags - all default ON, individually disableable.
+  const precision = getPrecisionStackFlags();
+
   // Advanced Retrieval: Query Expansion
   // Expand query with synonyms before searching if enabled
-  const queryExpansionEnabled = process.env.SQUISH_QUERY_EXPANSION === 'true';
+  const queryExpansionEnabled = precision.queryExpansion;
   let expandedQueries: string[] = [input.query || ''];
   
   if (queryExpansionEnabled && input.query && input.query.trim().length > 0) {
@@ -364,12 +369,23 @@ export async function hybridSearch(
     logger.debug(`[HybridSearch] Entity boost applied with ${queryEntities.length} entities`);
   }
 
-  // Graph boost
+  // Graph boost (Batch 5): the boost map is normalized WITHIN the candidate
+  // set to 0..1 before applying config weight (default 0.10), so the maximum
+  // possible contribution is +weight instead of the legacy +3.0 x weight.
+  // Coactivation counts are log-scaled so hub memories cannot dominate.
+  // SQUISH_GRAPH_BOOST_LEGACY=true restores the pre-Batch-5 absolute mode.
   const graphWeight = config.scoringWeights.graphBoost;
+  const graphMode = getGraphBoostFlags();
   const candidateIds = vectorResults.map(r => r.id);
-  const graphBoostMap = await computeGraphBoost(candidateIds);
 
-  let results = applyGraphBoostWithWeight(vectorResults, graphBoostMap, limit, graphWeight);
+  let results: SearchResult[];
+  if (graphMode.legacy) {
+    const graphBoostMap = await computeGraphBoost(candidateIds);
+    results = applyGraphBoostWithWeight(vectorResults, graphBoostMap, limit, graphWeight);
+  } else {
+    const { normalized } = await calculateGraphBoostNormalized(candidateIds);
+    results = applyGraphBoostWithWeight(vectorResults, Object.fromEntries(normalized), limit, graphWeight);
+  }
 
   // v1.5.0: Filter or penalize superseded memories
   const { filtered: supersededResults, supersededCount } = await applySupersessionFilter(
@@ -380,7 +396,10 @@ export async function hybridSearch(
 
   // Advanced Retrieval: Temporal Validity
   // Downrank or filter stale memories based on temporal references
-  const temporalValidityEnabled = process.env.SQUISH_TEMPORAL_VALIDITY === 'true';
+  // Batch 5: opt-in (SQUISH_TEMPORAL_VALIDITY=true). Default OFF after the
+  // golden-eval gate showed a recall/mrr/hitAt1 breach from the flat
+  // staleness penalty on aged corpora.
+  const temporalValidityEnabled = precision.temporalValidity;
   if (temporalValidityEnabled) {
     const stalePenalty = 0.3; // Penalty for stale memories
     let staleCount = 0;
@@ -466,8 +485,11 @@ export async function hybridSearch(
   }
 
   // Cross-Encoder Reranking: precision reranking using cross-encoder model
-  // Higher quality than LLM reranking, runs locally
-  if (config.rerankerEnabled && input.query && input.query.trim().length > 5) {
+  // Higher quality than LLM reranking, runs locally.
+  // Batch 5: default ON (SQUISH_RERANKER_ENABLED=false to disable). When the
+  // transformers module is unavailable or the model cannot load within the
+  // timeout cap, reranking skips silently and skips are counted in the trace.
+  if (precision.reranker && input.query && input.query.trim().length > 5) {
     try {
       const reranked = await rerankResults(input.query, results, {
         topK: config.rerankerTopK,
@@ -477,9 +499,14 @@ export async function hybridSearch(
       // Batch 3: cross-encoder replaces the ranking signal. Fold the delta
       // into boostScore (rerankResidual) so the three-field identity holds.
       results = reranked.map(r => applyReplacement(r, r.similarity ?? 0));
+      const rerankMeta = getLastRerankMeta();
+      trace.reranker = rerankMeta
+        ? { applied: rerankMeta.applied, skipped: rerankMeta.skipped, reason: rerankMeta.reason }
+        : { applied: true, skipped: 0 };
       logger.debug(`[HybridSearch] Cross-encoder reranking applied, ${results.length} results`);
     } catch (e) {
-      // Cross-encoder reranking failed silently
+      // Cross-encoder reranking failed silently - never blocks search
+      trace.reranker = { applied: false, skipped: results.length, reason: String(e) };
       logger.debug(`[HybridSearch] Cross-encoder reranking failed: ${e}`);
     }
   }
@@ -523,6 +550,7 @@ export async function hybridSearch(
   // Build trace metadata (Phase 8)
   trace.scoringSchemaVersion = SCORING_SCHEMA_VERSION;
   trace.scoringServeMode = scoringFlags.serveV2 ? 'v2' : 'legacy';
+  trace.graphBoostMode = graphMode.legacy ? 'legacy' : 'normalized';
   if (scoringFlags.shadow && input.query) {
     try {
       trace.shadowDelta = deriveShadowDelta(input.query, results);

@@ -10,6 +10,7 @@ import {
   rerankResults,
   checkHealth,
   unload,
+  resetRerankerForTests,
 } from '../../core/retrieval/cross-encoder-reranker.js';
 import type { SearchResult } from '../../core/memory/memories.js';
 
@@ -34,20 +35,22 @@ describe('Cross-Encoder Reranker', () => {
       }
     }
     await unload();
+    resetRerankerForTests();
   });
 
   describe('getRerankerConfig', () => {
-    it('should return default config when no env vars set', () => {
+    it('should default enabled=true since Batch 5 when env unset', () => {
       delete process.env.SQUISH_RERANKER_ENABLED;
       delete process.env.SQUISH_RERANKER_MODEL;
       delete process.env.SQUISH_RERANKER_TOP_K;
       delete process.env.SQUISH_RERANKER_RETURN_TOP_K;
 
       const cfg = getRerankerConfig();
-      expect(cfg.enabled).toBe(false);
+      expect(cfg.enabled).toBe(true);
       expect(cfg.model).toBe('cross-encoder/ms-marco-MiniLM-L-6-v2');
       expect(cfg.topK).toBe(30);
       expect(cfg.returnTopK).toBe(20);
+      expect(cfg.loadTimeoutMs).toBe(10000);
     });
 
     it('should read from env vars', () => {
@@ -62,11 +65,18 @@ describe('Cross-Encoder Reranker', () => {
       expect(cfg.topK).toBe(50);
       expect(cfg.returnTopK).toBe(10);
     });
+
+    it('should treat falsy variants as disabled', () => {
+      for (const v of ['false', '0', 'no', 'off']) {
+        process.env.SQUISH_RERANKER_ENABLED = v;
+        expect(getRerankerConfig().enabled).toBe(false);
+      }
+    });
   });
 
   describe('scorePair', () => {
-    it('should return null when model not loaded', async () => {
-      delete process.env.SQUISH_RERANKER_ENABLED;
+    it('should return null or a number when model not loaded', async () => {
+      process.env.SQUISH_RERANKER_ENABLED = 'false';
       const score = await scorePair('test query', 'test document');
       // Will be null since model is not loaded in test environment
       expect(score === null || typeof score === 'number').toBe(true);
@@ -75,13 +85,13 @@ describe('Cross-Encoder Reranker', () => {
 
   describe('scoreBatch', () => {
     it('should return empty array for empty input', async () => {
-      delete process.env.SQUISH_RERANKER_ENABLED;
+      process.env.SQUISH_RERANKER_ENABLED = 'false';
       const scores = await scoreBatch('test query', []);
       expect(scores).toEqual([]);
     });
 
     it('should return array of same length as documents', async () => {
-      delete process.env.SQUISH_RERANKER_ENABLED;
+      process.env.SQUISH_RERANKER_ENABLED = 'false';
       const documents = ['doc1', 'doc2', 'doc3'];
       const scores = await scoreBatch('test query', documents);
       expect(scores.length).toBe(documents.length);
@@ -90,12 +100,13 @@ describe('Cross-Encoder Reranker', () => {
 
   describe('rerankResults', () => {
     it('should return empty array for empty results', async () => {
+      process.env.SQUISH_RERANKER_ENABLED = 'false';
       const results = await rerankResults('test query', []);
       expect(results).toEqual([]);
     });
 
     it('should return results when reranker disabled', async () => {
-      delete process.env.SQUISH_RERANKER_ENABLED;
+      process.env.SQUISH_RERANKER_ENABLED = 'false';
 
       const mockResults: SearchResult[] = [
         { id: '1', content: 'doc1', similarity: 0.9 },
@@ -107,7 +118,7 @@ describe('Cross-Encoder Reranker', () => {
     });
 
     it('should respect topK and returnTopK options', async () => {
-      delete process.env.SQUISH_RERANKER_ENABLED;
+      process.env.SQUISH_RERANKER_ENABLED = 'false';
 
       const mockResults: SearchResult[] = Array.from({ length: 50 }, (_, i) => ({
         id: String(i),
@@ -124,7 +135,7 @@ describe('Cross-Encoder Reranker', () => {
     });
 
     it('should preserve original scores', async () => {
-      delete process.env.SQUISH_RERANKER_ENABLED;
+      process.env.SQUISH_RERANKER_ENABLED = 'false';
 
       const mockResults: SearchResult[] = [
         { id: '1', content: 'doc1', similarity: 0.9 },
@@ -137,7 +148,7 @@ describe('Cross-Encoder Reranker', () => {
 
   describe('checkHealth', () => {
     it('should report disabled when not enabled', async () => {
-      delete process.env.SQUISH_RERANKER_ENABLED;
+      process.env.SQUISH_RERANKER_ENABLED = 'false';
 
       const health = await checkHealth();
       expect(health.available).toBe(false);

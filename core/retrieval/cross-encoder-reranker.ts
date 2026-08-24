@@ -10,39 +10,44 @@
  *   - cross-encoder/ms-marco-MiniLM-L-12-v2 (better accuracy, ~170MB)
  *
  * Usage:
- *   Set SQUISH_RERANKER_ENABLED=true
- *   Set SQUISH_RERANKER_MODEL=cross-encoder/ms-marco-MiniLM-L-6-v2
+ *   Enabled by default since Batch 5 (set SQUISH_RERANKER_ENABLED=false to opt out).
+ *   When @huggingface/transformers does not resolve or the model cannot load
+ *   within SQUISH_RERANKER_LOAD_TIMEOUT_MS (default 10s), reranking is skipped
+ *   silently and skips are counted in the rerank meta (see getLastRerankMeta).
  */
 
-import { pipeline } from '@huggingface/transformers';
 import { logger } from '../logger.js';
-import { config } from '../../config.js';
+import { getPrecisionStackFlags } from './config.js';
 import type { SearchResult } from '../memory/memories.js';
 
-type Pipeline = Awaited<ReturnType<typeof pipeline>>;
+type Pipeline = Awaited<ReturnType<typeof import('@huggingface/transformers').pipeline>>;
+type TransformersModule = typeof import('@huggingface/transformers');
 
 export interface RerankerConfig {
   enabled: boolean;
   model: string;
   topK: number;           // How many candidates to rerank
   returnTopK: number;     // How many results to return after reranking
+  /** Max wall-clock time to wait for the model to load before skipping. */
+  loadTimeoutMs: number;
   device: 'cpu' | 'webgpu';
   dtype: 'q8' | 'q4' | 'f16' | 'f32';
 }
 
-export interface RerankedResult {
-  id: string;
-  originalScore: number;  // Original similarity score
-  rerankScore: number;    // Cross-encoder relevance score
-  finalScore: number;     // Blended final score
-  content?: string;
-  [key: string]: any;
+/** Outcome of the most recent rerankResults call (for trace reporting). */
+export interface RerankMeta {
+  applied: boolean;
+  skipped: number;
+  reason?: string;
+  latencyMs?: number;
 }
 
-// Singleton pipeline instance
-let rerankerPipeline: Pipeline | null = null;
-let isLoading = false;
-let loadPromise: Promise<Pipeline | null> | null = null;
+function parseEnabledFlag(raw: string | undefined): boolean {
+  if (raw === undefined || raw === '') return true; // Batch 5 default ON
+  const v = raw.trim().toLowerCase();
+  if (['false', '0', 'no', 'off'].includes(v)) return false;
+  return true;
+}
 
 /**
  * Get reranker configuration from environment variables
@@ -50,17 +55,84 @@ let loadPromise: Promise<Pipeline | null> | null = null;
  */
 export function getRerankerConfig(): RerankerConfig {
   return {
-    enabled: process.env.SQUISH_RERANKER_ENABLED === 'true',
+    enabled: parseEnabledFlag(process.env.SQUISH_RERANKER_ENABLED),
     model: process.env.SQUISH_RERANKER_MODEL || 'cross-encoder/ms-marco-MiniLM-L-6-v2',
     topK: parseInt(process.env.SQUISH_RERANKER_TOP_K ?? '30', 10),
     returnTopK: parseInt(process.env.SQUISH_RERANKER_RETURN_TOP_K ?? '20', 10),
+    loadTimeoutMs: parseInt(process.env.SQUISH_RERANKER_LOAD_TIMEOUT_MS ?? '10000', 10),
     device: 'cpu',
     dtype: 'q8',
   };
 }
 
+// Singleton pipeline instance
+let rerankerPipeline: Pipeline | null = null;
+let isLoading = false;
+let loadPromise: Promise<Pipeline | null> | null = null;
+
+// Module availability is resolved once per process.
+let transformersChecked = false;
+let transformersModule: TransformersModule | null = null;
+
+// Once a load attempt fails or times out we latch "unavailable" for the rest
+// of the process so every subsequent search skips instantly instead of
+// re-attempting a doomed download.
+let unavailableReason: string | null = null;
+
+// Meta from the most recent rerankResults call (read by hybrid-search traces).
+let lastRerankMeta: RerankMeta | null = null;
+
 /**
- * Get or initialize the reranker pipeline (lazy loading)
+ * Resolve @huggingface/transformers lazily. Returns false when the module
+ * cannot be imported (not installed / broken install) - never throws.
+ */
+async function resolveTransformers(): Promise<TransformersModule | null> {
+  if (!transformersChecked) {
+    transformersChecked = true;
+    try {
+      transformersModule = await import('@huggingface/transformers');
+    } catch (error) {
+      transformersModule = null;
+      logger.debug(`[reranker] @huggingface/transformers not resolvable: ${(error as Error).message}`);
+    }
+  }
+  return transformersModule;
+}
+
+/**
+ * Load the pipeline with a hard wall-clock cap. Resolves null on timeout or
+ * error instead of throwing - callers treat that as "unavailable".
+ */
+async function loadPipelineWithTimeout(cfg: RerankerConfig): Promise<Pipeline | null> {
+  const mod = await resolveTransformers();
+  if (!mod) return null;
+
+  const timeoutMs = Number.isFinite(cfg.loadTimeoutMs) && cfg.loadTimeoutMs > 0 ? cfg.loadTimeoutMs : 10_000;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      mod.pipeline('text-classification', cfg.model as any, {
+        device: cfg.device as any,
+        dtype: cfg.dtype as any,
+      }),
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => {
+          logger.warn(`[reranker] model ${cfg.model} did not load within ${timeoutMs}ms - skipping rerank`);
+          resolve(null);
+        }, timeoutMs);
+      }),
+    ]);
+  } catch (error) {
+    logger.debug(`[reranker] failed to load model ${cfg.model}: ${(error as Error).message}`);
+    return null;
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+/**
+ * Get or initialize the reranker pipeline (lazy loading).
+ * Returns null when reranking is unavailable - never throws after Batch 5.
  */
 async function getPipeline(): Promise<Pipeline | null> {
   // Return existing pipeline
@@ -68,44 +140,33 @@ async function getPipeline(): Promise<Pipeline | null> {
     return rerankerPipeline;
   }
 
+  // Latched failure: skip instantly for the remainder of the process
+  if (unavailableReason) {
+    return null;
+  }
+
+  const cfg = getRerankerConfig();
+  if (!cfg.enabled) {
+    return null;
+  }
+
   // Already loading - wait for it
   if (isLoading && loadPromise) {
     return loadPromise;
   }
 
-  // Start loading
   isLoading = true;
-  const cfg = getRerankerConfig();
-
-  if (!cfg.enabled) {
-    isLoading = false;
-    return null;
-  }
-
-  if (!cfg.model) {
-    isLoading = false;
-    throw new Error('Reranker requires SQUISH_RERANKER_MODEL to be set');
-  }
-
-  logger.info(`Loading cross-encoder reranker model: ${cfg.model}`);
-
   loadPromise = (async () => {
     try {
-      rerankerPipeline = await pipeline(
-        'text-classification',
-        cfg.model as any,
-        {
-          device: cfg.device as any,
-          dtype: cfg.dtype as any,
-        }
-      );
-
+      const loaded = await loadPipelineWithTimeout(cfg);
+      if (!loaded) {
+        unavailableReason = '@huggingface/transformers unavailable or model load timed out/failed';
+        rerankerPipeline = null;
+        return null;
+      }
+      rerankerPipeline = loaded;
       logger.info(`Cross-encoder reranker loaded: ${cfg.model}`);
       return rerankerPipeline;
-    } catch (error) {
-      logger.error(`Failed to load reranker model: ${error}`);
-      rerankerPipeline = null;
-      throw error;
     } finally {
       isLoading = false;
       loadPromise = null;
@@ -124,7 +185,7 @@ export function isReady(): boolean {
 
 /**
  * Score a single query-document pair
- * Returns relevance score (higher = more relevant)
+ * Returns relevance score (higher = more relevant), or null when unavailable
  */
 export async function scorePair(
   query: string,
@@ -209,6 +270,13 @@ export async function scoreBatch(
 /**
  * Rerank search results using cross-encoder
  *
+ * Behavior matrix (Batch 5):
+ * - Flag explicitly off          -> legacy passthrough (truncate to returnTopK,
+ *                                   attach _originalScore), no skip counting.
+ * - Enabled but unavailable      -> graceful skip: results returned untouched,
+ *                                   skips counted in getLastRerankMeta().
+ * - Enabled and loaded           -> blend rerank scores, rerank top-K only.
+ *
  * @param query - The search query
  * @param results - Initial search results to rerank
  * @param options - Reranking options
@@ -223,10 +291,13 @@ export async function rerankResults(
     blendWeight?: number;  // Weight for cross-encoder score (0-1)
   } = {}
 ): Promise<SearchResult[]> {
+  const startedAt = Date.now();
   const cfg = getRerankerConfig();
   const topK = options.topK ?? cfg.topK;
   const returnTopK = options.returnTopK ?? cfg.returnTopK;
   const blendWeight = options.blendWeight ?? 0.7;  // 70% cross-encoder, 30% original
+
+  lastRerankMeta = { applied: false, skipped: 0 };
 
   if (!cfg.enabled) {
     // Preserve original scores even when reranker is disabled
@@ -240,15 +311,33 @@ export async function rerankResults(
     return [];
   }
 
-  // Take top candidates for reranking
+  // Take top candidates for reranking (latency discipline: never the full set)
   const candidates = results.slice(0, topK);
   const remaining = results.slice(topK);
 
   logger.debug(`Reranking ${candidates.length} candidates (of ${results.length} total)`);
 
+  // Lazy-load the pipeline. Null means unavailable - skip gracefully.
+  const pipeline = await getPipeline();
+  if (!pipeline) {
+    lastRerankMeta.skipped += candidates.length;
+    lastRerankMeta.reason = unavailableReason ?? 'reranker-unavailable';
+    lastRerankMeta.latencyMs = Date.now() - startedAt;
+    logger.debug(`[reranker] skipped ${candidates.length} candidates: ${lastRerankMeta.reason}`);
+    return results;
+  }
+
   // Score all candidates in batch
   const documents = candidates.map(r => r.content ?? '');
   const scores = await scoreBatch(query, documents);
+
+  // All-null scores mean inference failed wholesale - treat as a skip.
+  if (scores.length > 0 && scores.every(s => s === null)) {
+    lastRerankMeta.skipped += candidates.length;
+    lastRerankMeta.reason = 'batch-scoring-failed';
+    lastRerankMeta.latencyMs = Date.now() - startedAt;
+    return results;
+  }
 
   // Blend scores and create reranked results
   const reranked: SearchResult[] = candidates.map((result, i) => {
@@ -269,8 +358,19 @@ export async function rerankResults(
   // Sort by final score
   reranked.sort((a, b) => (b.similarity ?? 0) - (a.similarity ?? 0));
 
+  lastRerankMeta.applied = true;
+  lastRerankMeta.latencyMs = Date.now() - startedAt;
+
   // Return top results + any remaining (unreranked)
   return [...reranked.slice(0, returnTopK), ...remaining].slice(0, returnTopK);
+}
+
+/**
+ * Meta from the most recent rerankResults call on this process.
+ * Read by hybrid-search to populate trace.reranker.
+ */
+export function getLastRerankMeta(): RerankMeta | null {
+  return lastRerankMeta;
 }
 
 /**
@@ -295,6 +395,14 @@ export async function checkHealth(): Promise<{
     return {
       available: false,
       error: 'SQUISH_RERANKER_MODEL is not configured',
+    };
+  }
+
+  if (unavailableReason) {
+    return {
+      available: false,
+      error: unavailableReason,
+      model: cfg.model,
     };
   }
 
@@ -332,12 +440,26 @@ export async function checkHealth(): Promise<{
  * Unload the pipeline (for testing or memory management)
  */
 export async function unload(): Promise<void> {
-  if (rerankerPipeline) {
-    rerankerPipeline = null;
-    isLoading = false;
-    loadPromise = null;
-    logger.info('Cross-encoder reranker pipeline unloaded');
+  rerankerPipeline = null;
+  isLoading = false;
+  loadPromise = null;
+  if (rerankerPipeline === null && unavailableReason) {
+    logger.debug('[reranker] pipeline unloaded');
   }
+}
+
+/**
+ * Test/operational hook: clear the pipeline AND the unavailability latch so a
+ * subsequent call re-attempts loading with current env.
+ */
+export function resetRerankerForTests(): void {
+  rerankerPipeline = null;
+  isLoading = false;
+  loadPromise = null;
+  transformersChecked = false;
+  transformersModule = null;
+  unavailableReason = null;
+  lastRerankMeta = null;
 }
 
 /**
@@ -358,7 +480,9 @@ export default {
   scorePair,
   scoreBatch,
   rerankResults,
+  getLastRerankMeta,
   checkHealth,
   unload,
+  resetRerankerForTests,
   warmup,
 };
