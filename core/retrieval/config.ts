@@ -102,7 +102,9 @@ export function getEnvRetrievalConfig(): Partial<SquishRetrievalConfig> {
 }
 
 /**
- * Score breakdown for a single memory result
+ * Score breakdown for a single memory result.
+ * Batch 8: calculateCompositeScore was removed - production ranking is served
+ * by scoring v2 (core/scoring); this interface remains for trace shapes.
  */
 export interface ScoreBreakdown {
   semanticSimilarity: number;
@@ -114,76 +116,6 @@ export interface ScoreBreakdown {
   supersededPenalty: number;
   contradictionRiskPenalty: number;
   finalScore: number;
-}
-
-/**
- * Calculate composite score for a memory given query context
- */
-export function calculateCompositeScore(params: {
-  semanticSimilarity: number;
-  placeMatch: boolean;
-  tagOverlapCount: number;
-  graphNeighborCount: number;
-  createdAt?: number;  // unix timestamp ms
-  accessCount?: number;
-  isSuperseded?: boolean;
-  hasContradictionRisk?: boolean;
-  config?: SquishRetrievalConfig;
-}): ScoreBreakdown {
-  const cfg = params.config ?? getRetrievalConfig();
-  const s = cfg.scoring;
-  
-  let placeBoost = 0;
-  if (params.placeMatch) {
-    placeBoost = s.placeBoost;
-  }
-  
-  // Tag overlap: boost scales with number of overlapping tags (capped)
-  const tagOverlapBoost = Math.min(params.tagOverlapCount * s.tagOverlapBoost, 0.30);
-  
-  // Graph neighbor: small boost per connected neighbor (capped)
-  const graphNeighborBoost = Math.min(params.graphNeighborCount * s.graphNeighborBoost, 0.15);
-  
-  // Recency: exponential decay over 30 days
-  let recencyBoost = 0;
-  if (params.createdAt) {
-    const ageHours = (Date.now() - params.createdAt) / (1000 * 60 * 60);
-    recencyBoost = s.recencyBoost * Math.exp(-ageHours / 720);
-  }
-  
-  // Usage: logarithmic boost
-  let usageBoost = 0;
-  if (params.accessCount && params.accessCount > 0) {
-    usageBoost = Math.min(s.usageBoost * Math.log2(params.accessCount + 1), 0.10);
-  }
-  
-  // Penalties
-  const supersededPenalty = params.isSuperseded ? s.supersededPenalty : 0;
-  const contradictionRiskPenalty = params.hasContradictionRisk ? s.contradictionRiskPenalty : 0;
-  
-  // Final score
-  const finalScore = Math.max(0, Math.min(1.0,
-    params.semanticSimilarity
-    + placeBoost
-    + tagOverlapBoost
-    + graphNeighborBoost
-    + recencyBoost
-    + usageBoost
-    - supersededPenalty
-    - contradictionRiskPenalty
-  ));
-  
-  return {
-    semanticSimilarity: params.semanticSimilarity,
-    placeBoost,
-    tagOverlapBoost,
-    graphNeighborBoost,
-    recencyBoost,
-    usageBoost,
-    supersededPenalty,
-    contradictionRiskPenalty,
-    finalScore,
-  };
 }
 
 // ---------------------------------------------------------------------------

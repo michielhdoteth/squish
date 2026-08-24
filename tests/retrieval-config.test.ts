@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { getRetrievalConfig, calculateCompositeScore, getEnvRetrievalConfig } from '../core/retrieval/config.js';
+import { getRetrievalConfig, getEnvRetrievalConfig } from '../core/retrieval/config.js';
 import type { SquishRetrievalConfig, RetrievalTrace } from '../core/retrieval/config.js';
 
 describe('getRetrievalConfig', () => {
@@ -71,95 +71,6 @@ describe('getEnvRetrievalConfig', () => {
     const envCfg = getEnvRetrievalConfig();
     expect(envCfg.includeSuperseded).toBe(true);
     expect(envCfg.scoring?.supersededPenalty).toBe(0.75);
-  });
-});
-
-describe('calculateCompositeScore', () => {
-  it('calculates basic score with semantic similarity only', () => {
-    const result = calculateCompositeScore({
-      semanticSimilarity: 0.8,
-      placeMatch: false,
-      tagOverlapCount: 0,
-      graphNeighborCount: 0,
-    });
-    expect(result.semanticSimilarity).toBe(0.8);
-    expect(result.finalScore).toBeCloseTo(0.8, 1);
-  });
-
-  it('adds place boost when place matches', () => {
-    const withMatch = calculateCompositeScore({
-      semanticSimilarity: 0.6,
-      placeMatch: true,
-      tagOverlapCount: 0,
-      graphNeighborCount: 0,
-    });
-    const withoutMatch = calculateCompositeScore({
-      semanticSimilarity: 0.6,
-      placeMatch: false,
-      tagOverlapCount: 0,
-      graphNeighborCount: 0,
-    });
-    expect(withMatch.finalScore).toBeGreaterThan(withoutMatch.finalScore);
-  });
-
-  it('adds tag overlap boost', () => {
-    const result = calculateCompositeScore({
-      semanticSimilarity: 0.5,
-      placeMatch: false,
-      tagOverlapCount: 3,
-      graphNeighborCount: 0,
-    });
-    expect(result.tagOverlapBoost).toBeGreaterThan(0);
-    expect(result.finalScore).toBeGreaterThan(0.5);
-  });
-
-  it('applies superseded penalty', () => {
-    const superseded = calculateCompositeScore({
-      semanticSimilarity: 0.8,
-      placeMatch: true,
-      tagOverlapCount: 2,
-      graphNeighborCount: 0,
-      isSuperseded: true,
-    });
-    const notSuperseded = calculateCompositeScore({
-      semanticSimilarity: 0.8,
-      placeMatch: true,
-      tagOverlapCount: 2,
-      graphNeighborCount: 0,
-      isSuperseded: false,
-    });
-    expect(superseded.finalScore).toBeLessThan(notSuperseded.finalScore);
-  });
-
-  it('clamps final score between 0 and 1', () => {
-    const result = calculateCompositeScore({
-      semanticSimilarity: 1.0,
-      placeMatch: true,
-      tagOverlapCount: 10,
-      graphNeighborCount: 10,
-      createdAt: Date.now(),
-      accessCount: 100,
-    });
-    expect(result.finalScore).toBeLessThanOrEqual(1.0);
-    expect(result.finalScore).toBeGreaterThanOrEqual(0);
-  });
-
-  it('calculates recency boost for recent memories', () => {
-    const recent = calculateCompositeScore({
-      semanticSimilarity: 0.5,
-      placeMatch: false,
-      tagOverlapCount: 0,
-      graphNeighborCount: 0,
-      createdAt: Date.now(),
-    });
-    const old = calculateCompositeScore({
-      semanticSimilarity: 0.5,
-      placeMatch: false,
-      tagOverlapCount: 0,
-      graphNeighborCount: 0,
-      createdAt: Date.now() - 30 * 24 * 60 * 60 * 1000, // 30 days ago
-    });
-    expect(recent.recencyBoost).toBeGreaterThan(old.recencyBoost);
   });
 });
 

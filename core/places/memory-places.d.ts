@@ -78,16 +78,6 @@ export declare function processInboxForAllProjects(): Promise<{
     totalErrors: number;
 }>;
 /**
- * Auto-archive old memories - move memories > 30 days from active places to Archive.
- * Also archives non-inbox/non-archive memories that haven't been accessed in 45+ days
- * with importance < 30.
- * Keeps active places lean and organized
- */
-export declare function autoArchiveOldMemories(projectId: string, daysOld?: number): Promise<{
-    archived: number;
-    failed: number;
-}>;
-/**
  * Assign a memory to multiple places (1:N multi-place routing)
  *
  * Stores ranked candidates from findMatchingPlaces() into memory_places.

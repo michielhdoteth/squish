@@ -1276,71 +1276,9 @@ export const skillMemoryLinks = sqliteTable('skill_memory_links', {
   unique('skill_memory_links_unique').on(table.skillId, table.memoryId),
 ]);
 
-// Wiki System (v2.1.0)
-// ============================================================================
-
-/**
- * Wiki Pages - structured document pages with link graphs
- */
-export const wikiPages = sqliteTable('wiki_pages', {
-  id: text('id').primaryKey().$default(() => crypto.randomUUID()),
-  projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }),
-  userId: text('user_id').references(() => users.id, { onDelete: 'set null' }),
-  title: text('title').notNull(),
-  slug: text('slug').notNull(),
-  content: text('content'),
-  summary: text('summary'),
-  pageType: text('page_type').notNull().default('article'),
-  status: text('status').notNull().default('draft'),
-  visibility: text('visibility').notNull().default('private'),
-  tags: text('tags').$type<string[]>(),
-  metadata: text('metadata').$type<Record<string, unknown>>(),
-  wordCount: integer('word_count').default(0),
-  lastIndexedAt: integer('last_indexed_at', { mode: 'timestamp' }),
-  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
-  updatedAt: integer('updated_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
-}, (table) => [
-  index('wiki_pages_project_idx').on(table.projectId),
-  index('wiki_pages_slug_idx').on(table.slug),
-  index('wiki_pages_type_idx').on(table.pageType),
-  index('wiki_pages_status_idx').on(table.status),
-  index('wiki_pages_visibility_idx').on(table.visibility),
-  index('wiki_pages_user_idx').on(table.userId),
-  unique('wiki_pages_project_slug_unique').on(table.projectId, table.slug),
-]);
-
-/**
- * Wiki Links - wikilink graph between pages
- */
-export const wikiLinks = sqliteTable('wiki_links', {
-  id: text('id').primaryKey().$default(() => crypto.randomUUID()),
-  sourcePageId: text('source_page_id').notNull().references(() => wikiPages.id, { onDelete: 'cascade' }),
-  targetPageId: text('target_page_id').references(() => wikiPages.id, { onDelete: 'set null' }),
-  targetSlug: text('target_slug').notNull(),
-  context: text('context'),
-  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
-}, (table) => [
-  index('wiki_links_source_idx').on(table.sourcePageId),
-  index('wiki_links_target_idx').on(table.targetPageId),
-  index('wiki_links_slug_idx').on(table.targetSlug),
-  unique('wiki_links_unique').on(table.sourcePageId, table.targetSlug),
-]);
-
-/**
- * Wiki Page Versions - edit history
- */
-export const wikiPageVersions = sqliteTable('wiki_page_versions', {
-  id: text('id').primaryKey().$default(() => crypto.randomUUID()),
-  pageId: text('page_id').notNull().references(() => wikiPages.id, { onDelete: 'cascade' }),
-  version: integer('version').notNull(),
-  title: text('title').notNull(),
-  content: text('content'),
-  changeSummary: text('change_summary'),
-  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
-}, (table) => [
-  index('wiki_page_versions_page_idx').on(table.pageId),
-  unique('wiki_page_versions_unique').on(table.pageId, table.version),
-]);
+// Wiki System (v2.1.0) REMOVED in Batch 8 - db-only memory.
+// Legacy wiki_pages/wiki_links/wiki_page_versions rows are migrated into
+// memories (tagged 'wiki-origin') by db/migrations/wiki-to-memory.ts.
 
 // Agent Loadout & Visibility (v2.1.0)
 // ============================================================================
@@ -1501,14 +1439,6 @@ export type SkillAssignment = typeof skillAssignments.$inferSelect;
 export type NewSkillAssignment = typeof skillAssignments.$inferInsert;
 export type SkillMemoryLink = typeof skillMemoryLinks.$inferSelect;
 export type NewSkillMemoryLink = typeof skillMemoryLinks.$inferInsert;
-
-// Wiki type exports
-export type WikiPage = typeof wikiPages.$inferSelect;
-export type NewWikiPage = typeof wikiPages.$inferInsert;
-export type WikiLink = typeof wikiLinks.$inferSelect;
-export type NewWikiLink = typeof wikiLinks.$inferInsert;
-export type WikiPageVersion = typeof wikiPageVersions.$inferSelect;
-export type NewWikiPageVersion = typeof wikiPageVersions.$inferInsert;
 
 // Agent Loadout type exports
 export type AgentLoadout = typeof agentLoadouts.$inferSelect;

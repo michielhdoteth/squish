@@ -813,112 +813,6 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
     }
   )) toolCount++;
 
-  // squish_wiki - WIKI MANAGEMENT
-  // CRUD, link graphs, version history for structured document pages
-  if (safeRegisterTool(
-    server,
-    "squish_wiki",
-    {
-      description: "Manage wiki pages - structured documents with [[wikilinks]]. Actions: list, get, create, update, delete, search, links, backlinks, graph, versions. Use [[Page Title]] syntax in content to link pages.",
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
-      inputSchema: {
-        action: z.enum(["list", "get", "create", "update", "delete", "search", "links", "backlinks", "graph", "versions"]).describe("Action to perform"),
-        pageId: z.string().optional().describe("Page ID (required for get, update, delete, links, backlinks, versions)"),
-        slug: z.string().optional().describe("Page slug (alternative to pageId for get)"),
-        title: z.string().optional().describe("Page title (required for create, optional for update)"),
-        content: z.string().optional().describe("Page content in markdown with [[wikilinks]]"),
-        summary: z.string().optional().describe("Page summary"),
-        pageType: z.enum(["article", "reference", "guide", "decision", "meeting", "note"]).optional().describe("Page type"),
-        visibility: z.enum(["private", "team", "public"]).optional().describe("Visibility level"),
-        tags: z.array(z.string()).optional().describe("Tags for organization"),
-        status: z.string().optional().describe("Page status (draft, published, archived)"),
-        query: z.string().optional().describe("Search query (for search action)"),
-        changeSummary: z.string().optional().describe("Summary of changes (for update)"),
-      }
-    },
-    async (input: any) => {
-      const { createWikiPage, getWikiPageById, getWikiPageBySlug, listWikiPages, updateWikiPage, deleteWikiPage, searchWikiPages, getPageLinks, getBacklinks, getLinkGraph, getWikiPageVersions } = await import('../../../core/wiki/wiki.js');
-      const project = resolveProjectPath();
-
-      try {
-        switch (input.action) {
-          case "list": {
-            const pages = await listWikiPages({ projectId: project, status: input.status, limit: 50 });
-            return { content: [{ type: "text", text: JSON.stringify({ ok: true, pages, count: pages.length }, null, 2) }] };
-          }
-          case "get": {
-            let page = null;
-            if (input.pageId) page = await getWikiPageById(input.pageId);
-            else if (input.slug && project) page = await getWikiPageBySlug(project, input.slug);
-            if (!page) return errorResponse("not_found", "Wiki page not found", input.pageId || input.slug);
-            return { content: [{ type: "text", text: JSON.stringify({ ok: true, page }, null, 2) }] };
-          }
-          case "create": {
-            if (!input.title) return errorResponse("missing_param", "title is required");
-            const page = await createWikiPage({
-              projectId: project,
-              title: input.title,
-              content: input.content,
-              summary: input.summary,
-              pageType: input.pageType,
-              visibility: input.visibility,
-              tags: input.tags,
-            });
-            return { content: [{ type: "text", text: JSON.stringify({ ok: true, page }, null, 2) }] };
-          }
-          case "update": {
-            if (!input.pageId) return errorResponse("missing_param", "pageId is required");
-            const page = await updateWikiPage(input.pageId, {
-              title: input.title,
-              content: input.content,
-              summary: input.summary,
-              pageType: input.pageType,
-              visibility: input.visibility,
-              tags: input.tags,
-              status: input.status,
-              changeSummary: input.changeSummary,
-            });
-            return { content: [{ type: "text", text: JSON.stringify({ ok: true, page }, null, 2) }] };
-          }
-          case "delete": {
-            if (!input.pageId) return errorResponse("missing_param", "pageId is required");
-            await deleteWikiPage(input.pageId);
-            return { content: [{ type: "text", text: JSON.stringify({ ok: true, deleted: input.pageId }, null, 2) }] };
-          }
-          case "search": {
-            if (!input.query) return errorResponse("missing_param", "query is required");
-            const pages = await searchWikiPages(input.query, { projectId: project, limit: 20 });
-            return { content: [{ type: "text", text: JSON.stringify({ ok: true, pages, count: pages.length }, null, 2) }] };
-          }
-          case "links": {
-            if (!input.pageId) return errorResponse("missing_param", "pageId is required");
-            const links = await getPageLinks(input.pageId);
-            return { content: [{ type: "text", text: JSON.stringify({ ok: true, links, count: links.length }, null, 2) }] };
-          }
-          case "backlinks": {
-            if (!input.pageId) return errorResponse("missing_param", "pageId is required");
-            const links = await getBacklinks(input.pageId);
-            return { content: [{ type: "text", text: JSON.stringify({ ok: true, backlinks: links, count: links.length }, null, 2) }] };
-          }
-          case "graph": {
-            if (!project) return errorResponse("missing_param", "project context required for graph");
-            const graph = await getLinkGraph(project);
-            return { content: [{ type: "text", text: JSON.stringify({ ok: true, ...graph }, null, 2) }] };
-          }
-          case "versions": {
-            if (!input.pageId) return errorResponse("missing_param", "pageId is required");
-            const versions = await getWikiPageVersions(input.pageId);
-            return { content: [{ type: "text", text: JSON.stringify({ ok: true, versions, count: versions.length }, null, 2) }] };
-          }
-          default:
-            return errorResponse("invalid_action", `Unknown action: ${input.action}`);
-        }
-      } catch (error: any) {
-        return errorResponse("wiki_error", error.message);
-      }
-    }
-  )) toolCount++;
-
   // squish_loadout - AGENT LOADOUT & VISIBILITY
   // Bind memory assets to agents, manage access control
   if (safeRegisterTool(
@@ -930,7 +824,7 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
       inputSchema: {
         action: z.enum(["add_loadout", "remove_loadout", "get_loadout", "set_visibility", "remove_visibility", "check_visibility", "get_rules"]).describe("Action to perform"),
         agentId: z.string().optional().describe("Agent ID (required for loadout operations)"),
-        assetType: z.enum(["memory", "skill", "wiki", "belief", "strategy", "learning"]).optional().describe("Asset type"),
+        assetType: z.enum(["memory", "skill", "belief", "strategy", "learning"]).optional().describe("Asset type"),
         assetId: z.string().optional().describe("Asset ID"),
         priority: z.number().optional().describe("Priority (higher = loaded first)"),
         injectionMode: z.enum(["append", "prepend", "replace"]).optional().describe("How to inject into context"),
@@ -1005,12 +899,12 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
   )) toolCount++;
 
   // squish_extract - AUTO-EXTRACTION PIPELINE
-  // Extract skills and wiki pages from accumulated memories
+  // Extract reusable skills from accumulated memories
   if (safeRegisterTool(
     server,
     "squish_extract",
     {
-      description: "Auto-extract reusable skills and wiki pages from accumulated memories using LLM analysis. Actions: run (batch extraction), status (last run info).",
+      description: "Auto-extract reusable skills (SOPs) from accumulated memories using LLM analysis. Actions: run (batch extraction), status (last run info).",
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
       inputSchema: {
         action: z.enum(["run", "status"]).describe("Action to perform"),
@@ -1020,11 +914,11 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
     },
     async (input: any) => {
       try {
-        const { extractSkillFromMemories, extractWikiFromMemories } = await import('../../../core/extraction/extraction.js');
+        const { extractSkillFromMemories } = await import('../../../core/extraction/extraction.js');
         const project = resolveProjectPath(input.projectId);
 
         if (input.action === "status") {
-          return { content: [{ type: "text", text: JSON.stringify({ ok: true, status: "Extraction pipeline ready", features: ["skill_extraction", "wiki_extraction", "pattern_detection"] }, null, 2) }] };
+          return { content: [{ type: "text", text: JSON.stringify({ ok: true, status: "Extraction pipeline ready", features: ["skill_extraction", "pattern_detection"] }, null, 2) }] };
         }
 
         // Get recent memories to analyze (empty-query recency listing;
@@ -1059,7 +953,6 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
         }
 
         let skillsExtracted = 0;
-        let wikiExtracted = 0;
         const errors: string[] = [];
 
         // Process groups with 3+ memories
@@ -1074,18 +967,9 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
           } catch (e: any) {
             errors.push(`Skill extraction for "${tag}": ${e.message}`);
           }
-
-          try {
-            const wiki = await extractWikiFromMemories(group, tag, project || "default");
-            if (wiki) {
-              wikiExtracted++;
-            }
-          } catch (e: any) {
-            errors.push(`Wiki extraction for "${tag}": ${e.message}`);
-          }
         }
 
-        return { content: [{ type: "text", text: JSON.stringify({ ok: true, skills_extracted: skillsExtracted, wiki_pages_extracted: wikiExtracted, errors, message: "Extraction completed. Skills and wiki pages saved to database." }, null, 2) }] };
+        return { content: [{ type: "text", text: JSON.stringify({ ok: true, skills_extracted: skillsExtracted, errors, message: "Extraction completed. Skills saved to database." }, null, 2) }] };
       } catch (error: any) {
         return errorResponse("extraction_error", error.message);
       }

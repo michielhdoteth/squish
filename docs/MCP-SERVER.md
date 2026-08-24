@@ -4,7 +4,7 @@ Universal memory layer for AI agents via Model Context Protocol (MCP).
 
 ## Features
 
-- **7 MCP Tools**: universal memory operations across recall, graph, context, inspection, multimodal ingestion, and LLM consolidation
+- **15 MCP Tools**: remember, recall, forget, link, context, stats, inspect, skill, loadout, extract, feedback, places, sessions, tier, dedup (plus a 16th gated tool: squish_maintenance)
 - **Local Embeddings**: TF-IDF based, 768-dim vectors
 - **QMD Integration**: Local markdown search with BM25 + vector
 - **Hybrid Search**: Semantic + recency + importance scoring

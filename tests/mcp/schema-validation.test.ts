@@ -102,7 +102,7 @@ describe("MCP schema validation", () => {
     const source = readSource();
     const tools = extractTools(source);
 
-    expect(tools.length).toBe(17);
+    expect(tools.length).toBe(16);
 
     const validPropertyTypes = new Set([
       "string", "number", "boolean", "object", "array", "integer",
@@ -139,7 +139,7 @@ describe("MCP schema validation", () => {
     const source = readSource();
     const tools = extractTools(source);
 
-    expect(tools.length).toBe(17);
+    expect(tools.length).toBe(16);
 
     for (const tool of tools) {
       expect(tool.description.length).toBeGreaterThan(0);
@@ -162,7 +162,6 @@ describe("MCP schema validation", () => {
       "squish_stats",
       "squish_inspect",
       "squish_skill",
-      "squish_wiki",
       "squish_loadout",
       "squish_extract",
       "squish_places",
@@ -249,7 +248,7 @@ describe("MCP schema validation", () => {
     const source = readSource();
     const tools = extractTools(source);
 
-    expect(tools.length).toBe(17);
+    expect(tools.length).toBe(16);
 
     for (const tool of tools) {
       const schemaObj = evalZodSchema(tool.inputSchemaZod);

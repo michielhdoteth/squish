@@ -10,7 +10,7 @@ import { extractQueryEntities, entityBoost } from "../core/retrieval/entity-awar
 import { detectTemporalReferences, isLikelyStale } from "../core/retrieval/temporal-validity.js";
 import { smartMMR } from "../core/retrieval/mmr-diversity.js";
 import { enrichContent } from "../core/retrieval/contextual-enrichment.js";
-import { calculateCompositeScore, getRetrievalConfig } from "../core/retrieval/config.js";
+import { getRetrievalConfig } from "../core/retrieval/config.js";
 
 // Synthetic embeddings (768-dim)
 function randomEmbedding(): number[] {
@@ -99,20 +99,12 @@ describe("Retrieval Pipeline Benchmark", () => {
       const diverse = smartMMR(query, mmrInput, { lambda: 0.7, topK: 10 });
       const t11 = performance.now();
 
-      // Stage 7: Composite scoring
-      const cfg = getRetrievalConfig();
+      // Stage 7: Final ranking (composite scoring removed in Batch 8 -
+      // production ranking is served by scoring v2; benchmark uses raw sim).
       const t12 = performance.now();
       const final = temporal.slice(0, 10).map((m) => ({
         id: m.id,
-        score: calculateCompositeScore({
-          semanticScore: m.semanticScore,
-          placeBoost: m.placeId === "wip" ? cfg.scoring.placeBoost : 0,
-          tagOverlap: m.tags.length > 0 ? 0.05 : 0,
-          recencyBoost: 0.02,
-          superseded: false,
-          supersededPenalty: 0,
-          contradictionRiskPenalty: 0,
-        }),
+        score: m.semanticScore,
       }));
       const t13 = performance.now();
 

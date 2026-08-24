@@ -54,7 +54,7 @@ Squish detects Claude Code and adds plugin hooks automatically. Your next sessio
 
 ```bash
 squish context    # See what your agent remembers
-squish stats      # Check memory health
+squish status --stats  # Check memory health
 ```
 
 ### Codex CLI (OpenAI)
@@ -159,7 +159,7 @@ Squish uses local embeddings by default. Zero LLM dependency. 1-5ms latency. $0 
 | Auto-capture | Yes (hooks) | Manual | Yes (12 hooks) | Manual API | No | No |
 | Local embeddings | Yes (default) | N/A | Yes | No (cloud) | No | No |
 | External DB required | No (SQLite) | No | Yes (iii-engine) | Yes (Qdrant) | Yes (Postgres) | Yes (Postgres) |
-| MCP tools | 7 | 0 | 53 | 9 | 0 | 0 |
+| MCP tools | 15 | 0 | 53 | 9 | 0 | 0 |
 | Knowledge graph | Yes | No | Yes | No | Yes | Yes |
 | Cross-agent sync | Yes (Cloud) | No | No | API-based | API-based | API-based |
 | Price | Free local / $9/mo cloud | Free | Free | $249/mo Pro | Free (self-hosted) | Free (self-hosted) |
@@ -228,8 +228,8 @@ Squish is the only tool that combines all of these in a single package:
 
 ### Interfaces
 
-- **CLI**: `squish remember`, `recall`, `inspect`, `context`, `stats`, `search`, `sessions`
-- **MCP Server**: 7 tools for any MCP client -- recall, graph, context, multimodal ingestion, LLM consolidation
+- **CLI**: `squish remember`, `recall`, `forget`, `link`, `context`, `stats` (via `status`), `clean`, `pin`, `sessions`, `doctor`, `cloud`
+- **MCP Server**: 15 tools for any MCP client -- remember, recall, forget, link, context, stats, inspect, skill, loadout, extract, feedback, places, sessions, tier, dedup (a 16th, `squish_maintenance`, appears when `SQUISH_ENABLE_MAINTENANCE_TOOLS=true`)
 - **Web UI**: Local dashboard at `localhost:37777` for visualizing memories
 - **Cloud Dashboard**: Paid analytics and management at [squishplugin.dev](https://squishplugin.dev)
 
@@ -241,6 +241,26 @@ Squish is the only tool that combines all of these in a single package:
 - Places routing: organize memories by project, feature, or context
 - Full-text search with BM25 ranking
 - Vector search with TF-IDF embeddings (768-dimensional)
+
+### Environment Flags
+
+Every flag ships with a safe default; nothing here is required for local use. See `.env.example` for the full annotated list.
+
+| Flag | Default | What it does |
+|------|---------|--------------|
+| `SQUISH_DATA_DIR` | `~/.squish` | Where the SQLite DB and assets live |
+| `SQUISH_EMBEDDINGS_PROVIDER` | `local` | `local` / `openai` / `ollama` / `google` / `none` / `auto` |
+| `SQUISH_LOCAL_BUNDLED_MODEL` | bundled MiniLM | Set `off` to pin deterministic TF-IDF (CI, offline evals) |
+| `SQUISH_VECTOR_SCAN` | `recency` | Candidate selection: `full` scans every row (complete recall), `recency` sees the newest window |
+| `SQUISH_SEARCH_BELIEFS` | `true` | Include belief records in hybrid retrieval |
+| `SQUISH_ABSTAIN_BELOW` | unset | Recall-confidence floor; below it recall returns a `no_reliable_memory` verdict instead of weak hits |
+| `SQUISH_SCORING_V2` | `true` | Serve v2 composite ranking (`SQUISH_SCORING_SHADOW=true` logs v2 alongside without serving) |
+| Precision stack | see docs/v2-scoring.md | `SQUISH_RERANKER_ENABLED`, `SQUISH_QUERY_EXPANSION`, `SQUISH_TEMPORAL_VALIDITY`, `SQUISH_GRAPH_BOOST_LEGACY`, `SQUISH_MMR_ENABLED`, `SQUISH_CONTEXTUAL_RETRIEVAL`, `SQUISH_ENTITY_RETRIEVAL` |
+| `SQUISH_GEOMETRY_CONSOLIDATION` | `true` | Geometry-aware consolidation guards (theta-prime split/consolidate decisions) |
+| `SQUISH_DEDUP_AUTO` | off | When `true`, nightly dedup may execute high-threshold merges automatically (capped per run); otherwise proposals wait for review via `squish_dedup` |
+| `SQUISH_ACL_ENFORCE` | `false` | Enforce visibility rules on memory reads |
+| `SQUISH_LLM_ENABLED` | `false` | Enables optional LLM features incl. cross-connection consolidation |
+| Engine flags | various | `SQUISH_CONTRADICTION_ENGINE`, `SQUISH_IMPORTANCE_ENGINE`, `SQUISH_DECAY_ENGINE`, `SQUISH_CRON_ENABLED`, `SQUISH_MULTIMODAL_ENABLED` |
 
 ---
 
@@ -326,7 +346,7 @@ Full benchmark details: [docs/BENCHMARK.md](docs/BENCHMARK.md)
 | Document | Description |
 |----------|-------------|
 | [CLI Reference](docs/CLI.md) | All CLI commands and options |
-| [MCP Server](docs/MCP-SERVER.md) | 7 MCP tools and configuration |
+| [MCP Server](docs/MCP-SERVER.md) | 15 MCP tools and configuration |
 | [Architecture](docs/ARCHITECTURE.md) | System design and data flow |
 | [Decay System](docs/DECAY.md) | How memories age and lose relevance |
 | [Scoring](docs/v2-scoring.md) | Importance and relevance scoring |
@@ -363,7 +383,9 @@ Yes. In local mode, all data stays on your machine in an encrypted SQLite databa
 
 ### What is the difference between recall and sessions?
 
-`squish recall` searches your long-term memory -- distilled facts, decisions, and preferences that Squish has captured and organized. `squish sessions search` searches raw past agent runs -- the actual messages, commands, and file changes from previous Claude Code, Codex, or OpenCode sessions. Recall gives you what the system decided to remember. Sessions give you the evidence.
+`squish recall` searches your long-term memory -- distilled facts, decisions, and preferences that Squish has captured and organized. `squish sessions search` searches raw past agent runs -- the actual messages, commands, and file changes from previous Claude Code, Codex, OpenCode, or Gemini CLI sessions. Recall gives you what the system decided to remember. Sessions give you the evidence.
+
+Every recall result carries a **recall assessment** with a verdict: `confident` (top result is reliable), `qualified` (usable but treat with care), or `no_reliable_memory` (nothing trustworthy found -- say so rather than guessing). Feed verdicts back via `squish_feedback`: `confirm`, `used`, or `contradict`.
 
 ---
 

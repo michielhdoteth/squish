@@ -29,5 +29,9 @@ Use the squish CLI via MCP tools:
 - `squish remember <content>` -- Store a new memory
 - `squish recall <query>` -- Search memories
 - `squish context` -- Show project context
-- `squish stats` -- View statistics
-- `squish inspect <id>` -- Inspect a specific memory
+- `squish status --stats` -- View statistics
+- `squish sessions search <query> --source all` -- Search past agent sessions (sources: opencode, claude-code, codex, gemini, all)
+
+Recall results carry a verdict: `confident`, `qualified`, or `no_reliable_memory`.
+Close the loop with the `squish_feedback` MCP tool (`confirm` / `used` / `contradict`)
+so future ranking reflects what actually helped.

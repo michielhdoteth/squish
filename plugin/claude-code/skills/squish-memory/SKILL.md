@@ -23,7 +23,7 @@ npm install -g squish-memory && squish install --all
 squish remember "content" --type observation --project .
 ```
 
-Types: `observation`, `fact`, `decision`, `context`, `preference`, `note`
+Types: `observation`, `fact`, `decision`, `context`, `preference`
 
 Places: `inbox`, `wip`, `ref`, `sandbox`, `board`, `sparks`, `archive`
 
@@ -32,24 +32,37 @@ Places: `inbox`, `wip`, `ref`, `sandbox`, `board`, `sparks`, `archive`
 squish recall "query" --limit 5 --project .
 ```
 
+Every recall result carries a recall assessment with a verdict:
+- `confident` - top result is reliable; act on it
+- `qualified` - usable, but treat with care
+- `no_reliable_memory` - nothing trustworthy found; say so instead of guessing
+
+Close the loop with feedback (MCP tool `squish_feedback`): signal `confirm`,
+`used`, or `contradict` on recalled items so future ranking improves.
+
 ### Load Context
 ```bash
 squish context --json --limit 5 --project .
 ```
 
-### Recent Memories
+### Past Agent Sessions
 ```bash
-squish recent --period today --project .
+squish sessions search "postgres migration" --source all
+squish sessions list --source opencode
+squish sessions show <session-id>
 ```
 
-### Memory Stats
+Sources: `opencode`, `claude-code` (alias `claude`), `codex`, `gemini`, `all`.
+Sessions are raw evidence from past agent runs - separate from long-term memory.
+
+### Status and Stats
 ```bash
-squish stats --project .
+squish status --stats --project .
 ```
 
 ### Health Check
 ```bash
-squish health --json
+squish doctor --json
 ```
 
 ## Workflow

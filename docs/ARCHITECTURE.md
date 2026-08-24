@@ -10,7 +10,7 @@ Any AI Agent
 MCP (stdio/Streamable HTTP) / CLI
      ↓
 packages/mcp/src/index.ts
-   ├─ MCP Tools (7 tools)
+   ├─ MCP Tools (16 tools incl. gated maintenance)
    ├─ Core Services
    │   ├─ Signal Engine
    │   ├─ Session Working Set
@@ -36,7 +36,7 @@ squish/
 ├── packages/
 │   ├── mcp/                 # MCP server package
 │   │   ├── src/
-│   │   │   ├── index.ts      # Main MCP entry point (7 tools)
+│   │   │   ├── index.ts      # Main MCP entry point (16 tools incl. gated maintenance)
 │   │   │   ├── multimodal-tools.ts   # Multimodal ingestion tools
 │   │   │   └── consolidation-tools.ts # LLM consolidation tools
 │   │   └── package.json

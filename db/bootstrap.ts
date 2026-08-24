@@ -3,6 +3,7 @@ import { existsSync, mkdirSync } from 'fs';
 import { logger } from '../core/logger.js';
 import { getDataDir } from '../config.js';
 import { runAllMigrations } from './migrations/index.js';
+import { runWikiToMemoryMigration } from './migrations/wiki-to-memory.js';
 
 const sqliteSchemaSql = `
 PRAGMA foreign_keys = ON;
@@ -877,60 +878,6 @@ CREATE TABLE IF NOT EXISTS skill_memory_links (
 CREATE INDEX IF NOT EXISTS skill_memory_links_skill_idx ON skill_memory_links(skill_id);
 CREATE INDEX IF NOT EXISTS skill_memory_links_memory_idx ON skill_memory_links(memory_id);
 
--- Wiki System (v2.1.0) - Structured document pages with link graphs
--- ============================================================================
-
-CREATE TABLE IF NOT EXISTS wiki_pages (
-  id TEXT PRIMARY KEY,
-  project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
-  user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
-  title TEXT NOT NULL,
-  slug TEXT NOT NULL,
-  content TEXT,
-  summary TEXT,
-  page_type TEXT NOT NULL DEFAULT 'article',
-  status TEXT NOT NULL DEFAULT 'draft',
-  visibility TEXT NOT NULL DEFAULT 'private',
-  tags TEXT,
-  metadata TEXT,
-  word_count INTEGER DEFAULT 0,
-  last_indexed_at INTEGER,
-  created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL,
-  updated_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL,
-  UNIQUE(project_id, slug)
-);
-CREATE INDEX IF NOT EXISTS wiki_pages_project_idx ON wiki_pages(project_id);
-CREATE INDEX IF NOT EXISTS wiki_pages_slug_idx ON wiki_pages(slug);
-CREATE INDEX IF NOT EXISTS wiki_pages_type_idx ON wiki_pages(page_type);
-CREATE INDEX IF NOT EXISTS wiki_pages_status_idx ON wiki_pages(status);
-CREATE INDEX IF NOT EXISTS wiki_pages_visibility_idx ON wiki_pages(visibility);
-CREATE INDEX IF NOT EXISTS wiki_pages_user_idx ON wiki_pages(user_id);
-
-CREATE TABLE IF NOT EXISTS wiki_links (
-  id TEXT PRIMARY KEY,
-  source_page_id TEXT NOT NULL REFERENCES wiki_pages(id) ON DELETE CASCADE,
-  target_page_id TEXT REFERENCES wiki_pages(id) ON DELETE SET NULL,
-  target_slug TEXT NOT NULL,
-  context TEXT,
-  created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL,
-  UNIQUE(source_page_id, target_slug)
-);
-CREATE INDEX IF NOT EXISTS wiki_links_source_idx ON wiki_links(source_page_id);
-CREATE INDEX IF NOT EXISTS wiki_links_target_idx ON wiki_links(target_page_id);
-CREATE INDEX IF NOT EXISTS wiki_links_slug_idx ON wiki_links(target_slug);
-
-CREATE TABLE IF NOT EXISTS wiki_page_versions (
-  id TEXT PRIMARY KEY,
-  page_id TEXT NOT NULL REFERENCES wiki_pages(id) ON DELETE CASCADE,
-  version INTEGER NOT NULL,
-  title TEXT NOT NULL,
-  content TEXT,
-  change_summary TEXT,
-  created_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL,
-  UNIQUE(page_id, version)
-);
-CREATE INDEX IF NOT EXISTS wiki_page_versions_page_idx ON wiki_page_versions(page_id);
-
 -- Agent Loadout (v2.1.0) - Bind memory assets to agents
 -- ============================================================================
 
@@ -1000,6 +947,15 @@ export async function ensureSqliteSchema(sqlite: Database): Promise<void> {
 
   // Replay the full schema after migrations so deferred indexes/triggers land.
   execSqliteSchema(sqlite, { tolerant: false });
+
+  // Batch 8: one-time wiki_pages -> memories migration (marker-gated,
+  // SQUISH_WIKI_MIGRATE_DRY_RUN=true previews). Legacy wiki tables are
+  // dropped on apply - memory rows tagged 'wiki-origin' carry the data.
+  try {
+    runWikiToMemoryMigration(sqlite);
+  } catch (error) {
+    logger.error('[wiki-migration] Failed:', error instanceof Error ? error.message : String(error));
+  }
 }
 
 // Schema versions for tracking
@@ -1009,7 +965,8 @@ const SCHEMA_VERSIONS = [
   { version: '1.2.0-mem-place', description: 'Add place_sort_order to memories and memory_places' },
   { version: '1.2.0-agent-prefs', description: 'Add agent_preferences table for agent evolution' },
   { version: '2.1.0-skills', description: 'Add skills, skill_versions, skill_assignments, skill_memory_links tables' },
-  { version: '2.1.0-wiki', description: 'Add wiki_pages, wiki_links, wiki_page_versions tables' },
+  // '2.1.0-wiki' retired in Batch 8: wiki subsystem removed (db-only memory).
+  // The one-time wiki->memory migration records marker '2.2.0-wiki-to-memory'.
   { version: '2.1.0-loadout', description: 'Add agent_loadouts, visibility_rules tables' },
 ];
 

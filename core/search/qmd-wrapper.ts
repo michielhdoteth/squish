@@ -70,14 +70,6 @@ export async function embed(): Promise<number[] | null> {
   return null;
 }
 
-export async function ensureWikiDir(projectPath: string): Promise<string> {
-  const { join } = await import('path');
-  const { mkdirSync, existsSync } = await import('fs');
-  const wikiDir = join(projectPath, '.squish', 'wiki');
-  if (!existsSync(wikiDir)) mkdirSync(wikiDir, { recursive: true });
-  return wikiDir;
-}
-
 export async function close(): Promise<void> {
   const client = await getQMDClient();
   await client.disconnect();

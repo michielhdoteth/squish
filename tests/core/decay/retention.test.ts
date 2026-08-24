@@ -5,7 +5,7 @@ import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { computeRetention, getRetentionMap, type RetentionRow } from '../../../core/decay/retention.js';
+import { computeRetention, type RetentionRow } from '../../../core/decay/retention.js';
 import { betaForMemoryType } from '../../../core/decay/ebbinghaus.js';
 import { applyTieredDecay } from '../../../core/decay/decay-engine.js';
 
@@ -14,7 +14,7 @@ const tempDir = mkdtempSync(join(tmpdir(), 'squish-retention-'));
 process.env.SQUISH_DATA_DIR = tempDir;
 process.env.DATABASE_URL = '';
 
-import { resetDb, getDb } from '../../../db/index.js';
+import { resetDb } from '../../../db/index.js';
 
 const NOW = Date.UTC(2026, 7, 23); // fixed now: 2026-08-23
 const DAY = 86_400_000;
@@ -190,47 +190,5 @@ describe('retention <-> decay-engine mirror property', () => {
         );
       }
     }
-  });
-});
-
-describe('getRetentionMap (DB-backed)', () => {
-  test('computes per-memory retention from decay columns; missing ids absent', async () => {
-    const db = await getDb();
-    expect(db).toBeDefined();
-    const sqlite = (db as any).$client;
-    const idA = '11111111-1111-1111-1111-111111111111';
-    const idB = '22222222-2222-2222-2222-222222222222';
-    const oldSec = Math.floor((NOW - 100 * DAY) / 1000);
-    const freshSec = Math.floor((NOW - 1 * DAY) / 1000);
-
-    // Schema defaults last_decay_at to now; pin it so age is deterministic.
-    sqlite.prepare(
-      `INSERT INTO memories (id, type, tier, content, created_at, last_decay_at, decay_rate, status)
-       VALUES (?, 'observation', 'fleeting', 'seed', ?, ?, 30, 'active')`
-    ).run(idA, oldSec, oldSec);
-    sqlite.prepare(
-      `INSERT INTO memories (id, type, tier, content, created_at, last_decay_at, decay_rate, status)
-       VALUES (?, 'decision', 'sturdy', 'seed', ?, ?, 30, 'active')`
-    ).run(idB, oldSec, oldSec);
-
-    const map = await getRetentionMap([idA, idB, '99999999-9999-9999-9999-999999999999']);
-
-    // Fleeting observation aged 100d decays measurably
-    // (beta=0.10x2, tau=30 -> R ~ 0.75), well below full retention.
-    expect(map.has(idA)).toBe(true);
-    expect(map.get(idA)!).toBeLessThan(0.85);
-    // Sturdy decision never decays.
-    expect(map.get(idB)).toBe(1);
-    // Unknown ids are simply absent (honest absence, not fabricated zeros).
-    expect(map.has('99999999-9999-9999-9999-999999999999')).toBe(false);
-
-    // Fresh row anchors near 1 regardless of tier.
-    const idC = '33333333-3333-3333-3333-333333333333';
-    sqlite.prepare(
-      `INSERT INTO memories (id, type, tier, content, created_at, last_decay_at, decay_rate, status)
-       VALUES (?, 'fact', 'working', 'seed', ?, ?, 30, 'active')`
-    ).run(idC, freshSec, freshSec);
-    const map2 = await getRetentionMap([idC]);
-    expect(map2.get(idC)!).toBeGreaterThan(0.99);
   });
 });

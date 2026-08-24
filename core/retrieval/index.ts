@@ -40,7 +40,6 @@ export {
 export {
   getRetrievalConfig,
   getEnvRetrievalConfig,
-  calculateCompositeScore,
 } from './config.js';
 
 export {

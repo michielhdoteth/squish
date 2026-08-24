@@ -20,7 +20,6 @@ import { findMatchingPlaces } from '../core/places/rules.js';
 import { detectQuestionType, questionPlaceType } from '../core/places/question-router.js';
 import { getAdjacentPlaces, ADJACENT_PLACES } from '../core/places/rules.js';
 import {
-  calculateCompositeScore,
   getRetrievalConfig,
 } from '../core/retrieval/config.js';
 import type { SquishRetrievalConfig, RetrievalTrace } from '../core/retrieval/config.js';
@@ -503,118 +502,6 @@ describe('4. Tag retrieval from indexed tables', () => {
   });
 });
 
-// ── 5. Composite scoring ─────────────────────────────────────────────
-
-describe('5. Composite scoring', () => {
-  test('calculateCompositeScore produces correct weighted sum', () => {
-    const result = calculateCompositeScore({
-      semanticSimilarity: 0.7,
-      placeMatch: true,
-      tagOverlapCount: 2,
-      graphNeighborCount: 0,
-    });
-
-    // placeBoost = 0.15, tagOverlapBoost = min(2 * 0.10, 0.30) = 0.20
-    // final = 0.7 + 0.15 + 0.20 = 1.05 clamped to 1.0
-    expect(result.semanticSimilarity).toBe(0.7);
-    expect(result.placeBoost).toBe(0.15);
-    expect(result.tagOverlapBoost).toBe(0.20);
-    expect(result.finalScore).toBeLessThanOrEqual(1.0);
-    expect(result.finalScore).toBeGreaterThan(0.7);
-  });
-
-  test('Superseded penalty reduces score when memory has supersededBy', () => {
-    const notSuperseded = calculateCompositeScore({
-      semanticSimilarity: 0.8,
-      placeMatch: false,
-      tagOverlapCount: 0,
-      graphNeighborCount: 0,
-      isSuperseded: false,
-    });
-
-    const superseded = calculateCompositeScore({
-      semanticSimilarity: 0.8,
-      placeMatch: false,
-      tagOverlapCount: 0,
-      graphNeighborCount: 0,
-      isSuperseded: true,
-    });
-
-    expect(superseded.supersededPenalty).toBe(0.50);
-    expect(superseded.finalScore).toBeLessThan(notSuperseded.finalScore);
-    expect(superseded.finalScore).toBeCloseTo(0.30, 1);
-  });
-
-  test('Place boost increases score when memory matches requested place', () => {
-    const withPlaceMatch = calculateCompositeScore({
-      semanticSimilarity: 0.6,
-      placeMatch: true,
-      tagOverlapCount: 0,
-      graphNeighborCount: 0,
-    });
-
-    const withoutPlaceMatch = calculateCompositeScore({
-      semanticSimilarity: 0.6,
-      placeMatch: false,
-      tagOverlapCount: 0,
-      graphNeighborCount: 0,
-    });
-
-    expect(withPlaceMatch.placeBoost).toBe(0.15);
-    expect(withoutPlaceMatch.placeBoost).toBe(0);
-    expect(withPlaceMatch.finalScore).toBeGreaterThan(withoutPlaceMatch.finalScore);
-  });
-
-  test('Tag overlap boost increases score for memories with matching tags', () => {
-    const withTags = calculateCompositeScore({
-      semanticSimilarity: 0.5,
-      placeMatch: false,
-      tagOverlapCount: 3,
-      graphNeighborCount: 0,
-    });
-
-    const withoutTags = calculateCompositeScore({
-      semanticSimilarity: 0.5,
-      placeMatch: false,
-      tagOverlapCount: 0,
-      graphNeighborCount: 0,
-    });
-
-    expect(withTags.tagOverlapBoost).toBe(0.30); // 3 * 0.10, capped at 0.30
-    expect(withoutTags.tagOverlapBoost).toBe(0);
-    expect(withTags.finalScore).toBeGreaterThan(withoutTags.finalScore);
-  });
-
-  test('Config overrides change scoring weights', () => {
-    const customConfig: SquishRetrievalConfig = {
-      placeMinWeight: 0.5,
-      minResults: 5,
-      includeSuperseded: true,
-      tagCap: 8,
-      scoring: {
-        placeBoost: 0.30,
-        tagOverlapBoost: 0.20,
-        graphNeighborBoost: 0.10,
-        recencyBoost: 0.05,
-        usageBoost: 0.03,
-        supersededPenalty: 0.60,
-        contradictionRiskPenalty: 0.25,
-      },
-    };
-
-    const result = calculateCompositeScore({
-      semanticSimilarity: 0.5,
-      placeMatch: true,
-      tagOverlapCount: 2,
-      graphNeighborCount: 0,
-      config: customConfig,
-    });
-
-    expect(result.placeBoost).toBe(0.30);
-    expect(result.tagOverlapBoost).toBe(0.30); // 2 * 0.20 = 0.40, but capped at 0.30
-  });
-});
-
 // ── 6. Question routing integration ──────────────────────────────────
 
 describe('6. Question routing integration', () => {
@@ -681,20 +568,6 @@ describe('7. Supersession filtering', () => {
     const config = getRetrievalConfig({ includeSuperseded: true });
     expect(config.includeSuperseded).toBe(true);
 
-    // Calculate score for a superseded memory with includeSuperseded=true
-    const result = calculateCompositeScore({
-      semanticSimilarity: 0.8,
-      placeMatch: false,
-      tagOverlapCount: 0,
-      graphNeighborCount: 0,
-      isSuperseded: true,
-    });
-
-    // Should have a penalty applied
-    expect(result.supersededPenalty).toBe(0.50);
-    // Score should still be positive (not completely eliminated)
-    expect(result.finalScore).toBeGreaterThan(0);
-    expect(result.finalScore).toBeCloseTo(0.30, 1);
   });
 
   test('Trace metadata counts supersededFiltered correctly', () => {
@@ -763,17 +636,6 @@ describe('8. Cross-module integration', () => {
     const rows = await queryAll('SELECT * FROM memories WHERE id = ?', memory.id);
     const primaryPlace = (rows[0] as any).primary_place || (rows[0] as any).primaryPlace;
     expect(primaryPlace).toBeTruthy();
-
-    // Step 5: Verify composite scoring works with all components
-    const score = calculateCompositeScore({
-      semanticSimilarity: 0.7,
-      placeMatch: true,
-      tagOverlapCount: 2,
-      graphNeighborCount: 0,
-    });
-    expect(score.finalScore).toBeGreaterThan(0.7);
-    expect(score.placeBoost).toBeGreaterThan(0);
-    expect(score.tagOverlapBoost).toBeGreaterThan(0);
   });
 
   test('getAdjacentPlaces returns valid results for all place types', () => {

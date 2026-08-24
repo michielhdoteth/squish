@@ -65,17 +65,28 @@ Add to your `opencode.json`:
 
 ## Tool Reference
 
-When Squish is connected, these 7 tools are available:
+When Squish is connected, these 15 tools are available:
 
 | Tool | Params | What it does |
 |------|--------|-------------|
 | `squish_remember` | `content`, `type?`, `tags?` | Save content, decisions, preferences, or facts. Auto-detects routing (memory vs learning vs belief). |
-| `squish_recall` | `query`, `limit?`, `project?` | Search memories, learnings, beliefs, and graph entities. Hybrid search with QMD. |
+| `squish_recall` | `query`, `limit?`, `project?` | Search memories, learnings, beliefs, and graph entities. Hybrid search. Returns a recall assessment (verdict: `confident` / `qualified` / `no_reliable_memory`). |
 | `squish_forget` | `memoryId?`, `search?` | Delete a single memory by ID (auto-confirm) or bulk by search query (dry-run with preview). |
 | `squish_link` | `action`, `memoryId?`, `fromId?`, `toId?` | Manage memory associations. `action=find` traverses the graph. `action=add` links two memories. |
 | `squish_context` | `project?`, `actorUser?` | Auto-load relevant context for current project including beliefs, contradictions, and staleness warnings. |
 | `squish_stats` | `project?` | Show memory statistics, signal counts, graph status, places, and system health checks. |
 | `squish_inspect` | `memoryId` | Show why a memory was stored, its classification, beliefs, place, and graph status. |
+| `squish_skill` | `action`, ... | Manage reusable skill documents extracted from memory patterns. |
+| `squish_loadout` | `action`, ... | Bind memory assets to agents; manage visibility rules (ACL). |
+| `squish_extract` | `action`, `hoursBack?` | Auto-extract reusable skills from accumulated memories via LLM analysis. |
+| `squish_feedback` | `targetType`, `id`, `signal` | Reinforce or weaken a recalled item: `confirm` (correct), `used` (acted on), or `contradict` (wrong). Targets: memory, belief, or strategy. |
+| `squish_places` | `action`, ... | Query and manage cognitive places (inbox, wip, ref, board, sparks). |
+| `squish_sessions` | `action`, ... | Search past agent sessions. Sources: `opencode`, `claude-code`, `codex`, `gemini`, `all`. |
+| `squish_tier` | `action`, ... | Inspect and manage memory tiers (working / long-term / cold). |
+| `squish_dedup` | `action`, ... | Duplicate detection and merge proposals with review + reverse support. |
+
+A 16th tool, `squish_maintenance`, is available when the server runs with
+`SQUISH_ENABLE_MAINTENANCE_TOOLS=true`.
 
 ## Best Practices
 
@@ -117,7 +128,8 @@ Squish Cloud adds OAuth sync, shared team memory, admin dashboard, and priority 
 squish remember "content"          # Save a memory
 squish recall "query"              # Search memories
 squish context                     # Load project context
-squish stats                       # Show statistics
+squish status --stats              # Show statistics
+squish sessions search "query"     # Search past agent sessions
 squish cloud login                 # Connect to cloud
 squish cloud status                # Cloud connection status
 ```
@@ -127,5 +139,7 @@ squish cloud status                # Cloud connection status
 1. **Load context at session start**: Run `squish_context` to restore project memory
 2. **Save decisions explicitly**: Use `squish_remember` with content describing the decision
 3. **Use recall before researching**: Before suggesting a new approach, check if Squish has context about previous attempts
-4. **Tag memories**: Use tags like `architecture`, `decision`, `bug`, `client` for better retrieval
-5. **Inspect before debugging**: Use `squish_inspect` to understand why a memory was stored
+4. **Respect the recall verdict**: `confident` results are reliable; `qualified` need care; `no_reliable_memory` means say so instead of guessing
+5. **Give feedback**: After acting on a recalled memory, call `squish_feedback` (`confirm`, `used`, or `contradict`) so ranking improves
+6. **Tag memories**: Use tags like `architecture`, `decision`, `bug`, `client` for better retrieval
+7. **Inspect before debugging**: Use `squish_inspect` to understand why a memory was stored
