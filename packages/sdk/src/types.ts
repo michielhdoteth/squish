@@ -72,8 +72,16 @@ export interface SearchResult {
     createdAt: string;
     updatedAt: string;
   };
-  /** Relevance score (0-1) */
+  /**
+   * Relevance score (0-1). Batch 3: alias of the served finalScore
+   * (semantic + itemized boosts, clamped). For honest match quality use
+   * semanticScore.
+   */
   score: number;
+  /** Honest retrieval relevance (cosine / normalized RRF), boost-free. */
+  semanticScore?: number;
+  /** Sum of additive boosts applied on top of semanticScore. */
+  boostScore?: number;
   /** Source that found this result */
   source: 'vector' | 'fts' | 'graph' | 'hybrid';
   /** Optional explanation of why this matched */

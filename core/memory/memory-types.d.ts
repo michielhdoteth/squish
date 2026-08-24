@@ -46,7 +46,19 @@ export interface SearchInput {
     includeConsolidatedSources?: boolean;
 }
 export interface SearchResult extends MemoryRecord {
+    /**
+     * @deprecated Batch 3: alias of the served score (finalScore under v2
+     * serving). Read semanticScore / boostScore / finalScore explicitly.
+     */
     similarity: number;
+    /** Honest retrieval relevance (cosine / normalized RRF), boost-free. */
+    semanticScore?: number;
+    /** Sum of additive adjustments; itemized in scoreBreakdown. */
+    boostScore?: number;
+    /** clamp01(semanticScore + boostScore) - the v2 ordering score. */
+    finalScore?: number;
+    /** Per-component additive adjustments. */
+    scoreBreakdown?: import('../scoring/three-field.js').ScoreBreakdown;
     /** Retrieval trace for debugging (Phase 8) - populated when trace: true */
     _trace?: import('../retrieval/config.js').RetrievalTrace;
 }

@@ -11,6 +11,7 @@ import { getProjectById } from '../projects.js';
 import { rememberMemory, search } from '../memory/memories.js';
 import { serializeMetadata, deserializeMetadata } from '../memory/serialization.js';
 import { logger } from '../logger.js';
+import { meetsSemanticThreshold } from '../scoring/three-field.js';
 import { generateExtractiveSummary, extractMessageContent } from '../utils/content-extraction.js';
 import {
   extractStrategiesFromConversation,
@@ -206,7 +207,8 @@ async function hasSimilarSelfIterationMemory(fact: ExtractedFact, projectPath?: 
   return matches.some((match) => {
     const matchMetadata = match.metadata ?? {};
     if (matchMetadata.extractionMethod !== 'self-iteration') return false;
-    if ((match.similarity ?? 0) >= 0.92) return true;
+    // Batch 3: gate on honest semantic match quality, not boost-inflated composite.
+    if (meetsSemanticThreshold(match, 0.92)) return true;
     return normalizeCaptureKey(match.content) === factKey;
   });
 }

@@ -147,10 +147,19 @@ export function rrfFusion(
     .sort((a, b) => b.score - a.score)
     .slice(0, limit);
 
-  // Normalize similarity to [0, 1] for consistency with existing pipeline
+  // Normalize similarity to [0, 1] for consistency with existing pipeline.
+  // Batch 3: this max-normalized RRF contribution is the honest semanticScore
+  // for the fused path (it is what downstream thresholds must read).
   const maxScore = fused.length > 0 ? fused[0].score : 1;
-  return fused.map(item => ({
-    ...item.result,
-    similarity: maxScore > 0 ? item.score / maxScore : 0,
-  }));
+  return fused.map(item => {
+    const semantic = maxScore > 0 ? item.score / maxScore : 0;
+    return {
+      ...item.result,
+      similarity: semantic,
+      semanticScore: semantic,
+      boostScore: 0,
+      finalScore: Math.max(0, Math.min(1, semantic)),
+      scoreBreakdown: {},
+    };
+  });
 }

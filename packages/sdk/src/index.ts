@@ -1614,7 +1614,9 @@ function mapCoreSearchResultToSdk(core: any): SearchResult {
       createdAt: memory.createdAt.toISOString(),
       updatedAt: memory.updatedAt.toISOString(),
     },
-    score: core.similarity ?? 0,
+    score: core.finalScore ?? core.similarity ?? 0,
+    semanticScore: core.semanticScore,
+    boostScore: core.boostScore,
     source: 'hybrid',
   };
 }

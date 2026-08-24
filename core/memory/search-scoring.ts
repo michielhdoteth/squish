@@ -17,6 +17,34 @@ import { getSchema } from '../../db/schema.js';
 import { eq, and, gte, inArray } from 'drizzle-orm';
 import { getRelatedMemories } from '../associations.js';
 import type { SearchDbContext } from './vector-search.js';
+import {
+  addBoost,
+  initScoreFields,
+} from '../scoring/three-field.js';
+
+/**
+ * Itemized heuristic components (Batch 3): recency decay + query-word overlap.
+ */
+export function heuristicComponents(
+  result: SearchResult,
+  query: string,
+  now: number
+): { recency: number; entityOverlap: number } {
+  let recency = 0;
+  if (result.createdAt) {
+    const created = new Date(result.createdAt).getTime();
+    if (Number.isFinite(created)) {
+      const ageHours = (now - created) / (1000 * 60 * 60);
+      recency = Math.max(0, 0.1 * Math.exp(-ageHours / 720)); // Decay over 30 days
+    }
+  }
+
+  const queryWords = new Set(query.toLowerCase().split(/\s+/).filter(w => w.length > 3));
+  const contentWords = new Set((result.content ?? "").toLowerCase().split(/\s+/));
+  const overlap = [...queryWords].filter(w => contentWords.has(w)).length;
+
+  return { recency, entityOverlap: overlap * 0.02 };
+}
 
 /**
  * Score with recency + similarity + entity boost (NO LLM required)
@@ -26,25 +54,8 @@ export function scoreWithHeuristics(
   query: string,
   now: number
 ): number {
-  let score = result.similarity ?? 0;
-
-  // 1. Recency boost: Recent = higher (up to +0.1)
-  if (result.createdAt) {
-    const created = new Date(result.createdAt).getTime();
-    if (Number.isFinite(created)) {
-      const ageHours = (now - created) / (1000 * 60 * 60);
-      const recencyScore = Math.max(0, 0.1 * Math.exp(-ageHours / 720)); // Decay over 30 days
-      score += recencyScore;
-    }
-  }
-
-  // 2. Entity overlap: Query words appearing in content = boost
-  const queryWords = new Set(query.toLowerCase().split(/\s+/).filter(w => w.length > 3));
-  const contentWords = new Set((result.content ?? "").toLowerCase().split(/\s+/));
-  const overlap = [...queryWords].filter(w => contentWords.has(w)).length;
-  score += overlap * 0.02; // Small boost per matching word
-
-  return score;
+  const { recency, entityOverlap } = heuristicComponents(result, query, now);
+  return (result.similarity ?? 0) + recency + entityOverlap;
 }
 
 /**
@@ -176,7 +187,7 @@ export async function applyMultiPlaceScoring(
     );
     const adjacentIds = new Set(adjacentMatchesArrays.flat().map(m => m.memoryId));
 
-    // Apply place boost to results
+    // Apply place boost to results (Batch 3: additive, itemized as 'place')
     const boosted = results.map(r => {
       const isPrimary = primaryIds.has(r.id);
       const isAdjacent = adjacentIds.has(r.id);
@@ -189,10 +200,7 @@ export async function applyMultiPlaceScoring(
         placeBoost = retrievalConfig.scoring.placeBoost * 0.5;
       }
 
-      return {
-        ...r,
-        similarity: (r.similarity ?? 0) + placeBoost,
-      };
+      return addBoost(r, 'place', placeBoost);
     });
 
     boosted.sort((a, b) => (b.similarity ?? 0) - (a.similarity ?? 0));
@@ -225,11 +233,11 @@ export async function applyTagOverlapBoost(
     overlapCounts.set(m.memoryId, (overlapCounts.get(m.memoryId) ?? 0) + 1);
   }
 
-  return results.map(r => ({
-    ...r,
-    similarity: (r.similarity ?? 0) +
-      Math.min((overlapCounts.get(r.id) ?? 0) * scoring.tagOverlapBoost, 0.30),
-  }));
+  return results.map(r => addBoost(
+    r,
+    'tagOverlap',
+    Math.min((overlapCounts.get(r.id) ?? 0) * scoring.tagOverlapBoost, 0.30)
+  ));
 }
 
 /**
@@ -254,10 +262,10 @@ export async function applySupersessionFilter(
     const filtered = results.map(r => {
       if (supersededIds.has(r.id)) {
         supersededCount++;
-        return {
-          ...r,
-          similarity: Math.max(0, (r.similarity ?? 0) - retrievalConfig.scoring.supersededPenalty),
-        };
+        // Batch 3: itemized as 'supersededPenalty'. Legacy floored the
+        // composite at 0 - preserve that on the running composite.
+        const boosted = addBoost(r, 'supersededPenalty', -retrievalConfig.scoring.supersededPenalty);
+        return { ...boosted, similarity: Math.max(0, boosted.similarity ?? 0) };
       }
       return r;
     });
@@ -301,10 +309,7 @@ export function applySessionBoost(
     // Check if memory's session matches query's session
     const memSession = (r.metadata as any)?.sessionMetadata?.sessionId as string | undefined;
     if (memSession === sessionId) {
-      return {
-        ...r,
-        similarity: (r.similarity ?? 0) + SESSION_BOOST
-      };
+      return addBoost(r, 'session', SESSION_BOOST);
     }
     return r;
   });
@@ -323,17 +328,11 @@ export function applyTemporalBoost(results: SearchResult[]): SearchResult[] {
   const TEMPORAL_BOOST = 0.25; // Moderate boost for date-containing memories
 
   const boosted = results.map(r => {
-    let boost = 0;
-
     // Boost 1: Has date reference - high priority for temporal
     if (hasDateReference(r.content ?? "")) {
-      boost += TEMPORAL_BOOST;
+      return addBoost(r, 'temporal', TEMPORAL_BOOST);
     }
-
-    return {
-      ...r,
-      similarity: (r.similarity ?? 0) + boost
-    };
+    return r;
   });
 
   // Re-sort with temporal boost
@@ -406,10 +405,11 @@ export async function expandWithAssociations(
         if (isDeadCandidateStatus(rel?.status)) continue;
         if (!opts?.includeConsolidatedSources && isConsolidatedSourceRow(rel?.isConsolidated)) continue;
         allIds.add(rel.id);
-        expanded.push({
-          ...rel,
-          similarity: (rel.similarity ?? 0) * 0.8 // Slightly lower weight
-        });
+        // Batch 3: association expansion enters at the raw relation weight
+        // (honest base) with the legacy 0.8 multiplier itemized as a discount.
+        const base = rel.similarity ?? 0;
+        const expandedItem = initScoreFields([{ ...rel, similarity: base }])[0];
+        expanded.push(addBoost(expandedItem, 'associationDiscount', -(base * 0.2)));
       }
     }
   }
@@ -433,9 +433,8 @@ export function applyGraphBoostWithWeight(
   // graphWeight should be 0.1-0.3, not > 1
   const boosted = results.map(result => {
     const boost = graphBoostMap[result.id] ?? 0;
-    // Add small nudge, don't replace similarity
-    const boostedSimilarity = (result.similarity ?? 0) + (boost * graphWeight);
-    return { ...result, similarity: boostedSimilarity };
+    // Add small nudge, don't replace similarity - itemized as 'graph'
+    return addBoost(result, 'graph', boost * graphWeight);
   });
 
   // Re-sort by boosted similarity

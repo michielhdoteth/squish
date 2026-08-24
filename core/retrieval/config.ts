@@ -204,4 +204,10 @@ export interface RetrievalTrace {
   /** Memory IDs in final rank order */
   finalOrder: string[];
   finalResultCount: number;
+  /** Batch 3: scoring schema version in effect for this search. */
+  scoringSchemaVersion?: string;
+  /** Batch 3: serving mode ('v2' three-field | 'legacy' composite). */
+  scoringServeMode?: 'v2' | 'legacy';
+  /** Batch 3: shadow-mode ordering delta (top-5 legacy vs v2 + overlap). */
+  shadowDelta?: import('../scoring/three-field.js').ShadowDelta;
 }

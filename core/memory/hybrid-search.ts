@@ -34,12 +34,15 @@ import { detectTemporalReferences, isLikelyStale } from '../retrieval/temporal-v
 
 /**
  * Merge results by ID, keeping the one with the highest similarity.
+ * Batch 3: prefers honest semanticScore when present (dedup must not be
+ * skewed by accumulated boosts).
  */
 function deduplicateById(results: SearchResult[]): SearchResult[] {
   const seen = new Map<string, SearchResult>();
   for (const r of results) {
+    const score = (r.semanticScore ?? r.similarity ?? 0);
     const existing = seen.get(r.id);
-    if (!existing || (r.similarity ?? 0) > (existing.similarity ?? 0)) {
+    if (!existing || score > (existing.semanticScore ?? existing.similarity ?? 0)) {
       seen.set(r.id, r);
     }
   }
@@ -53,6 +56,7 @@ import { computeGraphBoost } from '../search/graph-boost.js';
 import { vectorSearch, type SearchDbContext } from './vector-search.js';
 import { keywordSearch, rrfFusion } from './keyword-search.js';
 import {
+  heuristicComponents,
   applyMultiPlaceScoring,
   applyTagOverlapBoost,
   applySessionBoost,
@@ -60,8 +64,17 @@ import {
   applySupersessionFilter,
   applyGraphBoostWithWeight,
   expandWithAssociations,
-  scoreWithHeuristics,
 } from './search-scoring.js';
+import {
+  SCORING_SCHEMA_VERSION,
+  getScoringFlags,
+  initScoreFields,
+  finalizeScores,
+  addBoost,
+  applyReplacement,
+  deriveShadowDelta,
+  recordShadowDelta,
+} from '../scoring/three-field.js';
 
 // Re-export from sub-modules for backward compatibility
 export { keywordSearch, rrfFusion } from './keyword-search.js';
@@ -292,6 +305,11 @@ export async function hybridSearch(
     vectorResults = rrfFusion(vectorResults, keywordResults, limit * 3);
   }
 
+  // Batch 3: from here on every candidate carries the explicit three-field
+  // semantics. semanticScore is now frozen (cosine or normalized RRF) and
+  // never overwritten; all adjustments below are additive boosts.
+  vectorResults = initScoreFields(vectorResults);
+
   // v1.5.0: Place-aware scoring using indexed memory_places queries
   const retrievalConfig = getRetrievalConfig();
   if (input.project || input.placeType) {
@@ -327,12 +345,16 @@ export async function hybridSearch(
   }
 
   // Apply heuristics if enabled (recency + entity overlap)
+  // Batch 3: itemized as heuristicRecency / heuristicEntityOverlap boosts.
+  // semanticScore stays untouched - the composite moves, the honest
+  // retrieval relevance does not.
   if (enableHeuristics) {
     const now = Date.now();
-    vectorResults = vectorResults.map(r => ({
-      ...r,
-      similarity: scoreWithHeuristics(r, input.query, now)
-    }));
+    vectorResults = vectorResults.map(r => {
+      const { recency, entityOverlap } = heuristicComponents(r, input.query, now);
+      let out = addBoost(r, 'heuristicRecency', recency);
+      return addBoost(out, 'heuristicEntityOverlap', entityOverlap);
+    });
   }
 
   // Advanced Retrieval: Entity-Aware Boost
@@ -371,13 +393,12 @@ export async function hybridSearch(
           createdAt: r.createdAt,
           lastAccessedAt: (r as any).lastAccessedAt as string | undefined,
         });
-        
+
         if (stale) {
           staleCount++;
-          return {
-            ...r,
-            similarity: Math.max(0, (r.similarity ?? 0) - stalePenalty),
-          };
+          // Batch 3: itemized 'stalenessPenalty'; legacy floored composite at 0.
+          const penalized = addBoost(r, 'stalenessPenalty', -stalePenalty);
+          return { ...penalized, similarity: Math.max(0, penalized.similarity ?? 0) };
         }
       }
       return r;
@@ -417,10 +438,11 @@ export async function hybridSearch(
       const existingIds = new Set(results.map(r => r.id));
       for (const gr of graphResults) {
         if (!existingIds.has(gr.id)) {
-          results.push({
-            ...gr,
-            similarity: (gr.similarity ?? 0) * 0.9 // Slightly lower weight
-          });
+          // Batch 3: graph-leg entries enter at their honest base weight with
+          // the legacy 10% discount itemized as multiHopWeight.
+          const base = gr.similarity ?? 0;
+          const seeded = initScoreFields([{ ...gr, similarity: base }])[0];
+          results.push(addBoost(seeded, 'multiHopWeight', -(base * 0.1)));
         }
       }
 
@@ -447,11 +469,14 @@ export async function hybridSearch(
   // Higher quality than LLM reranking, runs locally
   if (config.rerankerEnabled && input.query && input.query.trim().length > 5) {
     try {
-      results = await rerankResults(input.query, results, {
+      const reranked = await rerankResults(input.query, results, {
         topK: config.rerankerTopK,
         returnTopK: limit,
         blendWeight: 0.7,
       });
+      // Batch 3: cross-encoder replaces the ranking signal. Fold the delta
+      // into boostScore (rerankResidual) so the three-field identity holds.
+      results = reranked.map(r => applyReplacement(r, r.similarity ?? 0));
       logger.debug(`[HybridSearch] Cross-encoder reranking applied, ${results.length} results`);
     } catch (e) {
       // Cross-encoder reranking failed silently
@@ -475,12 +500,47 @@ export async function hybridSearch(
     }
   }
 
+  // Batch 3: final score semantics. Serving mode decides what `similarity`
+  // aliases and which ordering is served:
+  //   v2 (default)     -> similarity = finalScore = clamp01(semantic+boost),
+  //                       ordered by finalScore
+  //   legacy           -> similarity = unclamped composite (exact pre-batch-3
+  //                       accumulation), pipeline ordering preserved
+  // Shadow (optional, independent) derives both orderings from the same
+  // candidate set and records top-5 deltas into a bounded ring.
+  const scoringFlags = getScoringFlags();
+
+  if (scoringFlags.shadow && input.query) {
+    try {
+      recordShadowDelta(deriveShadowDelta(input.query, results));
+    } catch {
+      // Shadow must never affect serving
+    }
+  }
+
+  results = finalizeScores(results, scoringFlags.serveV2);
+
   // Build trace metadata (Phase 8)
+  trace.scoringSchemaVersion = SCORING_SCHEMA_VERSION;
+  trace.scoringServeMode = scoringFlags.serveV2 ? 'v2' : 'legacy';
+  if (scoringFlags.shadow && input.query) {
+    try {
+      trace.shadowDelta = deriveShadowDelta(input.query, results);
+    } catch {
+      // Trace diagnostics are best-effort
+    }
+  }
   trace.finalOrder = results.map(r => r.id);
   trace.finalResultCount = results.length;
   for (const r of results) {
+    // memoryId -> served score (finalScore under v2, legacy composite under legacy)
     trace.scoreBreakdown[r.id] = r.similarity ?? 0;
   }
+
+  logger.debug(
+    `[HybridSearch] scoring schema=${SCORING_SCHEMA_VERSION} serve=${trace.scoringServeMode}` +
+    `${scoringFlags.shadow ? ' shadow=on' : ''}${trace.shadowDelta ? ` overlap=${trace.shadowDelta.overlap}/5` : ''}`
+  );
 
   // Attach trace to results when trace mode is enabled
   if (traceEnabled) {
@@ -537,10 +597,10 @@ Scores:`;
   });
 
   // Blend LLM score with existing similarity (50/50 blend)
-  const blended = candidates.map((r, i) => ({
-    ...r,
-    similarity: ((r.similarity ?? 0) * 0.5) + ((scores[i] / 10) * 0.5),
-  }));
+  // Batch 3: replacement folds into boostScore as rerankResidual.
+  const blended = candidates.map((r, i) =>
+    applyReplacement(r, ((r.similarity ?? 0) * 0.5) + ((scores[i] / 10) * 0.5))
+  );
 
   // Sort by blended score, then append remaining results
   blended.sort((a, b) => (b.similarity ?? 0) - (a.similarity ?? 0));

@@ -16,6 +16,7 @@ import { autoRoute } from '../retrieval/query-router.js';
 import { normalizeMemory, getOrCreateUser } from './memory-crud.js';
 import { applyAclReadGate, buildAutoAclContext } from '../acl/read-gate.js';
 import type { SearchInput, SearchResult } from './memory-types.js';
+import { meetsSemanticThreshold } from '../scoring/three-field.js';
 
 // ---------------------------------------------------------------------------
 // Search
@@ -137,7 +138,9 @@ async function fallbackSearchByRecency(input: SearchInput, limit: number): Promi
 
 /**
  * Find similar memories to prevent duplicates
- * Returns memories with similarity >= threshold.
+ * Returns memories with semantic similarity >= threshold.
+ * Batch 3: gates on the honest semanticScore (cosine / normalized RRF),
+ * NOT the boost-inflated composite that `similarity` used to carry.
  * Inherits candidate filters (expired/archived excluded, consolidated
  * sources opt-in) through search().
  */
@@ -151,7 +154,7 @@ export async function findSimilarMemories(
     query: content,
     limit,
   });
-  
-  // Filter by similarity threshold
-  return results.filter(r => (r.similarity ?? 0) >= threshold);
+
+  // Filter by semantic match quality
+  return results.filter(r => meetsSemanticThreshold(r, threshold));
 }

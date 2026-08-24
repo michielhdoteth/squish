@@ -1,12 +1,12 @@
 {
   "meta": {
-    "generatedAt": "2026-08-24T00:34:55.168Z",
-    "gitSha": "f0ceff5",
+    "generatedAt": "2026-08-24T00:56:35.408Z",
+    "gitSha": "e5e3025",
     "corpusSize": 60,
     "queryCount": 46,
     "topK": 10,
     "embeddingsProvider": "local",
-    "durationMs": 1823,
+    "durationMs": 1547,
     "deterministic": true
   },
   "thresholds": {
@@ -72,11 +72,11 @@
       "retrieved": [
         {
           "goldenId": "golden_001",
-          "score": 1.1
+          "score": 1
         },
         {
           "goldenId": "golden_030",
-          "score": 1.0439
+          "score": 1
         },
         {
           "goldenId": "golden_043",
@@ -127,7 +127,7 @@
       "retrieved": [
         {
           "goldenId": "golden_013",
-          "score": 1.02
+          "score": 1
         },
         {
           "goldenId": "golden_035",
@@ -184,7 +184,7 @@
       "retrieved": [
         {
           "goldenId": "golden_003",
-          "score": 1.02
+          "score": 1
         },
         {
           "goldenId": "golden_011",
@@ -241,7 +241,7 @@
       "retrieved": [
         {
           "goldenId": "golden_004",
-          "score": 1.04
+          "score": 1
         },
         {
           "goldenId": "golden_046",
@@ -297,11 +297,11 @@
       "retrieved": [
         {
           "goldenId": "golden_036",
-          "score": 1.02
+          "score": 1
         },
         {
           "goldenId": "golden_015",
-          "score": 1.0045
+          "score": 1
         },
         {
           "goldenId": "golden_035",
@@ -352,7 +352,7 @@
       "retrieved": [
         {
           "goldenId": "golden_008",
-          "score": 1.04
+          "score": 1
         },
         {
           "goldenId": "golden_060",
@@ -465,11 +465,11 @@
       "retrieved": [
         {
           "goldenId": "golden_055",
-          "score": 1.04
+          "score": 1
         },
         {
           "goldenId": "golden_054",
-          "score": 1.04
+          "score": 1
         },
         {
           "goldenId": "golden_030",
@@ -523,15 +523,15 @@
       "retrieved": [
         {
           "goldenId": "golden_024",
-          "score": 1.04
+          "score": 1
         },
         {
           "goldenId": "golden_048",
-          "score": 1.0122
+          "score": 1
         },
         {
           "goldenId": "golden_058",
-          "score": 1.004
+          "score": 1
         },
         {
           "goldenId": "golden_025",
@@ -578,7 +578,7 @@
       "retrieved": [
         {
           "goldenId": "golden_026",
-          "score": 1.02
+          "score": 1
         },
         {
           "goldenId": "golden_027",
@@ -634,11 +634,11 @@
       "retrieved": [
         {
           "goldenId": "golden_047",
-          "score": 1.04
+          "score": 1
         },
         {
           "goldenId": "golden_025",
-          "score": 1.04
+          "score": 1
         },
         {
           "goldenId": "golden_046",
@@ -746,11 +746,11 @@
       "retrieved": [
         {
           "goldenId": "golden_053",
-          "score": 1.04
+          "score": 1
         },
         {
           "goldenId": "golden_027",
-          "score": 1.0039
+          "score": 1
         },
         {
           "goldenId": "golden_035",
@@ -862,7 +862,7 @@
       "retrieved": [
         {
           "goldenId": "golden_028",
-          "score": 1.04
+          "score": 1
         },
         {
           "goldenId": "golden_020",
@@ -917,7 +917,7 @@
       "retrieved": [
         {
           "goldenId": "golden_031",
-          "score": 1.02
+          "score": 1
         },
         {
           "goldenId": "golden_046",
@@ -976,15 +976,15 @@
       "retrieved": [
         {
           "goldenId": "golden_017",
-          "score": 1.2739
+          "score": 1
         },
         {
           "goldenId": "golden_016",
-          "score": 1.2234
+          "score": 1
         },
         {
           "goldenId": "golden_030",
-          "score": 1.04
+          "score": 1
         },
         {
           "goldenId": "golden_015",
@@ -1032,7 +1032,7 @@
       "retrieved": [
         {
           "goldenId": "golden_018",
-          "score": 1.04
+          "score": 1
         },
         {
           "goldenId": "golden_019",
@@ -1088,15 +1088,15 @@
       "retrieved": [
         {
           "goldenId": "golden_021",
-          "score": 1.2739
+          "score": 1
         },
         {
           "goldenId": "golden_020",
-          "score": 1.04
+          "score": 1
         },
         {
           "goldenId": "golden_059",
-          "score": 1.0164
+          "score": 1
         },
         {
           "goldenId": "golden_016",
@@ -1146,7 +1146,7 @@
       "retrieved": [
         {
           "goldenId": "golden_022",
-          "score": 1.02
+          "score": 1
         },
         {
           "goldenId": "golden_023",
@@ -1201,7 +1201,7 @@
       "retrieved": [
         {
           "goldenId": "golden_032",
-          "score": 1.02
+          "score": 1
         },
         {
           "goldenId": "golden_036",
@@ -1256,11 +1256,11 @@
       "retrieved": [
         {
           "goldenId": "golden_034",
-          "score": 1.02
+          "score": 1
         },
         {
           "goldenId": "golden_050",
-          "score": 1.0043
+          "score": 1
         },
         {
           "goldenId": "golden_053",
@@ -1311,7 +1311,7 @@
       "retrieved": [
         {
           "goldenId": "golden_033",
-          "score": 1.27
+          "score": 1
         },
         {
           "goldenId": "golden_047",
@@ -1366,11 +1366,11 @@
       "retrieved": [
         {
           "goldenId": "golden_057",
-          "score": 1.31
+          "score": 1
         },
         {
           "goldenId": "golden_021",
-          "score": 1.0419
+          "score": 1
         },
         {
           "goldenId": "golden_034",
@@ -1422,7 +1422,7 @@
       "retrieved": [
         {
           "goldenId": "golden_001",
-          "score": 1.02
+          "score": 1
         },
         {
           "goldenId": "golden_040",
@@ -1481,7 +1481,7 @@
       "retrieved": [
         {
           "goldenId": "golden_042",
-          "score": 1.04
+          "score": 1
         },
         {
           "goldenId": "golden_016",
@@ -1537,7 +1537,7 @@
       "retrieved": [
         {
           "goldenId": "golden_042",
-          "score": 1.02
+          "score": 1
         },
         {
           "goldenId": "golden_004",
@@ -1593,7 +1593,7 @@
       "retrieved": [
         {
           "goldenId": "golden_018",
-          "score": 1.02
+          "score": 1
         },
         {
           "goldenId": "golden_012",
@@ -1649,11 +1649,11 @@
       "retrieved": [
         {
           "goldenId": "golden_018",
-          "score": 1.04
+          "score": 1
         },
         {
           "goldenId": "golden_019",
-          "score": 1.0239
+          "score": 1
         },
         {
           "goldenId": "golden_003",
@@ -1707,11 +1707,11 @@
       "retrieved": [
         {
           "goldenId": "golden_040",
-          "score": 1.02
+          "score": 1
         },
         {
           "goldenId": "golden_039",
-          "score": 1.02
+          "score": 1
         },
         {
           "goldenId": "golden_005",
@@ -1762,7 +1762,7 @@
       "retrieved": [
         {
           "goldenId": "golden_011",
-          "score": 1.02
+          "score": 1
         },
         {
           "goldenId": "golden_019",
@@ -1872,7 +1872,7 @@
       "retrieved": [
         {
           "goldenId": "golden_013",
-          "score": 1.02
+          "score": 1
         },
         {
           "goldenId": "golden_045",
@@ -1927,7 +1927,7 @@
       "retrieved": [
         {
           "goldenId": "golden_030",
-          "score": 1.02
+          "score": 1
         },
         {
           "goldenId": "golden_011",
@@ -1984,7 +1984,7 @@
       "retrieved": [
         {
           "goldenId": "golden_015",
-          "score": 1.02
+          "score": 1
         },
         {
           "goldenId": "golden_017",
@@ -2039,7 +2039,7 @@
       "retrieved": [
         {
           "goldenId": "golden_051",
-          "score": 1.02
+          "score": 1
         },
         {
           "goldenId": "golden_060",
@@ -2097,7 +2097,7 @@
       "retrieved": [
         {
           "goldenId": "golden_058",
-          "score": 1.06
+          "score": 1
         },
         {
           "goldenId": "golden_029",
@@ -2156,11 +2156,11 @@
       "retrieved": [
         {
           "goldenId": "golden_053",
-          "score": 1.0239
+          "score": 1
         },
         {
           "goldenId": "golden_027",
-          "score": 1.02
+          "score": 1
         },
         {
           "goldenId": "golden_023",
@@ -2212,11 +2212,11 @@
       "retrieved": [
         {
           "goldenId": "golden_047",
-          "score": 1.06
+          "score": 1
         },
         {
           "goldenId": "golden_025",
-          "score": 1.06
+          "score": 1
         },
         {
           "goldenId": "golden_024",
@@ -2271,11 +2271,11 @@
       "retrieved": [
         {
           "goldenId": "golden_058",
-          "score": 1.04
+          "score": 1
         },
         {
           "goldenId": "golden_024",
-          "score": 1.0039
+          "score": 1
         },
         {
           "goldenId": "golden_017",
@@ -2329,11 +2329,11 @@
       "retrieved": [
         {
           "goldenId": "golden_038",
-          "score": 1.04
+          "score": 1
         },
         {
           "goldenId": "golden_037",
-          "score": 1.0039
+          "score": 1
         },
         {
           "goldenId": "golden_006",
@@ -2384,7 +2384,7 @@
       "retrieved": [
         {
           "goldenId": "golden_046",
-          "score": 1.04
+          "score": 1
         },
         {
           "goldenId": "golden_001",
@@ -2439,7 +2439,7 @@
       "retrieved": [
         {
           "goldenId": "golden_049",
-          "score": 1.02
+          "score": 1
         },
         {
           "goldenId": "golden_052",
@@ -2494,7 +2494,7 @@
       "retrieved": [
         {
           "goldenId": "golden_005",
-          "score": 1.04
+          "score": 1
         },
         {
           "goldenId": "golden_039",
@@ -2549,7 +2549,7 @@
       "retrieved": [
         {
           "goldenId": "golden_044",
-          "score": 1.06
+          "score": 1
         },
         {
           "goldenId": "golden_021",
@@ -2604,7 +2604,7 @@
       "retrieved": [
         {
           "goldenId": "golden_050",
-          "score": 1.02
+          "score": 1
         },
         {
           "goldenId": "golden_044",

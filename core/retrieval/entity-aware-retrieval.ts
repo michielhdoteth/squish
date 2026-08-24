@@ -7,6 +7,7 @@
  */
 
 import type { SearchResult } from '../memory/memories.js';
+import { addBoost } from '../scoring/three-field.js';
 
 export interface EntityConfig {
   enabled: boolean;
@@ -132,11 +133,8 @@ export function entityBoost(
     
     // Apply boost: 0.05 per matching entity (capped at 0.30)
     const boost = Math.min(matchCount * 0.05, 0.30);
-    
-    return {
-      ...result,
-      similarity: (result.similarity ?? 0) + boost,
-    };
+
+    return addBoost(result, 'entity', boost);
   });
   
   // Re-sort by boosted similarity

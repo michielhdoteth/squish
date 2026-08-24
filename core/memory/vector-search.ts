@@ -42,6 +42,11 @@ function rowToSearchResult(row: any, similarity: number): SearchResult {
     content: row.content || '',
     type: row.type || 'note',
     similarity,
+    // Batch 3: on the raw vector leg, similarity IS the honest cosine.
+    semanticScore: similarity,
+    boostScore: 0,
+    finalScore: Math.max(0, Math.min(1, similarity)),
+    scoreBreakdown: {},
     metadata: typeof row.metadata === 'string' ? JSON.parse(row.metadata) : (row.metadata || {}),
     createdAt: row.createdAt instanceof Date
       ? row.createdAt.toISOString()

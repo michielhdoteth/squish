@@ -63,7 +63,24 @@ export interface SearchInput {
 
 // SearchResult extends the shared MemoryRecord from normalization.ts
 export interface SearchResult extends MemoryRecord {
+  /**
+   * @deprecated Batch 3: `similarity` was historically overloaded (raw cosine,
+   * negated FTS rank, normalized RRF, heuristic composite). It is now an alias
+   * of the served score (finalScore under v2 serving). New code should read
+   * semanticScore / boostScore / finalScore explicitly.
+   */
   similarity: number;
+  /**
+   * Honest retrieval relevance: cosine on the vector-only path, max-normalized
+   * RRF contribution when fused. Never overwritten by boosts.
+   */
+  semanticScore?: number;
+  /** Sum of additive adjustments; itemized per component in scoreBreakdown. */
+  boostScore?: number;
+  /** clamp01(semanticScore + boostScore) - the ordering score under v2 serving. */
+  finalScore?: number;
+  /** Per-component additive adjustments applied on top of semanticScore. */
+  scoreBreakdown?: import('../scoring/three-field.js').ScoreBreakdown;
   /** Retrieval trace for debugging (Phase 8) - populated when trace: true */
   _trace?: import('../retrieval/config.js').RetrievalTrace;
 }

@@ -17,6 +17,7 @@ import { createAssociation } from '../associations.js';
 import { search, type SearchResult } from '../memory/memories.js';
 import { updateAgentPreference } from '../agent-preferences.js';
 import { emit } from '../event-bus.js';
+import { meetsSemanticThreshold } from '../scoring/three-field.js';
 
 // Learning type: success, failure, fix, insight
 export type LearningType = 'success' | 'failure' | 'fix' | 'insight';
@@ -140,8 +141,11 @@ async function autoLinkLearning(learningId: string, content: string, projectId: 
       limit: MAX_LINKS,
     });
 
-    // Filter by similarity threshold
-    const relevantMemories = (similarMemories as SearchResult[]).filter((m: SearchResult) => (m.similarity ?? 0) >= SIMILARITY_THRESHOLD);
+    // Filter by semantic match quality (Batch 3: honest semanticScore,
+    // not the boost-inflated composite `similarity` used to carry)
+    const relevantMemories = (similarMemories as SearchResult[]).filter((m: SearchResult) =>
+      meetsSemanticThreshold(m, SIMILARITY_THRESHOLD)
+    );
 
     // Create associations with memories
     for (const mem of relevantMemories) {
