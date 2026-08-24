@@ -1617,6 +1617,8 @@ function mapCoreSearchResultToSdk(core: any): SearchResult {
     score: core.finalScore ?? core.similarity ?? 0,
     semanticScore: core.semanticScore,
     boostScore: core.boostScore,
+    finalScore: core.finalScore,
+    scoreBreakdown: core.scoreBreakdown,
     source: 'hybrid',
   };
 }

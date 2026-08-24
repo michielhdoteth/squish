@@ -90,7 +90,7 @@
       "relevance": 3,
       "importance": 2,
       "vectorSim": 3,
-        "graphBoost": 0.2
+      "graphBoost": 0.10
     }
   },
   "scheduler": {

@@ -32,11 +32,16 @@ if (!existsSync(testDataDir)) mkdirSync(testDataDir, { recursive: true });
 import { describe, it, expect, beforeEach, afterEach, mock, jest } from 'bun:test';
 import { getDb, resetDb } from '../db/index.js';
 import { rememberMemory } from '../core/memory/memories.js';
-import { hybridSearch, rrfFusion } from '../core/memory/hybrid-search.js';
+import { hybridSearch, rrfFusion, vectorSearch } from '../core/memory/hybrid-search.js';
 import { createAssociation } from '../core/associations.js';
 import { initializeDefaultPlaces } from '../core/places/places.js';
 import { requireProject } from '../core/projects.js';
+import { createDatabaseClient } from '../core/storage/database.js';
+import { logger } from '../core/logger.js';
 import type { SearchInput, SearchResult } from '../core/memory/memories.js';
+
+// Spy seam for debug-log assertions (bypasses the DEBUG env gate).
+const originalDebug = logger.debug;
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
@@ -727,5 +732,53 @@ describe('hybridSearch Pipeline Integration', () => {
 
       expect(results.length).toBeGreaterThan(0);
     });
+  });
+});
+
+// ── Vector scan parity (Batch 3-5 review) ────────────────────────────────
+
+describe('vector scan skip accounting', () => {
+  const savedScan = process.env.SQUISH_VECTOR_SCAN;
+
+  afterEach(() => {
+    if (savedScan === undefined) delete process.env.SQUISH_VECTOR_SCAN;
+    else process.env.SQUISH_VECTOR_SCAN = savedScan;
+    logger.debug = originalDebug;
+  });
+
+  it('recency mode counts vector-less rows like the full scan does', async () => {
+    const dim = 768;
+    process.env.SQUISH_VECTOR_SCAN = 'recency';
+
+    await insertMemoryWithEmbedding(
+      'quantum flux capacitor calibration notes',
+      textToEmbedding('quantum flux capacitor calibration notes', dim),
+      { type: 'fact' }
+    );
+
+    // Vector-less row: every embedding column NULL -> decodeCandidateEmbedding
+    // returns null. Must be counted (logged), not silently dropped.
+    await execSql(`
+      INSERT INTO memories (id, type, content, created_at, status, importance_score, source, visibility_scope)
+      VALUES ('no-vector-row-0001', 'fact', 'unrelated legacy row without vectors', datetime('now'), 'active', 50, 'mcp', 'private')
+    `);
+
+    const captured: string[] = [];
+    logger.debug = (msg: string) => { captured.push(String(msg)); };
+
+    const db = await getDb();
+    const results = await vectorSearch(
+      { query: 'quantum flux capacitor calibration' },
+      { limit: 10 },
+      textToEmbedding('quantum flux capacitor calibration', dim),
+      { dbClient: createDatabaseClient(db), db }
+    );
+
+    expect(results.length).toBeGreaterThan(0);
+    expect(results[0].content).toContain('flux capacitor');
+
+    const skipLog = captured.find(m => m.includes('recency window'));
+    expect(skipLog).toBeDefined();
+    expect(skipLog).toContain('1 vector-less');
   });
 });

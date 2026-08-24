@@ -421,11 +421,16 @@ function hydrateRows(sqlite: any, ids: string[]): Array<CandidateRow> {
 function scoreAndShape(rows: Array<CandidateRow>, queryEmbedding: number[], maxResults: number): SearchResult[] {
   const queryF32 = Float32Array.from(queryEmbedding);
   let skippedDimMismatch = 0;
+  let skippedNoVector = 0;
 
   const scored: Array<{ row: CandidateRow; similarity: number }> = [];
   for (const row of rows) {
     const embedding = decodeCandidateEmbedding(row);
-    if (!embedding) continue;
+    if (!embedding) {
+      // Parity with the full scan: vector-less rows are counted, not silent.
+      skippedNoVector += 1;
+      continue;
+    }
 
     let similarity: number;
     try {
@@ -440,8 +445,11 @@ function scoreAndShape(rows: Array<CandidateRow>, queryEmbedding: number[], maxR
     scored.push({ row, similarity });
   }
 
-  if (skippedDimMismatch > 0) {
-    logger.debug(`[vector-search] skipped ${skippedDimMismatch} dimension-mismatched row(s) in recency window`);
+  if (skippedDimMismatch > 0 || skippedNoVector > 0) {
+    logger.debug(
+      `[vector-search] recency window: skipped ${skippedDimMismatch} dimension-mismatched and ${skippedNoVector} vector-less row(s)` +
+      `(candidates=${rows.length}, mode=recency)`
+    );
   }
 
   scored.sort((a, b) => b.similarity - a.similarity);

@@ -116,6 +116,29 @@ describe('embedding codec', () => {
     expect(embeddingByteLength(768)).toBe(3072);
     expect(encodeEmbeddingBlob(new Array(10).fill(0.25))!.length).toBe(40);
   });
+
+  test('decode rejects NaN/Inf in ANY element, not just element 0', () => {
+    const vec = [1.5, -0.5, 2.5, 4.0];
+    const blob = encodeEmbeddingBlob(vec)!; // 16 bytes, aligned
+
+    const poisonAt = (index: number, bytes: number[]) => {
+      const corrupted = Buffer.from(blob);
+      corrupted.set(bytes, index * 4);
+      return decodeEmbeddingBlob(corrupted);
+    };
+
+    // NaN = 0x7fc00000 (little-endian), +Inf = 0x7f800000.
+    expect(poisonAt(1, [0x00, 0x00, 0xc0, 0x7f])).toBeNull();
+    expect(poisonAt(2, [0x00, 0x00, 0xc0, 0x7f])).toBeNull();
+    expect(poisonAt(3, [0x00, 0x00, 0x80, 0x7f])).toBeNull();
+    // Clean payload still decodes fine after the same dance.
+    expect(decodeEmbeddingBlob(blob)).not.toBeNull();
+
+    // Unaligned path validates the full array too (odd prefix shifts alignment).
+    const odd = new Uint8Array(blob.length + 2);
+    odd.set(blob, 2); // forces the DataView/slowDecode path
+    expect(decodeEmbeddingBlob(odd)!.length).toBe(4);
+  });
 });
 
 describe('prepareEmbedding write path (Batch 4)', () => {

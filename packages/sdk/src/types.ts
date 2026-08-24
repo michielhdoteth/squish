@@ -82,6 +82,13 @@ export interface SearchResult {
   semanticScore?: number;
   /** Sum of additive boosts applied on top of semanticScore. */
   boostScore?: number;
+  /** Explicit final score field: clamp01(semanticScore + boostScore). */
+  finalScore?: number;
+  /**
+   * Itemized additive adjustments (graph, place, heuristicRecency,
+   * rerankResidual, ...) that compose boostScore.
+   */
+  scoreBreakdown?: Record<string, number>;
   /** Source that found this result */
   source: 'vector' | 'fts' | 'graph' | 'hybrid';
   /** Optional explanation of why this matched */

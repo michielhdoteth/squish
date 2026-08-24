@@ -42,11 +42,18 @@ export interface RerankMeta {
   latencyMs?: number;
 }
 
+/**
+ * Aligned with parseEnvFlag semantics (core/retrieval/config.ts): recognized
+ * truthy/falsey tokens are honored; unrecognized junk falls back to the
+ * component default (ON since Batch 5) instead of being coerced to a value.
+ */
 function parseEnabledFlag(raw: string | undefined): boolean {
-  if (raw === undefined || raw === '') return true; // Batch 5 default ON
+  const DEFAULT = true; // Batch 5 default ON
+  if (raw === undefined || raw === '') return DEFAULT;
   const v = raw.trim().toLowerCase();
   if (['false', '0', 'no', 'off'].includes(v)) return false;
-  return true;
+  if (['true', '1', 'yes', 'on'].includes(v)) return true;
+  return DEFAULT;
 }
 
 /**

@@ -7,9 +7,10 @@ is judged by these numbers, so treat changes here as carefully as product code.
 
 | File | Purpose |
 |------|---------|
-| `golden-set.json` | Fixture corpus (60 memories, fictional "Helios Research Lab" content) + 47 graded queries. Fixed IDs (`golden_001`...), fully deterministic. |
+| `golden-set.json` | Fixture corpus (60 memories, fictional "Helios Research Lab" content) + 46 graded queries. Fixed IDs (`golden_001`...), fully deterministic. |
 | `run-eval.ts` | Harness: seeds an isolated temp SQLite DB via the real write path, runs every query through `SquishClient.search` exactly as production does, computes metrics, writes the report, exits nonzero on threshold breach. |
-| `baseline-report.json` | Committed "before" picture captured with current defaults (TF-IDF fallback embeddings). This is the reference point for the overhaul. |
+| `baseline-report.json` | Committed canonical baseline captured under the **pinned eval env** (see below). This is the reference point for retrieval changes. |
+| `reports/` | Committed ablation/breach artifacts that document flag decisions (e.g. `temporal-validity-on-breach.json`). |
 
 ## Run
 
@@ -21,6 +22,37 @@ bun tests/golden/run-eval.ts --out /tmp/report.json --top-k 10 --quiet
 Runtime is a few seconds. No network access is required or performed: the
 harness pins `SQUISH_EMBEDDINGS_PROVIDER=local` (repo default), which uses the
 offline TF-IDF fallback unless a local model is explicitly configured.
+
+### Pinned environment (canonical baselines)
+
+The default env is PINNED so baselines are identical across hosts regardless
+of warm caches or ambient config. Each variable is set only when unset in the
+environment (mirroring the `--real-model` pattern):
+
+| Variable | Pinned to | Why |
+|----------|-----------|-----|
+| `SQUISH_RERANKER_ENABLED` | `false` | The cross-encoder applies silently when a host has a warm HF cache -> machine-dependent scores. |
+| `SQUISH_QUERY_EXPANSION` | `true` | Production default; deterministic (rule-based) so it is pinned explicitly rather than left ambient. |
+| `SQUISH_GRAPH_BOOST_LEGACY` | `false` | Pins normalized graph boost (Batch 5 default) explicitly. |
+| `SQUISH_TEMPORAL_VALIDITY` | `false` | Gated off after a golden-eval breach (see `reports/temporal-validity-on-breach.json`). |
+| `SQUISH_SCORING_V2` | `true` | Pins v2 three-field serving explicitly. |
+
+Two opt-outs exist:
+
+```bash
+bun tests/golden/run-eval.ts --precision-stack   # ablation: PRODUCTION defaults (reranker ON etc.)
+bun tests/golden/run-eval.ts --real-model        # additionally enables the bundled embedding model
+```
+
+Never use `--precision-stack` output as a baseline; it exists to quantify what
+the precision stack adds/removes relative to the pinned gate.
+
+### Report provenance
+
+Each report's `meta` records `gitSha` (branch tip at run time) and `gitDirty`
+(whether uncommitted changes existed). A report generated from a dirty working
+tree describes exactly that state - regenerate baselines as the LAST step
+before committing so the committed report matches the committed code.
 
 ## Metrics
 
@@ -44,13 +76,22 @@ All three are reported per category (`paraphrase`, `entity`, `temporal`,
 `negation`, `procedural`, `multi-hop`) and overall. The report JSON includes
 per-query retrieved lists and scores for debugging misses.
 
-## Baseline (current defaults, TF-IDF fallback embeddings)
+## Baseline (pinned env, TF-IDF fallback embeddings)
 
-Overall: Recall@5 **0.925**, MRR **0.904**, HitRate@1 **0.870**. Weakest
-categories: **negation** ("do we still use X" conflict handling, hit@1 0.625)
-and **paraphrase** (lexical-gap queries like "which package manager won out?"
-miss the pnpm decision entirely). These are the known TF-IDF-era defects the
-overhaul should attack; see `baseline-report.json` for per-query detail.
+Overall: Recall@5 **0.935**, MRR **0.904**, HitRate@1 **0.870** (identical to
+the pre-pinning numbers on this host; pinning guarantees they hold everywhere).
+Weakest categories: **negation** ("do we still use X" conflict handling, hit@1
+0.625) and **paraphrase** (lexical-gap queries like "which package manager won
+out?" miss the pnpm decision entirely). These are the known TF-IDF-era defects
+the overhaul should attack; see `baseline-report.json` for per-query detail.
+
+### Flag-decision artifacts (`reports/`)
+
+- `temporal-validity-on-breach.json` - eval run with
+  `SQUISH_TEMPORAL_VALIDITY=true`: recall@5 0.837, MRR 0.809, HitRate@1 0.739,
+  breaching all three gates. This is the committed evidence for keeping the
+  flag OFF by default. The `notes` field inside documents reproduction steps
+  and diagnosis (flat staleness penalty too blunt on aged corpora).
 
 Known harness-discovered defect: the vector-search read path stringifies raw
 `created_at` integers and the SDK result mapper then produces an Invalid Date
@@ -86,6 +127,9 @@ How to use this when flipping retrieval flags:
 - TF-IDF hashing embeddings are pure functions of text.
 - Query routing (regex-based) and graph extraction are deterministic given the
   corpus.
+- The precision stack is pinned (reranker off, expansion on, normalized graph
+  boost, temporal validity off, v2 serving) so warm HF caches or ambient env
+  cannot change results between hosts; see "Pinned environment" above.
 
 ## Changing the dataset
 

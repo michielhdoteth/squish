@@ -5,6 +5,7 @@
  * - semanticScore invariant under boost changes (boosted vs unboosted config)
  * - finalScore identity + clamping, v2 vs legacy serving
  * - honest dedup threshold predicate (semanticScore, never composite)
+ * - threshold-decision shadow ring (recalibration data)
  * - SCORING_SCHEMA_VERSION flag matrix (SQUISH_SCORING_V2 / SQUISH_SCORING_SHADOW)
  * - shadow-mode ordering delta ring buffer
  */
@@ -19,6 +20,8 @@ import {
   servedSimilarity,
   clamp01,
   meetsSemanticThreshold,
+  getThresholdDecisions,
+  clearThresholdDecisions,
   deriveShadowDelta,
   recordShadowDelta,
   getShadowDeltas,
@@ -288,5 +291,54 @@ describe('shadow-mode ordering delta ring', () => {
     expect((ring[0] as any).query).toBe('q30');
     clearShadowDeltas();
     expect(getShadowDeltas().length).toBe(0);
+  });
+});
+
+describe('threshold-decision shadow ring (recalibration data, no behavior change)', () => {
+  it('records near-threshold decisions (0.8-0.95 band) with outcome', () => {
+    clearThresholdDecisions();
+    // Inside the band on both sides of a 0.85 gate.
+    meetsSemanticThreshold({ similarity: 0.84 }, 0.85); // near-miss
+    meetsSemanticThreshold({ similarity: 0.91 }, 0.85); // near-hit
+    const ring = getThresholdDecisions();
+    expect(ring.length).toBe(2);
+    expect(ring[0]).toMatchObject({ honestScore: 0.84, threshold: 0.85, passed: false });
+    expect(ring[1]).toMatchObject({ honestScore: 0.91, threshold: 0.85, passed: true });
+    expect(typeof ring[0].recordedAt).toBe('string');
+    clearThresholdDecisions();
+  });
+
+  it('does not record clear-cut decisions outside the observation band', () => {
+    clearThresholdDecisions();
+    meetsSemanticThreshold({ similarity: 0.99 }, 0.85); // clear hit
+    meetsSemanticThreshold({ similarity: 0.30 }, 0.85); // clear miss
+    expect(getThresholdDecisions().length).toBe(0);
+  });
+
+  it('logging never changes the boolean outcome', () => {
+    clearThresholdDecisions();
+    for (const score of [0.80, 0.8499, 0.85, 0.901, 0.95]) {
+      expect(meetsSemanticThreshold({ similarity: score }, 0.85)).toBe(score >= 0.85);
+      expect(meetsSemanticThreshold({ similarity: score }, 0.92)).toBe(score >= 0.92);
+    }
+    clearThresholdDecisions();
+  });
+
+  it('non-finite honest scores are never recorded', () => {
+    clearThresholdDecisions();
+    expect(meetsSemanticThreshold({ similarity: NaN }, 0.85)).toBe(false);
+    expect(getThresholdDecisions().length).toBe(0);
+  });
+
+  it('ring is bounded at 100 entries (newest kept)', () => {
+    clearThresholdDecisions();
+    for (let i = 0; i < 130; i++) {
+      meetsSemanticThreshold({ similarity: 0.82 + (i % 10) * 0.01 }, 0.85);
+    }
+    const ring = getThresholdDecisions();
+    expect(ring.length).toBe(100);
+    expect(ring[ring.length - 1].honestScore).toBeCloseTo(0.82 + (129 % 10) * 0.01, 10);
+    clearThresholdDecisions();
+    expect(getThresholdDecisions().length).toBe(0);
   });
 });

@@ -9,9 +9,15 @@
  * flips and retrieval changes.
  *
  * Run: bun tests/golden/run-eval.ts [--out <path>] [--top-k <n>] [--quiet]
+ *      [--real-model] [--precision-stack]
  *
- * Deterministic + offline: temp data dir, local TF-IDF embeddings fallback,
- * fixed staggered created_at timestamps, no network providers.
+ * Deterministic + offline by default: temp data dir, local TF-IDF embeddings
+ * fallback, fixed staggered created_at timestamps, no network providers, and
+ * a PINNED precision stack (reranker OFF, expansion ON, graph boost
+ * normalized, temporal validity OFF, v2 serving) so baselines are identical
+ * across hosts. `--precision-stack` opts into production defaults for
+ * ablation runs; `--real-model` additionally enables the bundled embedding
+ * model.
  */
 
 import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
@@ -19,6 +25,9 @@ import { tmpdir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
 import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+
+// Flag readers for report provenance (pure functions; no side effects).
+import { getPrecisionStackFlags, getGraphBoostFlags } from '../../core/retrieval/config.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -186,6 +195,15 @@ function shortGitSha(): string | null {
   }
 }
 
+function isGitDirty(): boolean | null {
+  try {
+    const status = execSync('git status --porcelain', { encoding: 'utf-8' });
+    return status.trim().length > 0;
+  } catch {
+    return null;
+  }
+}
+
 // ─── Harness ────────────────────────────────────────────────────────────────
 
 async function seedCorpus(goldenSet: GoldenSet, dataDir: string) {
@@ -252,6 +270,9 @@ async function main() {
   const outPath = flag('--out') ?? join(__dirname, 'baseline-report.json');
   const topK = Number(flag('--top-k') ?? 10);
   const quiet = argv.includes('--quiet');
+  // Ablation mode: run the PRODUCTION precision stack (no pinning) instead of
+  // the deterministic pinned env. Never used for canonical baselines.
+  const ablationMode = argv.includes('--precision-stack');
 
   const startedAt = Date.now();
 
@@ -261,6 +282,20 @@ async function main() {
   process.env.DATABASE_URL = '';
   delete process.env.SQUISH_DATABASE_URL;
   process.env.SQUISH_EMBEDDINGS_PROVIDER ||= 'local'; // repo default; TF-IDF fallback keeps it offline
+
+  // Pinned precision stack (default env). Without this, hosts with warm
+  // @huggingface/transformers caches would silently apply the cross-encoder
+  // during eval and produce machine-dependent baselines. Each var is pinned
+  // only when unset, mirroring the --real-model pattern below, so explicit
+  // operator overrides remain possible for targeted experiments. Use
+  // --precision-stack to skip pinning entirely and exercise prod defaults.
+  if (!ablationMode) {
+    if (!process.env.SQUISH_RERANKER_ENABLED) process.env.SQUISH_RERANKER_ENABLED = 'false';
+    if (!process.env.SQUISH_QUERY_EXPANSION) process.env.SQUISH_QUERY_EXPANSION = 'true';
+    if (!process.env.SQUISH_GRAPH_BOOST_LEGACY) process.env.SQUISH_GRAPH_BOOST_LEGACY = 'false';
+    if (!process.env.SQUISH_TEMPORAL_VALIDITY) process.env.SQUISH_TEMPORAL_VALIDITY = 'false';
+    if (!process.env.SQUISH_SCORING_V2) process.env.SQUISH_SCORING_V2 = 'true';
+  }
 
   // Batch 4: the local provider now background-loads a real bundled model.
   // The golden gate must stay deterministic + offline, so the bundled model
@@ -332,15 +367,29 @@ async function main() {
 
   const durationMs = Date.now() - startedAt;
 
+  const precisionFlags = getPrecisionStackFlags();
+  const graphFlags = getGraphBoostFlags();
+  const precisionStack = {
+    // The flags actually in effect for this run (post-pinning).
+    reranker: precisionFlags.reranker,
+    queryExpansion: precisionFlags.queryExpansion,
+    graphBoostLegacy: graphFlags.legacy,
+    temporalValidity: precisionFlags.temporalValidity,
+    scoringServeV2: (process.env.SQUISH_SCORING_V2 ?? 'true') !== 'false',
+  };
+
   const report = {
     meta: {
       generatedAt: new Date().toISOString(),
       gitSha: shortGitSha(),
+      gitDirty: isGitDirty(),
       corpusSize: goldenSet.memories.length,
       queryCount: goldenSet.queries.length,
       topK,
       embeddingsProvider: process.env.SQUISH_EMBEDDINGS_PROVIDER,
       bundledModel: process.env.SQUISH_LOCAL_BUNDLED_MODEL ?? 'off',
+      precisionStack,
+      envPinned: !ablationMode,
       durationMs,
       deterministic: true,
     },
@@ -355,7 +404,7 @@ async function main() {
 
   if (!quiet) {
     console.log('\n=== Golden Retrieval Eval ===');
-    console.log(`corpus=${goldenSet.memories.length} queries=${goldenSet.queries.length} topK=${topK} provider=${process.env.SQUISH_EMBEDDINGS_PROVIDER} bundledModel=${process.env.SQUISH_LOCAL_BUNDLED_MODEL} runtime=${durationMs}ms`);
+    console.log(`corpus=${goldenSet.memories.length} queries=${goldenSet.queries.length} topK=${topK} provider=${process.env.SQUISH_EMBEDDINGS_PROVIDER} bundledModel=${process.env.SQUISH_LOCAL_BUNDLED_MODEL} env=${ablationMode ? 'production-defaults(ablation)' : 'pinned'} runtime=${durationMs}ms`);
 
     console.log('\n-- Overall --');
     printTable(

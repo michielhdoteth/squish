@@ -79,6 +79,25 @@ describe('Precision stack flags (Batch 5)', () => {
       restoreEnv('SQUISH_RERANKER_ENABLED');
     }
   });
+
+  test('junk SQUISH_RERANKER_ENABLED falls back to the component default (ON)', () => {
+    saveEnv('SQUISH_RERANKER_ENABLED');
+    try {
+      // Aligned with parseEnvFlag: recognized tokens honored, junk -> default.
+      for (const junk of ['maybe', 'enabled', '2', 'TRUE!', 'on-off']) {
+        process.env.SQUISH_RERANKER_ENABLED = junk;
+        expect(getRerankerConfig().enabled).toBe(true);
+        expect(getRerankerConfig().enabled).toBe(getPrecisionStackFlags({ SQUISH_RERANKER_ENABLED: junk }).reranker);
+      }
+      for (const off of ['false', '0', 'no', 'off']) {
+        process.env.SQUISH_RERANKER_ENABLED = off;
+        expect(getRerankerConfig().enabled).toBe(false);
+        expect(getRerankerConfig().enabled).toBe(getPrecisionStackFlags({ SQUISH_RERANKER_ENABLED: off }).reranker);
+      }
+    } finally {
+      restoreEnv('SQUISH_RERANKER_ENABLED');
+    }
+  });
 });
 
 describe('Graph boost legacy escape hatch', () => {

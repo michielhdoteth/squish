@@ -16,6 +16,7 @@
 
 import { getDbClient } from '../lib/db-client.js';
 import { logger } from '../logger.js';
+import { config } from '../../config.js';
 import { eq, and, or, inArray } from 'drizzle-orm';
 import { InMemoryGraphBackend, GraphBackend } from '../graph/backend.js';
 
@@ -24,6 +25,30 @@ export interface GraphBoostParams {
   projectId?: string;
   maxDepth?: number; // Default: 2
   minWeight?: number; // Default: 0.3
+}
+
+/**
+ * Pre-Batch-5 effective graph weight. The legacy hatch (SQUISH_GRAPH_BOOST_
+ * LEGACY=true) restores the old MATH, so it must also restore the old WEIGHT:
+ * raw capped sums (max 3.0) x 0.2 = up to +0.60 absolute. Batch 5 halved the
+ * config default to 0.10 for the normalized mode; byte-compat requires the
+ * legacy path to keep multiplying by 0.2 unless the operator explicitly set
+ * SQUISH_WEIGHT_GRAPH_BOOST.
+ */
+export const LEGACY_GRAPH_BOOST_WEIGHT = 0.2;
+
+/**
+ * Effective multiplier for applyGraphBoostWithWeight given the active mode.
+ * - Explicit SQUISH_WEIGHT_GRAPH_BOOST (finite number) wins in BOTH modes.
+ * - Legacy mode defaults to 0.2 (pre-Batch-5 byte compatibility).
+ * - Normalized mode uses the config default (0.10).
+ */
+export function effectiveGraphBoostWeight(legacyMode: boolean): number {
+  const raw = process.env.SQUISH_WEIGHT_GRAPH_BOOST;
+  if (raw !== undefined && raw !== '' && Number.isFinite(Number(raw))) {
+    return Number(raw);
+  }
+  return legacyMode ? LEGACY_GRAPH_BOOST_WEIGHT : config.scoringWeights.graphBoost;
 }
 
 export interface GraphNode {

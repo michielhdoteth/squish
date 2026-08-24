@@ -51,7 +51,7 @@ function deduplicateById(results: SearchResult[]): SearchResult[] {
 
 // Graph boost
 // Batch 5: normalized (default) or legacy raw mode via SQUISH_GRAPH_BOOST_LEGACY.
-import { computeGraphBoost, calculateGraphBoostNormalized } from '../search/graph-boost.js';
+import { computeGraphBoost, calculateGraphBoostNormalized, effectiveGraphBoostWeight } from '../search/graph-boost.js';
 
 // Imports from split modules
 import { vectorSearch, type SearchDbContext } from './vector-search.js';
@@ -373,9 +373,11 @@ export async function hybridSearch(
   // set to 0..1 before applying config weight (default 0.10), so the maximum
   // possible contribution is +weight instead of the legacy +3.0 x weight.
   // Coactivation counts are log-scaled so hub memories cannot dominate.
-  // SQUISH_GRAPH_BOOST_LEGACY=true restores the pre-Batch-5 absolute mode.
-  const graphWeight = config.scoringWeights.graphBoost;
+  // SQUISH_GRAPH_BOOST_LEGACY=true restores the pre-Batch-5 absolute mode
+  // byte-for-byte: raw capped sums x the legacy weight 0.2 (max +0.60),
+  // unless SQUISH_WEIGHT_GRAPH_BOOST is set explicitly.
   const graphMode = getGraphBoostFlags();
+  const graphWeight = effectiveGraphBoostWeight(graphMode.legacy);
   const candidateIds = vectorResults.map(r => r.id);
 
   let results: SearchResult[];

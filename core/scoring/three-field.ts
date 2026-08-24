@@ -217,13 +217,71 @@ export function finalizeScores<T extends ScoreableResult>(
  * never the boosted composite or the served alias. Falls back to similarity
  * only for results that never passed through scored paths (e.g. hand-built
  * fixtures in downstream callers).
+ *
+ * Batch 3-5 recalibration: the 0.85 / 0.92 gates were calibrated against the
+ * old boost-inflated composites and now fire on honest cosine instead, so the
+ * operating point may have shifted. Near-threshold decisions are shadow-logged
+ * into a bounded ring (below) to give recalibration data. Logging never
+ * changes the boolean outcome.
  */
 export function meetsSemanticThreshold(
   result: Pick<ScoreableResult, 'semanticScore' | 'similarity'>,
   threshold: number
 ): boolean {
   const honest = result.semanticScore ?? result.similarity ?? 0;
+  recordThresholdDecision(honest, threshold);
   return honest >= threshold;
+}
+
+// ---------------------------------------------------------------------------
+// Threshold-decision shadow ring (recalibration data, zero behavior change)
+// ---------------------------------------------------------------------------
+
+/** Observation band: decisions with honest scores inside it are recorded. */
+export const THRESHOLD_OBSERVATION_BAND = { low: 0.8, high: 0.95 } as const;
+
+const THRESHOLD_RING_CAPACITY = 100;
+
+export interface ThresholdDecision {
+  /** Honest semantic score the gate evaluated. */
+  honestScore: number;
+  /** Gate threshold applied. */
+  threshold: number;
+  /** Outcome of the gate (what the caller received). */
+  passed: boolean;
+  recordedAt: string;
+}
+
+let thresholdRing: ThresholdDecision[] = [];
+
+/**
+ * Record a near-threshold gate decision into a bounded ring (newest last).
+ * Only scores within [low, high] of THRESHOLD_OBSERVATION_BAND are kept so
+ * clear-cut accepts/rejects do not drown the recalibration signal.
+ */
+function recordThresholdDecision(honestScore: number, threshold: number): void {
+  if (!Number.isFinite(honestScore)) return;
+  const { low, high } = THRESHOLD_OBSERVATION_BAND;
+  if (honestScore < low || honestScore > high) return;
+  thresholdRing.push({
+    honestScore,
+    threshold,
+    passed: honestScore >= threshold,
+    recordedAt: new Date().toISOString(),
+  });
+  if (thresholdRing.length > THRESHOLD_RING_CAPACITY) {
+    thresholdRing = thresholdRing.slice(thresholdRing.length - THRESHOLD_RING_CAPACITY);
+  }
+}
+
+/** Read-only snapshot of near-threshold decisions (oldest first). */
+export function getThresholdDecisions(): readonly ThresholdDecision[] {
+  return thresholdRing;
+}
+
+/** Test/operational hook: clear the decision ring. */
+export function clearThresholdDecisions(): void {
+  thresholdRing = [];
 }
 
 // ---------------------------------------------------------------------------

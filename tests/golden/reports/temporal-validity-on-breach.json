@@ -1,6 +1,6 @@
 {
   "meta": {
-    "generatedAt": "2026-08-24T03:27:37.519Z",
+    "generatedAt": "2026-08-24T03:27:47.871Z",
     "gitSha": "7564b01",
     "gitDirty": true,
     "corpusSize": 60,
@@ -12,11 +12,11 @@
       "reranker": false,
       "queryExpansion": true,
       "graphBoostLegacy": false,
-      "temporalValidity": false,
+      "temporalValidity": true,
       "scoringServeV2": true
     },
     "envPinned": true,
-    "durationMs": 1455,
+    "durationMs": 1549,
     "deterministic": true
   },
   "thresholds": {
@@ -26,9 +26,9 @@
   },
   "overall": {
     "count": 46,
-    "recallAt5": 0.9347826086956522,
-    "mrr": 0.9043478260869565,
-    "hitAt1": 0.8695652173913043
+    "recallAt5": 0.8369565217391305,
+    "mrr": 0.8087819185645273,
+    "hitAt1": 0.7391304347826086
   },
   "byCategory": {
     "paraphrase": {
@@ -45,25 +45,25 @@
     },
     "temporal": {
       "count": 8,
-      "recallAt5": 1,
-      "mrr": 1,
-      "hitAt1": 1
+      "recallAt5": 0.5625,
+      "mrr": 0.44737103174603177,
+      "hitAt1": 0.25
     },
     "negation": {
       "count": 8,
-      "recallAt5": 0.875,
+      "recallAt5": 0.8125,
       "mrr": 0.75,
       "hitAt1": 0.625
     },
     "procedural": {
       "count": 8,
       "recallAt5": 0.875,
-      "mrr": 0.8875,
+      "mrr": 0.890625,
       "hitAt1": 0.875
     },
     "multi-hop": {
       "count": 4,
-      "recallAt5": 1,
+      "recallAt5": 0.875,
       "mrr": 1,
       "hitAt1": 1
     }
@@ -113,12 +113,12 @@
           "score": 0.8089
         },
         {
-          "goldenId": "golden_057",
-          "score": 0.8084
-        },
-        {
           "goldenId": "golden_053",
           "score": 0.788
+        },
+        {
+          "goldenId": "golden_057",
+          "score": 0.5084
         }
       ],
       "recallStrategy": "graph_expanded",
@@ -164,16 +164,16 @@
           "score": 0.9054
         },
         {
-          "goldenId": "golden_032",
-          "score": 0.8923
-        },
-        {
           "goldenId": "golden_044",
           "score": 0.8483
         },
         {
           "goldenId": "golden_005",
           "score": 0.8432
+        },
+        {
+          "goldenId": "golden_032",
+          "score": 0.5923
         }
       ],
       "recallStrategy": "graph_expanded",
@@ -209,10 +209,6 @@
           "score": 0.9186
         },
         {
-          "goldenId": "golden_019",
-          "score": 0.9081
-        },
-        {
           "goldenId": "golden_051",
           "score": 0.8781
         },
@@ -231,6 +227,10 @@
         {
           "goldenId": "golden_013",
           "score": 0.8044
+        },
+        {
+          "goldenId": "golden_019",
+          "score": 0.6081
         }
       ],
       "recallStrategy": "graph_expanded",
@@ -263,7 +263,7 @@
         },
         {
           "goldenId": "golden_060",
-          "score": 0.8752
+          "score": 0.5752
         },
         {
           "goldenId": "golden_003",
@@ -343,7 +343,7 @@
         },
         {
           "goldenId": "golden_060",
-          "score": 0.4659
+          "score": 0.1659
         }
       ],
       "recallStrategy": "graph_expanded",
@@ -363,10 +363,6 @@
         {
           "goldenId": "golden_008",
           "score": 1
-        },
-        {
-          "goldenId": "golden_060",
-          "score": 0.9885
         },
         {
           "goldenId": "golden_011",
@@ -389,16 +385,20 @@
           "score": 0.8871
         },
         {
-          "goldenId": "golden_018",
-          "score": 0.8773
-        },
-        {
           "goldenId": "golden_047",
           "score": 0.8483
         },
         {
           "goldenId": "golden_051",
           "score": 0.82
+        },
+        {
+          "goldenId": "golden_060",
+          "score": 0.6885
+        },
+        {
+          "goldenId": "golden_018",
+          "score": 0.5773
         }
       ],
       "recallStrategy": "hybrid_search",
@@ -486,16 +486,8 @@
           "score": 0.9735
         },
         {
-          "goldenId": "golden_016",
-          "score": 0.9603
-        },
-        {
           "goldenId": "golden_011",
           "score": 0.9537
-        },
-        {
-          "goldenId": "golden_031",
-          "score": 0.9017
         },
         {
           "goldenId": "golden_001",
@@ -512,6 +504,14 @@
         {
           "goldenId": "golden_006",
           "score": 0.8732
+        },
+        {
+          "goldenId": "golden_016",
+          "score": 0.6603
+        },
+        {
+          "goldenId": "golden_031",
+          "score": 0.6017
         }
       ],
       "recallStrategy": "graph_expanded",
@@ -536,10 +536,6 @@
           "score": 1
         },
         {
-          "goldenId": "golden_048",
-          "score": 1
-        },
-        {
           "goldenId": "golden_058",
           "score": 1
         },
@@ -550,6 +546,10 @@
         {
           "goldenId": "golden_006",
           "score": 0.9248
+        },
+        {
+          "goldenId": "golden_048",
+          "score": 0.7122
         },
         {
           "goldenId": "golden_043",
@@ -615,16 +615,16 @@
           "score": 0.4622
         },
         {
-          "goldenId": "golden_032",
-          "score": 0.4553
-        },
-        {
           "goldenId": "golden_004",
           "score": 0.4486
         },
         {
           "goldenId": "golden_024",
           "score": 0.4421
+        },
+        {
+          "goldenId": "golden_032",
+          "score": 0.1553
         }
       ],
       "recallStrategy": "graph_expanded",
@@ -671,16 +671,16 @@
           "score": 0.8725
         },
         {
-          "goldenId": "golden_016",
-          "score": 0.8689
-        },
-        {
           "goldenId": "golden_039",
           "score": 0.8601
         },
         {
           "goldenId": "golden_052",
           "score": 0.8493
+        },
+        {
+          "goldenId": "golden_016",
+          "score": 0.5689
         }
       ],
       "recallStrategy": "graph_expanded",
@@ -727,16 +727,16 @@
           "score": 0.459
         },
         {
-          "goldenId": "golden_021",
-          "score": 0.4522
-        },
-        {
           "goldenId": "golden_006",
           "score": 0.4457
         },
         {
+          "goldenId": "golden_021",
+          "score": 0.1522
+        },
+        {
           "goldenId": "golden_048",
-          "score": 0.4393
+          "score": 0.1393
         }
       ],
       "recallStrategy": "hybrid_search",
@@ -787,12 +787,12 @@
           "score": 0.4766
         },
         {
-          "goldenId": "golden_048",
-          "score": 0.4693
-        },
-        {
           "goldenId": "golden_046",
           "score": 0.4622
+        },
+        {
+          "goldenId": "golden_048",
+          "score": 0.1693
         }
       ],
       "recallStrategy": "hybrid_search",
@@ -823,7 +823,7 @@
         },
         {
           "goldenId": "golden_017",
-          "score": 0.8357
+          "score": 0.5357
         },
         {
           "goldenId": "golden_004",
@@ -846,12 +846,12 @@
           "score": 0.4664
         },
         {
-          "goldenId": "golden_032",
-          "score": 0.4596
-        },
-        {
           "goldenId": "golden_036",
           "score": 0.4529
+        },
+        {
+          "goldenId": "golden_032",
+          "score": 0.1596
         }
       ],
       "recallStrategy": "graph_expanded",
@@ -875,10 +875,6 @@
           "score": 1
         },
         {
-          "goldenId": "golden_020",
-          "score": 0.9734
-        },
-        {
           "goldenId": "golden_007",
           "score": 0.9663
         },
@@ -887,8 +883,12 @@
           "score": 0.9612
         },
         {
+          "goldenId": "golden_020",
+          "score": 0.6734
+        },
+        {
           "goldenId": "golden_021",
-          "score": 0.9518
+          "score": 0.6518
         },
         {
           "goldenId": "golden_059",
@@ -927,7 +927,7 @@
       "retrieved": [
         {
           "goldenId": "golden_031",
-          "score": 1
+          "score": 0.72
         },
         {
           "goldenId": "golden_046",
@@ -958,12 +958,12 @@
           "score": 0.559
         },
         {
-          "goldenId": "golden_032",
-          "score": 0.5508
-        },
-        {
           "goldenId": "golden_006",
           "score": 0.5428
+        },
+        {
+          "goldenId": "golden_032",
+          "score": 0.2508
         }
       ],
       "recallStrategy": "graph_expanded",
@@ -985,28 +985,24 @@
       ],
       "retrieved": [
         {
-          "goldenId": "golden_017",
-          "score": 1
-        },
-        {
-          "goldenId": "golden_016",
-          "score": 1
-        },
-        {
           "goldenId": "golden_030",
           "score": 1
+        },
+        {
+          "goldenId": "golden_017",
+          "score": 0.9739
         },
         {
           "goldenId": "golden_015",
           "score": 0.9663
         },
         {
-          "goldenId": "golden_018",
-          "score": 0.9569
-        },
-        {
           "goldenId": "golden_058",
           "score": 0.9387
+        },
+        {
+          "goldenId": "golden_016",
+          "score": 0.9234
         },
         {
           "goldenId": "golden_008",
@@ -1023,12 +1019,16 @@
         {
           "goldenId": "golden_004",
           "score": 0.8594
+        },
+        {
+          "goldenId": "golden_018",
+          "score": 0.6569
         }
       ],
       "recallStrategy": "temporal_validity",
       "recallAtK": 1,
-      "rr": 1,
-      "hitAt1": true
+      "rr": 0.5,
+      "hitAt1": false
     },
     {
       "id": "q_temporal_02",
@@ -1041,24 +1041,12 @@
       "mayHit": [],
       "retrieved": [
         {
-          "goldenId": "golden_018",
-          "score": 1
-        },
-        {
-          "goldenId": "golden_019",
-          "score": 0.9805
-        },
-        {
           "goldenId": "golden_003",
           "score": 0.9451
         },
         {
           "goldenId": "golden_014",
           "score": 0.925
-        },
-        {
-          "goldenId": "golden_017",
-          "score": 0.8874
         },
         {
           "goldenId": "golden_005",
@@ -1069,22 +1057,34 @@
           "score": 0.8588
         },
         {
+          "goldenId": "golden_018",
+          "score": 0.74
+        },
+        {
+          "goldenId": "golden_019",
+          "score": 0.6805
+        },
+        {
+          "goldenId": "golden_017",
+          "score": 0.5874
+        },
+        {
           "goldenId": "golden_021",
-          "score": 0.8481
+          "score": 0.5481
         },
         {
           "goldenId": "golden_034",
-          "score": 0.8318
+          "score": 0.5318
         },
         {
           "goldenId": "golden_033",
-          "score": 0.8257
+          "score": 0.5257
         }
       ],
       "recallStrategy": "graph_expanded",
-      "recallAtK": 1,
-      "rr": 1,
-      "hitAt1": true
+      "recallAtK": 0.5,
+      "rr": 0.2,
+      "hitAt1": false
     },
     {
       "id": "q_temporal_03",
@@ -1098,23 +1098,7 @@
       "retrieved": [
         {
           "goldenId": "golden_021",
-          "score": 1
-        },
-        {
-          "goldenId": "golden_020",
-          "score": 1
-        },
-        {
-          "goldenId": "golden_059",
-          "score": 1
-        },
-        {
-          "goldenId": "golden_016",
-          "score": 0.9766
-        },
-        {
-          "goldenId": "golden_034",
-          "score": 0.975
+          "score": 0.9739
         },
         {
           "goldenId": "golden_044",
@@ -1125,16 +1109,32 @@
           "score": 0.9732
         },
         {
-          "goldenId": "golden_023",
-          "score": 0.955
-        },
-        {
           "goldenId": "golden_013",
           "score": 0.9245
         },
         {
+          "goldenId": "golden_020",
+          "score": 0.74
+        },
+        {
+          "goldenId": "golden_059",
+          "score": 0.7164
+        },
+        {
+          "goldenId": "golden_016",
+          "score": 0.6766
+        },
+        {
+          "goldenId": "golden_034",
+          "score": 0.675
+        },
+        {
+          "goldenId": "golden_023",
+          "score": 0.655
+        },
+        {
           "goldenId": "golden_022",
-          "score": 0.9137
+          "score": 0.6137
         }
       ],
       "recallStrategy": "temporal_validity",
@@ -1155,20 +1155,8 @@
       ],
       "retrieved": [
         {
-          "goldenId": "golden_022",
-          "score": 1
-        },
-        {
-          "goldenId": "golden_023",
-          "score": 0.9961
-        },
-        {
           "goldenId": "golden_027",
           "score": 0.9761
-        },
-        {
-          "goldenId": "golden_034",
-          "score": 0.9179
         },
         {
           "goldenId": "golden_004",
@@ -1193,12 +1181,24 @@
         {
           "goldenId": "golden_050",
           "score": 0.8274
+        },
+        {
+          "goldenId": "golden_022",
+          "score": 0.72
+        },
+        {
+          "goldenId": "golden_023",
+          "score": 0.6961
+        },
+        {
+          "goldenId": "golden_034",
+          "score": 0.6179
         }
       ],
       "recallStrategy": "temporal_validity",
-      "recallAtK": 1,
-      "rr": 1,
-      "hitAt1": true
+      "recallAtK": 0,
+      "rr": 0.125,
+      "hitAt1": false
     },
     {
       "id": "q_temporal_05",
@@ -1209,14 +1209,6 @@
       ],
       "mayHit": [],
       "retrieved": [
-        {
-          "goldenId": "golden_032",
-          "score": 1
-        },
-        {
-          "goldenId": "golden_019",
-          "score": 0.9734
-        },
         {
           "goldenId": "golden_036",
           "score": 0.934
@@ -1248,12 +1240,20 @@
         {
           "goldenId": "golden_043",
           "score": 0.8066
+        },
+        {
+          "goldenId": "golden_032",
+          "score": 0.72
+        },
+        {
+          "goldenId": "golden_019",
+          "score": 0.6734
         }
       ],
       "recallStrategy": "graph_expanded",
-      "recallAtK": 1,
-      "rr": 1,
-      "hitAt1": true
+      "recallAtK": 0,
+      "rr": 0.1111111111111111,
+      "hitAt1": false
     },
     {
       "id": "q_temporal_06",
@@ -1264,10 +1264,6 @@
       ],
       "mayHit": [],
       "retrieved": [
-        {
-          "goldenId": "golden_034",
-          "score": 1
-        },
         {
           "goldenId": "golden_050",
           "score": 1
@@ -1293,6 +1289,10 @@
           "score": 0.8164
         },
         {
+          "goldenId": "golden_034",
+          "score": 0.72
+        },
+        {
           "goldenId": "golden_012",
           "score": 0.512
         },
@@ -1302,13 +1302,13 @@
         },
         {
           "goldenId": "golden_021",
-          "score": 0.4958
+          "score": 0.1958
         }
       ],
       "recallStrategy": "graph_expanded",
-      "recallAtK": 1,
-      "rr": 1,
-      "hitAt1": true
+      "recallAtK": 0,
+      "rr": 0.14285714285714285,
+      "hitAt1": false
     },
     {
       "id": "q_temporal_07",
@@ -1320,24 +1320,16 @@
       "mayHit": [],
       "retrieved": [
         {
-          "goldenId": "golden_033",
-          "score": 1
-        },
-        {
           "goldenId": "golden_047",
           "score": 0.9883
         },
         {
+          "goldenId": "golden_033",
+          "score": 0.97
+        },
+        {
           "goldenId": "golden_060",
-          "score": 0.9416
-        },
-        {
-          "goldenId": "golden_019",
-          "score": 0.6514
-        },
-        {
-          "goldenId": "golden_017",
-          "score": 0.6411
+          "score": 0.6416
         },
         {
           "goldenId": "golden_004",
@@ -1358,12 +1350,20 @@
         {
           "goldenId": "golden_003",
           "score": 0.4553
+        },
+        {
+          "goldenId": "golden_019",
+          "score": 0.3514
+        },
+        {
+          "goldenId": "golden_017",
+          "score": 0.3411
         }
       ],
       "recallStrategy": "temporal_validity",
       "recallAtK": 1,
-      "rr": 1,
-      "hitAt1": true
+      "rr": 0.5,
+      "hitAt1": false
     },
     {
       "id": "q_temporal_08",
@@ -1379,18 +1379,6 @@
           "score": 1
         },
         {
-          "goldenId": "golden_021",
-          "score": 1
-        },
-        {
-          "goldenId": "golden_034",
-          "score": 0.9819
-        },
-        {
-          "goldenId": "golden_016",
-          "score": 0.9812
-        },
-        {
           "goldenId": "golden_011",
           "score": 0.9741
         },
@@ -1399,20 +1387,32 @@
           "score": 0.9732
         },
         {
-          "goldenId": "golden_023",
-          "score": 0.9557
-        },
-        {
-          "goldenId": "golden_059",
-          "score": 0.9426
-        },
-        {
           "goldenId": "golden_036",
           "score": 0.934
         },
         {
           "goldenId": "golden_001",
           "score": 0.9188
+        },
+        {
+          "goldenId": "golden_021",
+          "score": 0.7419
+        },
+        {
+          "goldenId": "golden_034",
+          "score": 0.6819
+        },
+        {
+          "goldenId": "golden_016",
+          "score": 0.6812
+        },
+        {
+          "goldenId": "golden_023",
+          "score": 0.6557
+        },
+        {
+          "goldenId": "golden_059",
+          "score": 0.6426
         }
       ],
       "recallStrategy": "temporal_validity",
@@ -1455,10 +1455,6 @@
           "score": 0.8676
         },
         {
-          "goldenId": "golden_017",
-          "score": 0.492
-        },
-        {
           "goldenId": "golden_002",
           "score": 0.4766
         },
@@ -1469,6 +1465,10 @@
         {
           "goldenId": "golden_011",
           "score": 0.4486
+        },
+        {
+          "goldenId": "golden_017",
+          "score": 0.192
         }
       ],
       "recallStrategy": "graph_expanded",
@@ -1494,14 +1494,6 @@
           "score": 1
         },
         {
-          "goldenId": "golden_016",
-          "score": 0.9961
-        },
-        {
-          "goldenId": "golden_017",
-          "score": 0.9732
-        },
-        {
           "goldenId": "golden_029",
           "score": 0.9394
         },
@@ -1510,16 +1502,24 @@
           "score": 0.9098
         },
         {
-          "goldenId": "golden_019",
-          "score": 0.8198
-        },
-        {
           "goldenId": "golden_004",
           "score": 0.8074
         },
         {
           "goldenId": "golden_024",
           "score": 0.7702
+        },
+        {
+          "goldenId": "golden_016",
+          "score": 0.6961
+        },
+        {
+          "goldenId": "golden_017",
+          "score": 0.6732
+        },
+        {
+          "goldenId": "golden_019",
+          "score": 0.5198
         },
         {
           "goldenId": "golden_015",
@@ -1531,7 +1531,7 @@
         }
       ],
       "recallStrategy": "graph_expanded",
-      "recallAtK": 1,
+      "recallAtK": 0.5,
       "rr": 1,
       "hitAt1": true
     },
@@ -1602,10 +1602,6 @@
       "mayHit": [],
       "retrieved": [
         {
-          "goldenId": "golden_018",
-          "score": 1
-        },
-        {
           "goldenId": "golden_012",
           "score": 0.9981
         },
@@ -1640,6 +1636,10 @@
         {
           "goldenId": "golden_013",
           "score": 0.8807
+        },
+        {
+          "goldenId": "golden_018",
+          "score": 0.72
         }
       ],
       "recallStrategy": "graph_expanded",
@@ -1659,11 +1659,11 @@
       "retrieved": [
         {
           "goldenId": "golden_018",
-          "score": 1
+          "score": 0.74
         },
         {
           "goldenId": "golden_019",
-          "score": 1
+          "score": 0.7239
         },
         {
           "goldenId": "golden_003",
@@ -1676,10 +1676,6 @@
         {
           "goldenId": "golden_043",
           "score": 0.4693
-        },
-        {
-          "goldenId": "golden_033",
-          "score": 0.4622
         },
         {
           "goldenId": "golden_035",
@@ -1696,6 +1692,10 @@
         {
           "goldenId": "golden_049",
           "score": 0.4358
+        },
+        {
+          "goldenId": "golden_033",
+          "score": 0.1622
         }
       ],
       "recallStrategy": "graph_expanded",
@@ -1748,12 +1748,12 @@
           "score": 0.8874
         },
         {
-          "goldenId": "golden_032",
-          "score": 0.8509
-        },
-        {
           "goldenId": "golden_055",
           "score": 0.8371
+        },
+        {
+          "goldenId": "golden_032",
+          "score": 0.5509
         }
       ],
       "recallStrategy": "graph_expanded",
@@ -1775,16 +1775,8 @@
           "score": 1
         },
         {
-          "goldenId": "golden_019",
-          "score": 0.963
-        },
-        {
           "goldenId": "golden_038",
           "score": 0.9603
-        },
-        {
-          "goldenId": "golden_017",
-          "score": 0.9535
         },
         {
           "goldenId": "golden_056",
@@ -1803,12 +1795,20 @@
           "score": 0.913
         },
         {
-          "goldenId": "golden_057",
-          "score": 0.8453
-        },
-        {
           "goldenId": "golden_027",
           "score": 0.8318
+        },
+        {
+          "goldenId": "golden_019",
+          "score": 0.663
+        },
+        {
+          "goldenId": "golden_017",
+          "score": 0.6535
+        },
+        {
+          "goldenId": "golden_057",
+          "score": 0.5453
         }
       ],
       "recallStrategy": "graph_expanded",
@@ -1842,10 +1842,6 @@
           "score": 0.9137
         },
         {
-          "goldenId": "golden_016",
-          "score": 0.8536
-        },
-        {
           "goldenId": "golden_038",
           "score": 0.8514
         },
@@ -1862,8 +1858,12 @@
           "score": 0.8157
         },
         {
+          "goldenId": "golden_016",
+          "score": 0.5536
+        },
+        {
           "goldenId": "golden_060",
-          "score": 0.8118
+          "score": 0.5118
         }
       ],
       "recallStrategy": "hybrid_search",
@@ -1960,25 +1960,25 @@
           "score": 0.9224
         },
         {
-          "goldenId": "golden_017",
-          "score": 0.9088
-        },
-        {
-          "goldenId": "golden_033",
-          "score": 0.8971
-        },
-        {
           "goldenId": "golden_051",
           "score": 0.8611
         },
         {
           "goldenId": "golden_014",
           "score": 0.8453
+        },
+        {
+          "goldenId": "golden_017",
+          "score": 0.6088
+        },
+        {
+          "goldenId": "golden_033",
+          "score": 0.5971
         }
       ],
       "recallStrategy": "temporal_validity",
       "recallAtK": 0,
-      "rr": 0.1,
+      "rr": 0.125,
       "hitAt1": false
     },
     {
@@ -1995,18 +1995,6 @@
         {
           "goldenId": "golden_015",
           "score": 1
-        },
-        {
-          "goldenId": "golden_017",
-          "score": 0.6737
-        },
-        {
-          "goldenId": "golden_032",
-          "score": 0.6567
-        },
-        {
-          "goldenId": "golden_019",
-          "score": 0.5889
         },
         {
           "goldenId": "golden_044",
@@ -2031,6 +2019,18 @@
         {
           "goldenId": "golden_006",
           "score": 0.4553
+        },
+        {
+          "goldenId": "golden_017",
+          "score": 0.3737
+        },
+        {
+          "goldenId": "golden_032",
+          "score": 0.3567
+        },
+        {
+          "goldenId": "golden_019",
+          "score": 0.2889
         }
       ],
       "recallStrategy": "temporal_validity",
@@ -2052,10 +2052,6 @@
           "score": 1
         },
         {
-          "goldenId": "golden_060",
-          "score": 0.984
-        },
-        {
           "goldenId": "golden_013",
           "score": 0.9611
         },
@@ -2068,6 +2064,10 @@
           "score": 0.8886
         },
         {
+          "goldenId": "golden_060",
+          "score": 0.684
+        },
+        {
           "goldenId": "golden_015",
           "score": 0.5041
         },
@@ -2076,16 +2076,16 @@
           "score": 0.4805
         },
         {
-          "goldenId": "golden_048",
-          "score": 0.4659
-        },
-        {
           "goldenId": "golden_003",
           "score": 0.4522
         },
         {
           "goldenId": "golden_039",
           "score": 0.4457
+        },
+        {
+          "goldenId": "golden_048",
+          "score": 0.1659
         }
       ],
       "recallStrategy": "graph_expanded",
@@ -2122,16 +2122,16 @@
           "score": 0.8973
         },
         {
-          "goldenId": "golden_048",
-          "score": 0.8943
-        },
-        {
           "goldenId": "golden_025",
           "score": 0.863
         },
         {
           "goldenId": "golden_035",
           "score": 0.8547
+        },
+        {
+          "goldenId": "golden_048",
+          "score": 0.5943
         },
         {
           "goldenId": "golden_014",
@@ -2173,10 +2173,6 @@
           "score": 1
         },
         {
-          "goldenId": "golden_023",
-          "score": 0.922
-        },
-        {
           "goldenId": "golden_024",
           "score": 0.8906
         },
@@ -2201,8 +2197,12 @@
           "score": 0.8592
         },
         {
+          "goldenId": "golden_023",
+          "score": 0.622
+        },
+        {
           "goldenId": "golden_016",
-          "score": 0.8359
+          "score": 0.5359
         }
       ],
       "recallStrategy": "multi_hop",
@@ -2233,10 +2233,6 @@
           "score": 0.9611
         },
         {
-          "goldenId": "golden_019",
-          "score": 0.9403
-        },
-        {
           "goldenId": "golden_046",
           "score": 0.8798
         },
@@ -2247,6 +2243,10 @@
         {
           "goldenId": "golden_029",
           "score": 0.8076
+        },
+        {
+          "goldenId": "golden_019",
+          "score": 0.6403
         },
         {
           "goldenId": "golden_038",
@@ -2288,24 +2288,12 @@
           "score": 1
         },
         {
-          "goldenId": "golden_017",
-          "score": 0.9718
-        },
-        {
-          "goldenId": "golden_048",
-          "score": 0.9663
-        },
-        {
           "goldenId": "golden_040",
           "score": 0.9313
         },
         {
           "goldenId": "golden_035",
           "score": 0.9173
-        },
-        {
-          "goldenId": "golden_016",
-          "score": 0.8961
         },
         {
           "goldenId": "golden_001",
@@ -2318,10 +2306,22 @@
         {
           "goldenId": "golden_006",
           "score": 0.8218
+        },
+        {
+          "goldenId": "golden_017",
+          "score": 0.6718
+        },
+        {
+          "goldenId": "golden_048",
+          "score": 0.6663
+        },
+        {
+          "goldenId": "golden_016",
+          "score": 0.5961
         }
       ],
       "recallStrategy": "graph_expanded",
-      "recallAtK": 1,
+      "recallAtK": 0.5,
       "rr": 1,
       "hitAt1": true
     },
@@ -2354,10 +2354,6 @@
           "score": 0.9374
         },
         {
-          "goldenId": "golden_057",
-          "score": 0.9107
-        },
-        {
           "goldenId": "golden_001",
           "score": 0.8929
         },
@@ -2374,8 +2370,12 @@
           "score": 0.8594
         },
         {
+          "goldenId": "golden_057",
+          "score": 0.6107
+        },
+        {
           "goldenId": "golden_019",
-          "score": 0.8566
+          "score": 0.5566
         }
       ],
       "recallStrategy": "graph_expanded",
@@ -2562,14 +2562,6 @@
           "score": 1
         },
         {
-          "goldenId": "golden_021",
-          "score": 0.9741
-        },
-        {
-          "goldenId": "golden_020",
-          "score": 0.9658
-        },
-        {
           "goldenId": "golden_024",
           "score": 0.9445
         },
@@ -2590,12 +2582,20 @@
           "score": 0.9042
         },
         {
-          "goldenId": "golden_018",
-          "score": 0.9041
-        },
-        {
           "goldenId": "golden_011",
           "score": 0.8592
+        },
+        {
+          "goldenId": "golden_021",
+          "score": 0.6741
+        },
+        {
+          "goldenId": "golden_020",
+          "score": 0.6658
+        },
+        {
+          "goldenId": "golden_018",
+          "score": 0.6041
         }
       ],
       "recallStrategy": "graph_expanded",
@@ -2629,14 +2629,6 @@
           "score": 0.8902
         },
         {
-          "goldenId": "golden_018",
-          "score": 0.8612
-        },
-        {
-          "goldenId": "golden_016",
-          "score": 0.8483
-        },
-        {
           "goldenId": "golden_003",
           "score": 0.8482
         },
@@ -2651,6 +2643,14 @@
         {
           "goldenId": "golden_058",
           "score": 0.8227
+        },
+        {
+          "goldenId": "golden_018",
+          "score": 0.5612
+        },
+        {
+          "goldenId": "golden_016",
+          "score": 0.5483
         }
       ],
       "recallStrategy": "hybrid_search",
@@ -2658,5 +2658,18 @@
       "rr": 1,
       "hitAt1": true
     }
-  ]
+  ],
+  "notes": {
+    "purpose": "Committed evidence for the decision to keep SQUISH_TEMPORAL_VALIDITY OFF by default. This run enables the flag; every overall metric breaches its golden gate threshold.",
+    "howProduced": "SQUISH_TEMPORAL_VALIDITY=true bun tests/golden/run-eval.ts --out tests/golden/reports/temporal-validity-on-breach.json --quiet (exit code 1: threshold breach). All other env identical to the pinned canonical baseline env (see tests/golden/README.md), so the only delta vs baseline-report.json is the temporal-validity penalty.",
+    "breach": "recallAt5 0.837 < 0.85; mrr 0.809 < 0.82; hitAt1 0.739 < 0.78",
+    "baseline": {
+      "recallAt5": 0.935,
+      "mrr": 0.904,
+      "hitAt1": 0.87,
+      "source": "tests/golden/baseline-report.json (pinned env)"
+    },
+    "diagnosis": "The flat staleness penalty (-0.30 on the served composite) is too blunt on aged corpora: golden memories are seeded at fixed Jan-2026 timestamps and many legitimately contain historical/temporal references, so isLikelyStale() fires on relevant must-hit documents and demotes them below non-stale distractors.",
+    "decision": "Flag stays opt-in until the staleness signal is scoped (e.g. only penalize when the query itself references current state). Re-run this exact command after any change to temporal-validity.ts and re-commit this artifact alongside any default flip."
+  }
 }

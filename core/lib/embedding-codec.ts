@@ -70,7 +70,8 @@ export function decodeEmbeddingBlob(data: unknown): Float32Array | null {
   // Fast path: buffer is 4-byte aligned within its ArrayBuffer, and every
   // runtime we support is little-endian (verified once below). Otherwise
   // fall back to an explicit DataView read which handles any offset and
-  // guarantees little-endian semantics per spec.
+  // guarantees little-endian semantics per spec. Every element is validated:
+  // a single NaN/Inf anywhere would poison dot products downstream.
   if (LITTLE_ENDIAN_HOST && bytes.byteOffset % 4 === 0 && usable === bytes.byteLength) {
     try {
       const out = new Float32Array(
@@ -78,7 +79,7 @@ export function decodeEmbeddingBlob(data: unknown): Float32Array | null {
         bytes.byteOffset,
         usable / 4,
       );
-      return Number.isFinite(out[0]) ? out : slowDecode(bytes, usable);
+      return allFinite(out) ? out : null;
     } catch {
       // RangeError on exotic views - fall through to DataView path
     }
@@ -86,13 +87,23 @@ export function decodeEmbeddingBlob(data: unknown): Float32Array | null {
   return slowDecode(bytes, usable);
 }
 
+/** Cheap full-array finite check (rejects NaN/Inf in ANY element). */
+function allFinite(vec: Float32Array): boolean {
+  for (let i = 0; i < vec.length; i++) {
+    if (!Number.isFinite(vec[i])) return false;
+  }
+  return true;
+}
+
 function slowDecode(bytes: Uint8Array, usable: number): Float32Array | null {
   const out = new Float32Array(usable / 4);
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   for (let i = 0; i < out.length; i++) {
-    out[i] = view.getFloat32(i * 4, true);
+    const v = view.getFloat32(i * 4, true);
+    if (!Number.isFinite(v)) return null;
+    out[i] = v;
   }
-  return Number.isFinite(out[0]) ? out : null;
+  return out;
 }
 
 const LITTLE_ENDIAN_HOST: boolean = (() => {
