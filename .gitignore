@@ -90,7 +90,11 @@ wiki/
 
 # References and opencode directories
 references/
-opencode/
+# Anchored: only a ROOT-level opencode/ dir is local-only. The unanchored
+# pattern also matched plugin/opencode/, which left the in-repo OpenCode
+# plugin unversioned (Batch 7 review, I-3).
+/opencode/
+!plugin/opencode/
 
 # Quick start guide (local only, do not commit)
 QUICK-START.md

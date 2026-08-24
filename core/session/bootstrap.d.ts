@@ -8,6 +8,8 @@
  */
 export type BootstrapSectionName = 'core-memory' | 'beliefs' | 'working-set' | 'pinned' | 'recent-decisions';
 export declare const BOOTSTRAP_SECTION_PRIORITY: BootstrapSectionName[];
+/** Fraction of the total ceiling each section may occupy. */
+export declare const SECTION_BUDGET_FRACTIONS: Record<BootstrapSectionName, number>;
 export interface ComposeSessionBootstrapOptions {
     projectPath?: string;
     /** Explicit harness/squish session ID for the working-set lookup. */
@@ -16,6 +18,8 @@ export interface ComposeSessionBootstrapOptions {
     totalTokenCeiling?: number;
     /** Max rendered items per section. Default 4. */
     maxItemsPerSection?: number;
+    /** Create unknown project rows. Default OFF for read paths (M-5). */
+    ensureProject?: boolean;
 }
 export interface BootstrapSectionInfo {
     name: BootstrapSectionName;

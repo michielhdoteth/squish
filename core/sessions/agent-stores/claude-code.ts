@@ -143,7 +143,9 @@ interface RawMessage {
     stop_reason?: string;
   };
   uuid?: string;
-  timestamp?: number;
+  // Batch 7 review (M-6): real transcripts carry both epoch-ms numbers and
+  // ISO strings depending on Claude Code version. Normalize on parse.
+  timestamp?: string | number;
   cwd?: string;
   sessionId?: string;
   version?: string;
@@ -580,6 +582,70 @@ interface ParsedSession {
 const MAX_CACHED_TEXT_CHARS = 24_000;
 
 /**
+ * Batch 7 review (M-1): derive the real project directory for a transcript
+ * file under `~/.claude/projects/<hash>/`.
+ *
+ * The hash directory name is NOT a usable project path (its basename is
+ * literally "projects"), so naively using `basename(dirname(dirname(file)))`
+ * synthesized a bogus "projects" project and `recordParsedSessionSignals`
+ * then created a junk project row via ensureProject.
+ *
+ * Resolution order:
+ *   1. Exact match against history.jsonl entries whose project hashes to
+ *      the same directory (lossless).
+ *   2. Lossy reconstruction of the hashed absolute path ('-' -> '\' after
+ *      the drive letter), accepted only when the reconstructed path is a
+ *      real directory on disk.
+ *   3. Empty string - callers treat this as "no project attribution".
+ */
+export function deriveProjectForTranscript(claudeDir: string, filePath: string): string {
+  const projectsDir = path.join(claudeDir, 'projects');
+  const parentDir = path.dirname(path.dirname(filePath));
+  if (parentDir !== projectsDir) return '';
+  const hashDirName = path.basename(path.dirname(filePath));
+  if (!hashDirName || hashDirName === 'projects') return '';
+
+  for (const entry of readHistoryIndex(claudeDir)) {
+    if (entry.project && projectHash(entry.project) === hashDirName) {
+      try {
+        if (fs.statSync(entry.project).isDirectory()) return entry.project;
+      } catch {
+        // History points at a deleted project; keep looking.
+      }
+    }
+  }
+
+  const winStyle = /^([A-Za-z])--(.+)$/.exec(hashDirName);
+  if (winStyle) {
+    const candidate = `${winStyle[1]}:\\${winStyle[2].replace(/-/g, '\\')}`;
+    try {
+      if (fs.statSync(candidate).isDirectory()) return candidate;
+    } catch {
+      // Reversal is ambiguous for paths containing literal '-'; fall through.
+    }
+  }
+  return '';
+}
+
+/**
+ * Batch 7 review (M-6): normalize a raw transcript timestamp to epoch ms.
+ * Accepts epoch-ms numbers, numeric strings, and ISO-8601 strings; returns
+ * 0 when the value is unusable so downstream `ts || fallback` logic works.
+ */
+function normalizeMessageEpoch(value: string | number | undefined): number {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return 0;
+    const asNumber = Number(trimmed);
+    if (Number.isFinite(asNumber) && trimmed !== '') return asNumber;
+    const parsed = Date.parse(trimmed);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  }
+  return 0;
+}
+
+/**
  * Build the parsed `{ group, chunks, texts }` payload for a session file.
  * Pure parsing — no cache interaction.
  */
@@ -598,7 +664,7 @@ function parseSessionFile(
     texts.push({
       role: msg.message?.role ?? msg.type,
       text,
-      ts: msg.timestamp ?? 0,
+      ts: normalizeMessageEpoch(msg.timestamp),
       uuid: msg.uuid,
       branch: msg.gitBranch,
     });
@@ -686,10 +752,14 @@ async function loadParsedSession(
   let entry_ = entry;
   if (!entry_) {
     // No history entry: synthesize a minimal group from the file itself.
+    // Batch 7 review (M-1): the parent-of-parent directory is the project
+    // HASH dir, not a project path - derive a real directory or use none
+    // instead of attributing sessions to a bogus "projects" project.
+    const derivedProject = deriveProjectForTranscript(claudeDir, filePath);
     entry_ = {
       display: '',
-      timestamp: stat ? Math.round(stat.mtimeMs) : Date.now(),
-      project: path.basename(path.dirname(path.dirname(filePath))),
+      timestamp: stat ? Math.floor(stat.mtimeMs) : Date.now(),
+      project: derivedProject,
       sessionId,
     };
   }
@@ -712,7 +782,12 @@ async function loadParsedSession(
       chunks: parsed.chunks,
       texts: boundedTexts,
     } as any);
-    void recordParsedSessionSignals({
+    // Batch 7 review (I-1): awaited, not fire-and-forget. Short-lived CLI
+    // processes (`squish sessions show`) exit before dangling promises
+    // resolve, silently dropping the signals. This path only runs on
+    // single-session cache misses (bulk scans pass cacheWrite:false), so
+    // awaiting costs nothing and keeps long-lived MCP servers correct too.
+    await recordParsedSessionSignals({
       sessionId: `claude-code:${sessionId}`,
       projectPath: entry_.project || undefined,
       chunks: parsed.chunks.map((c) => ({ type: c.type, content: c.content })),

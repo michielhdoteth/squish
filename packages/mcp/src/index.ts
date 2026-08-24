@@ -566,7 +566,13 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
       if (action === "session-start") {
         try {
           const { composeSessionBootstrap } = await import('../../../core/session/bootstrap.js');
-          const bootstrap = await composeSessionBootstrap({ projectPath: resolvedProject });
+          // Batch 7 review (M-5): session-start is an explicit harness
+          // action, so it may register the project row; plain read paths
+          // no longer do this by default.
+          const bootstrap = await composeSessionBootstrap({
+            projectPath: resolvedProject,
+            ensureProject: true,
+          });
           return {
             content: [{
               type: "text",

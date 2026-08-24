@@ -544,7 +544,10 @@ async function loadRolloutChunksCached(
   const chunks = rolloutToChunks(rollout, group);
   if (chunks.length > 0) {
     await writeSessionCache('codex', sessionId, rolloutPath, stat, { group, chunks });
-    void recordParsedSessionSignals({
+    // Batch 7 review (I-1): awaited so short-lived CLI processes
+    // (`squish sessions show`) persist signals before exit. Only reached
+    // on single-session cache misses.
+    await recordParsedSessionSignals({
       sessionId: `codex:${sessionId}`,
       projectPath: group.repo_path || undefined,
       chunks: chunks.map((c) => ({ type: c.type, content: c.content })),

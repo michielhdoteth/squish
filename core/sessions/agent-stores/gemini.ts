@@ -252,7 +252,10 @@ async function loadParsedChat(
       chunks,
       texts: bounded,
     } as any);
-    void recordParsedSessionSignals({
+    // Batch 7 review (I-1): awaited so short-lived CLI processes persist
+    // signals before exit (no-op today - gemini hash dirs cannot be
+    // reversed to a projectPath, but the contract holds for callers).
+    await recordParsedSessionSignals({
       sessionId: `gemini:${group.session_id}`,
       projectPath: undefined,
       chunks: chunks.map((c) => ({ type: c.type, content: c.content })),

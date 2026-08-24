@@ -29,7 +29,12 @@ export interface SessionCacheStat {
 export function statSessionFile(filePath: string): SessionCacheStat | null {
   try {
     const stat = fs.statSync(filePath);
-    return { mtimeMs: stat.mtimeMs, sizeBytes: stat.size };
+    // Batch 7 review (M-4): mtimeMs is fractional on most filesystems and
+    // SQLite stores it as REAL, where float round-trips can make stored vs
+    // freshly-stat'ed values differ by sub-ms noise. Floor to integer ms at
+    // the single source so writes and freshness comparisons always see the
+    // same value.
+    return { mtimeMs: Math.floor(stat.mtimeMs), sizeBytes: stat.size };
   } catch {
     return null;
   }

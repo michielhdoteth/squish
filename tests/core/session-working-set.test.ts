@@ -15,7 +15,9 @@ import {
   recordSessionSignal,
   getSessionWorkingSet,
   compactSessionWorkingSet,
+  getLatestProjectWorkingSetSummary,
 } from '../../core/session/working-set.js';
+import { getDbClient } from '../../core/lib/db-client.js';
 import { getDb } from '../../db/index.js';
 
 async function clearAllTables() {
@@ -120,5 +122,45 @@ describe('session working set', () => {
     const workingSet = await getSessionWorkingSet(sessionId, projectPath);
     expect(workingSet.signalStats.placeRouted).toBe(1);
     expect(workingSet.signalStats.graphEnriched).toBe(1);
+  });
+
+  it('harness sessions win wake-up over newer memory-write pseudo-sessions (M-2)', async () => {
+    // Real harness-parsed session, recorded FIRST (older).
+    await recordSessionSignal({
+      sessionId: 'claude-code:harness-real',
+      projectPath,
+      classification: 'durable-distilled',
+      distilledContent: 'Parsed session activity',
+      toolName: 'session-ingest',
+      target: 'claude-code:harness-real',
+      metadata: {
+        command: 'bun run wake-up-marker-harness',
+        activeFiles: ['src/harness-flow.ts'],
+      },
+    });
+
+    // remember-write pseudo-session, bumped AFTER (conceptually newer).
+    await recordSessionSignal({
+      sessionId: `memory-write:${projectPath}`,
+      projectPath,
+      classification: 'durable-distilled',
+      distilledContent: 'Remembered something unrelated zzz',
+      toolName: 'squish_remember',
+      metadata: { kind: 'memory-write' },
+    });
+
+    // Force the pseudo-session strictly into the future so updatedAt
+    // ordering is deterministic regardless of CURRENT_TIMESTAMP resolution.
+    const { raw } = await getDbClient();
+    const sqlite = (raw as any).$client ?? raw;
+    sqlite
+      .prepare(`UPDATE context_sessions SET updated_at = datetime('now', '+10 seconds') WHERE session_id LIKE 'memory-write:%'`)
+      .run();
+
+    // Batch 7 review (M-2): the harness session must win the wake-up slot
+    // even though the pseudo-session is newer.
+    const summary = await getLatestProjectWorkingSetSummary(projectPath);
+    expect(summary).toContain('wake-up-marker-harness');
+    expect(summary).not.toContain('unrelated zzz');
   });
 });

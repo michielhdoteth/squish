@@ -13,6 +13,8 @@ export interface SessionWorkingSet {
     recentAttempts: string[];
     projectPath?: string;
     sessionId: string;
+    /** 'memory-write' marks the remember-write pseudo-session (M-2). */
+    kind?: string;
     signalStats: {
         captured: number;
         suppressed: number;

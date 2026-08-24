@@ -436,6 +436,9 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
   // session working set so wake-up summaries reflect real usage. Awaited
   // (not fire-and-forget) because short-lived CLI processes exit before
   // dangling promises resolve; best-effort, never fails the write.
+  // Batch 7 review (M-2): these signals land in the dedicated
+  // `memory-write:<project>` pseudo-session and are tagged kind='memory-
+  // write' so harness-parsed sessions win wake-up selection.
   if (input.project) {
     try {
       await recordSessionSignal({
@@ -446,6 +449,7 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
         toolName: 'squish_remember',
         metadata: {
           activeFiles: extractFilePathSignals(input.content).slice(0, 4),
+          kind: input.sessionId ? undefined : 'memory-write',
         },
       });
     } catch {

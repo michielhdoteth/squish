@@ -20,6 +20,13 @@ export interface SessionWorkingSet {
   recentAttempts: string[];
   projectPath?: string;
   sessionId: string;
+  /**
+   * Batch 7 review (M-2): marks synthetic sessions that are not real
+   * harness conversations. 'memory-write' rows aggregate remember-write
+   * activity under the `memory-write:<project>` pseudo-session key; real
+   * harness-parsed sessions carry no kind and win wake-up selection.
+   */
+  kind?: string;
   signalStats: {
     captured: number;
     suppressed: number;
@@ -170,6 +177,11 @@ export async function recordSessionSignal(input: {
   }
 
   next.recentAttempts = dedupe([input.distilledContent, ...next.recentAttempts], 8);
+  if (typeof meta.kind === 'string') {
+    // Batch 7 review (M-2): remember-write activity is tagged so wake-up
+    // selection can prefer real harness sessions over this pseudo-session.
+    next.kind = meta.kind;
+  }
   next.recentEvents = [
     {
       classification: input.classification,
@@ -273,11 +285,28 @@ export async function getLatestProjectWorkingSetSummary(projectPath: string): Pr
     .from(schema.contextSessions)
     .where(eq(schema.contextSessions.projectId, project.id));
 
-  const latest = rows.sort((a: any, b: any) => {
+  // Batch 7 review (M-2): harness-parsed sessions win wake-up. A burst of
+  // remember-writes keeps bumping the `memory-write:<project>` pseudo-
+  // session, which would otherwise dominate the "latest session" pick and
+  // drown out what the agent actually did in its last real conversation.
+  // Pseudo-sessions are only used when no real session exists.
+  const isPseudo = (row: any) => {
+    const sessionId: string = row.sessionId ?? '';
+    if (sessionId.startsWith('memory-write:')) return true;
+    const kind = normalizeSessionMetadata(deserializeMetadata(row.metadata ?? null), sessionId, projectPath).kind;
+    return kind === 'memory-write';
+  };
+
+  const byRecency = (a: any, b: any) => {
     const left = new Date(a.updatedAt ?? a.createdAt ?? 0).getTime();
     const right = new Date(b.updatedAt ?? b.createdAt ?? 0).getTime();
     return right - left;
-  })[0];
+  };
+
+  const realRows = rows.filter((row: any) => !isPseudo(row)).sort(byRecency);
+  const latest =
+    realRows[0] ??
+    [...rows].sort(byRecency)[0];
 
   if (!latest) return '';
   return compactSessionWorkingSet(latest.sessionId, projectPath).then((result) => result.summary);

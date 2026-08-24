@@ -31,6 +31,7 @@ import { getLatestProjectWorkingSetSummary } from '../../../core/session/working
 import {
   composeSessionBootstrap,
   BOOTSTRAP_SECTION_PRIORITY,
+  SECTION_BUDGET_FRACTIONS,
 } from '../../../core/session/bootstrap.js';
 import { estimateTokens } from '../../../core/context/context-window.js';
 import { getDb } from '../../../db/index.js';
@@ -164,6 +165,79 @@ describe('session bootstrap composer', () => {
     // No line should exceed ~500 chars (per-item caps + labels)
     const longest = Math.max(...result.block.split('\n').map((l) => l.length));
     expect(longest).toBeLessThan(600);
+  });
+
+  it('M-3: every included section respects its own per-section budget', async () => {
+    await seedProject();
+    const result = await composeSessionBootstrap({ projectPath });
+    for (const section of result.sections.filter((s) => s.included)) {
+      const budget = Math.floor(result.ceilingTokens * SECTION_BUDGET_FRACTIONS[section.name]);
+      // Small epsilon for chars/4 rounding on the hard-fitted top item.
+      expect(section.tokens).toBeLessThanOrEqual(budget + 2);
+    }
+  });
+
+  it('M-3: overflow trims items inside a section instead of truncating it mid-line', async () => {
+    await seedProject();
+
+    const db = await getDb();
+    const sqlite = (db as any).$client;
+
+    // Eight distinct decisions (newest last). With a 400-token ceiling the
+    // recent-decisions budget is floor(400 * 0.1) = 40 tokens - room for
+    // ONE ~100-char item plus header, far fewer than maxItemsPerSection=6.
+    for (let i = 1; i <= 8; i++) {
+      await rememberMemory({
+        content: `Decision: budget-trim marker D${i} keeps the composer honest under pressure.`,
+        type: 'decision',
+        project: projectPath,
+      });
+      // Stamp strictly increasing epochs so recency order is deterministic
+      // despite CURRENT_TIMESTAMP second-granularity ties.
+      sqlite
+        .prepare('UPDATE memories SET created_at = ? WHERE content LIKE ?')
+        .run(Math.floor(Date.now() / 1000) + i, `%budget-trim marker D${i} %`);
+    }
+
+    const result = await composeSessionBootstrap({
+      projectPath,
+      totalTokenCeiling: 400,
+      maxItemsPerSection: 6,
+    });
+
+    const rd = result.sections.find((s) => s.name === 'recent-decisions');
+    expect(rd?.included ?? false).toBe(true);
+    // Item-level trim: several seeded items dropped whole, not one item
+    // shredded by a whole-section fitToTokens pass.
+    expect(rd!.itemCount).toBeGreaterThanOrEqual(1);
+    expect(rd!.itemCount).toBeLessThan(6);
+    // The highest-priority (newest) decision survives.
+    expect(result.block).toContain('D8');
+    // And the section stayed within its budget.
+    const budget = Math.floor(400 * SECTION_BUDGET_FRACTIONS['recent-decisions']);
+    expect(rd!.tokens).toBeLessThanOrEqual(budget + 2);
+  });
+
+  it('M-5: read paths do not register unknown projects', async () => {
+    await clearAllTables();
+    const neverSeen = path.join(testDataDir, 'never-seen-project');
+    fs.mkdirSync(neverSeen, { recursive: true });
+
+    await composeSessionBootstrap({ projectPath: neverSeen });
+
+    const db = await getDb();
+    const sqlite = (db as any).$client;
+    const count = sqlite
+      .prepare('SELECT COUNT(*) AS n FROM projects WHERE path = ?')
+      .get(neverSeen) as { n: number };
+    expect(count.n).toBe(0);
+
+    // Explicit opt-in still registers.
+    await composeSessionBootstrap({ projectPath: neverSeen, ensureProject: true });
+    const afterOptIn = sqlite
+      .prepare('SELECT COUNT(*) AS n FROM projects WHERE path = ?')
+      .get(neverSeen) as { n: number };
+    expect(afterOptIn.n).toBe(1);
   });
 });
 
