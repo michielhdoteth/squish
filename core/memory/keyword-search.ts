@@ -42,6 +42,13 @@ export async function keywordSearch(
     const conditions: string[] = ['memories_fts MATCH ?'];
     const params: any[] = [ftsQuery];
 
+    // Batch 2 candidate correctness: mirror the vector-search leg filters.
+    // 'superseded'/'merged' stay in candidates (scoring layer owns them).
+    conditions.push("(m.status IS NULL OR m.status NOT IN ('expired', 'archived'))");
+    if (!input.includeConsolidatedSources) {
+      conditions.push('(m.is_consolidated IS NULL OR m.is_consolidated = 0)');
+    }
+
     if (input.project) {
       const project = await requireProject(input.project);
       conditions.push('m.project_id = ?');

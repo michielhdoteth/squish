@@ -393,11 +393,16 @@ export async function hybridSearch(
 
   // Expand with associated memories for better coverage
   if (options.includeAssociations !== false) {
-    results = await expandWithAssociations(results, limit);
+    results = await expandWithAssociations(results, limit, {
+      includeConsolidatedSources: input.includeConsolidatedSources === true,
+    });
   }
 
   // Task 4: Enable multi-hop graph traversal by default
-  // If query is detected as multi-hop, use actual graph traversal
+  // If query is detected as multi-hop, use actual graph traversal.
+  // Batch 2 note: multiHopSearch rehydrates candidates through hybridSearch
+  // internally, so those results inherit the same status/consolidation
+  // SQL filters as the primary legs - no separate filtering needed here.
   if (isMultiHop && options.enableGraphTraversal !== false && input.project) {
     try {
       const graphResults = await multiHopSearch({

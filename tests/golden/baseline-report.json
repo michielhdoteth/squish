@@ -1,12 +1,12 @@
 {
   "meta": {
-    "generatedAt": "2026-08-23T21:51:49.118Z",
-    "gitSha": "a9c0eaf",
+    "generatedAt": "2026-08-24T00:34:55.168Z",
+    "gitSha": "f0ceff5",
     "corpusSize": 60,
     "queryCount": 46,
     "topK": 10,
     "embeddingsProvider": "local",
-    "durationMs": 3509,
+    "durationMs": 1823,
     "deterministic": true
   },
   "thresholds": {

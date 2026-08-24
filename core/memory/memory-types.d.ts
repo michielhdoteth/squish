@@ -39,6 +39,11 @@ export interface SearchInput {
     sessionStartTime?: string;
     /** Enable retrieval trace for debugging (Phase 8) */
     trace?: boolean;
+    /**
+     * Include consolidated source memories (isConsolidated = 1) in search
+     * candidates. Default false; set true to explicitly request them.
+     */
+    includeConsolidatedSources?: boolean;
 }
 export interface SearchResult extends MemoryRecord {
     similarity: number;

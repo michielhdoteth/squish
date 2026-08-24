@@ -61,7 +61,9 @@ export declare function applyTemporalBoost(results: SearchResult[]): SearchResul
 /**
  * Expand results with directly associated memories
  */
-export declare function expandWithAssociations(results: SearchResult[], limit: number): Promise<SearchResult[]>;
+export declare function expandWithAssociations(results: SearchResult[], limit: number, opts?: {
+    includeConsolidatedSources?: boolean;
+}): Promise<SearchResult[]>;
 /**
  * Apply small graph boost to results
  * Graph boost is ADDITIVE (not dominating)

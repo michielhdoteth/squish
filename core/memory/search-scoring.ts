@@ -31,9 +31,11 @@ export function scoreWithHeuristics(
   // 1. Recency boost: Recent = higher (up to +0.1)
   if (result.createdAt) {
     const created = new Date(result.createdAt).getTime();
-    const ageHours = (now - created) / (1000 * 60 * 60);
-    const recencyScore = Math.max(0, 0.1 * Math.exp(-ageHours / 720)); // Decay over 30 days
-    score += recencyScore;
+    if (Number.isFinite(created)) {
+      const ageHours = (now - created) / (1000 * 60 * 60);
+      const recencyScore = Math.max(0, 0.1 * Math.exp(-ageHours / 720)); // Decay over 30 days
+      score += recencyScore;
+    }
   }
 
   // 2. Entity overlap: Query words appearing in content = boost
@@ -357,11 +359,31 @@ function hasDateReference(content: string): boolean {
 }
 
 /**
- * Expand results with directly associated memories
+ * Dead-status predicate shared by candidate expansion paths (Batch 2).
+ * Mirrors the SQL-leg filter: only expired/archived hard-exclude here;
+ * superseded/merged remain a scoring-layer concern.
+ */
+function isDeadCandidateStatus(status: unknown): boolean {
+  return status === 'expired' || status === 'archived';
+}
+
+/**
+ * Consolidated-source predicate (isConsolidated stored as boolean or int).
+ */
+function isConsolidatedSourceRow(value: unknown): boolean {
+  return value === true || value === 1;
+}
+
+/**
+ * Expand results with directly associated memories.
+ * Related memories that are expired/archived (or consolidated sources,
+ * unless opts.includeConsolidatedSources) are not pulled in - association
+ * expansion must not resurrect rows the SQL legs already exclude.
  */
 export async function expandWithAssociations(
   results: SearchResult[],
-  limit: number
+  limit: number,
+  opts?: { includeConsolidatedSources?: boolean }
 ): Promise<SearchResult[]> {
   const allIds = new Set(results.map(r => r.id));
   const expanded: SearchResult[] = [...results];
@@ -381,6 +403,8 @@ export async function expandWithAssociations(
   for (const related of relatedArrays) {
     for (const rel of related) {
       if (!allIds.has(rel.id)) {
+        if (isDeadCandidateStatus(rel?.status)) continue;
+        if (!opts?.includeConsolidatedSources && isConsolidatedSourceRow(rel?.isConsolidated)) continue;
         allIds.add(rel.id);
         expanded.push({
           ...rel,

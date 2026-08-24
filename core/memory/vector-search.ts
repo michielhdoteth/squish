@@ -32,13 +32,20 @@ type HybridSearchOptions = {
 };
 
 function rowToSearchResult(row: any, similarity: number): SearchResult {
+  // created_at is stored as an epoch number (seconds); a bare numeric string
+  // must be coerced back to a number or downstream Date parsing yields NaN.
+  const rawCreated = typeof row.createdAt === 'string' && /^\d+$/.test(row.createdAt)
+    ? Number(row.createdAt)
+    : row.createdAt;
   return {
     id: row.id,
     content: row.content || '',
     type: row.type || 'note',
     similarity,
     metadata: typeof row.metadata === 'string' ? JSON.parse(row.metadata) : (row.metadata || {}),
-    createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : String(row.createdAt || ''),
+    createdAt: row.createdAt instanceof Date
+      ? row.createdAt.toISOString()
+      : (normalizeTimestamp(rawCreated) ?? String(row.createdAt || '')),
     tags: row.tags || [],
   };
 }
@@ -68,6 +75,18 @@ export async function vectorSearch(
   // Build WHERE conditions
   const conditions: string[] = [];
   const params: any[] = [];
+
+  // Batch 2 candidate correctness: expired/archived memories never become
+  // candidates. 'superseded'/'merged' intentionally stay - the scoring layer
+  // (applySupersessionFilter) owns filter/penalty behavior for those.
+  conditions.push("(m.status IS NULL OR m.status NOT IN ('expired', 'archived'))");
+
+  // Consolidated source rows (isConsolidated = 1) are excluded unless the
+  // caller explicitly opts in. Consolidated summaries themselves are normal
+  // memories and remain retrievable.
+  if (!input.includeConsolidatedSources) {
+    conditions.push('(m.is_consolidated IS NULL OR m.is_consolidated = 0)');
+  }
 
   if (input.type) {
     conditions.push('m.type = ?');

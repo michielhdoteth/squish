@@ -49,6 +49,14 @@ export interface SearchInput {
   sessionStartTime?: string; // Session start for temporal queries
   /** Enable retrieval trace for debugging (Phase 8) */
   trace?: boolean;
+  /**
+   * Include consolidated source memories (isConsolidated = 1) in search
+   * candidates. Default false: consolidated sources are excluded because
+   * their content lives on in the consolidated summary (which remains
+   * retrievable). Set true when a query explicitly wants source rows.
+   * Batch 2 candidate correctness.
+   */
+  includeConsolidatedSources?: boolean;
   /** ACL context for read-path visibility gating (P5) - omit for no ACL checks */
   acl?: import('../acl/read-gate.js').AclContext;
 }

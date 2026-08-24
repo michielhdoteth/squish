@@ -5,7 +5,7 @@
  * duplicate-detection helper (findSimilarMemories).
  */
 
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, isNull, notInArray, or } from 'drizzle-orm';
 import { requireProject } from '../../core/projects.js';
 import { logger } from '../logger.js';
 import { normalizeTags } from '../../core/memory/serialization.js';
@@ -102,6 +102,21 @@ async function fallbackSearchByRecency(input: SearchInput, limit: number): Promi
       conditions.push(eq(schema.memories.type, input.type));
     }
 
+    // Batch 2 candidate correctness: mirror the vector/keyword SQL legs.
+    // NULL status (legacy rows) is treated as active; 'superseded'/'merged'
+    // remain in candidates because the scoring layer owns them.
+    conditions.push(or(
+      isNull(schema.memories.status),
+      notInArray(schema.memories.status, ['expired', 'archived'])
+    ));
+
+    if (!input.includeConsolidatedSources) {
+      conditions.push(or(
+        isNull(schema.memories.isConsolidated),
+        eq(schema.memories.isConsolidated, false)
+      ));
+    }
+
     const query = (db as any)
       .select()
       .from(schema.memories);
@@ -122,7 +137,9 @@ async function fallbackSearchByRecency(input: SearchInput, limit: number): Promi
 
 /**
  * Find similar memories to prevent duplicates
- * Returns memories with similarity >= threshold
+ * Returns memories with similarity >= threshold.
+ * Inherits candidate filters (expired/archived excluded, consolidated
+ * sources opt-in) through search().
  */
 export async function findSimilarMemories(
   content: string,
