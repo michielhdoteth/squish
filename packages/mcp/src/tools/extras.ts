@@ -36,7 +36,7 @@ export function registerPlacesTools(ctx: ToolCtx): number {
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
       inputSchema: {
         action: z.enum(["list", "get"]).describe("Action to perform"),
-        placeId: z.string().optional().describe("Place ID or place type (required for get action; types: inbox, hot, warm, cold, archive)"),
+        placeId: z.string().optional().describe("Place ID or place type (required for get action; types: inbox, ref, wip, sandbox, board, sparks, archive)"),
         limit: z.number().min(1).max(100).default(50).describe("Max memories to return for get action"),
         project: z.string().optional().describe("Project path filter"),
       }
@@ -77,7 +77,7 @@ export function registerSessionsTools(ctx: ToolCtx): number {
     server,
     "squish_sessions",
     {
-      description: "Agent session history. Actions: list (recent sessions), show (chunks of a session), search (search chunk content), related (sessions related to current project directory).",
+      description: "Agent session history across harnesses. Actions: list (recent sessions), show (chunks of a session), search (search chunk content), related (sessions related to current project directory). Use source to scope results to one harness; every result is tagged with its harness origin.",
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
       inputSchema: {
         action: z.enum(["list", "show", "search", "related"]).describe("Action to perform"),
@@ -85,6 +85,7 @@ export function registerSessionsTools(ctx: ToolCtx): number {
         query: z.string().optional().describe("Search query (required for search action)"),
         repoPath: z.string().optional().describe("Repository path (for related action; defaults to project)"),
         files: z.array(z.string()).optional().describe("File paths to narrow related sessions"),
+        source: z.enum(["all", "opencode", "claude-code", "claude", "codex", "gemini"]).optional().describe("Harness filter for list/show/search/related (default all; 'claude' aliases 'claude-code')"),
         limit: z.number().min(1).max(100).default(20).describe("Maximum results"),
         project: z.string().optional().describe("Project path filter"),
       }
@@ -95,37 +96,54 @@ export function registerSessionsTools(ctx: ToolCtx): number {
       query?: string;
       repoPath?: string;
       files?: string[];
+      source?: "all" | "opencode" | "claude-code" | "claude" | "codex" | "gemini";
       limit?: number;
       project?: string;
     }) => {
       const resolvedProject = resolveProjectPath(input.project);
       const limit = input.limit ?? 20;
+      const source = input.source === "claude" ? "claude-code" : input.source;
 
       switch (input.action) {
         case "list": {
-          const sessions = await sdkClient.listSessions({ project: resolvedProject, limit });
-          return jsonResult({ ok: true, count: sessions.length, sessions }, SERVER_VERSION);
+          const result = await sdkClient.listSessions({ project: resolvedProject, limit, source } as any) as Array<Record<string, any>>;
+          const bySource: Record<string, number> = {};
+          for (const s of result) bySource[s.agent] = (bySource[s.agent] ?? 0) + 1;
+          return jsonResult({ ok: true, count: result.length, sources: bySource, sessions: result }, SERVER_VERSION);
         }
         case "show": {
           if (!input.sessionId) {
             return errorResponse("missing_param", "sessionId is required for show action");
           }
-          const chunks = await sdkClient.getSessionChunks(input.sessionId);
-          return jsonResult({ ok: true, sessionId: input.sessionId, count: chunks.length, chunks }, SERVER_VERSION);
+          const chunks = await sdkClient.getSessionChunks(input.sessionId, { source }) as Array<Record<string, any>>;
+          const agents = [...new Set(chunks.map((c) => c.agent).filter(Boolean))];
+          return jsonResult({ ok: true, sessionId: input.sessionId, agents, count: chunks.length, chunks }, SERVER_VERSION);
         }
         case "search": {
           if (!input.query) {
             return errorResponse("missing_param", "query is required for search action");
           }
-          const chunks = await sdkClient.searchChunks(input.query, { limit });
-          return jsonResult({ ok: true, query: input.query, count: chunks.length, chunks }, SERVER_VERSION);
+          const chunks = await sdkClient.searchChunks(input.query, { limit, source });
+          const bySource: Record<string, number> = {};
+          for (const c of chunks as Array<Record<string, any>>) {
+            const agent = c.agent ?? "unknown";
+            bySource[agent] = (bySource[agent] ?? 0) + 1;
+          }
+          return jsonResult({
+            ok: true,
+            query: input.query,
+            count: chunks.length,
+            sources: bySource,
+            chunks,
+          }, SERVER_VERSION);
         }
         case "related": {
           const results = await sdkClient.findRelatedSessions({
             repo_path: input.repoPath || resolvedProject || process.cwd(),
             files: input.files,
             limit,
-          }) as Array<Record<string, any>>;
+            ...(source ? { source } : {}),
+          } as any) as Array<Record<string, any>>;
           return jsonResult({
             ok: true,
             count: results.length,

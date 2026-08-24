@@ -521,20 +521,23 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
     }
   )) toolCount++;
 
-  // squish_context - Get project context or list registered projects
+  // squish_context - Get project context or list registered projects.
+  // action=session-start is THE canonical bootstrap composer (Batch 7):
+  // a single token-capped block any harness can inject at session boot.
   if (safeRegisterTool(
     server,
     "squish_context",
     {
-      description: "Get project context or list registered projects",
+      description: "Get project context or list registered projects. Use action 'session-start' to compose the canonical session-bootstrap context block (core memory + beliefs + working set + pinned + recent decisions) under a hard ~2000-token ceiling.",
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
       inputSchema: {
         project: z.string().optional().describe("Project path"),
         limit: z.number().min(1).max(50).default(10).describe("Maximum memories to return"),
-        listProjects: z.boolean().optional().describe("List registered projects instead of loading context")
+        listProjects: z.boolean().optional().describe("List registered projects instead of loading context"),
+        action: z.enum(["session-start"]).optional().describe("Compose the canonical session-start bootstrap block (token-capped, priority-ordered)")
       }
     },
-    async ({ project, limit = 10, listProjects = false }: { project?: string; limit?: number; listProjects?: boolean }) => {
+    async ({ project, limit = 10, listProjects = false, action }: { project?: string; limit?: number; listProjects?: boolean; action?: "session-start" }) => {
       const resolvedProject = resolveProjectPath(project);
       if (listProjects) {
         const projects = await sdkClient.listProjects();
@@ -558,6 +561,25 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
             }, null, 2),
           }],
         };
+      }
+
+      if (action === "session-start") {
+        try {
+          const { composeSessionBootstrap } = await import('../../../core/session/bootstrap.js');
+          const bootstrap = await composeSessionBootstrap({ projectPath: resolvedProject });
+          return {
+            content: [{
+              type: "text",
+              text: JSON.stringify({
+                ok: true,
+                ...bootstrap,
+                version: SERVER_VERSION,
+              }, null, 2),
+            }],
+          };
+        } catch (e) {
+          return errorResponse("internal_error", `session-start bootstrap failed: ${e instanceof Error ? e.message : String(e)}`);
+        }
       }
 
       const context = await buildContextState(resolvedProject, limit);

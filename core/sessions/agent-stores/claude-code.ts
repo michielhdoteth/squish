@@ -29,6 +29,8 @@ import os from 'node:os';
 import { logger } from '../../logger.js';
 import type { Chunk, ChunkResult, SessionGroup } from '../types.js';
 import type { AgentSessionStore, AgentName } from './types.js';
+import { readSessionCache, statSessionFile, writeSessionCache } from './cache.js';
+import { recordParsedSessionSignals } from '../../session/working-set.js';
 
 // ---------------------------------------------------------------------------
 // Path discovery
@@ -136,7 +138,7 @@ interface RawMessage {
   type: 'user' | 'assistant' | 'mode' | 'permission-mode' | 'file-history-snapshot' | 'attachment' | 'ai-title' | 'last-prompt' | 'system' | 'queue-operation' | string;
   message?: {
     role?: string;
-    content?: string | Array<{ type: string; text?: string }>;
+    content?: string | Array<{ type: string; text?: string; name?: string; input?: unknown }>;
     model?: string;
     stop_reason?: string;
   };
@@ -202,16 +204,25 @@ function readSessionMessages(filePath: string): RawMessage[] {
 
 /**
  * Extract plain text content from a message's content field.
- * Content can be a string or an array of content blocks.
+ * Content can be a string or an array of content blocks. Tool-use blocks
+ * are summarized conservatively (name + one-line target) and huge tool
+ * payloads are skipped.
  */
-function extractText(content: string | Array<{ type: string; text?: string }> | undefined): string {
+function extractText(content: string | Array<{ type: string; text?: string; name?: string; input?: unknown }> | undefined): string {
   if (!content) return '';
   if (typeof content === 'string') return content;
-  // Array of content blocks — extract text blocks
+  // Array of content blocks — extract text blocks, summarize tool_use
   const texts: string[] = [];
   for (const block of content) {
     if (block.type === 'text' && block.text) {
       texts.push(block.text);
+    } else if (block.type === 'tool_use' && block.name) {
+      const input = block.input as Record<string, unknown> | undefined;
+      const target =
+        input?.filePath ?? input?.path ?? input?.command ?? input?.description ?? '';
+      texts.push(
+        `[tool:${block.name}] ${String(target).slice(0, 120)}`
+      );
     }
   }
   return texts.join('\n');
@@ -349,10 +360,10 @@ export interface SearchClaudeCodeInput {
   per_session_chunks?: number;
 }
 
-export function searchClaudeCodeSessions(
+export async function searchClaudeCodeSessions(
   input: SearchClaudeCodeInput,
   opts: ClaudeCodeStoreOptions = {}
-): ChunkResult[] {
+): Promise<ChunkResult[]> {
   if (!input.query || input.query.trim().length === 0) return [];
 
   const entries = readHistoryIndex(claudeBase(opts));
@@ -390,42 +401,34 @@ export function searchClaudeCodeSessions(
   for (const entry of candidates) {
     if (out.length >= limit) break;
 
-    const filePath = findSessionFile(claudeBase(opts), entry.sessionId, entry.project);
-    if (!filePath) continue;
+    // Bulk scan path: read through the parse cache but never write back.
+    const parsed = await loadParsedSession(claudeBase(opts), entry.sessionId, entry, { cacheWrite: false });
+    if (!parsed) continue;
 
-    const messages = readSessionMessages(filePath);
-    const group = historyEntryToGroup(entry, undefined, messages.length);
+    const group = parsed.group;
 
-    // Collect hits from this session
-    const sessionHits: Array<{ msg: RawMessage; text: string; matchIdx: number }> = [];
+    // Collect hits from this session's normalized texts
+    const sessionHits: Array<{ text: SessionText; matchIdx: number }> = [];
 
-    for (const msg of messages) {
+    for (const text of parsed.texts) {
       if (sessionHits.length >= perSession) break;
 
-      // Only search user and assistant messages by default
-      if (input.depth !== 'deep') {
-        if (msg.type !== 'user' && msg.type !== 'assistant') continue;
-      }
-
-      const text = cleanText(extractText(msg.message?.content));
-      if (text.length === 0) continue;
-
-      const lowerText = text.toLowerCase();
+      const lowerText = text.text.toLowerCase();
       const allMatch = terms.every((term) => lowerText.includes(term));
       if (!allMatch) continue;
 
-      sessionHits.push({ msg, text, matchIdx: 0 });
+      sessionHits.push({ text, matchIdx: 0 });
     }
 
     // Build chunks from hits
     for (let i = 0; i < sessionHits.length; i++) {
       const hit = sessionHits[i];
-      const content = hit.text.slice(0, 500);
+      const content = hit.text.text.slice(0, 500);
       if (content.length === 0) continue;
 
-      const role = hit.msg.message?.role ?? hit.msg.type;
-      const memoryId = hit.msg.uuid ?? `${entry.sessionId}-${i}`;
-      const msgTs = hit.msg.timestamp ?? entry.timestamp;
+      const role = hit.text.role;
+      const memoryId = hit.text.uuid ?? `${entry.sessionId}-${i}`;
+      const msgTs = hit.text.ts || entry.timestamp;
 
       out.push({
         chunk: {
@@ -435,7 +438,7 @@ export function searchClaudeCodeSessions(
           session_title: group.title,
           project: group.project,
           repo_path: group.repo_path,
-          branch: hit.msg.gitBranch ?? '',
+          branch: hit.text.branch ?? '',
           agent: 'claude-code',
           agent_session_id: entry.sessionId,
           timestamp: epochToIso(msgTs),
@@ -462,68 +465,21 @@ export interface ClaudeCodeSessionDetail extends SessionGroup {
   message_count: number;
 }
 
-export function getClaudeCodeSession(
+export async function getClaudeCodeSession(
   sessionId: string,
   opts: ClaudeCodeStoreOptions = {}
-): ClaudeCodeSessionDetail | null {
+): Promise<ClaudeCodeSessionDetail | null> {
   const entries = readHistoryIndex(claudeBase(opts));
-  const entry = entries.find((e) => e.sessionId === sessionId);
-  if (!entry) return null;
+  const entry = entries.find((e) => e.sessionId === sessionId) ?? null;
 
-  const filePath = findSessionFile(claudeBase(opts), sessionId, entry.project);
-  const messages = filePath ? readSessionMessages(filePath) : [];
-
-  const group = historyEntryToGroup(entry, undefined, messages.length);
-
-  const chunks: Chunk[] = [];
-
-  // Build a summary chunk from the first user message
-  const firstUser = messages.find((m) => m.type === 'user' && m.message?.content);
-  if (firstUser) {
-    const text = cleanText(extractText(firstUser.message?.content)).slice(0, 500);
-    if (text) {
-      chunks.push({
-        type: 'summary',
-        content: text,
-        session_id: sessionId,
-        session_title: group.title,
-        project: group.project,
-        repo_path: group.repo_path,
-        branch: firstUser.gitBranch ?? '',
-        agent: 'claude-code',
-        agent_session_id: sessionId,
-        timestamp: epochToIso(firstUser.timestamp ?? entry.timestamp),
-      });
-    }
-  }
-
-  // Build chunks from assistant messages (first few)
-  const assistantMsgs = messages.filter((m) => m.type === 'assistant' && m.message?.content);
-  let assistantChunks = 0;
-  const maxAssistantChunks = 5;
-  for (const msg of assistantMsgs) {
-    if (assistantChunks >= maxAssistantChunks) break;
-    const text = cleanText(extractText(msg.message?.content)).slice(0, 500);
-    if (!text) continue;
-    chunks.push({
-      type: 'file',
-      content: text,
-      session_id: sessionId,
-      session_title: group.title,
-      project: group.project,
-      repo_path: group.repo_path,
-      branch: msg.gitBranch ?? '',
-      agent: 'claude-code',
-      agent_session_id: sessionId,
-      timestamp: epochToIso(msg.timestamp ?? entry.timestamp),
-    });
-    assistantChunks++;
-  }
+  // Show/get path: reads through the parse cache and writes on miss.
+  const parsed = await loadParsedSession(claudeBase(opts), sessionId, entry);
+  if (!parsed) return null;
 
   return {
-    ...group,
-    chunks,
-    message_count: messages.length,
+    ...parsed.group,
+    chunks: parsed.chunks,
+    message_count: parsed.texts.length,
   };
 }
 
@@ -531,10 +487,10 @@ export function getClaudeCodeSession(
 // Find related sessions (by path/file keyword overlap)
 // ---------------------------------------------------------------------------
 
-export function findClaudeCodeRelatedSessions(
+export async function findClaudeCodeRelatedSessions(
   input: { repo_path?: string; files?: string[]; limit?: number },
   opts: ClaudeCodeStoreOptions = {}
-): Array<{ group: SessionGroup; score: number; reason: string }> {
+): Promise<Array<{ group: SessionGroup; score: number; reason: string }>> {
   if (!input.repo_path && (!input.files || input.files.length === 0)) return [];
 
   const limit = Math.max(1, Math.min(input.limit ?? 5, 20));
@@ -571,13 +527,9 @@ export function findClaudeCodeRelatedSessions(
 
     // Score by file overlap in session messages
     if (input.files && input.files.length > 0) {
-      const filePath = findSessionFile(claudeBase(opts), entry.sessionId, entry.project);
-      if (filePath) {
-        const messages = readSessionMessages(filePath);
-        const allText = messages
-          .map((m) => cleanText(extractText(m.message?.content)))
-          .join(' ')
-          .toLowerCase();
+      const parsed = await loadParsedSession(claudeBase(opts), entry.sessionId, entry, { cacheWrite: false });
+      if (parsed) {
+        const allText = parsed.texts.map((t) => t.text).join(' ').toLowerCase();
         let fileHits = 0;
         for (const f of input.files) {
           const leaf = path.basename(f).toLowerCase();
@@ -607,6 +559,170 @@ export function findClaudeCodeRelatedSessions(
 }
 
 // ---------------------------------------------------------------------------
+// Cached parse layer (Batch 7)
+// ---------------------------------------------------------------------------
+
+/** Normalized message text used for search + chunk building. */
+interface SessionText {
+  role: string;
+  text: string;
+  ts: number;
+  uuid?: string;
+  branch?: string;
+}
+
+interface ParsedSession {
+  group: SessionGroup;
+  chunks: Chunk[];
+  texts: SessionText[];
+}
+
+const MAX_CACHED_TEXT_CHARS = 24_000;
+
+/**
+ * Build the parsed `{ group, chunks, texts }` payload for a session file.
+ * Pure parsing — no cache interaction.
+ */
+function parseSessionFile(
+  filePath: string,
+  group: SessionGroup
+): ParsedSession {
+  const messages = readSessionMessages(filePath);
+  const texts: SessionText[] = [];
+
+  for (const msg of messages) {
+    if (msg.type !== 'user' && msg.type !== 'assistant') continue;
+    const raw = extractText(msg.message?.content);
+    const text = cleanText(raw);
+    if (!text) continue;
+    texts.push({
+      role: msg.message?.role ?? msg.type,
+      text,
+      ts: msg.timestamp ?? 0,
+      uuid: msg.uuid,
+      branch: msg.gitBranch,
+    });
+  }
+
+  const chunks: Chunk[] = [];
+
+  // Summary chunk from the first user message
+  const firstUser = texts.find((t) => t.role === 'user');
+  if (firstUser) {
+    chunks.push({
+      type: 'summary',
+      content: firstUser.text.slice(0, 500),
+      session_id: group.session_id,
+      session_title: group.title,
+      project: group.project,
+      repo_path: group.repo_path,
+      branch: firstUser.branch ?? '',
+      agent: 'claude-code',
+      agent_session_id: group.session_id,
+      timestamp: epochToIso(firstUser.ts || Date.parse(group.started_at)),
+    });
+  }
+
+  // A few assistant chunks
+  let assistantChunks = 0;
+  for (const t of texts) {
+    if (assistantChunks >= 5) break;
+    if (t.role !== 'assistant') continue;
+    chunks.push({
+      type: 'file',
+      content: t.text.slice(0, 500),
+      session_id: group.session_id,
+      session_title: group.title,
+      project: group.project,
+      repo_path: group.repo_path,
+      branch: t.branch ?? '',
+      agent: 'claude-code',
+      agent_session_id: group.session_id,
+      timestamp: epochToIso(t.ts || Date.parse(group.started_at)),
+    });
+    assistantChunks++;
+  }
+
+  return { group, chunks, texts };
+}
+
+/**
+ * Read a parsed session through the mtime-invalidated cache.
+ *
+ * - Cache hit: payload served from the squish DB (no file read).
+ * - Cache miss: parse the JSONL transcript, write the cache, and (best
+ *   effort) record working-set signals from the parse. `cacheWrite`
+ *   controls whether a miss writes back — bulk scans (search/related)
+ *   read without writing so one sweep cannot bloat the DB.
+ */
+async function loadParsedSession(
+  claudeDir: string,
+  sessionId: string,
+  entry: HistoryEntry | null,
+  opts: { cacheWrite?: boolean } = {}
+): Promise<ParsedSession | null> {
+  // No history entry and no way to locate the file: unknown session.
+  if (!entry) {
+    const found = findSessionFile(claudeDir, sessionId);
+    if (!found) return null;
+  }
+
+  const filePath =
+    findSessionFile(claudeDir, sessionId, entry?.project) ?? undefined;
+
+  // Transcript file gone but the history entry survives: keep the old
+  // behavior of returning the group with an empty chunk list.
+  if (!filePath) {
+    const groupOnly = historyEntryToGroup(entry!);
+    return { group: groupOnly, chunks: [], texts: [] };
+  }
+
+  const stat = statSessionFile(filePath);
+  const cached = await readSessionCache('claude-code', sessionId, stat);
+  if (cached && Array.isArray((cached as any).texts)) {
+    return cached as unknown as ParsedSession;
+  }
+
+  let entry_ = entry;
+  if (!entry_) {
+    // No history entry: synthesize a minimal group from the file itself.
+    entry_ = {
+      display: '',
+      timestamp: stat ? Math.round(stat.mtimeMs) : Date.now(),
+      project: path.basename(path.dirname(path.dirname(filePath))),
+      sessionId,
+    };
+  }
+
+  const group = historyEntryToGroup(entry_, undefined, undefined);
+  const parsed = parseSessionFile(filePath, group);
+
+  if (opts.cacheWrite !== false && stat) {
+    // Truncate cached texts so pathological transcripts stay bounded.
+    const boundedTexts: SessionText[] = [];
+    let budget = MAX_CACHED_TEXT_CHARS;
+    for (const t of parsed.texts) {
+      if (budget <= 0) break;
+      const text = t.text.length > 2000 ? `${t.text.slice(0, 2000)}…` : t.text;
+      budget -= text.length;
+      boundedTexts.push({ ...t, text });
+    }
+    await writeSessionCache('claude-code', sessionId, filePath, stat, {
+      group: parsed.group,
+      chunks: parsed.chunks,
+      texts: boundedTexts,
+    } as any);
+    void recordParsedSessionSignals({
+      sessionId: `claude-code:${sessionId}`,
+      projectPath: entry_.project || undefined,
+      chunks: parsed.chunks.map((c) => ({ type: c.type, content: c.content })),
+    });
+  }
+
+  return parsed;
+}
+
+// ---------------------------------------------------------------------------
 // AgentSessionStore implementation
 // ---------------------------------------------------------------------------
 
@@ -620,8 +736,14 @@ export function findClaudeCodeRelatedSessions(
 export class ClaudeCodeSessionStore implements AgentSessionStore {
   readonly name: AgentName = 'claude-code';
 
+  private readonly storeOpts: ClaudeCodeStoreOptions;
+
+  constructor(opts: ClaudeCodeStoreOptions = {}) {
+    this.storeOpts = opts;
+  }
+
   private optsFor(_input?: { directory_glob?: string }): ClaudeCodeStoreOptions {
-    return {};
+    return this.storeOpts;
   }
 
   async available(): Promise<{ ok: boolean; reason?: string; meta?: Record<string, unknown> }> {
@@ -661,7 +783,7 @@ export class ClaudeCodeSessionStore implements AgentSessionStore {
   }
 
   async searchSessions(input: { query: string; limit?: number; depth?: 'text' | 'deep'; directory_glob?: string; per_session_chunks?: number }): Promise<Chunk[]> {
-    const results = searchClaudeCodeSessions(
+    const results = await searchClaudeCodeSessions(
       {
         query: input.query,
         limit: input.limit,
@@ -675,7 +797,7 @@ export class ClaudeCodeSessionStore implements AgentSessionStore {
   }
 
   async getSession(id: string): Promise<{ group: SessionGroup; chunks: Chunk[] } | null> {
-    const detail = getClaudeCodeSession(id, this.optsFor({}));
+    const detail = await getClaudeCodeSession(id, this.optsFor({}));
     if (!detail) return null;
     const group: SessionGroup = {
       session_id: detail.session_id,
@@ -693,7 +815,7 @@ export class ClaudeCodeSessionStore implements AgentSessionStore {
   }
 
   async findRelatedSessions(input: { repo_path?: string; files?: string[]; limit?: number }): Promise<Array<{ group: SessionGroup; score: number; reason: string }>> {
-    return findClaudeCodeRelatedSessions(
+    return await findClaudeCodeRelatedSessions(
       { repo_path: input.repo_path, files: input.files, limit: input.limit },
       this.optsFor({})
     );

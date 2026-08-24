@@ -18,7 +18,7 @@
  *
  * Subcommands:
  *   squish sessions list [--limit N] [--project PATH] [--directory PATH]
- *                        [--source opencode|claude-code|codex|all] [--db-path PATH]
+ *                        [--source opencode|claude-code|codex|gemini|all] [--db-path PATH]
  *                        [--json|--pretty]
  *   squish sessions show <id> [--source ...] [--db-path PATH] [--json|--pretty]
  *   squish sessions search <query> [--chunk-type type] [--project PATH]
@@ -63,11 +63,13 @@ function parseCsv(input: string | undefined): string[] {
     .filter((s) => s.length > 0);
 }
 
-const VALID_SOURCES: readonly SessionSource[] = ['opencode', 'claude-code', 'codex', 'all'];
+const VALID_SOURCES: readonly SessionSource[] = ['opencode', 'claude-code', 'codex', 'gemini', 'all'];
 
 function parseSource(input: string | undefined): SessionSource {
   if (!input) return 'all';
-  if ((VALID_SOURCES as readonly string[]).includes(input)) return input as SessionSource;
+  // Friendly alias: 'claude' -> canonical 'claude-code'
+  const normalized = input === 'claude' ? 'claude-code' : input;
+  if ((VALID_SOURCES as readonly string[]).includes(normalized)) return normalized as SessionSource;
   fail(`unknown source '${input}'. Available: ${VALID_SOURCES.join(', ')}`);
 }
 
@@ -85,7 +87,7 @@ function fail(message: string, extra: Record<string, unknown> = {}): never {
 }
 
 function asAgent(v: string | undefined, fallback: AgentId = 'cli'): AgentId {
-  const allowed: AgentId[] = ['opencode', 'claude-code', 'openclaw', 'codex', 'cli', 'manual'];
+  const allowed: AgentId[] = ['opencode', 'claude-code', 'openclaw', 'codex', 'gemini', 'cli', 'manual'];
   if (!v) return fallback;
   return allowed.includes(v as AgentId) ? (v as AgentId) : fallback;
 }

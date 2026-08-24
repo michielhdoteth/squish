@@ -69,6 +69,16 @@ const REQUIRED_COLUMNS: Array<{ table: string; column: string }> = [
   { table: 'memories', column: 'media_type' },
   { table: 'memories', column: 'media_path' },
   { table: 'memories', column: 'media_metadata' },
+  // Batch 7: columns the modern write path sets on EVERY insert. A
+  // pre-batch-4/6b database missing these fails all writes with raw
+  // SQLite errors, so probe must flag them (fixSchemaIssues / doctor
+  // --fix repairs via migrateTable).
+  { table: 'memories', column: 'embedding_blob' },
+  { table: 'memories', column: 'embedding_model' },
+  { table: 'memories', column: 'embedding_dim' },
+  { table: 'memories', column: 'sector' },
+  { table: 'memories', column: 'valid_from' },
+  { table: 'memories', column: 'recorded_at' },
 ];
 
 export type SchemaProbeStatus = 'ok' | 'drifted' | 'unavailable';

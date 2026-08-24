@@ -55,21 +55,21 @@ export interface SearchClaudeCodeInput {
     directory_glob?: string;
     per_session_chunks?: number;
 }
-export declare function searchClaudeCodeSessions(input: SearchClaudeCodeInput, opts?: ClaudeCodeStoreOptions): ChunkResult[];
+export declare function searchClaudeCodeSessions(input: SearchClaudeCodeInput, opts?: ClaudeCodeStoreOptions): Promise<ChunkResult[]>;
 export interface ClaudeCodeSessionDetail extends SessionGroup {
     chunks: Chunk[];
     message_count: number;
 }
-export declare function getClaudeCodeSession(sessionId: string, opts?: ClaudeCodeStoreOptions): ClaudeCodeSessionDetail | null;
+export declare function getClaudeCodeSession(sessionId: string, opts?: ClaudeCodeStoreOptions): Promise<ClaudeCodeSessionDetail | null>;
 export declare function findClaudeCodeRelatedSessions(input: {
     repo_path?: string;
     files?: string[];
     limit?: number;
-}, opts?: ClaudeCodeStoreOptions): Array<{
+}, opts?: ClaudeCodeStoreOptions): Promise<Array<{
     group: SessionGroup;
     score: number;
     reason: string;
-}>;
+}>>;
 /**
  * Claude Code-backed implementation of `AgentSessionStore`.
  *
@@ -79,6 +79,8 @@ export declare function findClaudeCodeRelatedSessions(input: {
  */
 export declare class ClaudeCodeSessionStore implements AgentSessionStore {
     readonly name: AgentName;
+    private readonly storeOpts;
+    constructor(opts?: ClaudeCodeStoreOptions);
     private optsFor;
     available(): Promise<{
         ok: boolean;

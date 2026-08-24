@@ -13,12 +13,14 @@
 import { OpenCodeSessionStore } from './opencode.js';
 import { ClaudeCodeSessionStore } from './claude-code.js';
 import { CodexSessionStore } from './codex.js';
+import { GeminiSessionStore } from './gemini.js';
 import type { AgentName, AgentSessionStore } from './types.js';
 
 const stores: Record<AgentName, AgentSessionStore> = {
   'opencode': new OpenCodeSessionStore(),
   'claude-code': new ClaudeCodeSessionStore(),
   'codex': new CodexSessionStore(),
+  'gemini': new GeminiSessionStore(),
 };
 
 export function getAgentStore(name: AgentName): AgentSessionStore {

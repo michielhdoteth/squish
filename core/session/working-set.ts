@@ -223,6 +223,15 @@ export async function compactSessionWorkingSet(sessionId: string, projectPath?: 
   if (workingSet.recentCommands.length > 0) {
     lines.push(`Recent commands: ${dedupe(workingSet.recentCommands.map((entry) => entry.command), 3).join(' | ')}`);
   }
+  // Batch 7 fallback: remember-writes and session parses land here as
+  // recentAttempts. Without this line the wake-up summary stays empty
+  // ("No working set yet") even when real activity exists.
+  if (lines.length === 0 && workingSet.recentAttempts.length > 0) {
+    const attempts = dedupe(workingSet.recentAttempts, 3)
+      .map((a) => a.slice(0, 120))
+      .join(' | ');
+    lines.push(`Recent activity: ${attempts}`);
+  }
 
   return {
     summary: lines.join('\n'),
@@ -272,4 +281,120 @@ export async function getLatestProjectWorkingSetSummary(projectPath: string): Pr
 
   if (!latest) return '';
   return compactSessionWorkingSet(latest.sessionId, projectPath).then((result) => result.summary);
+}
+
+/* ------------------------------------------------------------------ */
+/* Batch 7: signals from parsed harness sessions                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Minimal chunk shape the signal extractor needs. Structurally compatible
+ * with core/sessions Chunk so adapters can pass parsed chunks directly.
+ */
+export interface ParsedSessionChunkSignal {
+  type?: string;
+  content?: string;
+  files?: string[];
+}
+
+/**
+ * Extract path-like tokens (must contain a slash) from free text so plain
+ * user/assistant message text still yields "files touched" signals.
+ */
+function extractFilePaths(text: string): string[] {
+  if (!text) return [];
+  const matches = text.match(/[A-Za-z0-9_.\-@\\/\[\](){}]+[/\\][A-Za-z0-9_.\-@\\/\[\](){}]+/g);
+  if (!matches) return [];
+  return matches
+    .filter((p) => /\.[A-Za-z0-9]{1,8}$/.test(p) || /[\\/]/.test(p))
+    .slice(0, 4);
+}
+
+export function deriveSignalsFromChunks(chunks: ParsedSessionChunkSignal[]): {
+  activeFiles: string[];
+  commands: string[];
+  hypotheses: string[];
+} {
+  const activeFiles = new Set<string>();
+  const commands: string[] = [];
+  const hypotheses: string[] = [];
+
+  for (const chunk of chunks.slice(0, 40)) {
+    const content = typeof chunk?.content === 'string' ? chunk.content : '';
+    if (!content) continue;
+
+    for (const f of chunk.files ?? []) {
+      if (f) activeFiles.add(f);
+    }
+    for (const f of extractFilePaths(content)) {
+      activeFiles.add(f);
+    }
+
+    if (chunk.type === 'command' || /^\s*(\$|>|bun |npm |pnpm |git |cargo |python |pytest|uv )/.test(content)) {
+      commands.push(content.replace(/\s+/g, ' ').trim().slice(0, 160));
+    }
+    if (/hypothes/i.test(content)) {
+      hypotheses.push(content.replace(/\s+/g, ' ').trim().slice(0, 200));
+    }
+  }
+
+  return {
+    activeFiles: [...activeFiles].slice(0, 8),
+    commands: commands.slice(0, 5),
+    hypotheses: hypotheses.slice(0, 3),
+  };
+}
+
+/**
+ * Record working-set signals from a freshly parsed harness session
+ * (Batch 7 ingestion path). Files touched, commands run, and hypotheses
+ * mentioned become wake-up-summary activity. Best-effort: never throws.
+ */
+export async function recordParsedSessionSignals(input: {
+  sessionId: string;
+  projectPath?: string;
+  chunks: ParsedSessionChunkSignal[];
+}): Promise<boolean> {
+  if (!input.projectPath || !input.chunks?.length) return false;
+  try {
+    const signals = deriveSignalsFromChunks(input.chunks);
+    if (
+      signals.activeFiles.length === 0 &&
+      signals.commands.length === 0 &&
+      signals.hypotheses.length === 0
+    ) {
+      return false;
+    }
+    await recordSessionSignal({
+      sessionId: input.sessionId,
+      projectPath: input.projectPath,
+      classification: 'durable-distilled',
+      distilledContent:
+        signals.hypotheses[0] ??
+        signals.commands[0] ??
+        `Parsed session activity (${input.chunks.length} chunks)`,
+      toolName: 'session-ingest',
+      target: input.sessionId,
+      metadata: {
+        activeFiles: signals.activeFiles,
+        command: signals.commands[0],
+        outcome: undefined,
+      },
+    });
+    // Additional command entries keep recentCommands rich without spamming events.
+    for (const command of signals.commands.slice(1, 4)) {
+      await recordSessionSignal({
+        sessionId: input.sessionId,
+        projectPath: input.projectPath,
+        classification: 'session-only',
+        distilledContent: command,
+        toolName: 'session-ingest',
+        target: undefined,
+        metadata: { command },
+      });
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }

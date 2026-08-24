@@ -373,6 +373,11 @@ export interface SessionOptions {
   project?: string;
   /** Maximum number of sessions to return */
   limit?: number;
+  /**
+   * Harness source filter: 'opencode' | 'claude-code' | 'codex' |
+   * 'gemini' | 'all' (default 'all'). Batch 7.
+   */
+  source?: string;
 }
 
 /**
@@ -493,4 +498,10 @@ export interface ChunkRecord {
   type?: string;
   /** ISO timestamp of the chunk */
   timestamp?: string;
+  /** Harness origin of the chunk (Batch 7) */
+  agent?: string;
+  /** Title of the session the chunk came from (Batch 7) */
+  sessionTitle?: string;
+  /** Why this chunk matched (search results only, Batch 7) */
+  why?: string;
 }

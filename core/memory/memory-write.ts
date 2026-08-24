@@ -37,6 +37,9 @@ import { withBusyRetry } from '../../db/busy-retry.js';
 import { computeInitialImportance as computeImportanceFlagged } from '../engines/importance-engine.js';
 import { normalizeMemory, getOrCreateUser } from './memory-crud.js';
 import { emit } from '../event-bus.js';
+// Batch 7: every durable write feeds the session working set so wake-up
+// summaries reflect real project activity.
+import { recordSessionSignal } from '../session/working-set.js';
 // Batch 6b: signals-based sector classification (episodic|semantic|procedural|reflective).
 import { routeSector } from './sector-router.js';
 import type { RememberInput, MemoryRecord, VisibilityScope } from './memory-types.js';
@@ -429,6 +432,27 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
   importance: importance.score as number,
 };
 
+  // Batch 7: every squish_remember write is project activity - feed the
+  // session working set so wake-up summaries reflect real usage. Awaited
+  // (not fire-and-forget) because short-lived CLI processes exit before
+  // dangling promises resolve; best-effort, never fails the write.
+  if (input.project) {
+    try {
+      await recordSessionSignal({
+        sessionId: input.sessionId ?? `memory-write:${input.project}`,
+        projectPath: input.project,
+        classification: 'durable-distilled',
+        distilledContent: input.content.slice(0, 200),
+        toolName: 'squish_remember',
+        metadata: {
+          activeFiles: extractFilePathSignals(input.content).slice(0, 4),
+        },
+      });
+    } catch {
+      /* working-set is best effort */
+    }
+  }
+
   emit({
     type: 'memory:stored',
     payload: {
@@ -445,6 +469,22 @@ export async function rememberMemory(input: RememberInput): Promise<MemoryRecord
 // ---------------------------------------------------------------------------
 // Internal helpers — place assignment & geometry
 // ---------------------------------------------------------------------------
+
+/**
+ * Extract slash-containing path-like tokens from memory content so
+ * remember-writes contribute "files touched" signals to the working set.
+ */
+function extractFilePathSignals(text: string): string[] {
+  if (!text) return [];
+  const matches = text.match(/[A-Za-z0-9_.\-@\\/\[\](){}]+[/\\][A-Za-z0-9_.\-@\\/\[\](){}]+/g);
+  if (!matches) return [];
+  const seen = new Set<string>();
+  for (const m of matches) {
+    seen.add(m);
+    if (seen.size >= 8) break;
+  }
+  return [...seen];
+}
 
 /**
  * Post-capture geometry check and auto-consolidation.

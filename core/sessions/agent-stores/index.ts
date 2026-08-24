@@ -7,6 +7,8 @@
  */
 export * from './types.js';
 export * from './registry.js';
+export * from './cache.js';
 export { OpenCodeSessionStore } from './opencode.js';
 export { ClaudeCodeSessionStore } from './claude-code.js';
 export { CodexSessionStore } from './codex.js';
+export { GeminiSessionStore } from './gemini.js';

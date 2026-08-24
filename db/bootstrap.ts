@@ -396,6 +396,22 @@ CREATE TABLE IF NOT EXISTS memory_hash_cache (
 CREATE INDEX IF NOT EXISTS memory_hash_cache_project_id_idx ON memory_hash_cache(project_id);
 CREATE INDEX IF NOT EXISTS memory_hash_cache_simhash_idx ON memory_hash_cache(simhash);
 
+-- Batch 7: parsed agent-session cache (mtime-invalidated read-through cache
+-- for harness session stores: claude-code JSONL, codex rollouts, gemini chats).
+CREATE TABLE IF NOT EXISTS agent_session_cache (
+  cache_key TEXT PRIMARY KEY,
+  agent TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  source_path TEXT NOT NULL,
+  mtime_ms INTEGER NOT NULL,
+  size_bytes INTEGER NOT NULL,
+  payload TEXT NOT NULL,
+  updated_at INTEGER DEFAULT (strftime('%s','now')) NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS agent_session_cache_agent_idx ON agent_session_cache(agent);
+CREATE UNIQUE INDEX IF NOT EXISTS agent_session_cache_agent_session_idx ON agent_session_cache(agent, session_id);
+
 -- Namespaces table (v1.0.x) - Hierarchical organization
 CREATE TABLE IF NOT EXISTS namespaces (
   id TEXT PRIMARY KEY,

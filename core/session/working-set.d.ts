@@ -47,4 +47,19 @@ export declare function compactSessionWorkingSet(sessionId: string, projectPath?
 }>;
 export declare function getProjectSignalStats(projectPath: string): Promise<any>;
 export declare function getLatestProjectWorkingSetSummary(projectPath: string): Promise<string>;
+export interface ParsedSessionChunkSignal {
+    type?: string;
+    content?: string;
+    files?: string[];
+}
+export declare function deriveSignalsFromChunks(chunks: ParsedSessionChunkSignal[]): {
+    activeFiles: string[];
+    commands: string[];
+    hypotheses: string[];
+};
+export declare function recordParsedSessionSignals(input: {
+    sessionId: string;
+    projectPath?: string;
+    chunks: ParsedSessionChunkSignal[];
+}): Promise<boolean>;
 //# sourceMappingURL=working-set.d.ts.map

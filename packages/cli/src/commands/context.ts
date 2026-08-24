@@ -6,6 +6,7 @@
  *
  * Usage:
  *   squish context [--project /path] [--limit N] [--json]
+ *   squish context --session-start [--project /path] [--json]   # canonical bootstrap composer
  *   squish context --pinned
  *   squish context --tiers
  *   squish context --list-projects
@@ -23,6 +24,7 @@ export function registerContextCommand(program: Command): void {
     .command('context')
     .description('Show full project context (memories, beliefs, signals)')
     .option('--json', 'Emit machine-readable output', false)
+    .option('--session-start', 'Compose the canonical session-start bootstrap block (token-capped, priority-ordered)', false)
     // Flags kept for compatibility with plugin tool wrappers that pass them
     // through to this command (same behavior as the status sub-modes).
     .option('--pinned', 'Show pinned memories instead of full context')
@@ -43,6 +45,24 @@ export function registerContextCommand(program: Command): void {
         if (opts.project) {
           const { ensureProject } = await import('../../../../core/projects.js');
           await ensureProject(opts.project);
+        }
+
+        // Canonical bootstrap composer (Batch 7). MCP `squish_context`
+        // action=session-start is the same code path; hook scripts and the
+        // opencode plugin auto-inject call THIS command.
+        if (opts.sessionStart) {
+          const { composeSessionBootstrap } = await import('../../../../core/session/bootstrap.js');
+          const bootstrap = await composeSessionBootstrap({ projectPath: opts.project });
+          if (opts.json) {
+            console.log(JSON.stringify({ ok: true, ...bootstrap }, null, 2));
+          } else {
+            console.log(bootstrap.block);
+            console.error(
+              `\n[bootstrap] ${bootstrap.totalTokens}/${bootstrap.ceilingTokens} tokens; sections: ` +
+              bootstrap.sections.map((s: any) => `${s.name}${s.included ? '' : ' (dropped)'}`).join(', ')
+            );
+          }
+          return;
         }
 
         if (opts.tiers) {

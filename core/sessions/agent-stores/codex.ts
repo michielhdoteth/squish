@@ -31,6 +31,8 @@ import { Database } from 'bun:sqlite';
 import { logger } from '../../logger.js';
 import type { Chunk, ChunkResult, SessionGroup } from '../types.js';
 import type { AgentSessionStore, AgentName } from './types.js';
+import { readSessionCache, statSessionFile, writeSessionCache } from './cache.js';
+import { recordParsedSessionSignals } from '../../session/working-set.js';
 
 // ---------------------------------------------------------------------------
 // Path discovery
@@ -520,10 +522,41 @@ export interface CodexSessionDetail extends SessionGroup {
   chunks: Chunk[];
 }
 
-export function getCodexSession(
+/**
+ * Read a rollout file through the mtime-invalidated parse cache.
+ * On miss, parse + write cache and (best effort) record working-set
+ * signals from the parsed chunks.
+ */
+async function loadRolloutChunksCached(
+  sessionId: string,
+  rolloutPath: string,
+  group: SessionGroup
+): Promise<Chunk[] | null> {
+  const stat = statSessionFile(rolloutPath);
+  const cached = await readSessionCache('codex', sessionId, stat);
+  if (cached && Array.isArray(cached.chunks) && cached.chunks.length > 0) {
+    return cached.chunks;
+  }
+
+  const rollout = readRolloutFile(rolloutPath);
+  if (!rollout || !stat) return null;
+
+  const chunks = rolloutToChunks(rollout, group);
+  if (chunks.length > 0) {
+    await writeSessionCache('codex', sessionId, rolloutPath, stat, { group, chunks });
+    void recordParsedSessionSignals({
+      sessionId: `codex:${sessionId}`,
+      projectPath: group.repo_path || undefined,
+      chunks: chunks.map((c) => ({ type: c.type, content: c.content })),
+    });
+  }
+  return chunks;
+}
+
+export async function getCodexSession(
   sessionId: string,
   opts: CodexStoreOptions = {}
-): CodexSessionDetail | null {
+): Promise<CodexSessionDetail | null> {
   const db = getDb(opts);
   if (!db) return null;
 
@@ -541,12 +574,17 @@ export function getCodexSession(
   const group = threadRowToGroup(row);
   let chunks: Chunk[] = [];
 
-  // Try to read the rollout file for full session data
+  // Try to read the rollout file for full session data (cache-backed)
   if (row.rollout_path) {
     const rolloutPath = path.join(codexBase(opts), row.rollout_path);
-    const rollout = readRolloutFile(rolloutPath);
-    if (rollout) {
-      chunks = rolloutToChunks(rollout, group);
+    const cachedChunks = await loadRolloutChunksCached(sessionId, rolloutPath, group);
+    if (cachedChunks) {
+      chunks = cachedChunks;
+    } else {
+      const rollout = readRolloutFile(rolloutPath);
+      if (rollout) {
+        chunks = rolloutToChunks(rollout, group);
+      }
     }
   }
 
@@ -747,7 +785,7 @@ export class CodexSessionStore implements AgentSessionStore {
   }
 
   async getSession(id: string): Promise<{ group: SessionGroup; chunks: Chunk[] } | null> {
-    const detail = getCodexSession(id, this.optsFor({}));
+    const detail = await getCodexSession(id, this.optsFor({}));
     if (!detail) return null;
     const group: SessionGroup = {
       session_id: detail.session_id,

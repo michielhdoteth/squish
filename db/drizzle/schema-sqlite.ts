@@ -788,6 +788,24 @@ export const contextSessions = sqliteTable('context_sessions', {
   index('context_sessions_created_idx').on(table.createdAt),
 ]);
 
+/**
+ * Agent Session Cache - Batch 7
+ * Read-through cache for parsed harness session stores (claude-code JSONL,
+ * codex rollouts, gemini chats). Invalidated by source file mtime + size.
+ */
+export const agentSessionCache = sqliteTable('agent_session_cache', {
+  cacheKey: text('cache_key').primaryKey(),
+  agent: text('agent').notNull(),
+  sessionId: text('session_id').notNull(),
+  sourcePath: text('source_path').notNull(),
+  mtimeMs: integer('mtime_ms').notNull(),
+  sizeBytes: integer('size_bytes').notNull(),
+  payload: text('payload').notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index('agent_session_cache_agent_idx').on(table.agent),
+]);
+
 // Types
 // ============================================================================
 

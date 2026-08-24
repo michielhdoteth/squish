@@ -251,6 +251,11 @@ import type {
 import type { RecallOptions as CoreRecallOptions } from './interfaces/storage.js';
 
 /**
+ * Harness source filter for session queries (Batch 7).
+ */
+type SessionSourceOption = 'opencode' | 'claude-code' | 'codex' | 'gemini' | 'all';
+
+/**
  * Main SDK client for interacting with the squish memory system.
  *
  * Wraps the core engine and provides a clean typed API for all major
@@ -1008,7 +1013,11 @@ export class SquishClient {
   async listSessions(options?: SessionOptions): Promise<SessionRecord[]> {
     try {
       const { listSessions } = await import('../../../core/sessions/index.js');
-      const result = await listSessions({ project: options?.project ?? this._activeProject, limit: options?.limit });
+      const result = await listSessions({
+        project: options?.project ?? this._activeProject,
+        limit: options?.limit,
+        source: (options as { source?: import('../../../core/sessions/agent-stores/types.js').SessionSource } | undefined)?.source,
+      });
       return result.sessions.map((s: any) => ({
         id: s.session_id,
         title: s.title,
@@ -1031,18 +1040,22 @@ export class SquishClient {
    * Get all chunks for a specific session.
    *
    * @param sessionId - The session ID to retrieve chunks for
+   * @param options - Optional source filter (opencode | claude-code | codex | gemini | all)
    * @returns Array of chunk records
    */
-  async getSessionChunks(sessionId: string): Promise<ChunkRecord[]> {
+  async getSessionChunks(sessionId: string, options?: { source?: SessionSourceOption }): Promise<ChunkRecord[]> {
     try {
       const { getSessionChunks } = await import('../../../core/sessions/index.js');
-      const result = await getSessionChunks(sessionId);
+      const result = await getSessionChunks(sessionId, { source: options?.source ?? 'all' });
       if (!result?.chunks) return [];
       return result.chunks.map((c: any) => ({
         id: c.id,
         sessionId: c.session_id,
         content: c.content,
-        type: c.chunk_type,
+        type: c.chunk_type ?? c.type,
+        agent: c.agent,
+        sessionTitle: c.session_title,
+        timestamp: c.timestamp,
       }));
     } catch (error) {
       if (error instanceof SquishError) throw error;
@@ -1054,18 +1067,21 @@ export class SquishClient {
    * Search session chunks by content.
    *
    * @param query - Search query to match against chunk content
-   * @param options - Optional search configuration
+   * @param options - Optional search configuration (limit, source)
    * @returns Array of matching chunk records
    */
-  async searchChunks(query: string, options?: { limit?: number }): Promise<ChunkRecord[]> {
+  async searchChunks(query: string, options?: { limit?: number; source?: SessionSourceOption }): Promise<ChunkRecord[]> {
     try {
       const { searchChunks } = await import('../../../core/sessions/index.js');
-      const results = await searchChunks({ query, limit: options?.limit });
+      const results = await searchChunks({ query, limit: options?.limit, source: options?.source ?? 'all' });
       return results.map((r: any) => ({
-        id: r.chunk?.id ?? '',
+        id: r.memory_id ?? '',
         sessionId: r.chunk?.session_id ?? '',
         content: r.chunk?.content ?? '',
-        type: r.chunk?.chunk_type ?? '',
+        type: r.chunk?.type ?? '',
+        agent: r.chunk?.agent,
+        sessionTitle: r.chunk?.session_title,
+        why: r.why,
       }));
     } catch (error) {
       if (error instanceof SquishError) throw error;

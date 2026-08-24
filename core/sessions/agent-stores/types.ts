@@ -8,12 +8,12 @@
  * `searchChunks` / `listSessions` / `getSessionChunks` /
  * `findRelatedSessions`.
  */
-export type AgentName = 'opencode' | 'claude-code' | 'codex';
+export type AgentName = 'opencode' | 'claude-code' | 'codex' | 'gemini';
 
 /**
  * Source filter for chunk/session queries. `opencode` reads the
- * user's local opencode.db. `claude-code` and `codex` read their
- * respective agent stores. `all` iterates every registered agent
+ * user's local opencode.db. `claude-code`, `codex` and `gemini` read
+ * their respective agent stores. `all` iterates every registered agent
  * store.
  */
 export type SessionSource = AgentName | 'all';

@@ -69,7 +69,7 @@ export declare function searchCodexSessions(input: SearchCodexInput, opts?: Code
 export interface CodexSessionDetail extends SessionGroup {
     chunks: Chunk[];
 }
-export declare function getCodexSession(sessionId: string, opts?: CodexStoreOptions): CodexSessionDetail | null;
+export declare function getCodexSession(sessionId: string, opts?: CodexStoreOptions): Promise<CodexSessionDetail | null>;
 export interface FindCodexRelatedInput {
     repo_path?: string;
     files?: string[];

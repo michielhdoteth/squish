@@ -28,6 +28,7 @@ export const AGENT_IDS = [
   'claude-code',
   'openclaw',
   'codex',
+  'gemini',
   'cli',
   'manual',
 ] as const;

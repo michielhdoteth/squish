@@ -27,6 +27,7 @@ const env = {
   SQUISH_OPENCODE_DISABLED: '1',
   SQUISH_CLAUDE_DISABLED: '1',
   SQUISH_CODEX_DISABLED: '1',
+  SQUISH_GEMINI_DISABLED: '1',
 };
 
 function run(args: string[]): { status: number; stdout: string; stderr: string } {

@@ -323,6 +323,7 @@ export async function listSessions(input: ListSessionsInput = {}): Promise<ListS
     'opencode': 0,
     'claude-code': 0,
     'codex': 0,
+    'gemini': 0,
   };
 
   for (const name of sources) {
