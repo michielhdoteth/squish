@@ -1,8 +1,8 @@
 {
   "meta": {
-    "generatedAt": "2026-08-24T08:28:59.712Z",
-    "gitSha": "e919e6c",
-    "gitDirty": true,
+    "generatedAt": "2026-08-24T08:32:11.654Z",
+    "gitSha": "9a15499",
+    "gitDirty": false,
     "corpusSize": 60,
     "queryCount": 46,
     "topK": 10,
@@ -16,7 +16,7 @@
       "scoringServeV2": true
     },
     "envPinned": true,
-    "durationMs": 1497,
+    "durationMs": 1529,
     "deterministic": true
   },
   "thresholds": {
@@ -70,8 +70,8 @@
     }
   },
   "calibration": {
-    "ece": 0.041334006858378944,
-    "brier": 0.11394165533029128,
+    "ece": 0.04133404660586197,
+    "brier": 0.11394165368977735,
     "count": 46,
     "maxEceThreshold": 0.15,
     "reliability": [
@@ -80,7 +80,7 @@
         "low": 0.8,
         "high": 0.9,
         "count": 39,
-        "avgConfidence": 0.8391814702001739,
+        "avgConfidence": 0.8391814123179271,
         "hitRate": 0.8717948717948718
       },
       {
@@ -88,7 +88,7 @@
         "low": 0.9,
         "high": 1,
         "count": 7,
-        "avgConfidence": 0.9470630933274587,
+        "avgConfidence": 0.9470630320384009,
         "hitRate": 0.8571428571428571
       }
     ],
@@ -148,8 +148,8 @@
     "freshnessAblation": {
       "signal": "SQUISH_EVIDENCE_FRESHNESS",
       "on": {
-        "ece": 0.041334006858378944,
-        "brier": 0.11394165533029128,
+        "ece": 0.04133404660586197,
+        "brier": 0.11394165368977735,
         "count": 46
       },
       "off": {
