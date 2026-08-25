@@ -61,6 +61,14 @@ export interface RecallEvidence {
   freshness: number | null;
   /** When the cross-encoder reranker ran: fraction of pre-rerank top-5 preserved post-rerank (0..1). null when reranker not applied. */
   rerankAgreement?: number | null;
+  /**
+   * Batch B1: topical alignment between the query's (entity, attribute) and
+   * this memory's (entity, attribute) - 1 on-topic, 0.7 partial overlap,
+   * 0 same-entity-wrong-attribute or wrong subject entirely. null = not
+   * computable (either side unparsed); null is NEVER fabricated into a
+   * penalty. Confidence-only signal: never used for ranking.
+   */
+  topicalAlignment: number | null;
 }
 
 /** Query-conditioned context needed to judge one candidate fairly. */
@@ -77,6 +85,14 @@ export interface RecallConfidenceContext {
    * query the FTS leg cannot match at all, absence means "signal unavailable".
    */
   multiSignalQuery: boolean;
+  /**
+   * Batch B1 corpus coverage: topical alignments (same scale as
+   * RecallEvidence.topicalAlignment) of every candidate in the set, judged
+   * result included. Used for the topic-absent coverage factor: when the
+   * whole candidate set is same-entity-wrong-attribute, the corpus knows the
+   * entity but nothing addresses the asked attribute.
+   */
+  candidateAlignments?: Array<number | null>;
 }
 
 export interface RecallConfidenceResult {
@@ -189,6 +205,27 @@ export const RECALL_CONFIDENCE_CONSTANTS = {
    * memory known to compete with another version of the fact.
    */
   CONFLICT_CAP: 0.55,
+
+  /**
+   * Batch B1 topical alignment factors, applied AFTER the agreement step so
+   * convergent-leg bonuses cannot resurrect trust in a memory that answers a
+   * different question about the right entity ("Kenji was born in Tokyo."
+   * must not answer "What phone does Kenji use?"). Alignment is parsed from
+   * surface text (see core/scoring/topical-alignment.ts); null alignment is
+   * neutral by contract - only computable mismatches are penalized.
+   */
+  /** Same entity but wrong attribute bucket (or wrong subject entirely): strong evidence the memory does not answer the query. */
+  TOPICAL_MISMATCH_FACTOR: 0.30,
+  /** Same entity, partially overlapping attribute strings (one contains the other): mild discount. */
+  TOPICAL_PARTIAL_FACTOR: 0.85,
+  /**
+   * Batch B2 corpus coverage: extra discount when the judged candidate has
+   * alignment 0 AND every non-null candidate alignment is also 0 - "I know
+   * this entity but nothing in the candidate set addresses the asked
+   * attribute". Distinct from ALL_LOW_COVERAGE_FACTOR, which reads semantic
+   * scores; this one reads parsed topic structure.
+   */
+  COVERAGE_TOPIC_ABSENT_FACTOR: 0.85,
 
   /** Tier boundaries. HIGH >= 0.90, QUALIFIED 0.60..0.90, LOW < 0.60. */
   TIER_HIGH_MIN: 0.90,
@@ -320,6 +357,18 @@ function isDisagreement(evidence: RecallEvidence, ctx: Partial<RecallConfidenceC
 }
 
 /**
+ * Batch B2 corpus coverage over parsed topic structure: true when at least
+ * one candidate alignment was computable and EVERY computable one is a
+ * mismatch (0) - the corpus knows the entity but nothing addresses the
+ * asked attribute. All-null sets stay neutral (nothing parseable happened).
+ */
+function isTopicAbsentFromCandidates(candidateAlignments: Array<number | null> | undefined): boolean {
+  if (!candidateAlignments || candidateAlignments.length === 0) return false;
+  const known = candidateAlignments.filter((a): a is number => a !== null);
+  return known.length > 0 && known.every(a => a === 0);
+}
+
+/**
  * Compute calibrated recall confidence for ONE candidate against its
  * candidate-set context. Deterministic; see constants for every knob.
  */
@@ -339,8 +388,24 @@ export function computeRecallConfidence(
   conf += agreementBonus(evidence);
   conf = Math.min(1, conf);
 
-  // 3. Disagreement: high semantics, no corroboration, on a multi-signal query.
+  // 2.5 Topical alignment (Batch B1): applied AFTER agreement so bonuses are
+  // already folded in before the mismatch multiply - convergent evidence on
+  // the wrong fact cannot resurrect trust. alignment===0 -> strong discount,
+  // 0.7 -> mild discount, 1 or null -> neutral.
   let factor = 1;
+  const alignment = evidence.topicalAlignment ?? null;
+  if (alignment === 0) {
+    factor *= c.TOPICAL_MISMATCH_FACTOR;
+    // Batch B2: whole candidate set is same-entity-wrong-attribute ->
+    // the corpus lacks the asked attribute entirely.
+    if (isTopicAbsentFromCandidates(ctx?.candidateAlignments)) {
+      factor *= c.COVERAGE_TOPIC_ABSENT_FACTOR;
+    }
+  } else if (alignment === 0.7) {
+    factor *= c.TOPICAL_PARTIAL_FACTOR;
+  }
+
+  // 3. Disagreement: high semantics, no corroboration, on a multi-signal query.
   if (isDisagreement(evidence, ctx ?? null)) {
     factor *= 1 - c.DISAGREEMENT_PENALTY_FACTOR;
   }

@@ -36,6 +36,8 @@ export interface ScoreBreakdown {
   heuristicEntityOverlap?: number;
   supersededPenalty?: number;
   stalenessPenalty?: number;
+  /** Validity-at-T boost for anchored past queries (temporal validity v2). */
+  temporalValidAtT?: number;
   multiHopWeight?: number;
   associationDiscount?: number;
   /** Residual when an external reranker replaces the score outright. */

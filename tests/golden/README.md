@@ -34,7 +34,7 @@ environment (mirroring the `--real-model` pattern):
 | `SQUISH_RERANKER_ENABLED` | `false` | The cross-encoder applies silently when a host has a warm HF cache -> machine-dependent scores. |
 | `SQUISH_QUERY_EXPANSION` | `true` | Production default; deterministic (rule-based) so it is pinned explicitly rather than left ambient. |
 | `SQUISH_GRAPH_BOOST_LEGACY` | `false` | Pins normalized graph boost (Batch 5 default) explicitly. |
-| `SQUISH_TEMPORAL_VALIDITY` | `false` | Gated off after a golden-eval breach (see `reports/temporal-validity-on-breach.json`). |
+| `SQUISH_TEMPORAL_VALIDITY` | `true` | Production default (v2 query-conditioned validity-at-T). The 2026 breach artifact below documents the RETIRED flat-staleness implementation; v2 only activates on past-referencing queries. |
 | `SQUISH_SCORING_V2` | `true` | Pins v2 three-field serving explicitly. |
 
 Two opt-outs exist:
@@ -87,11 +87,14 @@ the overhaul should attack; see `baseline-report.json` for per-query detail.
 
 ### Flag-decision artifacts (`reports/`)
 
-- `temporal-validity-on-breach.json` - eval run with
-  `SQUISH_TEMPORAL_VALIDITY=true`: recall@5 0.837, MRR 0.809, HitRate@1 0.739,
-  breaching all three gates. This is the committed evidence for keeping the
-  flag OFF by default. The `notes` field inside documents reproduction steps
-  and diagnosis (flat staleness penalty too blunt on aged corpora).
+- `temporal-validity-on-breach.json` - eval run with the RETIRED flat
+  staleness penalty (`SQUISH_TEMPORAL_VALIDITY=true` on the old
+  implementation): recall@5 0.837, MRR 0.809, HitRate@1 0.739,
+  breaching all three gates. The `notes` field inside documents reproduction
+  steps and diagnosis. Historical evidence for replacing flat staleness with
+  query-conditioned validity-at-T (see `core/retrieval/temporal-query.ts`):
+  the v2 path only activates for past-referencing queries, so this breach
+  mode cannot recur under the current default.
 
 Known harness-discovered defect: raw epoch integers crashed the SDK result
 mapper on the vector-search read path (`core/memory/vector-search.ts`), so the

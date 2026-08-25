@@ -24,10 +24,10 @@
  * Deterministic + offline by default: temp data dir, local TF-IDF embeddings
  * fallback, fixed staggered created_at timestamps, no network providers, and
  * a PINNED precision stack (reranker OFF, expansion ON, graph boost
- * normalized, temporal validity OFF, v2 serving) so baselines are identical
- * across hosts. `--precision-stack` opts into production defaults for
- * ablation runs; `--real-model` additionally enables the bundled embedding
- * model.
+ * normalized, temporal validity ON (v2, query-conditioned), v2 serving) so
+ * baselines are identical across hosts. `--precision-stack` opts into
+ * production defaults for ablation runs; `--real-model` additionally enables
+ * the bundled embedding model.
  */
 
 import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
@@ -445,7 +445,8 @@ async function main() {
     if (!process.env.SQUISH_RERANKER_ENABLED) process.env.SQUISH_RERANKER_ENABLED = 'false';
     if (!process.env.SQUISH_QUERY_EXPANSION) process.env.SQUISH_QUERY_EXPANSION = 'true';
     if (!process.env.SQUISH_GRAPH_BOOST_LEGACY) process.env.SQUISH_GRAPH_BOOST_LEGACY = 'false';
-    if (!process.env.SQUISH_TEMPORAL_VALIDITY) process.env.SQUISH_TEMPORAL_VALIDITY = 'false';
+    // Mirrors the production default (v2 query-conditioned temporal validity).
+    if (!process.env.SQUISH_TEMPORAL_VALIDITY) process.env.SQUISH_TEMPORAL_VALIDITY = 'true';
     if (!process.env.SQUISH_SCORING_V2) process.env.SQUISH_SCORING_V2 = 'true';
   }
 

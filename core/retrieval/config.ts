@@ -125,10 +125,15 @@ export interface ScoreBreakdown {
 // its env var ('false' | '0' | 'no' | 'off'):
 //   - Cross-encoder rerank:      ON by default. Unavailability degrades
 //                                gracefully (timeout cap ~10s, skips counted).
-//   - Temporal validity:         OFF by default - the golden-eval gate showed
-//                                a recall@5/mrr/hitAt1 breach when enabled
-//                                (flat staleness penalty is too blunt on aged
-//                                corpora). Opt in with SQUISH_TEMPORAL_VALIDITY=true.
+//   - Temporal validity (v2):    ON by default. Query-conditioned: the stage
+//                                only activates when the query itself reaches
+//                                into the past (see core/retrieval/
+//                                temporal-query.ts). The 2026 golden-eval
+//                                breach came from the retired FLAT age
+//                                penalty, which fired on every query against
+//                                aged corpora; the v2 validity-at-T path is
+//                                inert for current/none queries (identical
+//                                pipeline), so the breach cannot recur.
 //   - Query expansion:           ON by default.
 // LLM reranking is intentionally NOT part of this flip - it requires a
 // provider and stays config-gated (llm.enabled, default false).
@@ -145,7 +150,13 @@ function parseEnvFlag(raw: string | undefined, fallback: boolean): boolean {
 export interface PrecisionStackFlags {
   /** Cross-encoder rerank (SQUISH_RERANKER_ENABLED, default true). */
   reranker: boolean;
-  /** Temporal validity staleness penalty (SQUISH_TEMPORAL_VALIDITY, default false - gated off after eval breach). */
+  /**
+   * Temporal validity v2 - query-conditioned validity-at-T
+   * (SQUISH_TEMPORAL_VALIDITY, default true). Only past-referencing queries
+   * take the temporal path; current/none queries are byte-identical to a run
+   * with the flag off. Disable to restore strict supersession filtering on
+   * every query.
+   */
   temporalValidity: boolean;
   /** Rule-based query expansion (SQUISH_QUERY_EXPANSION, default true). */
   queryExpansion: boolean;
@@ -154,7 +165,7 @@ export interface PrecisionStackFlags {
 export function getPrecisionStackFlags(env: NodeJS.ProcessEnv = process.env): PrecisionStackFlags {
   return {
     reranker: parseEnvFlag(env.SQUISH_RERANKER_ENABLED, true),
-    temporalValidity: parseEnvFlag(env.SQUISH_TEMPORAL_VALIDITY, false),
+    temporalValidity: parseEnvFlag(env.SQUISH_TEMPORAL_VALIDITY, true),
     queryExpansion: parseEnvFlag(env.SQUISH_QUERY_EXPANSION, true),
   };
 }
@@ -202,6 +213,20 @@ export interface RetrievalTrace {
   reranker?: { applied: boolean; skipped: number; reason?: string };
   /** Batch 5: which graph-boost mode served this search. */
   graphBoostMode?: 'legacy' | 'normalized';
+  /**
+   * Temporal validity v2: the query's parsed time reference and what the
+   * temporal stages did about it. Present on every search (kind 'none' for
+   * non-temporal queries); all effects are scoped to past-referencing kinds.
+   */
+  temporalQuery?: {
+    kind: 'past-anchored' | 'past-unanchored' | 'current' | 'none';
+    /** ISO instant of the parsed anchor; null unless kind is past-anchored. */
+    t: string | null;
+    raw: string | null;
+    supersessionRelaxed: boolean;
+    excludedInvalidAtT: number;
+    boostedValidAtT: number;
+  };
   /**
    * Batch 6a: abstention-aware recall assessment for the response as a whole
    * (best calibrated confidence across results + verdict). Metadata only.

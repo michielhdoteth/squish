@@ -125,6 +125,27 @@ export async function getMemoriesByIndexedTags(
 }
 
 /**
+ * Resolve a SearchInput.project reference (a project PATH in practice) to the
+ * projects.id stored on memory rows.
+ *
+ * Root-cause fix: the supersession stages compared the RAW input.project
+ * against memories.project_id (a UUID), so whenever a named project was
+ * passed the scoped queries matched nothing and superseded rows silently
+ * survived the filter. vector-search already resolves through requireProject;
+ * these stages now do too. Unknown references pass through unchanged (the
+ * query then simply matches nothing).
+ */
+async function resolveProjectIdRef(projectRef?: string): Promise<string | undefined> {
+  if (!projectRef) return undefined;
+  try {
+    const project = await requireProject(projectRef);
+    return project.id;
+  } catch {
+    return projectRef;
+  }
+}
+
+/**
  * Get IDs of superseded memories to filter from results
  */
 export async function getSupersededMemoryIds(projectId?: string, ctx?: SearchDbContext): Promise<Set<string>> {
@@ -135,8 +156,9 @@ export async function getSupersededMemoryIds(projectId?: string, ctx?: SearchDbC
 
   try {
     const conditions: any[] = [inArray(schema.memories.status, ['superseded', 'merged'])];
-    if (projectId) {
-      conditions.push(eq(schema.memories.projectId, projectId));
+    const resolvedProjectId = await resolveProjectIdRef(projectId);
+    if (resolvedProjectId) {
+      conditions.push(eq(schema.memories.projectId, resolvedProjectId));
     }
 
     const results = await sqliteDb.select({ id: schema.memories.id })
@@ -149,6 +171,64 @@ export async function getSupersededMemoryIds(projectId?: string, ctx?: SearchDbC
     logger.debug(`[HybridSearch] getSupersededMemoryIds failed: ${e}`);
     return new Set();
   }
+}
+
+/** Row shape returned by the supersession invalidation lookup. */
+interface SupersessionInvalidationRow {
+  id: string;
+  invalidated_at: string | number | null;
+}/**
+ * Effective invalidation timestamp for every superseded/merged memory in
+ * scope: id -> raw stored timestamp (epoch seconds/ms or ISO text) or null
+ * when no successor timestamp is available.
+ *
+ * The schema has no persisted superseded_at column (drizzle silently drops
+ * the key on update), so the effective instant a memory stopped being valid
+ * is derived from its SUCCESSOR's created_at via superseded_by /
+ * merged_into_id, falling back to merged_at for legacy merges without a
+ * pointer. Raw values stay unconverted here; the consumer normalizes them
+ * with normalizeTimestampValue, which handles every storage format in use
+ * (drizzle Date reads, epoch-seconds defaults, ISO-text harness writes).
+ *
+ * Consumed by the temporal-validity stage in hybrid-search for anchored past
+ * queries only; never on the default pipeline.
+ */
+export async function getSupersessionInvalidationMap(
+  projectId?: string,
+  ctx?: SearchDbContext
+): Promise<Map<string, string | number | null>> {
+  const map = new Map<string, string | number | null>();
+  const db = ctx?.db ?? await getDb();
+  if (!db) return map;
+  const dbClient = ctx?.dbClient;
+  const sqlite = dbClient?.$client ?? (db as any)?.$client;
+  if (!sqlite || typeof sqlite.prepare !== 'function') return map;
+
+  try {
+    const resolvedProjectId = await resolveProjectIdRef(projectId);
+    const baseWhere = "m.status IN ('superseded', 'merged')";
+    const whereClause = resolvedProjectId ? `${baseWhere} AND m.project_id = ?` : baseWhere;
+    const query = `
+      SELECT m.id AS id,
+             COALESCE(s.created_at, m.merged_at) AS invalidated_at
+      FROM memories m
+      LEFT JOIN memories s ON s.id = COALESCE(m.superseded_by, m.merged_into_id)
+      WHERE ${whereClause}
+      LIMIT 1000
+    `;
+    const rows = (
+      resolvedProjectId
+        ? sqlite.prepare(query).all(resolvedProjectId)
+        : sqlite.prepare(query).all()
+    ) as SupersessionInvalidationRow[];
+    for (const row of rows) {
+      map.set(row.id, row.invalidated_at);
+    }
+  } catch (e) {
+    logger.debug(`[HybridSearch] getSupersessionInvalidationMap failed: ${e}`);
+  }
+
+  return map;
 }
 
 /**

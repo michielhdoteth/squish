@@ -1,20 +1,16 @@
 /**
- * Importance Scoring System
- * Calculates and manages memory importance scores (0-100) with temporal decay
+ * Importance Scoring System (merged v1 + v2)
+ *
+ * Single-file importance engine.  Calculates and manages memory importance
+ * scores (0-100) using a 3-factor model: base + surprise + emotion.
+ *
+ * v2 is now the only code-path — the v1/v2 dispatch has been eliminated.
  */
 
 import type { Memory } from '../../db/drizzle/schema.js';
 import { eq } from 'drizzle-orm';
 import { cosineSimilarity as vectorCosineSimilarity } from '../utils/vector-operations.js';
 import { getDbClient } from '../lib/db-client.js';
-import { getImportanceEngine } from '../engines/flags.js';
-import {
-  calculateImportanceV2,
-  normalizeImportanceScore,
-  denormalizeImportanceScore,
-  detectSurprise,
-  detectEmotion,
-} from '../scoring/importance-v2.js';
 
 export interface ImportanceScore {
   score: number; // 0-100
@@ -26,6 +22,171 @@ export interface ImportanceScore {
     userFlags: number;
   };
   explanation: string;
+}
+
+// ---------------------------------------------------------------------------
+// v2 3-factor interfaces
+// ---------------------------------------------------------------------------
+
+export interface ImportanceFactors {
+  baseImportance: number;    // 0-1 (current system normalized)
+  surprise: number;           // 0-1 (unexpectedness)
+  emotion: number;            // 0-1 (emotional salience)
+}
+
+export interface ImportanceWeights {
+  base?: number;
+  surprise?: number;
+  emotion?: number;
+}
+
+// ---------------------------------------------------------------------------
+// v2 3-factor functions
+// ---------------------------------------------------------------------------
+
+/**
+ * 3-factor importance scoring
+ * Final = 0.5*base + 0.3*surprise + 0.2*emotion
+ * Weights configurable via config
+ */
+export function calculateImportanceV2(
+  factors: ImportanceFactors,
+  weights?: ImportanceWeights
+): number {
+  const w = {
+    base: weights?.base ?? 0.5,
+    surprise: weights?.surprise ?? 0.3,
+    emotion: weights?.emotion ?? 0.2
+  };
+
+  const weightSum = w.base + w.surprise + w.emotion;
+  if (Math.abs(weightSum - 1.0) > 0.01) {
+    console.warn(`Importance weights sum to ${weightSum}, not 1.0`);
+  }
+
+  const score = (factors.baseImportance * w.base) +
+                (factors.surprise * w.surprise) +
+                (factors.emotion * w.emotion);
+
+  return Math.max(0, Math.min(1, score));
+}
+
+/**
+ * Detect surprise factor — high surprise = content contradicts existing beliefs.
+ * Uses keyword-based opposite detection as a lightweight heuristic.
+ */
+export function detectSurprise(
+  newMemory: { content: string; type: string },
+  existingMemories: { content: string; type: string }[]
+): number {
+  if (existingMemories.length === 0) {
+    return 0.5; // Neutral surprise for first memory
+  }
+
+  const contradictions = existingMemories.filter(existing => {
+    return hasOppositeKeywords(newMemory.content, existing.content);
+  });
+
+  // 3+ contradictions = max surprise (1.0)
+  const surprise = Math.min(1.0, contradictions.length / 3);
+  return surprise;
+}
+
+/**
+ * Detect emotion factor — high emotion = urgent/high-stakes content.
+ */
+export function detectEmotion(content: string): number {
+  const urgentKeywords = ['urgent', 'critical', 'asap', 'emergency', 'broken', 'error', 'fail'];
+  const importantKeywords = ['important', 'key', 'crucial', 'decision', 'milestone', 'release'];
+
+  const lower = content.toLowerCase();
+  let score = 0;
+
+  if (urgentKeywords.some(k => new RegExp(`\\b${k}\\b`).test(lower))) {
+    score += 0.5;
+  }
+
+  if (importantKeywords.some(k => new RegExp(`\\b${k}\\b`).test(lower))) {
+    score += 0.3;
+  }
+
+  return Math.min(1.0, score);
+}
+
+/**
+ * Check if two strings contain opposite keywords.
+ * Internal helper for surprise detection.
+ */
+function hasOppositeKeywords(content1: string, content2: string): boolean {
+  const str1 = content1.toLowerCase();
+  const str2 = content2.toLowerCase();
+
+  const opposites = [
+    ['yes', 'no'],
+    ['true', 'false'],
+    ['always', 'never'],
+    ['increase', 'decrease'],
+    ['up', 'down'],
+    ['good', 'bad'],
+    ['success', 'failure'],
+    ['working', 'broken'],
+  ];
+
+  for (const [pos, neg] of opposites) {
+    if ((str1.includes(pos) && str2.includes(neg)) ||
+        (str1.includes(neg) && str2.includes(pos))) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Convert legacy importance score (0-100) to normalized (0-1)
+ */
+export function normalizeImportanceScore(score100: number): number {
+  return Math.max(0, Math.min(1, score100 / 100));
+}
+
+/**
+ * Convert normalized importance score (0-1) to legacy (0-100)
+ */
+export function denormalizeImportanceScore(score1: number): number {
+  return Math.round(Math.max(0, Math.min(100, score1 * 100)));
+}
+
+/**
+ * Compute initial importance for a new memory (sole write-path entry point;
+ * absorbs the former core/engines dispatch wrapper).
+ *
+ * Runs the full 3-factor pipeline: base → normalize → surprise + emotion → v2 → denormalize.
+ */
+export function computeInitialImportance(memoryInput: {
+  content: string;
+  type: string;
+  createdAt: string;
+  accessCount: number;
+  usageCount: number;
+  isPinned: boolean;
+  isProtected: boolean;
+  isImmutable: boolean;
+}): ImportanceScore {
+  const base = calculateImportance(memoryInput);
+  const surprise = detectSurprise({ content: memoryInput.content, type: memoryInput.type }, []);
+  const emotion = detectEmotion(memoryInput.content);
+  const v2Score = denormalizeImportanceScore(
+    calculateImportanceV2({
+      baseImportance: normalizeImportanceScore(base.score),
+      surprise,
+      emotion,
+    })
+  );
+  return {
+    ...base,
+    score: v2Score,
+    explanation: `3-factor: base=${normalizeImportanceScore(base.score).toFixed(3)}, emotion=${emotion.toFixed(3)}, surprise=${surprise.toFixed(3)}`,
+  };
 }
 
 /**
@@ -208,23 +369,15 @@ export async function updateImportanceScore(
 
   const memory = memories[0];
 
-  // Calculate new importance score (v1 baseline, v2 override via flag —
-  // mirrors computeInitialImportance dispatch in core/engines/importance-engine.ts)
+  // Calculate new importance score using the merged 3-factor model
   const importance = calculateImportance(memory);
-  let finalScore = importance.score;
-  if (getImportanceEngine() === 'v2') {
-    try {
-      finalScore = denormalizeImportanceScore(
-        calculateImportanceV2({
-          baseImportance: normalizeImportanceScore(importance.score),
-          surprise: detectSurprise({ content: memory.content ?? '', type: memory.type ?? 'observation' }, []),
-          emotion: detectEmotion(memory.content ?? ''),
-        })
-      );
-    } catch {
-      // v2 failure -> keep v1 score
-    }
-  }
+  const finalScore = denormalizeImportanceScore(
+    calculateImportanceV2({
+      baseImportance: normalizeImportanceScore(importance.score),
+      surprise: detectSurprise({ content: memory.content ?? '', type: memory.type ?? 'observation' }, []),
+      emotion: detectEmotion(memory.content ?? ''),
+    })
+  );
 
   // Update memory with new score
   const updateData: any = {

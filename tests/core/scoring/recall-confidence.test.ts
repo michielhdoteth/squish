@@ -40,6 +40,7 @@ function makeEvidence(overrides: Partial<RecallEvidence> = {}): RecallEvidence {
     contradictingCount: 0,
     freshness: null,
     rerankAgreement: null,
+    topicalAlignment: null, // Batch B1: neutral unless a test overrides it
     ...overrides,
   };
 }

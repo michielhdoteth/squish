@@ -13,8 +13,8 @@ let savedEnv: Record<string, string | undefined>;
 let setVisibilityRule: typeof import('../../../core/loadout/loadout.js').setVisibilityRule;
 let removeVisibilityRule: typeof import('../../../core/loadout/loadout.js').removeVisibilityRule;
 let applyAclReadGate: typeof import('../../../core/acl/read-gate.js').applyAclReadGate;
-let getEngineLog: typeof import('../../../core/engines/engine-log.js').getEngineLog;
-let clearEngineLog: typeof import('../../../core/engines/engine-log.js').clearEngineLog;
+let getAclLog: typeof import('../../../core/acl/acl-log.js').getAclLog;
+let clearAclLog: typeof import('../../../core/acl/acl-log.js').clearAclLog;
 let getDb: typeof import('../../../db/index.js').getDb;
 let resetDb: typeof import('../../../db/index.js').resetDb;
 
@@ -42,13 +42,13 @@ describe('ACL read gate (P5)', () => {
 
     const loadoutMod = await import('../../../core/loadout/loadout.js');
     const gateMod = await import('../../../core/acl/read-gate.js');
-    const logMod = await import('../../../core/engines/engine-log.js');
+    const logMod = await import('../../../core/acl/acl-log.js');
     const dbMod = await import('../../../db/index.js');
     setVisibilityRule = loadoutMod.setVisibilityRule;
     removeVisibilityRule = loadoutMod.removeVisibilityRule;
     applyAclReadGate = gateMod.applyAclReadGate;
-    getEngineLog = logMod.getEngineLog;
-    clearEngineLog = logMod.clearEngineLog;
+    getAclLog = logMod.getAclLog;
+    clearAclLog = logMod.clearAclLog;
     getDb = dbMod.getDb;
     resetDb = dbMod.resetDb;
 
@@ -99,20 +99,35 @@ describe('ACL read gate (P5)', () => {
   test('no ACL context: everything served unchanged (zero overhead)', async () => {
     const out = await applyAclReadGate(RESULTS, null);
     expect(out).toHaveLength(3);
-    expect(getEngineLog('acl_would_filter')).toHaveLength(0);
+    expect(getAclLog('acl_would_filter')).toHaveLength(0);
   });
 
   test('log-only mode (default): serves everything but logs would-filter', async () => {
     delete process.env.SQUISH_ACL_ENFORCE;
-    clearEngineLog();
+    clearAclLog();
 
     const out = await applyAclReadGate(RESULTS, { userId: OWNER });
 
     expect(out).toHaveLength(3);
-    const logged = getEngineLog('acl_would_filter');
+    const logged = getAclLog('acl_would_filter');
     expect(logged.length).toBe(1);
     expect((logged[0] as any).memoryId).toBe('mem-private');
     expect(String((logged[0] as any).rule)).toContain('user');
+  });
+
+  test('SQUISH_ACL_ENFORCE values other than exact "true" stay log-only', async () => {
+    // Regression coverage for the inlined flag parse (was flags.ts isAclEnforce):
+    // only the exact string 'true' enables enforcement.
+    for (const value of ['1', 'TRUE', 'yes']) {
+      process.env.SQUISH_ACL_ENFORCE = value;
+      clearAclLog();
+
+      const out = await applyAclReadGate(RESULTS, { userId: OWNER });
+
+      expect(out).toHaveLength(3);
+      expect(getAclLog('acl_would_filter').length).toBe(1);
+    }
+    delete process.env.SQUISH_ACL_ENFORCE;
   });
 
   test('enforce mode filters disallowed results', async () => {

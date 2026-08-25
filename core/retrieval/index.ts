@@ -56,8 +56,20 @@ export {
 export {
   detectTemporalReferences,
   isLikelyStale,
+  isValidAt,
+  applyTemporalEligibility,
+  normalizeTimestampValue,
+  TEMPORAL_VALID_AT_T_BOOST,
   type TemporalConfig,
+  type TemporalValidityInput,
+  type TemporalEligibility,
 } from './temporal-validity.js';
+
+export {
+  parseTimeReference,
+  type TimeReference,
+  type TimeReferenceKind,
+} from './temporal-query.js';
 
 export {
   autoRoute,

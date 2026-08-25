@@ -2,6 +2,10 @@
  * Contradiction Resolver
  * Detects and auto-resolves contradictions when writing new memories
  * Implements supersession logic for outdated information
+ *
+ * Single contradiction engine: 7 heuristic scenarios propose supersessions,
+ * then an optional proposition-aware LLM validator vetoes confident false
+ * positives (graceful degradation to heuristics when LLM is unavailable).
  */
 
 import { eq, and, not, inArray } from 'drizzle-orm';
@@ -9,6 +13,8 @@ import { getDb } from '../../db/index.js';
 import { getSchema } from '../../db/schema.js';
 import { logger } from '../logger.js';
 import { createAssociation } from '../associations.js';
+import { callLLM } from '../llm/client.js';
+import { config } from '../../config.js';
 
 export interface ContradictionResult {
   hasContradiction: boolean;
@@ -103,18 +109,20 @@ function checkTemporalPeriodConflict(
 }
 
 // Patterns that indicate updated/corrected information
+// NOTE: no /g flag - these regexes are module-level and reused with .test(),
+// where a persistent lastIndex causes every other call to miss the match.
 const UPDATE_PATTERNS = [
-  /\b(now|currently|actually|in fact|correct(ed)?|update(d)?)\b/gi,
-  /\b(changed to|switched to|moved to)\b/gi,
-  /\b(formerly|previously|used to be)\b/gi,
-  /\binstead of\b/gi,
-  /\b(no longer|not anymore)\b/gi,
-  /\b(as of|starting|beginning|from now|effective)\s+(\d{4}|\w+\s+\d{1,2})/gi, // Temporal updates
+  /\b(now|currently|actually|in fact|correct(ed)?|update(d)?)\b/i,
+  /\b(changed to|switched to|moved to)\b/i,
+  /\b(formerly|previously|used to be)\b/i,
+  /\binstead of\b/i,
+  /\b(no longer|not anymore)\b/i,
+  /\b(as of|starting|beginning|from now|effective)\s+(\d{4}|\w+\s+\d{1,2})/i, // Temporal updates
 ];
 
-// Negation patterns
+// Negation patterns (no /g - same stateful-lastIndex reason as above)
 const NEGATION_PATTERNS = [
-  /\b(not|no|never|don't|doesn't|didn't|won't|wouldn't|shouldn't|can't|cannot)\b/gi,
+  /\b(not|no|never|don't|doesn't|didn't|won't|wouldn't|shouldn't|can't|cannot)\b/i,
 ];
 
 // Temporal sensitivity patterns - content that is likely time-sensitive
@@ -173,6 +181,110 @@ function extractSubject(content: string): string {
   
   // Limit to first 100 chars for subject matching
   return firstSentence.substring(0, 100).toLowerCase();
+}
+
+// Opposite keyword pairs for fast heuristic contradiction detection
+// (Scenario 7): two contents asserting opposing values of the same pair
+// (e.g. "working" vs "broken") are flagged as candidate contradictions.
+const OPPOSITE_KEYWORD_PAIRS: Array<readonly [string, string]> = [
+  ['yes', 'no'],
+  ['true', 'false'],
+  ['always', 'never'],
+  ['increase', 'decrease'],
+  ['up', 'down'],
+  ['good', 'bad'],
+  ['success', 'failure'],
+  ['working', 'broken'],
+];
+
+/**
+ * Find the first opposite keyword pair shared between two contents.
+ * Uses whole-word matching (case-insensitive) to avoid substring false
+ * positives like "no" inside "notice". Returns null when no pair matches.
+ */
+function matchOppositeKeywordPair(a: string, b: string): readonly [string, string] | null {
+  const contentA = a.toLowerCase();
+  const contentB = b.toLowerCase();
+
+  for (const [x, y] of OPPOSITE_KEYWORD_PAIRS) {
+    const xInA = new RegExp(`\\b${x}\\b`).test(contentA);
+    const yInA = new RegExp(`\\b${y}\\b`).test(contentA);
+    const xInB = new RegExp(`\\b${x}\\b`).test(contentB);
+    const yInB = new RegExp(`\\b${y}\\b`).test(contentB);
+
+    if ((xInA && yInB) || (yInA && xInB)) {
+      return [x, y];
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Check if two contents share an opposite keyword pair (exported for tests).
+ */
+export function hasOppositeKeywords(a: string, b: string): boolean {
+  return matchOppositeKeywordPair(a, b) !== null;
+}
+
+/**
+ * LLM-as-validator verdict for a proposed supersession.
+ * Null means "LLM unavailable or unusable response" - caller keeps heuristic verdict.
+ */
+interface SupersessionValidation {
+  contradicts: boolean;
+  confidence: number;
+}
+
+// Upper bound on LLM validations per detectContradictions call to bound latency
+const MAX_LLM_VALIDATIONS = 5;
+
+// Minimum LLM confidence required to overturn a heuristic proposal
+const MIN_LLM_VETO_CONFIDENCE = 0.7;
+
+/**
+ * Validate a proposed supersession with the LLM. Proposition-aware: only
+ * same-subject, same-attribute, incompatible-value pairs count as contradictions.
+ * Returns null whenever the LLM is disabled, unavailable, or returns garbage -
+ * the caller then keeps the heuristic verdict (graceful degradation).
+ */
+async function llmValidateSupersession(
+  newContent: string,
+  existingContent: string
+): Promise<SupersessionValidation | null> {
+  if (!config.llmEnabled) return null;
+
+  const prompt = `You are a contradiction validator for a memory system. Compare two memories about possibly the same subject.
+
+EXISTING MEMORY: ${existingContent}
+NEW MEMORY: ${newContent}
+
+Rules:
+- A contradiction requires the SAME subject AND the SAME attribute/relation stated with incompatible values.
+- Different attributes about the same subject are NOT contradictions ("Kenji was born in Tokyo" vs "Kenji uses an iPhone" -> NOT a contradiction).
+- Temporal progression is NOT a contradiction ("I moved to Austin" after "I live in Houston" -> NOT a contradiction; it is an update).
+- Same attribute, incompatible values IS a contradiction ("I live in Austin" vs "I live in Houston" -> contradiction).
+
+Respond with ONLY minified JSON: {"contradicts": true|false, "confidence": 0.0-1.0}`;
+
+  try {
+    const response = await callLLM(prompt);
+    if (!response) return null;
+
+    // Strip markdown fences if present, then extract the outermost JSON object
+    const stripped = response.replace(/```(?:json)?/gi, '').trim();
+    const jsonMatch = stripped.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return null;
+
+    const parsed = JSON.parse(jsonMatch[0]) as Partial<SupersessionValidation>;
+    if (typeof parsed.contradicts !== 'boolean' || typeof parsed.confidence !== 'number') {
+      return null;
+    }
+
+    return { contradicts: parsed.contradicts, confidence: parsed.confidence };
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -345,30 +457,83 @@ export async function detectContradictions(check: ContradictionCheck): Promise<C
          continue;
        }
        
-       // Scenario 6: Temporal inconsistency - same subject but different time periods
-       if (subjectSimilarity > 0.7 && similarity > 0.4 && 
-           existing.validFrom && existing.validTo) {
-         // Check if temporal periods don't overlap reasonably
-         const newValidFrom = new Date(); // When we learned this
-         const newValidTo = null; // Open-ended by default
-         
-         const hasTemporalConflict = checkTemporalPeriodConflict(
-           existing.validFrom, existing.validTo,
-           newValidFrom, newValidTo
-         );
-         
-         if (hasTemporalConflict) {
-           toSupersede.push(existing.id);
-           maxConfidence = Math.max(maxConfidence, 0.8);
-           reasons.push(`temporal inconsistency with existing fact`);
-           continue;
-         }
-       }
+        // Scenario 6: Temporal inconsistency - same subject but different time periods
+        if (subjectSimilarity > 0.7 && similarity > 0.4 && 
+            existing.validFrom && existing.validTo) {
+          // Check if temporal periods don't overlap reasonably
+          const newValidFrom = new Date(); // When we learned this
+          const newValidTo = null; // Open-ended by default
+          
+          const hasTemporalConflict = checkTemporalPeriodConflict(
+            existing.validFrom, existing.validTo,
+            newValidFrom, newValidTo
+          );
+          
+          if (hasTemporalConflict) {
+            toSupersede.push(existing.id);
+            maxConfidence = Math.max(maxConfidence, 0.8);
+            reasons.push(`temporal inconsistency with existing fact`);
+            continue;
+          }
+        }
+        
+        // Scenario 7: Opposite keywords with moderate similarity
+        // (moved from the retired contradiction-v2 keyword detector)
+        if (similarity > 0.35) {
+          const oppositePair = matchOppositeKeywordPair(check.newContent, existing.content);
+          
+          if (oppositePair) {
+            let temporalFactor = 1.0;
+            if (temporalRelationship === 'existing_is_newer') {
+              temporalFactor = 0.7; // Lower confidence if existing is newer
+            } else if (temporalRelationship === 'existing_is_older') {
+              temporalFactor = 1.2; // Higher confidence if existing is older
+            }
+            
+            toSupersede.push(existing.id);
+            maxConfidence = Math.max(maxConfidence, 0.7 * temporalFactor);
+            reasons.push(`opposite keywords (${oppositePair[0]}/${oppositePair[1]})`);
+            continue;
+          }
+        }
     }
     
-    if (toSupersede.length > 0) {
+    // LLM-as-validator: confirm heuristic proposals before committing supersession.
+    // When the LLM is disabled or unavailable, heuristic verdicts stand unchanged.
+    const proposedIds = [...new Set(toSupersede)];
+    let validatedIds = proposedIds;
+
+    if (proposedIds.length > 0 && config.llmEnabled) {
+      const contentById = new Map<string, string>();
+      for (const m of existingMemories as Array<{ id: string; content: string }>) {
+        contentById.set(m.id, m.content);
+      }
+
+      const cappedIds = proposedIds.slice(0, MAX_LLM_VALIDATIONS);
+      const dropped: string[] = [];
+
+      for (const id of cappedIds) {
+        const existingContent = contentById.get(id);
+        if (!existingContent) continue;
+
+        const verdict = await llmValidateSupersession(check.newContent, existingContent);
+        if (verdict && !verdict.contradicts && verdict.confidence >= MIN_LLM_VETO_CONFIDENCE) {
+          dropped.push(id);
+        }
+      }
+
+      if (dropped.length > 0) {
+        validatedIds = proposedIds.filter(id => !dropped.includes(id));
+        logger.debug('LLM validator dropped supersession proposals', {
+          droppedCount: dropped.length,
+          remaining: validatedIds.length,
+        });
+      }
+    }
+    
+    if (validatedIds.length > 0) {
       result.hasContradiction = true;
-      result.supersededMemories = [...new Set(toSupersede)]; // Dedupe
+      result.supersededMemories = validatedIds;
       result.confidence = maxConfidence;
       result.reason = reasons[0] || 'contradiction detected';
       result.associationType = pendingAssociationType;

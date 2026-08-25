@@ -6,7 +6,7 @@
 
 import { detectSecrets, redactSecrets, SecretMatch } from '../security/secret-detector.js';
 import { detectMemorySignals, MemorySignals } from './trigger-detector.js';
-import { runContradictionResolution } from '../engines/contradiction-engine.js';
+import { resolveContradictions } from './contradiction-resolver.js';
 import { supersedeOldTemporalFacts } from './temporal-facts.js';
 import { logger } from '../logger.js';
 
@@ -121,11 +121,11 @@ export async function enforceWriteGate(
   // Use original content (not redacted) so contradiction matching works correctly
   if (!opts.skipContradictionCheck && signals.implicit.correction) {
     try {
-      const contradictionResult = await runContradictionResolution({
+      const contradictionResult = await resolveContradictions(
         content,
         type,
-        projectId: opts.projectId ?? null,
-      });
+        opts.projectId ?? undefined
+      );
       
       result.metadata.contradictions = {
         found: contradictionResult.supersededIds.length > 0,

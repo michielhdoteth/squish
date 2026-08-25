@@ -260,7 +260,7 @@ Every flag ships with a safe default; nothing here is required for local use. Se
 | `SQUISH_DEDUP_AUTO` | off | When `true`, nightly dedup may execute high-threshold merges automatically (capped per run); otherwise proposals wait for review via `squish_dedup` |
 | `SQUISH_ACL_ENFORCE` | `false` | Enforce visibility rules on memory reads |
 | `SQUISH_LLM_ENABLED` | `false` | Enables optional LLM features incl. cross-connection consolidation |
-| Engine flags | various | `SQUISH_CONTRADICTION_ENGINE`, `SQUISH_IMPORTANCE_ENGINE`, `SQUISH_DECAY_ENGINE`, `SQUISH_CRON_ENABLED`, `SQUISH_MULTIMODAL_ENABLED` |
+| Feature flags | various | `SQUISH_DECAY_ENGINE`, `SQUISH_CRON_ENABLED`, `SQUISH_MULTIMODAL_ENABLED` |
 
 ---
 

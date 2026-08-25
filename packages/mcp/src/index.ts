@@ -46,7 +46,7 @@ import { SquishClient, type SearchResult, type RecallAssessment, type ProjectRec
 import { assessRecall } from "../../../core/scoring/recall-confidence.js";
 // Tool-call tracing (in-memory ring buffer) + additive capability tools
 import { traceToolCall, getTraceSummary } from "./tracing.js";
-import { getEngineLog } from "../../../core/engines/engine-log.js";
+import { getAclLog } from "../../../core/acl/acl-log.js";
 import {
   registerPlacesTools,
   registerSessionsTools,
@@ -608,7 +608,7 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
           "stop_watcher: stop file watcher. " +
           "consolidate: run LLM cross-connection finding between memories. " +
           "traces: tool-call trace summary (durations, errors, recent calls). " +
-          "engines: engine shadow-log summary and recent disagreements/ACL decisions."
+          "engines: ACL read-gate decision log summary and recent would-filter entries."
         ),
       }
     },
@@ -636,19 +636,14 @@ function createSquishServer(): { server: McpServer; toolCount: number } {
         return { content: [{ type: "text", text: JSON.stringify({ ok: true, action: "traces", ...getTraceSummary(), version: SERVER_VERSION }, null, 2) }] };
       }
 
-      // --- Engines action ---
+      // --- Engines action (ACL read-gate log) ---
       if (action === "engines") {
-        const entries = getEngineLog();
-        const byKind: Record<string, number> = {};
-        for (const e of entries) {
-          byKind[e.kind] = (byKind[e.kind] ?? 0) + 1;
-        }
+        const entries = getAclLog();
         return { content: [{ type: "text", text: JSON.stringify({
           ok: true,
           action: "engines",
           total: entries.length,
-          byKind,
-          recent: entries.slice(-20),
+          log: entries.slice(-20),
           version: SERVER_VERSION,
         }, null, 2) }] };
       }

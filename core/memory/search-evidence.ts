@@ -19,6 +19,8 @@ import {
   type RecallAssessment,
   type ConfidenceTier,
 } from '../scoring/recall-confidence.js';
+// Batch B1: topical alignment - same-entity/wrong-attribute detection.
+import { parseMemoryTopic, topicalAlignment, type QueryTopic } from '../scoring/topical-alignment.js';
 // Batch 6b: per-memory Ebbinghaus retention replaces the naive age-only curve.
 import { computeRetention, type RetentionRow } from '../decay/retention.js';
 
@@ -68,6 +70,13 @@ export interface EvidenceCollectionContext {
   lexicalRanks?: Map<string, { rank: number; score: number }>;
   /** Pre-rerank top-5 order vs post-rerank top-5 order (agreement fraction). */
   rerankAgreement?: number | null;
+  /**
+   * Batch B1: parsed topic of the raw query string, computed ONCE per search
+   * call and reused for every candidate. null/undefined = alignment signal
+   * unavailable for this search (stays null on every result - honest absence).
+   * Confidence-only: never influences ranking.
+   */
+  queryTopic?: QueryTopic | null;
 }
 
 /**
@@ -133,6 +142,15 @@ export function buildEvidence(
 
   const lex = ctx.lexicalRanks?.get(result.id) ?? null;
 
+  // Batch B1: topical alignment between the query topic and this memory's
+  // parsed topic. null whenever either side is unavailable - never a
+  // fabricated mismatch. Computed here (post-ranking) so it can never
+  // influence ordering.
+  const queryTopic = ctx.queryTopic ?? null;
+  const topicalAlignmentValue = queryTopic && typeof result.content === 'string' && result.content.trim().length > 0
+    ? topicalAlignment(queryTopic, parseMemoryTopic(result.content))
+    : null;
+
   return {
     semantic: typeof result.semanticScore === 'number' ? result.semanticScore : null,
     lexical: {
@@ -153,6 +171,7 @@ export function buildEvidence(
     contradictingCount: conflictEdges.contradictingCount,
     freshness,
     rerankAgreement: ctx.rerankAgreement ?? null,
+    topicalAlignment: topicalAlignmentValue,
   };
 }
 
@@ -312,18 +331,29 @@ export async function attachRecallConfidence(
   const ids = results.map(r => r.id);
   const { metaById, conflictsById, retentionById } = await collectDbMeta(ids);
 
-  let bestConfidence = 0;
-  let bestTier: ConfidenceTier = 'LOW';
-
+  // Pass 1: build every evidence vector first so the Batch B2 topic-absent
+  // coverage factor can see ALL candidate alignments, judged result included.
+  const evidenceByResult: Array<{ result: SearchResult; evidence: RecallEvidence }> = [];
   for (const r of results) {
     const meta = metaById.get(r.id);
     const conflicts = conflictsById.get(r.id) ?? { contradictingCount: 0, supportingCount: 0, supersededBy: null };
     // Batch 6b: decayed strength feeds the freshness factor when available.
     const retention = retentionById.get(r.id) ?? null;
     const evidence = buildEvidence(r, meta, conflicts, ctx, nowMs, retention);
+    evidenceByResult.push({ result: r, evidence });
+  }
+  const candidateAlignments = evidenceByResult.map(e => e.evidence.topicalAlignment);
+
+  let bestConfidence = 0;
+  let bestTier: ConfidenceTier = 'LOW';
+
+  // Pass 2: score with full candidate-set context. Ordering and scores are
+  // untouched - recallConfidence is additive metadata.
+  for (const { result: r, evidence } of evidenceByResult) {
     const scored = computeRecallConfidence(evidence, {
       candidateSemanticScores: ctx.candidateSemanticScores,
       multiSignalQuery: ctx.multiSignalQuery,
+      candidateAlignments,
     });
 
     (r as any).evidence = evidence;

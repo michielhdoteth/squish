@@ -4,7 +4,10 @@
  * Verifies per-component defaults after the eval gate:
  * - Cross-encoder rerank:  ON by default, individually disableable.
  * - Query expansion:       ON by default, individually disableable.
- * - Temporal validity:     OFF by default (golden-eval breach), opt-in via env.
+ * - Temporal validity v2:  ON by default - query-conditioned (validity-at-T
+ *                          stages only activate for past-referencing queries,
+ *                          so the retired flat-staleness breach cannot recur),
+ *                          individually disableable via env.
  * - Graph boost legacy escape hatch defaults OFF (normalized mode serves).
  * - LLM reranking is NOT part of the flip (still provider-gated, default off).
  */
@@ -32,25 +35,26 @@ function restoreEnv(...keys: string[]) {
 }
 
 describe('Precision stack flags (Batch 5)', () => {
-  test('rerank + expansion default ON, temporal validity OFF when env unset', () => {
+  test('rerank + expansion + temporal validity (v2) default ON when env unset', () => {
     const flags = getPrecisionStackFlags({});
     expect(flags.reranker).toBe(true);
     expect(flags.queryExpansion).toBe(true);
-    // Gated back off: golden-eval breach (recall@5 0.837 < 0.85 etc.) when ON
-    expect(flags.temporalValidity).toBe(false);
+    // v2 default flip: query-conditioned validity-at-T. Inert for
+    // current/none queries, so the 2026 flat-staleness breach cannot recur.
+    expect(flags.temporalValidity).toBe(true);
   });
 
   test('cross-encoder rerank individually disableable', () => {
     const flags = getPrecisionStackFlags({ SQUISH_RERANKER_ENABLED: 'false' });
     expect(flags.reranker).toBe(false);
     // siblings unaffected
-    expect(flags.temporalValidity).toBe(false);
+    expect(flags.temporalValidity).toBe(true);
     expect(flags.queryExpansion).toBe(true);
   });
 
-  test('temporal validity opt-in enableable', () => {
-    const flags = getPrecisionStackFlags({ SQUISH_TEMPORAL_VALIDITY: 'true' });
-    expect(flags.temporalValidity).toBe(true);
+  test('temporal validity individually disableable (restores strict filtering)', () => {
+    const flags = getPrecisionStackFlags({ SQUISH_TEMPORAL_VALIDITY: 'false' });
+    expect(flags.temporalValidity).toBe(false);
     expect(flags.reranker).toBe(true);
     expect(flags.queryExpansion).toBe(true);
   });
@@ -59,7 +63,7 @@ describe('Precision stack flags (Batch 5)', () => {
     const flags = getPrecisionStackFlags({ SQUISH_QUERY_EXPANSION: 'false' });
     expect(flags.queryExpansion).toBe(false);
     expect(flags.reranker).toBe(true);
-    expect(flags.temporalValidity).toBe(false);
+    expect(flags.temporalValidity).toBe(true);
   });
 
   test('all falsy variants respected for a single component', () => {

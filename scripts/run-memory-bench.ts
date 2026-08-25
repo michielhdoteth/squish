@@ -265,7 +265,8 @@ async function main() {
   if (!process.env.SQUISH_RERANKER_ENABLED) process.env.SQUISH_RERANKER_ENABLED = 'false';
   if (!process.env.SQUISH_QUERY_EXPANSION) process.env.SQUISH_QUERY_EXPANSION = 'true';
   if (!process.env.SQUISH_GRAPH_BOOST_LEGACY) process.env.SQUISH_GRAPH_BOOST_LEGACY = 'false';
-  if (!process.env.SQUISH_TEMPORAL_VALIDITY) process.env.SQUISH_TEMPORAL_VALIDITY = 'false';
+  // Mirrors the production default (v2 query-conditioned temporal validity).
+  if (!process.env.SQUISH_TEMPORAL_VALIDITY) process.env.SQUISH_TEMPORAL_VALIDITY = 'true';
   if (!process.env.SQUISH_SCORING_V2) process.env.SQUISH_SCORING_V2 = 'true';
   if (!process.env.SQUISH_LOCAL_BUNDLED_MODEL) {
     process.env.SQUISH_LOCAL_BUNDLED_MODEL = realModelMode ? 'Xenova/all-MiniLM-L6-v2' : 'off';

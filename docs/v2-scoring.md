@@ -6,7 +6,7 @@ This module implements the v2 scoring system based on research showing 3-factor 
 
 ## Components
 
-### 1. Importance Scoring v2 (`core/scoring/importance-v2.ts`)
+### 1. Importance Scoring v2 (`core/memory/importance.ts`)
 
 Implements 3-factor importance scoring:
 
@@ -21,14 +21,14 @@ Final Score = 0.5 * baseImportance + 0.3 * surprise + 0.2 * emotion
 
 **Weights:** Configurable via the `weights` parameter (default: 0.5, 0.3, 0.2)
 
-### 2. Contradiction Detection v2 (`core/consolidation/contradiction-v2.ts`)
+### 2. Contradiction Detection v2 (`core/memory/contradiction-resolver.ts`)
 
-Implements LLM-as-Validator pattern for contradiction detection.
+Implements the LLM-as-Validator pattern for contradiction detection.
 
 **Features:**
-- Keyword-based detection (fallback, no LLM required)
-- LLM-based detection (when `useLLM=true`, falls back to keyword if LLM unavailable)
-- Batch checking for multiple memories
+- Keyword opposite-pair detection (Scenario 7 heuristic, no LLM required)
+- Proposition-aware LLM validation via the private `llmValidateSupersession` helper (vetoes confident heuristic false positives, degrades gracefully to heuristics when the LLM is unavailable)
+- Batch checking against existing project memories
 - Configurable via `SQUISH_V2_CONTRADICTION_CHECK` environment variable
 
 **Target Accuracy:** 95%+
@@ -49,20 +49,18 @@ The v2 scoring is integrated into `core/memory/memories.ts`. When creating a new
 ### Contradiction Detection
 
 ```typescript
-import { detectContradictionLLM, checkContradictions } from '../consolidation/contradiction-v2.js';
+import { detectContradictions, hasOppositeKeywords } from '../memory/contradiction-resolver.js';
 
-// Single comparison
-const result = await detectContradictionLLM(
-  { id: 'mem-1', content: 'yes' },
-  { id: 'mem-2', content: 'no' },
-  false // useLLM
-);
+// Pure keyword opposite-pair check (no DB access)
+hasOppositeKeywords('it works', 'it is broken'); // true
 
-// Check against existing memories
-const contradictions = await checkContradictions(
-  { id: 'new-mem', content: 'yes', projectId: 'proj-1' },
-  false // useLLM
-);
+// Check a new memory against existing project memories
+const result = await detectContradictions({
+  newContent: 'yes',
+  newType: 'fact',
+  projectId: 'proj-1'
+});
+// result.hasContradiction / result.supersededMemories / result.confidence
 ```
 
 ## Configuration
@@ -85,8 +83,8 @@ export SQUISH_V2_CONTRADICTION_CHECK=true
 ## Testing
 
 ```bash
-bun test tests/core/scoring/importance-v2.test.ts
-bun test tests/core/consolidation/contradiction-v2.test.ts
+bun test tests/core/memory/importance-three-factor.test.ts
+bun test tests/core/memory/contradiction-resolver-llm.test.ts
 ```
 
 ## Future Enhancements

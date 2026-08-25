@@ -16,8 +16,8 @@ let savedEnv: Record<string, string | undefined>;
 let SquishClient: typeof import('../../../packages/sdk/src/index.js').SquishClient;
 let setVisibilityRule: typeof import('../../../core/loadout/loadout.js').setVisibilityRule;
 let removeVisibilityRule: typeof import('../../../core/loadout/loadout.js').removeVisibilityRule;
-let getEngineLog: typeof import('../../../core/engines/engine-log.js').getEngineLog;
-let clearEngineLog: typeof import('../../../core/engines/engine-log.js').clearEngineLog;
+let getAclLog: typeof import('../../../core/acl/acl-log.js').getAclLog;
+let clearAclLog: typeof import('../../../core/acl/acl-log.js').clearAclLog;
 let getDb: typeof import('../../../db/index.js').getDb;
 let resetDb: typeof import('../../../db/index.js').resetDb;
 
@@ -45,13 +45,13 @@ describe('SDK search ACL wiring', () => {
 
     const sdkMod = await import('../../../packages/sdk/src/index.js');
     const loadoutMod = await import('../../../core/loadout/loadout.js');
-    const logMod = await import('../../../core/engines/engine-log.js');
+    const logMod = await import('../../../core/acl/acl-log.js');
     const dbMod = await import('../../../db/index.js');
     SquishClient = sdkMod.SquishClient;
     setVisibilityRule = loadoutMod.setVisibilityRule;
     removeVisibilityRule = loadoutMod.removeVisibilityRule;
-    getEngineLog = logMod.getEngineLog;
-    clearEngineLog = logMod.clearEngineLog;
+    getAclLog = logMod.getAclLog;
+    clearAclLog = logMod.clearAclLog;
     getDb = dbMod.getDb;
     resetDb = dbMod.resetDb;
 
@@ -92,7 +92,7 @@ describe('SDK search ACL wiring', () => {
 
   test('log-only mode: SDK search serves everything but logs would-filter', async () => {
     delete process.env.SQUISH_ACL_ENFORCE;
-    clearEngineLog();
+    clearAclLog();
 
     // No explicit user -> auto context falls back to 'local-agent', who is not
     // granted on mem-wired-private. Log-only mode must still serve it.
@@ -100,7 +100,7 @@ describe('SDK search ACL wiring', () => {
     const results = await client.search('roadmap');
 
     expect(results.length).toBeGreaterThanOrEqual(1);
-    const logged = getEngineLog('acl_would_filter');
+    const logged = getAclLog('acl_would_filter');
     expect(logged.length).toBeGreaterThanOrEqual(1);
     expect(logged.some((e) => e.memoryId === 'mem-wired-private')).toBe(true);
   });

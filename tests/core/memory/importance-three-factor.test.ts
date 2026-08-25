@@ -9,7 +9,7 @@ import {
   detectSurprise,
   detectEmotion,
   ImportanceFactors,
-} from '../../../core/scoring/importance-v2.js';
+} from '../../../core/memory/importance.js';
 
 describe('calculateImportanceV2', () => {
   test('should calculate with default weights', () => {

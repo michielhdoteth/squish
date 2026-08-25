@@ -1,10 +1,10 @@
 {
   "meta": {
     "name": "squish-memory-bench",
-    "gitSha": "8d1a729",
+    "gitSha": "6ab693b",
     "gitDirty": true,
-    "generatedAt": "2026-08-25T06:31:10.142Z",
-    "runtimeMs": 5961,
+    "generatedAt": "2026-08-25T11:37:15.463Z",
+    "runtimeMs": 2170,
     "embeddingsProvider": "local",
     "bundledModel": "off",
     "abstainBelow": 0.35,
@@ -12,19 +12,19 @@
   },
   "overall": {
     "count": 135,
-    "macroPenaltyScore": 0.187,
-    "microPenaltyScore": 0.4259,
-    "confidentWrong": 21
+    "macroPenaltyScore": 0.2509,
+    "microPenaltyScore": 0.5778,
+    "confidentWrong": 5
   },
   "byCategory": {
     "fact-update": {
       "count": 60,
-      "penaltyScore": 0.4083,
+      "penaltyScore": 0.6333,
       "correct": 16,
-      "partial": 35,
+      "partial": 44,
       "blank": 0,
-      "wrong": 9,
-      "guardRate": 0.85
+      "wrong": 0,
+      "guardRate": 1
     },
     "planted-falsehood": {
       "count": 20,
@@ -46,11 +46,11 @@
     },
     "unanswerable": {
       "count": 20,
-      "penaltyScore": -0.4,
+      "penaltyScore": -0.05,
       "correct": 3,
       "partial": 0,
-      "blank": 6,
-      "wrong": 11,
+      "blank": 13,
+      "wrong": 4,
       "guardRate": 0.15
     },
     "edge-empty": {
@@ -175,10 +175,10 @@
       "category": "fact-update",
       "penalty": 0.5,
       "guardOk": true,
-      "verdict": "qualified",
-      "bestConfidence": 0.8448,
+      "verdict": "confident",
+      "bestConfidence": 0.9398,
       "top1": "fu_3_v2",
-      "top1Confidence": 0.8448
+      "top1Confidence": 0.9387
     },
     {
       "benchId": "fu_4_q_current",
@@ -188,13 +188,13 @@
       "verdict": "qualified",
       "bestConfidence": 0.8458,
       "top1": "fu_4_v1",
-      "top1Confidence": 0.844
+      "top1Confidence": 0.2152
     },
     {
       "benchId": "fu_4_q_past",
       "category": "fact-update",
-      "penalty": -1,
-      "guardOk": false,
+      "penalty": 0.5,
+      "guardOk": true,
       "verdict": "qualified",
       "bestConfidence": 0.8458,
       "top1": "fu_4_v3",
@@ -268,7 +268,7 @@
       "verdict": "qualified",
       "bestConfidence": 0.8458,
       "top1": "fu_8_v1",
-      "top1Confidence": 0.844
+      "top1Confidence": 0.2152
     },
     {
       "benchId": "fu_8_q_past",
@@ -293,12 +293,12 @@
     {
       "benchId": "fu_9_q_past",
       "category": "fact-update",
-      "penalty": -1,
-      "guardOk": false,
-      "verdict": "qualified",
-      "bestConfidence": 0.8458,
+      "penalty": 0.5,
+      "guardOk": true,
+      "verdict": "confident",
+      "bestConfidence": 0.9868,
       "top1": "fu_9_v3",
-      "top1Confidence": 0.8458
+      "top1Confidence": 0.9868
     },
     {
       "benchId": "fu_10_q_current",
@@ -306,19 +306,19 @@
       "penalty": 0.5,
       "guardOk": true,
       "verdict": "qualified",
-      "bestConfidence": 0.8458,
+      "bestConfidence": 0.8448,
       "top1": "fu_10_v1",
-      "top1Confidence": 0.844
+      "top1Confidence": 0.2152
     },
     {
       "benchId": "fu_10_q_past",
       "category": "fact-update",
-      "penalty": -1,
-      "guardOk": false,
-      "verdict": "qualified",
-      "bestConfidence": 0.8458,
+      "penalty": 0.5,
+      "guardOk": true,
+      "verdict": "confident",
+      "bestConfidence": 0.9387,
       "top1": "fu_10_v3",
-      "top1Confidence": 0.8458
+      "top1Confidence": 0.2396
     },
     {
       "benchId": "fu_11_q_current",
@@ -333,12 +333,12 @@
     {
       "benchId": "fu_11_q_past",
       "category": "fact-update",
-      "penalty": -1,
-      "guardOk": false,
-      "verdict": "qualified",
-      "bestConfidence": 0.8458,
+      "penalty": 0.5,
+      "guardOk": true,
+      "verdict": "confident",
+      "bestConfidence": 0.9398,
       "top1": "fu_11_v3",
-      "top1Confidence": 0.8458
+      "top1Confidence": 0.9398
     },
     {
       "benchId": "fu_12_q_current",
@@ -353,12 +353,12 @@
     {
       "benchId": "fu_12_q_past",
       "category": "fact-update",
-      "penalty": -1,
-      "guardOk": false,
-      "verdict": "qualified",
-      "bestConfidence": 0.8458,
+      "penalty": 0.5,
+      "guardOk": true,
+      "verdict": "confident",
+      "bestConfidence": 0.9868,
       "top1": "fu_12_v3",
-      "top1Confidence": 0.8458
+      "top1Confidence": 0.9868
     },
     {
       "benchId": "fu_13_q_current",
@@ -393,8 +393,8 @@
     {
       "benchId": "fu_14_q_past",
       "category": "fact-update",
-      "penalty": -1,
-      "guardOk": false,
+      "penalty": 0.5,
+      "guardOk": true,
       "verdict": "qualified",
       "bestConfidence": 0.8458,
       "top1": "fu_14_v3",
@@ -413,8 +413,8 @@
     {
       "benchId": "fu_15_q_past",
       "category": "fact-update",
-      "penalty": -1,
-      "guardOk": false,
+      "penalty": 0.5,
+      "guardOk": true,
       "verdict": "qualified",
       "bestConfidence": 0.8458,
       "top1": "fu_15_v3",
@@ -448,7 +448,7 @@
       "verdict": "qualified",
       "bestConfidence": 0.8458,
       "top1": "fu_17_v1",
-      "top1Confidence": 0.8441
+      "top1Confidence": 0.844
     },
     {
       "benchId": "fu_17_q_past",
@@ -458,7 +458,7 @@
       "verdict": "qualified",
       "bestConfidence": 0.8458,
       "top1": "fu_17_v1",
-      "top1Confidence": 0.8441
+      "top1Confidence": 0.844
     },
     {
       "benchId": "fu_18_q_current",
@@ -466,9 +466,9 @@
       "penalty": 1,
       "guardOk": true,
       "verdict": "qualified",
-      "bestConfidence": 0.8458,
+      "bestConfidence": 0.8449,
       "top1": "fu_18_v3",
-      "top1Confidence": 0.8458
+      "top1Confidence": 0.2157
     },
     {
       "benchId": "fu_18_q_past",
@@ -476,9 +476,9 @@
       "penalty": 0.5,
       "guardOk": true,
       "verdict": "qualified",
-      "bestConfidence": 0.8458,
+      "bestConfidence": 0.8449,
       "top1": "fu_18_v3",
-      "top1Confidence": 0.8458
+      "top1Confidence": 0.2157
     },
     {
       "benchId": "fu_19_q_current",
@@ -513,8 +513,8 @@
     {
       "benchId": "fu_20_q_past",
       "category": "fact-update",
-      "penalty": -1,
-      "guardOk": false,
+      "penalty": 0.5,
+      "guardOk": true,
       "verdict": "confident",
       "bestConfidence": 0.9398,
       "top1": "fu_20_v3",
@@ -553,12 +553,12 @@
     {
       "benchId": "fu_22_q_past",
       "category": "fact-update",
-      "penalty": -1,
-      "guardOk": false,
-      "verdict": "qualified",
-      "bestConfidence": 0.8458,
+      "penalty": 0.5,
+      "guardOk": true,
+      "verdict": "confident",
+      "bestConfidence": 0.9398,
       "top1": "fu_22_v3",
-      "top1Confidence": 0.8458
+      "top1Confidence": 0.9398
     },
     {
       "benchId": "fu_23_q_current",
@@ -675,10 +675,10 @@
       "category": "fact-update",
       "penalty": 0.5,
       "guardOk": true,
-      "verdict": "qualified",
-      "bestConfidence": 0.8458,
+      "verdict": "confident",
+      "bestConfidence": 0.9398,
       "top1": "fu_28_v3",
-      "top1Confidence": 0.8458
+      "top1Confidence": 0.9398
     },
     {
       "benchId": "fu_29_q_current",
@@ -706,7 +706,7 @@
       "penalty": 1,
       "guardOk": true,
       "verdict": "qualified",
-      "bestConfidence": 0.8497,
+      "bestConfidence": 0.8442,
       "top1": "pf_0_fact",
       "top1Confidence": 0.8442
     },
@@ -806,7 +806,7 @@
       "penalty": 1,
       "guardOk": true,
       "verdict": "confident",
-      "bestConfidence": 0.9441,
+      "bestConfidence": 0.938,
       "top1": "pf_10_fact",
       "top1Confidence": 0.938
     },
@@ -886,9 +886,9 @@
       "penalty": 1,
       "guardOk": true,
       "verdict": "qualified",
-      "bestConfidence": 0.8442,
+      "bestConfidence": 0.809,
       "top1": "pf_18_fact",
-      "top1Confidence": 0.8442
+      "top1Confidence": 0.2153
     },
     {
       "benchId": "pf_19_q",
@@ -896,9 +896,9 @@
       "penalty": 1,
       "guardOk": true,
       "verdict": "confident",
-      "bestConfidence": 0.985,
+      "bestConfidence": 0.9849,
       "top1": "pf_19_fact",
-      "top1Confidence": 0.985
+      "top1Confidence": 0.9849
     },
     {
       "benchId": "cp_0_q_with",
@@ -906,19 +906,19 @@
       "penalty": 1,
       "guardOk": true,
       "verdict": "qualified",
-      "bestConfidence": 0.8497,
+      "bestConfidence": 0.3953,
       "top1": "cp_0_pref",
-      "top1Confidence": 0.8497
+      "top1Confidence": 0.2167
     },
     {
       "benchId": "cp_0_q_without",
       "category": "conditional-preference",
       "penalty": 0.5,
       "guardOk": true,
-      "verdict": "confident",
-      "bestConfidence": 0.9913,
+      "verdict": "qualified",
+      "bestConfidence": 0.4797,
       "top1": "cp_0_pref",
-      "top1Confidence": 0.9913
+      "top1Confidence": 0.2528
     },
     {
       "benchId": "cp_1_q_with",
@@ -1046,19 +1046,19 @@
       "penalty": 1,
       "guardOk": true,
       "verdict": "qualified",
-      "bestConfidence": 0.8497,
+      "bestConfidence": 0.809,
       "top1": "cp_7_pref",
-      "top1Confidence": 0.8497
+      "top1Confidence": 0.2167
     },
     {
       "benchId": "cp_7_q_without",
       "category": "conditional-preference",
       "penalty": 0.5,
       "guardOk": true,
-      "verdict": "confident",
-      "bestConfidence": 0.9913,
+      "verdict": "qualified",
+      "bestConfidence": 0.5296,
       "top1": "cp_7_pref",
-      "top1Confidence": 0.9913
+      "top1Confidence": 0.2528
     },
     {
       "benchId": "cp_8_q_with",
@@ -1206,19 +1206,19 @@
       "penalty": 0,
       "guardOk": false,
       "verdict": "qualified",
-      "bestConfidence": 0.8442,
+      "bestConfidence": 0.809,
       "top1": "pf_0_fact",
-      "top1Confidence": 0.8442
+      "top1Confidence": 0.2153
     },
     {
       "benchId": "ua_1_q",
       "category": "unanswerable",
-      "penalty": -1,
+      "penalty": 0,
       "guardOk": false,
-      "verdict": "confident",
-      "bestConfidence": 0.9849,
+      "verdict": "qualified",
+      "bestConfidence": 0.4797,
       "top1": "pf_1_fact",
-      "top1Confidence": 0.9849
+      "top1Confidence": 0.2512
     },
     {
       "benchId": "ua_2_q",
@@ -1226,9 +1226,9 @@
       "penalty": 1,
       "guardOk": true,
       "verdict": "no_reliable_memory",
-      "bestConfidence": 0.0726,
+      "bestConfidence": 0.0185,
       "top1": "pf_3_fact",
-      "top1Confidence": 0.0726
+      "top1Confidence": 0.0185
     },
     {
       "benchId": "ua_3_q",
@@ -1238,7 +1238,7 @@
       "verdict": "qualified",
       "bestConfidence": 0.8458,
       "top1": "fu_0_v1",
-      "top1Confidence": 0.844
+      "top1Confidence": 0.2152
     },
     {
       "benchId": "ua_4_q",
@@ -1246,19 +1246,19 @@
       "penalty": 1,
       "guardOk": true,
       "verdict": "no_reliable_memory",
-      "bestConfidence": 0.0536,
+      "bestConfidence": 0.0488,
       "top1": "pf_8_fact",
-      "top1Confidence": 0.0536
+      "top1Confidence": 0.0137
     },
     {
       "benchId": "ua_5_q",
       "category": "unanswerable",
-      "penalty": -1,
+      "penalty": 0,
       "guardOk": false,
-      "verdict": "confident",
-      "bestConfidence": 0.9849,
+      "verdict": "qualified",
+      "bestConfidence": 0.5322,
       "top1": "pf_5_fact",
-      "top1Confidence": 0.9849
+      "top1Confidence": 0.2512
     },
     {
       "benchId": "ua_6_q",
@@ -1273,12 +1273,12 @@
     {
       "benchId": "ua_7_q",
       "category": "unanswerable",
-      "penalty": -1,
+      "penalty": 0,
       "guardOk": false,
-      "verdict": "confident",
-      "bestConfidence": 0.9849,
+      "verdict": "qualified",
+      "bestConfidence": 0.5398,
       "top1": "pf_7_fact",
-      "top1Confidence": 0.9849
+      "top1Confidence": 0.2512
     },
     {
       "benchId": "ua_8_q",
@@ -1293,22 +1293,22 @@
     {
       "benchId": "ua_9_q",
       "category": "unanswerable",
-      "penalty": -1,
+      "penalty": 0,
       "guardOk": false,
-      "verdict": "confident",
-      "bestConfidence": 0.9849,
+      "verdict": "qualified",
+      "bestConfidence": 0.5545,
       "top1": "pf_9_fact",
-      "top1Confidence": 0.9849
+      "top1Confidence": 0.2512
     },
     {
       "benchId": "ua_10_q",
       "category": "unanswerable",
-      "penalty": -1,
+      "penalty": 0,
       "guardOk": false,
-      "verdict": "confident",
-      "bestConfidence": 0.9849,
+      "verdict": "qualified",
+      "bestConfidence": 0.4472,
       "top1": "pf_10_fact",
-      "top1Confidence": 0.9849
+      "top1Confidence": 0.2512
     },
     {
       "benchId": "ua_11_q",
@@ -1316,7 +1316,7 @@
       "penalty": 1,
       "guardOk": true,
       "verdict": "no_reliable_memory",
-      "bestConfidence": 0.0641,
+      "bestConfidence": 0.0622,
       "top1": "pf_13_false",
       "top1Confidence": 0.0622
     },
@@ -1326,7 +1326,7 @@
       "penalty": 0,
       "guardOk": false,
       "verdict": "qualified",
-      "bestConfidence": 0.8458,
+      "bestConfidence": 0.8442,
       "top1": "pf_12_fact",
       "top1Confidence": 0.8442
     },
@@ -1343,12 +1343,12 @@
     {
       "benchId": "ua_14_q",
       "category": "unanswerable",
-      "penalty": -1,
+      "penalty": 0,
       "guardOk": false,
-      "verdict": "confident",
-      "bestConfidence": 0.9849,
+      "verdict": "qualified",
+      "bestConfidence": 0.5399,
       "top1": "pf_14_fact",
-      "top1Confidence": 0.9849
+      "top1Confidence": 0.2512
     },
     {
       "benchId": "ua_15_q",
@@ -1358,7 +1358,7 @@
       "verdict": "qualified",
       "bestConfidence": 0.8442,
       "top1": "pf_8_false",
-      "top1Confidence": 0.8091
+      "top1Confidence": 0.809
     },
     {
       "benchId": "ua_16_q",
@@ -1376,19 +1376,19 @@
       "penalty": 0,
       "guardOk": false,
       "verdict": "qualified",
-      "bestConfidence": 0.8442,
+      "bestConfidence": 0.809,
       "top1": "pf_8_false",
-      "top1Confidence": 0.8091
+      "top1Confidence": 0.809
     },
     {
       "benchId": "ua_18_q",
       "category": "unanswerable",
-      "penalty": -1,
+      "penalty": 0,
       "guardOk": false,
-      "verdict": "confident",
-      "bestConfidence": 0.985,
+      "verdict": "qualified",
+      "bestConfidence": 0.5757,
       "top1": "pf_18_fact",
-      "top1Confidence": 0.985
+      "top1Confidence": 0.2512
     },
     {
       "benchId": "ua_19_q",
@@ -1396,9 +1396,9 @@
       "penalty": 0,
       "guardOk": false,
       "verdict": "qualified",
-      "bestConfidence": 0.8497,
+      "bestConfidence": 0.809,
       "top1": "pf_8_false",
-      "top1Confidence": 0.8091
+      "top1Confidence": 0.809
     },
     {
       "benchId": "edge_empty_q",

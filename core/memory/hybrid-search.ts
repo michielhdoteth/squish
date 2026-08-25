@@ -30,7 +30,10 @@ import { smartMMR } from '../retrieval/mmr-diversity.js';
 // Advanced retrieval modules
 import { expandQuery } from '../retrieval/query-expansion.js';
 import { extractQueryEntities, entityBoost } from '../retrieval/entity-aware-retrieval.js';
-import { detectTemporalReferences, isLikelyStale } from '../retrieval/temporal-validity.js';
+// Temporal validity v2: query-conditioned validity-at-T (replaces the retired
+// flat staleness penalty - see core/retrieval/temporal-validity.ts).
+import { parseTimeReference, stripTemporalRelationTokens } from '../retrieval/temporal-query.js';
+import { applyTemporalEligibility } from '../retrieval/temporal-validity.js';
 
 /**
  * Merge results by ID, keeping the one with the highest similarity.
@@ -67,6 +70,7 @@ import {
   applySupersessionFilter,
   applyGraphBoostWithWeight,
   expandWithAssociations,
+  getSupersessionInvalidationMap,
 } from './search-scoring.js';
 import {
   SCORING_SCHEMA_VERSION,
@@ -81,6 +85,9 @@ import {
 import { getLastRerankMeta } from '../retrieval/cross-encoder-reranker.js';
 // Batch 6a: calibrated recall confidence + itemized evidence (additive metadata).
 import { attachRecallConfidence } from './search-evidence.js';
+// Batch B1: topical alignment - parse the query topic ONCE per search call;
+// consumed by recall-confidence only, never by ranking.
+import { parseQueryTopic } from '../scoring/topical-alignment.js';
 
 // Re-export from sub-modules for backward compatibility
 export { keywordSearch, rrfFusion } from './keyword-search.js';
@@ -210,6 +217,23 @@ export async function hybridSearch(
   // Batch 5: precision stack flags - all default ON, individually disableable.
   const precision = getPrecisionStackFlags();
 
+  // Temporal validity v2: classify the query's time reference ONCE per search
+  // (pure regex, no LLM). The temporal stages below only activate for queries
+  // that actually reach into the past; 'current'/'none' queries keep the exact
+  // pre-temporal pipeline (filter stays, eligibility stage inert).
+  const timeRef = parseTimeReference(input.query ?? '');
+  const temporalStageActive =
+    precision.temporalValidity &&
+    (timeRef.kind === 'past-anchored' || timeRef.kind === 'past-unanchored');
+  const traceTemporal = {
+    kind: timeRef.kind,
+    t: timeRef.t ? timeRef.t.toISOString() : null,
+    raw: timeRef.raw,
+    supersessionRelaxed: false,
+    excludedInvalidAtT: 0,
+    boostedValidAtT: 0,
+  };
+
   // Advanced Retrieval: Query Expansion
   // Expand query with synonyms before searching if enabled
   const queryExpansionEnabled = precision.queryExpansion;
@@ -256,6 +280,7 @@ export async function hybridSearch(
     totalCandidates: 0,
     finalOrder: [],
     finalResultCount: 0,
+    temporalQuery: traceTemporal,
   };
 
   let vectorResults: SearchResult[] = [];
@@ -314,7 +339,22 @@ export async function hybridSearch(
 
   // FTS5 keyword search + RRF fusion: add keyword signal and fuse with vector results
   // This is the industry standard (TrueMemory episodic layer, MemPalace FTS5, etc.)
-  const keywordResults = await keywordSearch(input, limit * 2, searchCtx);
+  // Temporal validity v2: on past-referencing queries the lexical leg matches
+  // against a query with temporal RELATION words ("before", "since", ...)
+  // stripped. Those tokens carry no topical content once the time reference
+  // is parsed, and as exact-match magnets they let unrelated rows that merely
+  // contain "before" crowd historically-correct answers out of top-3
+  // (measured on the memory-bench fact-update category). Non-past queries
+  // keep the raw query: byte-identical default pipeline.
+  const lexicalQuery =
+    temporalStageActive && input.query ? stripTemporalRelationTokens(input.query) : input.query;
+  // An over-sanitized (empty) lexical query degrades gracefully inside
+  // keywordSearch to an empty leg - fusion then proceeds vector-only.
+  const keywordResults = await keywordSearch(
+    { ...input, query: lexicalQuery ?? '' },
+    limit * 2,
+    searchCtx
+  );
 
   // Batch 6b: OPTIONAL third corpus leg - active belief + strategy knowledge
   // rows from the unified knowledge table. SQUISH_SEARCH_BELIEFS
@@ -441,47 +481,24 @@ export async function hybridSearch(
   }
 
   // v1.5.0: Filter or penalize superseded memories
-  const { filtered: supersededResults, supersededCount } = await applySupersessionFilter(
-    results, input.project, retrievalConfig.includeSuperseded, retrievalConfig, searchCtx
-  );
-  trace.supersededFiltered = supersededCount;
-  results = supersededResults;
-
-  // Advanced Retrieval: Temporal Validity
-  // Downrank or filter stale memories based on temporal references
-  // Batch 5: opt-in (SQUISH_TEMPORAL_VALIDITY=true). Default OFF after the
-  // golden-eval gate showed a recall/mrr/hitAt1 breach from the flat
-  // staleness penalty on aged corpora.
-  const temporalValidityEnabled = precision.temporalValidity;
-  if (temporalValidityEnabled) {
-    const stalePenalty = 0.3; // Penalty for stale memories
-    let staleCount = 0;
-    
-    results = results.map(r => {
-      // Check if memory content has temporal references and is likely stale
-      if (r.content && r.createdAt) {
-        const stale = isLikelyStale({
-          content: r.content,
-          createdAt: r.createdAt,
-          lastAccessedAt: (r as any).lastAccessedAt as string | undefined,
-        });
-
-        if (stale) {
-          staleCount++;
-          // Batch 3: itemized 'stalenessPenalty'; legacy floored composite at 0.
-          const penalized = addBoost(r, 'stalenessPenalty', -stalePenalty);
-          return { ...penalized, similarity: Math.max(0, penalized.similarity ?? 0) };
-        }
-      }
-      return r;
-    });
-    
-    // Re-sort after applying staleness penalty
-    results.sort((a, b) => (b.similarity ?? 0) - (a.similarity ?? 0));
-    
-    if (staleCount > 0) {
-      logger.debug(`[HybridSearch] Temporal validity: ${staleCount} stale memories downranked`);
-    }
+  // Temporal validity v2: for queries that reach into the past, RELAX the
+  // supersession stage entirely - superseded/merged rows are the
+  // historically-correct answers a point-in-time query needs. This overrides
+  // both the filter mode (includeSuperseded=false) and the penalty mode:
+  // penalizing them would defeat the point-in-time retrieval this path
+  // exists for. The anchored-past eligibility stage below re-establishes
+  // correctness by validity-at-T instead.
+  if (temporalStageActive) {
+    traceTemporal.supersessionRelaxed = true;
+    logger.debug(
+      `[HybridSearch] Supersession filter relaxed for ${timeRef.kind} query`
+    );
+  } else {
+    const { filtered: supersededResults, supersededCount } = await applySupersessionFilter(
+      results, input.project, retrievalConfig.includeSuperseded, retrievalConfig, searchCtx
+    );
+    trace.supersededFiltered = supersededCount;
+    results = supersededResults;
   }
 
   // Expand with associated memories for better coverage
@@ -524,6 +541,44 @@ export async function hybridSearch(
       // Multi-hop failed, continue with vector results
       logger.debug(`[HybridSearch] Multi-hop failed: ${e}`);
     }
+  }
+
+  // Temporal validity v2 (anchored past): enforce validity-at-T.
+  // Placed AFTER every candidate-injecting stage (associations, multi-hop) so
+  // an excluded memory cannot be resurrected back into the ranking, and
+  // BEFORE any reranker so the exclusion survives. Only runs for queries with
+  // an explicit past anchor ("in 2023"); unanchored-past queries were handled
+  // by the supersession relaxation above and get NO exclusions or boosts here.
+  if (precision.temporalValidity && timeRef.kind === 'past-anchored' && timeRef.t !== null) {
+    const invalidationMap = await getSupersessionInvalidationMap(input.project, searchCtx);
+    const eligibility = applyTemporalEligibility(
+      results.map(r => ({
+        createdAt: r.createdAt ?? null,
+        supersededAt: invalidationMap.has(r.id) ? invalidationMap.get(r.id) ?? null : null,
+      })),
+      timeRef
+    );
+
+    const kept: SearchResult[] = [];
+    for (let i = 0; i < results.length; i++) {
+      const verdict = eligibility[i];
+      if (!verdict.eligible) {
+        traceTemporal.excludedInvalidAtT += 1;
+        continue;
+      }
+      kept.push(
+        verdict.boost !== 0 ? addBoost(results[i], 'temporalValidAtT', verdict.boost) : results[i]
+      );
+      if (verdict.boost !== 0) traceTemporal.boostedValidAtT += 1;
+    }
+
+    logger.debug(
+      `[HybridSearch] Temporal validity (anchored t=${traceTemporal.t}): ` +
+      `${kept.length} valid-at-T, ${traceTemporal.excludedInvalidAtT} excluded`
+    );
+
+    results = kept;
+    results.sort((a, b) => (b.similarity ?? 0) - (a.similarity ?? 0));
   }
 
   // LLM reranking: when LLM is enabled and query is meaningful, optionally rerank
@@ -640,11 +695,15 @@ export async function hybridSearch(
   // best-effort: any failure leaves results unannotated rather than breaking
   // search.
   try {
+    // Batch B1: the raw query string is parsed into a topic once per search
+    // call and handed to evidence assembly for per-candidate alignment.
+    const queryTopic = input.query ? parseQueryTopic(input.query) : null;
     const { bestConfidence, bestTier, assessment } = await attachRecallConfidence(results, {
       candidateSemanticScores: results.map(r => (typeof r.semanticScore === 'number' ? r.semanticScore : null)),
       multiSignalQuery: keywordResults.length > 0,
       lexicalRanks,
       rerankAgreement,
+      queryTopic,
     });
     trace.recallAssessment = { ...assessment };
     void bestConfidence;

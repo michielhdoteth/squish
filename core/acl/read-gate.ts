@@ -18,8 +18,15 @@
  */
 
 import { checkVisibility, getVisibilityRules, hasVisibilityRules } from '../loadout/loadout.js';
-import { isAclEnforce } from '../engines/flags.js';
-import { pushEngineLog } from '../engines/engine-log.js';
+import { pushAclLog } from './acl-log.js';
+
+/**
+ * SQUISH_ACL_ENFORCE=true enables enforcement; any other value (or unset)
+ * keeps the gate log-only. Exact semantics preserved from flags.ts.
+ */
+function isAclEnforce(): boolean {
+  return process.env.SQUISH_ACL_ENFORCE === 'true';
+}
 
 export interface AclContext {
   userId: string;
@@ -94,7 +101,7 @@ export async function applyAclReadGate<T extends { id?: string }>(
     } else if (enforce) {
       // filtered out
     } else {
-      pushEngineLog('acl_would_filter', {
+      pushAclLog({
         memoryId,
         assetType,
         rule: rules.map((r) => `${r.granteeType}:${r.granteeId}`).join(','),
