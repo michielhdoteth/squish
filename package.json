@@ -6,7 +6,7 @@
     "type": "git",
     "url": "https://github.com/michielhdoteth/squish.git"
   },
-  "mcpName": "io.github.4m-labs/squish",
+  "mcpName": "io.github.michielhdoteth/squish",
   "main": "config.ts",
   "dependencies": {
     "@clack/prompts": "^1.2.0",
