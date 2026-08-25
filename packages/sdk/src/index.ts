@@ -1633,10 +1633,43 @@ export interface DedupAutoResult {
 // ─── Mapping Helpers ────────────────────────────────────────────────────────
 
 /**
+ * Coerce a raw temporal column value into a valid Date.
+ *
+ * Production databases legitimately hold MIXED formats: rows written through
+ * drizzle store epoch SECONDS (timestamp mode), older/migrated rows and
+ * eval-harness rewrites store ISO-8601 TEXT, and some paths deliver Date
+ * objects directly. A naive `new Date(value)` throws RangeError downstream
+ * (.toISOString) on any format it does not expect, so every read path must
+ * tolerate all three. Returns null when the value is unusable - callers
+ * decide the fallback (never fabricate a fresh "now" for created_at).
+ */
+export function coerceTimestamp(value: unknown): Date | null {
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    // Epoch seconds vs milliseconds: values under 1e12 are unambiguous seconds
+    // for any realistic timestamp (ms epoch crossed 1e12 in 2001).
+    return new Date(value < 1e12 ? value * 1000 : value);
+  }
+  if (typeof value === 'string' && value.trim() !== '') {
+    const asNumber = Number(value);
+    if (Number.isFinite(asNumber)) return coerceTimestamp(asNumber);
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  return null;
+}
+
+/**
  * Map a core MemoryRecord to the SDK MemoryRecord type.
- * Core uses string timestamps; SDK uses Date objects.
+ * Core uses mixed-format timestamps; SDK uses Date objects.
  */
 function mapCoreMemoryToSdk(core: any): SdkMemoryRecord {
+  const createdAt = coerceTimestamp(core.createdAt);
+  const updatedAt = coerceTimestamp(core.updatedAt);
+  // updatedAt is the honest fallback when createdAt is unreadable; only when
+  // BOTH are missing do we default to now (matches previous behavior).
+  const resolvedCreatedAt = createdAt ?? updatedAt ?? new Date();
+  const resolvedUpdatedAt = updatedAt ?? createdAt ?? new Date();
   return {
     id: core.id,
     content: core.content,
@@ -1645,9 +1678,9 @@ function mapCoreMemoryToSdk(core: any): SdkMemoryRecord {
     importance: core.importance ?? 0,
     project: core.projectId ?? undefined,
     sessionId: core.sessionId ?? undefined,
-    createdAt: core.createdAt ? new Date(core.createdAt) : new Date(),
-    updatedAt: core.updatedAt ? new Date(core.updatedAt) : new Date(),
-    lastAccessedAt: core.lastAccessedAt ? new Date(core.lastAccessedAt) : undefined,
+    createdAt: resolvedCreatedAt,
+    updatedAt: resolvedUpdatedAt,
+    lastAccessedAt: coerceTimestamp(core.lastAccessedAt) ?? undefined,
     accessCount: core.accessCount ?? 0,
     decayScore: core.decayScore ?? 0,
   };

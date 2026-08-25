@@ -1,11 +1,40 @@
 /**
  * Tests for runFullMaintenance() in core/consolidation.ts
  * Phase 6: Unified Clean command
- * 
+ *
  * NOTE: Uses dynamic imports. No mock.module() calls.
+ *
+ * Batch 9 fix: this file previously ran WITHOUT data-dir isolation, so
+ * `runFullMaintenance({})` executed real dedup/consolidation passes against
+ * the developer's LIVE ~/.squish/squish.db - hanging for minutes on large
+ * databases and mutating real user memory from a unit test. Isolate into a
+ * throwaway temp dir BEFORE any product module loads (same pattern as the
+ * golden and bench harness tests).
  */
 
-import { describe, test, expect } from 'bun:test';
+import { describe, test, expect, afterAll } from 'bun:test';
+import { join } from 'node:path';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+
+const isolatedDir = mkdtempSync(join(tmpdir(), 'squish-full-maintenance-test-'));
+process.env.SQUISH_DATA_DIR = isolatedDir;
+process.env.DATABASE_URL = '';
+delete process.env.SQUISH_DATABASE_URL;
+
+afterAll(async () => {
+  try {
+    const { closeAllDbs } = await import('../../../db/index.js');
+    await closeAllDbs();
+  } catch {
+    // ignore
+  }
+  try {
+    rmSync(isolatedDir, { recursive: true, force: true });
+  } catch {
+    // Windows may briefly hold the SQLite handle; the OS cleans tmpdir.
+  }
+});
 
 describe('runFullMaintenance', () => {
   test('module exports the function', async () => {

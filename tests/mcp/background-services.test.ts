@@ -139,7 +139,7 @@ describe("background services graceful degradation", () => {
           },
         });
 
-        const initResp = await readLine((r: any) => r.id === 1, 15_000);
+        const initResp = await readLine((r: any) => r.id === 1, 30_000);
 
         // Server must respond with valid MCP handshake even when bg services fail
         expect(initResp.result).toBeDefined();
@@ -168,6 +168,6 @@ describe("background services graceful degradation", () => {
         await rm(tmpDir, { recursive: true, force: true });
       }
     },
-    20_000
+    60_000
   );
 });

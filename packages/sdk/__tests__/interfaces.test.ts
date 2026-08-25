@@ -1,4 +1,7 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type {
   StorageProvider,
   EmbeddingProvider,
@@ -31,6 +34,33 @@ import {
   LLMError,
   NotFoundError,
 } from '../src/index.js';
+
+// Live-call tests below (remember/recall/search) must not touch the real
+// ~/.squish database: isolate every default SquishClient into a temp dir.
+const sdkIsolationDir = mkdtempSync(join(tmpdir(), 'squish-sdk-interfaces-test-'));
+const prevDataDir = process.env.SQUISH_DATA_DIR;
+
+beforeAll(() => {
+  process.env.SQUISH_DATA_DIR = sdkIsolationDir;
+  process.env.DATABASE_URL = '';
+  delete process.env.SQUISH_DATABASE_URL;
+});
+
+afterAll(async () => {
+  if (prevDataDir === undefined) delete process.env.SQUISH_DATA_DIR;
+  else process.env.SQUISH_DATA_DIR = prevDataDir;
+  try {
+    const { closeAllDbs } = await import('../src/index.js');
+    await closeAllDbs?.();
+  } catch {
+    // ignore
+  }
+  try {
+    rmSync(sdkIsolationDir, { recursive: true, force: true });
+  } catch {
+    // Windows file lock; non-fatal.
+  }
+});
 
 describe('SDK Interfaces', () => {
   it('should compile StorageProvider interface', () => {

@@ -26,6 +26,9 @@ process.env.SQUISH_DATA_DIR = testDataDir;
 process.env.DATABASE_URL = '';
 // Don't reach into the user's real opencode.db during core store tests.
 process.env.SQUISH_OPENCODE_DISABLED = '1';
+// Hermetic: never attempt the bundled-model network download on the no-match
+// search path (10s load-attempt latch blew this test's 5s timeout).
+process.env.SQUISH_LOCAL_BUNDLED_MODEL = 'off';
 if (!existsSync(testDataDir)) mkdirSync(testDataDir, { recursive: true });
 
 let resetDb: typeof import('../../../db/index.js').resetDb;
@@ -183,10 +186,14 @@ afterAll(() => {
 });
 
 describe('captureChunk + searchChunks', () => {
-  it('returns empty array for nonsense query (no match)', async () => {
-    const results = await searchChunks({ query: 'zxqvbnmqwertynonsense-token-12345' });
-    expect(Array.isArray(results)).toBe(true);
-  });
+  it(
+    'returns empty array for nonsense query (no match)',
+    async () => {
+      const results = await searchChunks({ query: 'zxqvbnmqwertynonsense-token-12345' });
+      expect(Array.isArray(results)).toBe(true);
+    },
+    20_000
+  );
 
   it('captureChunk persists a chunk and returns a memory id', async () => {
     const id = await captureChunk(

@@ -1,4 +1,29 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, test, afterAll } from 'bun:test';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+// Isolate BEFORE any product module loads: runAutoClean({}) performs a real
+// DB pass and previously executed against the developer's LIVE ~/.squish
+// database (slow scan + real mutation risk from a unit test).
+const isolationDir = mkdtempSync(join(tmpdir(), 'squish-stale-cleaner-test-'));
+process.env.SQUISH_DATA_DIR = isolationDir;
+process.env.DATABASE_URL = '';
+delete process.env.SQUISH_DATABASE_URL;
+
+afterAll(async () => {
+  try {
+    const { closeAllDbs } = await import('../../db/index.js');
+    await closeAllDbs();
+  } catch {
+    // ignore
+  }
+  try {
+    rmSync(isolationDir, { recursive: true, force: true });
+  } catch {
+    // Windows file lock; non-fatal.
+  }
+});
 
 describe('stale memory cleaner', () => {
   test('exports getStaleMemories, deleteMemoryPermanently, runAutoClean', async () => {
