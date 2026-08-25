@@ -15,7 +15,9 @@ export interface FullMaintenanceOptions {
   dryRun?: boolean;
   steps?: ('dedup' | 'stale' | 'consolidate' | 'inbox')[];
   age?: number; // days threshold
-  llmEnabled?: boolean; // use LLM for enhanced steps
+  /** @deprecated No-op since Batch 8: the SimHash LLM second-pass was removed
+   * in the consolidation bake-off. Kept for API compatibility; ignored. */
+  llmEnabled?: boolean;
 }
 
 /**

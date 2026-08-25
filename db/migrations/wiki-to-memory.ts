@@ -15,6 +15,9 @@
  * - tags: page tags + 'wiki-origin' provenance tag.
  * - metadata: { wikiOrigin: true, wikiSlug, wikiPageType, wikiStatus,
  *   migratedAt } so the origin stays auditable.
+ * - metadata.wikiVersions: full edit history from wiki_page_versions
+ *   (array of { at, content }), so version history is preserved, not
+ *   destroyed.
  * - source: 'wiki-migration'; createdAt/updatedAt preserved.
  *
  * Resolvable [[wikilinks]] become graph associations: every wiki_links row
@@ -40,6 +43,7 @@ export interface WikiMigrationReport {
   dryRun: boolean;
   pagesFound: number;
   pagesMigrated: number;
+  versionsMigrated: number;
   linksResolved: number;
   linksUnresolved: number;
 }
@@ -112,6 +116,7 @@ export function runWikiToMemoryMigration(
     dryRun: false,
     pagesFound: 0,
     pagesMigrated: 0,
+    versionsMigrated: 0,
     linksResolved: 0,
     linksUnresolved: 0,
   };
@@ -129,6 +134,20 @@ export function runWikiToMemoryMigration(
 
   const pages = sqlite.prepare('SELECT * FROM wiki_pages').all() as unknown as LegacyPageRow[];
   report.pagesFound = pages.length;
+
+  // Preserve full edit history: wiki_page_versions rows travel with their page
+  // as metadata.wikiVersions (never destroyed — see review finding Batch 8).
+  const versionsByPage = new Map<string, Array<{ at: string; content: string }>>();
+  if (tableExists(sqlite, 'wiki_page_versions')) {
+    const versionRows = sqlite
+      .prepare('SELECT page_id, content, created_at FROM wiki_page_versions ORDER BY created_at')
+      .all() as unknown as Array<{ page_id: string; content: string | null; created_at: string }>;
+    for (const v of versionRows) {
+      const list = versionsByPage.get(v.page_id) ?? [];
+      list.push({ at: v.created_at, content: v.content ?? '' });
+      versionsByPage.set(v.page_id, list);
+    }
+  }
 
   if (pages.length === 0) {
     // No data to preserve: drop empties and mark done.
@@ -184,6 +203,11 @@ export function runWikiToMemoryMigration(
         wikiStatus: page.status,
         ...(page.metadata ? safeParse(page.metadata) : {}),
       };
+      const versions = versionsByPage.get(page.id);
+      if (versions && versions.length > 0) {
+        (meta as Record<string, unknown>).wikiVersions = versions;
+        report.versionsMigrated += versions.length;
+      }
 
       insertMemory.run(
         memId,
@@ -263,7 +287,8 @@ export function runWikiToMemoryMigration(
 
   logger.info(
     `[wiki-migration] Migrated ${report.pagesMigrated}/${report.pagesFound} wiki pages into ` +
-      `memories (tagged wiki-origin, sector-routed). Links: ${report.linksResolved} resolved as ` +
+      `memories (tagged wiki-origin, sector-routed, ${report.versionsMigrated} version-history ` +
+      `entries preserved in metadata.wikiVersions). Links: ${report.linksResolved} resolved as ` +
       `associations, ${report.linksUnresolved} unresolved dropped. Legacy wiki tables removed.`
   );
 

@@ -1,4 +1,5 @@
 import { getDbClient } from '../lib/db-client.js';
+import { sql } from 'drizzle-orm';
 import { probeSchemaHealth } from '../../db/schema-health.js';
 import { getRecent } from '../memory/memories.js';
 import { getMemoryStats } from '../memory/stats.js';
@@ -272,6 +273,39 @@ export async function buildHealthState(projectPath?: string): Promise<HealthRepo
   const scope = await resolveProjectScope(projectPath);
   currentProject = `${scope.currentProject.name} (${scope.currentProject.path})`;
   nextStep = scope.nextStep;
+
+  // Legacy wiki tables in non-SQLite (team/PG) databases have no migration
+  // path yet — the wiki-to-memory migration is SQLite-only. Warn loudly so
+  // operators don't assume team-mode wiki data was preserved.
+  try {
+    const { raw: healthRaw } = await getDbClient();
+    const clientType = String((healthRaw as any)?.$clientType ?? '');
+    const driverName = String((healthRaw as any)?.$client?.constructor?.name ?? '');
+    const isSqlite = clientType === 'sqlite' || /sqlite/i.test(driverName);
+    if (!isSqlite && healthRaw && typeof (healthRaw as any).execute === 'function') {
+      const result = (await (healthRaw as any).execute(
+        sql`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('wiki_pages', 'wiki_links', 'wiki_page_versions')`
+      )) as unknown;
+      const rows = (result as { rows?: unknown[] }).rows ?? (Array.isArray(result) ? result : []);
+      const wikiTableCount = rows.length;
+      if (wikiTableCount > 0) {
+        checks.push({
+          name: 'legacy wiki tables',
+          status: 'degraded',
+          detail:
+            `${wikiTableCount} legacy wiki table(s) exist in this Postgres database. ` +
+            `The wiki-to-memory migration is SQLite-only; team-mode wiki data was NOT migrated. ` +
+            `Export manually before any schema push.`,
+        });
+        if (severity === 'ok') severity = 'degraded';
+        nextStep =
+          nextStep ??
+          'Export legacy team-mode wiki tables manually (SQLite migration does not cover Postgres).';
+      }
+    }
+  } catch {
+    // Non-fatal: health check best-effort.
+  }
 
   checks.push({
     name: 'project resolution',

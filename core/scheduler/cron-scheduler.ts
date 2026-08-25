@@ -583,7 +583,7 @@ async function ensureDefaultJobs(db: any): Promise<void> {
     {
       jobName: 'llm_consolidation',
       jobType: 'daily' as JobType,
-      cronExpression: '30 3 * * *', // Run daily at 3:30 AM (after consolidation_sleep)
+      cronExpression: '30 3 * * *', // Run daily at 3:30 AM (LLM cross-connection pass; no-op without an LLM provider)
       enabled: true,
       jobConfig: {
         enabled: true,
