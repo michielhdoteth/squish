@@ -135,10 +135,7 @@
     "eval": "bun tests/golden/run-eval.ts",
     "bench:memory": "bun scripts/run-memory-bench.ts",
     "report:calibration": "bun scripts/calibration-report.ts",
-    "verify:mcp": "tsx packages/mcp/src/index.ts --health",
-    "bench": "tsx benchmark/memory.ts",
-    "bench:db": "tsx benchmark/run.ts",
-    "bench:locomo": "bun benchmark/locomo-full.ts"
+    "verify:mcp": "tsx packages/mcp/src/index.ts --health"
   },
   "type": "module",
   "workspaces": [

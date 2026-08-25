@@ -258,50 +258,55 @@ export async function hybridSearch(
     finalResultCount: 0,
   };
 
-  let vectorResults: SearchResult[];
+  let vectorResults: SearchResult[] = [];
 
-  if (isMultiHop) {
-    // Multi-hop: use expansion to get more coverage
-    const expandedQueries = expandQueryForMultiSession(input.query);
-    const allResults: SearchResult[] = [];
+  try {
+    if (isMultiHop) {
+      // Multi-hop: use expansion to get more coverage
+      const expandedQueries = expandQueryForMultiSession(input.query);
+      const allResults: SearchResult[] = [];
 
-    for (const expQuery of expandedQueries) {
-      // For expanded queries, compute embedding per expansion (query text changes)
-      const expEmbedding = await getEmbedding(expQuery);
-      const expResults = await vectorSearch(
-        { ...input, query: expQuery },
-        { ...options, limit: Math.ceil(limit * 2) },
-        expEmbedding,
-        searchCtx
-      );
-      allResults.push(...expResults);
+      for (const expQuery of expandedQueries) {
+        // For expanded queries, compute embedding per expansion (query text changes)
+        const expEmbedding = await getEmbedding(expQuery);
+        const expResults = await vectorSearch(
+          { ...input, query: expQuery },
+          { ...options, limit: Math.ceil(limit * 2) },
+          expEmbedding,
+          searchCtx
+        );
+        allResults.push(...expResults);
+      }
+
+      vectorResults = deduplicateById(allResults);
+    } else if (isTemporal) {
+      // Temporal: fetch more results
+      vectorResults = await vectorSearch(input, { ...options, limit: limit * 4 }, queryEmbedding, searchCtx);
+    } else if (queryExpansionEnabled && expandedQueries.length > 1) {
+      // Advanced Query Expansion: search with expanded queries and merge results
+      const allResults: SearchResult[] = [];
+      
+      for (const expQuery of expandedQueries) {
+        const expEmbedding = await getEmbedding(expQuery);
+        const expResults = await vectorSearch(
+          { ...input, query: expQuery },
+          { ...options, limit: Math.ceil(limit * 1.5) },
+          expEmbedding,
+          searchCtx
+        );
+        allResults.push(...expResults);
+      }
+      
+      // Merge results, keeping highest similarity for each memory
+      vectorResults = deduplicateById(allResults);
+      vectorResults.sort((a, b) => (b.similarity ?? 0) - (a.similarity ?? 0));
+    } else {
+      // Regular query
+      vectorResults = await vectorSearch(input, { ...options, limit: limit * 2 }, queryEmbedding, searchCtx);
     }
-
-    vectorResults = deduplicateById(allResults);
-  } else if (isTemporal) {
-    // Temporal: fetch more results
-    vectorResults = await vectorSearch(input, { ...options, limit: limit * 4 }, queryEmbedding, searchCtx);
-  } else if (queryExpansionEnabled && expandedQueries.length > 1) {
-    // Advanced Query Expansion: search with expanded queries and merge results
-    const allResults: SearchResult[] = [];
-    
-    for (const expQuery of expandedQueries) {
-      const expEmbedding = await getEmbedding(expQuery);
-      const expResults = await vectorSearch(
-        { ...input, query: expQuery },
-        { ...options, limit: Math.ceil(limit * 1.5) },
-        expEmbedding,
-        searchCtx
-      );
-      allResults.push(...expResults);
-    }
-    
-    // Merge results, keeping highest similarity for each memory
-    vectorResults = deduplicateById(allResults);
-    vectorResults.sort((a, b) => (b.similarity ?? 0) - (a.similarity ?? 0));
-  } else {
-    // Regular query
-    vectorResults = await vectorSearch(input, { ...options, limit: limit * 2 }, queryEmbedding, searchCtx);
+  } catch (err) {
+    logger.warn(`[HybridSearch] Vector search failed, falling back to recency: ${err instanceof Error ? err.message : err}`);
+    vectorResults = [];
   }
 
   // Record total candidates for trace
