@@ -12,6 +12,7 @@ const REQUIRED_TABLES = [
   'conversations',
   'messages',
   'entities',
+  'entity_relations',
   'core_memory',
   'context_sessions',
   'memory_associations',

@@ -196,6 +196,26 @@ export function scoreQuery(
       if (input.verdict === 'qualified') return { penalty: 0, guardOk: false };
       return { penalty: -1, guardOk: false };
     }
+    case 'edge-empty':
+    case 'edge-long':
+    case 'edge-special-chars': {
+      // Robustness probes: reaching the scorer means the query did not crash
+      // the pipeline. Success is graceful completion, scored on guard only.
+      return { penalty: 0, guardOk: true };
+    }
+    case 'edge-noise':
+    case 'edge-partial-match': {
+      // Retrieval under noise / partial signal — same match semantics as
+      // preference queries: top-1 full credit, top-3 partial.
+      if (input.top1BenchId && query.expectTop1?.includes(input.top1BenchId)) {
+        return { penalty: +1, guardOk: true };
+      }
+      if (input.top3BenchIds.some((id) => query.expectTop3?.includes(id))) {
+        return { penalty: +0.5, guardOk: true };
+      }
+      if (input.top1BenchId === null) return { penalty: 0, guardOk: false };
+      return { penalty: -1, guardOk: false };
+    }
   }
 }
 
@@ -260,7 +280,17 @@ async function main() {
   const perQuery: Array<Record<string, unknown>> = [];
 
   for (const query of corpus.queries) {
-    const results = await client.search(query.query, { limit: 5 });
+    let results: Awaited<ReturnType<typeof client.search>> = [];
+    try {
+      results = await client.search(query.query, { limit: 5 });
+    } catch (err: any) {
+      // Empty / whitespace-only queries throw VALIDATION_ERROR — treat as no results
+      if (err?.code === 'VALIDATION_ERROR') {
+        results = [];
+      } else {
+        throw err;
+      }
+    }
     const mapped = results.map((r) => ({
       benchId: uuidToBench.get(r.memory.id) ?? null,
       confidence: typeof r.recallConfidence === 'number' ? r.recallConfidence : null,

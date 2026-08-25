@@ -37,13 +37,18 @@ export interface BenchQuery {
   wrongIfTop1?: string[];
 }
 
-export type BenchCategory = 'fact-update' | 'planted-falsehood' | 'conditional-preference' | 'unanswerable';
+export type BenchCategory = 'fact-update' | 'planted-falsehood' | 'conditional-preference' | 'unanswerable' | 'edge-empty' | 'edge-long' | 'edge-special-chars' | 'edge-noise' | 'edge-partial-match';
 
 export const BENCH_CATEGORIES: BenchCategory[] = [
   'fact-update',
   'planted-falsehood',
   'conditional-preference',
   'unanswerable',
+  'edge-empty',
+  'edge-long',
+  'edge-special-chars',
+  'edge-noise',
+  'edge-partial-match',
 ];
 
 // ─── 1. Fact updates (dynamic conflict): 30 subjects × 3 versions ───────────
@@ -223,6 +228,85 @@ export function buildUnanswerableQueries(): BenchQuery[] {
   return subjects.map((q, idx) => ({ benchId: `ua_${idx}_q`, category: 'unanswerable' as const, query: q }));
 }
 
+// ─── 5. Edge cases ─────────────────────────────────────────────────────────
+
+/**
+ * Edge case fixtures for robustness testing.
+ *
+ * 5a. Empty query: query is an empty string. Should return results or empty,
+ *     never crash.
+ * 5b. Long query: 500+ word query. Should complete within timeout.
+ * 5c. Special characters: query with @#$%^&*() and other punctuation.
+ * 5d. Noise: 10 random low-relevance memories mixed with 1 relevant one.
+ * 5e. Partial match: query partially matches a memory but not exactly.
+ */
+
+export function buildEdgeCaseMemories(): BenchMemory[] {
+  const memories: BenchMemory[] = [];
+
+  // Noise memories (5d): 10 low-relevance entries
+  const noiseContents = [
+    { content: 'The office kitchen was restocked with new coffee pods on Tuesday.', tags: ['kitchen', 'office'] },
+    { content: 'Parking lot B will be closed for resurfacing next Monday.', tags: ['parking', 'office'] },
+    { content: 'The quarterly newsletter deadline is the 15th of each month.', tags: ['newsletter', 'deadline'] },
+    { content: 'New standing desks arrived in the west wing conference room.', tags: ['desk', 'office'] },
+    { content: 'The fire extinguisher on floor 3 was inspected and certified.', tags: ['safety', 'floor3'] },
+    { content: 'Free yoga sessions start at 7 AM every Wednesday in the gym.', tags: ['yoga', 'wellness'] },
+    { content: 'The printer on floor 2 is out of toner and awaiting refill.', tags: ['printer', 'floor2'] },
+    { content: 'Employee parking permits must be renewed by end of January.', tags: ['parking', 'permit'] },
+    { content: 'The break room microwave was replaced with a new model.', tags: ['kitchen', 'microwave'] },
+    { content: 'IT will perform network maintenance this Saturday from 2-6 AM.', tags: ['it', 'maintenance'] },
+  ];
+
+  noiseContents.forEach((n, idx) => {
+    memories.push({ benchId: `noise_${idx}`, type: 'observation', tags: n.tags, content: n.content, createdAt: isoDay(5, idx) });
+  });
+
+  // The single relevant memory that must be found despite noise (5d)
+  memories.push({
+    benchId: 'noise_relevant',
+    type: 'fact',
+    tags: ['database', 'atlas'],
+    content: 'The atlas project migrated its primary database to PostgreSQL 16 with pgvector for vector search.',
+    createdAt: isoDay(5, 10),
+  });
+
+  // Partial match memory (5e)
+  memories.push({
+    benchId: 'partial_0',
+    type: 'fact',
+    tags: ['api', 'gateway'],
+    content: 'The API gateway uses rate limiting with a default of 100 requests per minute per client.',
+    createdAt: isoDay(10, 0),
+  });
+
+  return memories;
+}
+
+/** Long query: ~520 words describing a complex scenario. */
+const LONG_QUERY = Array.from({ length: 52 }, (_, i) =>
+  `word${i} describing aspect ${i} of the system architecture including deployment strategy database choice caching layer message queue frontend framework build tool test runner linter formatter type checker package manager CI CD pipeline monitoring logging alerting tracing instrumentation metrics dashboard`
+).join(' ');
+
+export function buildEdgeCaseQueries(): BenchQuery[] {
+  return [
+    // 5a: empty query
+    { benchId: 'edge_empty_q', category: 'edge-empty', query: '' },
+
+    // 5b: long query (~520 words)
+    { benchId: 'edge_long_q', category: 'edge-long', query: LONG_QUERY },
+
+    // 5c: special characters
+    { benchId: 'edge_special_q', category: 'edge-special-chars', query: 'What is @the $status of #database? (version 2.0) - [pending] {resolved} | active & ready! *confirmed* _underlined_ <checked> = done?' },
+
+    // 5d: noise - must still find the relevant memory among 10 noise entries
+    { benchId: 'edge_noise_q', category: 'edge-noise', query: 'What database does the atlas project use?', expectTop1: ['noise_relevant'] },
+
+    // 5e: partial match - query partially matches but not exactly
+    { benchId: 'edge_partial_q', category: 'edge-partial-match', query: 'What rate limiting configuration does the API use?', expectTop1: ['partial_0'] },
+  ];
+}
+
 // ─── Assembled corpus ───────────────────────────────────────────────────────
 
 export interface BenchCorpus {
@@ -236,12 +320,14 @@ export function buildBenchCorpus(): BenchCorpus {
       ...buildFactUpdateMemories(),
       ...buildFalsehoodMemories(),
       ...buildPreferenceMemories(),
+      ...buildEdgeCaseMemories(),
     ],
     queries: [
       ...buildFactUpdateQueries(),
       ...buildFalsehoodQueries(),
       ...buildPreferenceQueries(),
       ...buildUnanswerableQueries(),
+      ...buildEdgeCaseQueries(),
     ],
   };
 }

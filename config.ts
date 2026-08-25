@@ -283,8 +283,16 @@ function buildTierConfig() {
     sturdyAccessWindow: getNumber('tiers.sturdyAccessWindow', 'SQUISH_STURDY_ACCESS_WINDOW', 30),
     longTermAge: getNumber('tiers.longTermAge', 'SQUISH_LONG_TERM_AGE', 90),
     longTermImportance: getNumber('tiers.longTermImportance', 'SQUISH_LONG_TERM_IMPORTANCE', 50),
-    fleetingImportance: getNumber('tiers.fleetingImportance', 'SQUISH_FLETING_IMPORTANCE', 25),
-    fleetingAge: getNumber('tiers.fleetingAge', 'SQUISH_FLETING_AGE', 60),
+    fleetingImportance: getNumber(
+      'tiers.fleetingImportance',
+      process.env.SQUISH_FLEETING_IMPORTANCE ?? process.env.SQUISH_FLETING_IMPORTANCE ?? null,
+      25,
+    ),
+    fleetingAge: getNumber(
+      'tiers.fleetingAge',
+      process.env.SQUISH_FLEETING_AGE ?? process.env.SQUISH_FLETING_AGE ?? null,
+      60,
+    ),
   };
 }
 
