@@ -122,6 +122,12 @@ generated/mcp/
 benchmark/
 benchmarks/
 
+# Batch 9: the memory benchmark lives under tests/ and IS committed
+# (fixtures + baseline report). The unanchored benchmarks/ rule above would
+# otherwise exclude it.
+!tests/benchmarks/
+!tests/benchmarks/**
+
 # Release artifacts
 squish-v*-*.tar.gz
 squish-v*-*.zip
