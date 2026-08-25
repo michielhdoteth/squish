@@ -1,7 +1,7 @@
 {
   "meta": {
-    "generatedAt": "2026-08-25T11:36:36.906Z",
-    "gitSha": "6ab693b",
+    "generatedAt": "2026-08-25T19:51:17.087Z",
+    "gitSha": "87df1fc",
     "gitDirty": true,
     "corpusSize": 60,
     "queryCount": 46,
@@ -16,7 +16,7 @@
       "scoringServeV2": true
     },
     "envPinned": true,
-    "durationMs": 1391,
+    "durationMs": 2614,
     "deterministic": true
   },
   "thresholds": {
@@ -70,63 +70,71 @@
     }
   },
   "calibration": {
-    "ece": 0.041354186315366914,
-    "brier": 0.11394082390362537,
+    "ece": 0.05503057177142916,
+    "brier": 0.12680008193357442,
     "count": 46,
     "maxEceThreshold": 0.15,
     "reliability": [
       {
+        "band": 2,
+        "low": 0.2,
+        "high": 0.3,
+        "count": 1,
+        "avgConfidence": 0.21523795069078278,
+        "hitRate": 1
+      },
+      {
         "band": 8,
         "low": 0.8,
         "high": 0.9,
-        "count": 39,
-        "avgConfidence": 0.8391520836643648,
-        "hitRate": 0.8717948717948718
+        "count": 38,
+        "avgConfidence": 0.8390135150473715,
+        "hitRate": 0.868421052631579
       },
       {
         "band": 9,
         "low": 0.9,
         "high": 1,
         "count": 7,
-        "avgConfidence": 0.9470319762024434,
+        "avgConfidence": 0.9470225462823773,
         "hitRate": 0.8571428571428571
       }
     ],
     "selective": [
       {
         "threshold": 0.5,
-        "coverage": 1,
-        "accuracy": 0.8695652173913043
+        "coverage": 0.9782608695652174,
+        "accuracy": 0.8666666666666667
       },
       {
         "threshold": 0.55,
-        "coverage": 1,
-        "accuracy": 0.8695652173913043
+        "coverage": 0.9782608695652174,
+        "accuracy": 0.8666666666666667
       },
       {
         "threshold": 0.6,
-        "coverage": 1,
-        "accuracy": 0.8695652173913043
+        "coverage": 0.9782608695652174,
+        "accuracy": 0.8666666666666667
       },
       {
         "threshold": 0.65,
-        "coverage": 1,
-        "accuracy": 0.8695652173913043
+        "coverage": 0.9782608695652174,
+        "accuracy": 0.8666666666666667
       },
       {
         "threshold": 0.7,
-        "coverage": 1,
-        "accuracy": 0.8695652173913043
+        "coverage": 0.9782608695652174,
+        "accuracy": 0.8666666666666667
       },
       {
         "threshold": 0.75,
-        "coverage": 1,
-        "accuracy": 0.8695652173913043
+        "coverage": 0.9782608695652174,
+        "accuracy": 0.8666666666666667
       },
       {
         "threshold": 0.8,
-        "coverage": 1,
-        "accuracy": 0.8695652173913043
+        "coverage": 0.9782608695652174,
+        "accuracy": 0.8666666666666667
       },
       {
         "threshold": 0.85,
@@ -148,13 +156,13 @@
     "freshnessAblation": {
       "signal": "SQUISH_EVIDENCE_FRESHNESS",
       "on": {
-        "ece": 0.041354186315366914,
-        "brier": 0.11394082390362537,
+        "ece": 0.05503057177142916,
+        "brier": 0.12680008193357442,
         "count": 46
       },
       "off": {
-        "ece": 0.030434782608695508,
-        "brier": 0.11483668478260867,
+        "ece": 0.044282065217391184,
+        "brier": 0.12767276957880427,
         "count": 46
       },
       "note": "canonical metrics gate on the freshness-on run; off-run reruns identical deterministic retrieval with the signal nulled"
@@ -353,7 +361,7 @@
         {
           "goldenId": "golden_019",
           "score": 0.9081,
-          "recallConfidence": 0.8441,
+          "recallConfidence": 0.844,
           "confidenceTier": "QUALIFIED"
         },
         {
@@ -514,7 +522,7 @@
         {
           "goldenId": "golden_014",
           "score": 0.906,
-          "recallConfidence": 0.7924,
+          "recallConfidence": 0.7923,
           "confidenceTier": "QUALIFIED"
         },
         {
@@ -614,7 +622,7 @@
         {
           "goldenId": "golden_051",
           "score": 0.82,
-          "recallConfidence": 0.6153,
+          "recallConfidence": 0.6152,
           "confidenceTier": "QUALIFIED"
         }
       ],
@@ -672,7 +680,7 @@
         {
           "goldenId": "golden_011",
           "score": 0.4731,
-          "recallConfidence": 0.3698,
+          "recallConfidence": 0.3697,
           "confidenceTier": "LOW"
         },
         {
@@ -794,7 +802,7 @@
         {
           "goldenId": "golden_024",
           "score": 1,
-          "recallConfidence": 0.8441,
+          "recallConfidence": 0.844,
           "confidenceTier": "QUALIFIED"
         },
         {
@@ -836,24 +844,24 @@
         {
           "goldenId": "golden_015",
           "score": 0.4731,
-          "recallConfidence": 0.3698,
+          "recallConfidence": 0.3697,
           "confidenceTier": "LOW"
         },
         {
           "goldenId": "golden_011",
           "score": 0.4659,
-          "recallConfidence": 0.3581,
+          "recallConfidence": 0.358,
           "confidenceTier": "LOW"
         },
         {
           "goldenId": "golden_036",
           "score": 0.4522,
-          "recallConfidence": 0.3263,
+          "recallConfidence": 0.0832,
           "confidenceTier": "LOW"
         }
       ],
       "recallStrategy": "multi_hop",
-      "top1RecallConfidence": 0.8441,
+      "top1RecallConfidence": 0.844,
       "recallAtK": 1,
       "rr": 1,
       "hitAt1": true
@@ -953,7 +961,7 @@
         {
           "goldenId": "golden_025",
           "score": 1,
-          "recallConfidence": 0.8441,
+          "recallConfidence": 0.844,
           "confidenceTier": "QUALIFIED"
         },
         {
@@ -1048,13 +1056,13 @@
         {
           "goldenId": "golden_013",
           "score": 0.4731,
-          "recallConfidence": 0.3698,
+          "recallConfidence": 0.3697,
           "confidenceTier": "LOW"
         },
         {
           "goldenId": "golden_014",
           "score": 0.4659,
-          "recallConfidence": 0.3581,
+          "recallConfidence": 0.358,
           "confidenceTier": "LOW"
         },
         {
@@ -1101,8 +1109,8 @@
         {
           "goldenId": "golden_053",
           "score": 1,
-          "recallConfidence": 0.8441,
-          "confidenceTier": "QUALIFIED"
+          "recallConfidence": 0.2152,
+          "confidenceTier": "LOW"
         },
         {
           "goldenId": "golden_027",
@@ -1119,7 +1127,7 @@
         {
           "goldenId": "golden_038",
           "score": 0.801,
-          "recallConfidence": 0.7384,
+          "recallConfidence": 0.7383,
           "confidenceTier": "QUALIFIED"
         },
         {
@@ -1160,7 +1168,7 @@
         }
       ],
       "recallStrategy": "hybrid_search",
-      "top1RecallConfidence": 0.8441,
+      "top1RecallConfidence": 0.2152,
       "recallAtK": 1,
       "rr": 1,
       "hitAt1": true
@@ -1265,7 +1273,7 @@
         {
           "goldenId": "golden_020",
           "score": 0.9734,
-          "recallConfidence": 0.8441,
+          "recallConfidence": 0.844,
           "confidenceTier": "QUALIFIED"
         },
         {
@@ -1365,7 +1373,7 @@
         {
           "goldenId": "golden_053",
           "score": 0.5762,
-          "recallConfidence": 0.5103,
+          "recallConfidence": 0.1301,
           "confidenceTier": "LOW"
         },
         {
@@ -1534,7 +1542,7 @@
         {
           "goldenId": "golden_021",
           "score": 0.8481,
-          "recallConfidence": 0.8745,
+          "recallConfidence": 0.8744,
           "confidenceTier": "QUALIFIED"
         },
         {
@@ -1569,13 +1577,13 @@
         {
           "goldenId": "golden_021",
           "score": 1,
-          "recallConfidence": 0.8441,
+          "recallConfidence": 0.844,
           "confidenceTier": "QUALIFIED"
         },
         {
           "goldenId": "golden_020",
           "score": 1,
-          "recallConfidence": 0.8441,
+          "recallConfidence": 0.844,
           "confidenceTier": "QUALIFIED"
         },
         {
@@ -1628,7 +1636,7 @@
         }
       ],
       "recallStrategy": "temporal_validity",
-      "top1RecallConfidence": 0.8441,
+      "top1RecallConfidence": 0.844,
       "recallAtK": 1,
       "rr": 1,
       "hitAt1": true
@@ -1648,13 +1656,13 @@
         {
           "goldenId": "golden_022",
           "score": 1,
-          "recallConfidence": 0.8441,
+          "recallConfidence": 0.844,
           "confidenceTier": "QUALIFIED"
         },
         {
           "goldenId": "golden_023",
           "score": 0.9961,
-          "recallConfidence": 0.8441,
+          "recallConfidence": 0.844,
           "confidenceTier": "QUALIFIED"
         },
         {
@@ -1690,7 +1698,7 @@
         {
           "goldenId": "golden_013",
           "score": 0.8789,
-          "recallConfidence": 0.6323,
+          "recallConfidence": 0.6322,
           "confidenceTier": "QUALIFIED"
         },
         {
@@ -1707,7 +1715,7 @@
         }
       ],
       "recallStrategy": "temporal_validity",
-      "top1RecallConfidence": 0.8441,
+      "top1RecallConfidence": 0.844,
       "recallAtK": 1,
       "rr": 1,
       "hitAt1": true
@@ -1848,7 +1856,7 @@
         {
           "goldenId": "golden_013",
           "score": 0.5038,
-          "recallConfidence": 0.3364,
+          "recallConfidence": 0.3363,
           "confidenceTier": "LOW"
         },
         {
@@ -1970,7 +1978,7 @@
         {
           "goldenId": "golden_016",
           "score": 0.9867,
-          "recallConfidence": 0.5869,
+          "recallConfidence": 0.5868,
           "confidenceTier": "LOW"
         },
         {
@@ -2047,7 +2055,7 @@
         {
           "goldenId": "golden_004",
           "score": 0.9174,
-          "recallConfidence": 0.8204,
+          "recallConfidence": 0.8203,
           "confidenceTier": "QUALIFIED"
         },
         {
@@ -2305,7 +2313,7 @@
         {
           "goldenId": "golden_055",
           "score": 0.9011,
-          "recallConfidence": 0.6189,
+          "recallConfidence": 0.6188,
           "confidenceTier": "QUALIFIED"
         },
         {
@@ -2346,7 +2354,7 @@
         {
           "goldenId": "golden_019",
           "score": 1,
-          "recallConfidence": 0.8441,
+          "recallConfidence": 0.844,
           "confidenceTier": "QUALIFIED"
         },
         {
@@ -2583,7 +2591,7 @@
         {
           "goldenId": "golden_013",
           "score": 0.9405,
-          "recallConfidence": 0.8048,
+          "recallConfidence": 0.8047,
           "confidenceTier": "QUALIFIED"
         },
         {
@@ -2701,7 +2709,7 @@
         {
           "goldenId": "golden_051",
           "score": 0.4393,
-          "recallConfidence": 0.3156,
+          "recallConfidence": 0.3155,
           "confidenceTier": "LOW"
         }
       ],
@@ -2735,7 +2743,7 @@
         {
           "goldenId": "golden_044",
           "score": 0.9469,
-          "recallConfidence": 0.806,
+          "recallConfidence": 0.8059,
           "confidenceTier": "QUALIFIED"
         },
         {
@@ -2877,7 +2885,7 @@
         {
           "goldenId": "golden_051",
           "score": 1,
-          "recallConfidence": 0.8286,
+          "recallConfidence": 0.8285,
           "confidenceTier": "QUALIFIED"
         },
         {
@@ -2901,7 +2909,7 @@
         {
           "goldenId": "golden_012",
           "score": 0.8886,
-          "recallConfidence": 0.7931,
+          "recallConfidence": 0.793,
           "confidenceTier": "QUALIFIED"
         },
         {
@@ -2936,7 +2944,7 @@
         }
       ],
       "recallStrategy": "graph_expanded",
-      "top1RecallConfidence": 0.8286,
+      "top1RecallConfidence": 0.8285,
       "recallAtK": 1,
       "rr": 1,
       "hitAt1": true
@@ -2986,7 +2994,7 @@
         {
           "goldenId": "golden_025",
           "score": 0.863,
-          "recallConfidence": 0.8441,
+          "recallConfidence": 0.844,
           "confidenceTier": "QUALIFIED"
         },
         {
@@ -3048,7 +3056,7 @@
         {
           "goldenId": "golden_023",
           "score": 0.922,
-          "recallConfidence": 0.8441,
+          "recallConfidence": 0.844,
           "confidenceTier": "QUALIFIED"
         },
         {
@@ -3119,7 +3127,7 @@
         {
           "goldenId": "golden_025",
           "score": 1,
-          "recallConfidence": 0.8441,
+          "recallConfidence": 0.844,
           "confidenceTier": "QUALIFIED"
         },
         {
@@ -3131,7 +3139,7 @@
         {
           "goldenId": "golden_019",
           "score": 0.9403,
-          "recallConfidence": 0.8441,
+          "recallConfidence": 0.844,
           "confidenceTier": "QUALIFIED"
         },
         {
@@ -3161,13 +3169,13 @@
         {
           "goldenId": "golden_014",
           "score": 0.4731,
-          "recallConfidence": 0.3698,
+          "recallConfidence": 0.3697,
           "confidenceTier": "LOW"
         },
         {
           "goldenId": "golden_015",
           "score": 0.4659,
-          "recallConfidence": 0.3581,
+          "recallConfidence": 0.358,
           "confidenceTier": "LOW"
         }
       ],
@@ -3199,14 +3207,14 @@
         {
           "goldenId": "golden_024",
           "score": 1,
-          "recallConfidence": 0.8441,
+          "recallConfidence": 0.844,
           "confidenceTier": "QUALIFIED"
         },
         {
           "goldenId": "golden_017",
           "score": 0.9718,
-          "recallConfidence": 0.8182,
-          "confidenceTier": "QUALIFIED"
+          "recallConfidence": 0.2086,
+          "confidenceTier": "LOW"
         },
         {
           "goldenId": "golden_048",
@@ -3217,8 +3225,8 @@
         {
           "goldenId": "golden_040",
           "score": 0.9313,
-          "recallConfidence": 0.7759,
-          "confidenceTier": "QUALIFIED"
+          "recallConfidence": 0.1978,
+          "confidenceTier": "LOW"
         },
         {
           "goldenId": "golden_035",
@@ -3235,8 +3243,8 @@
         {
           "goldenId": "golden_001",
           "score": 0.8732,
-          "recallConfidence": 0.6415,
-          "confidenceTier": "QUALIFIED"
+          "recallConfidence": 0.1636,
+          "confidenceTier": "LOW"
         },
         {
           "goldenId": "golden_025",
@@ -3436,13 +3444,13 @@
         {
           "goldenId": "golden_042",
           "score": 0.8794,
-          "recallConfidence": 0.9379,
+          "recallConfidence": 0.9378,
           "confidenceTier": "HIGH"
         },
         {
           "goldenId": "golden_055",
           "score": 0.8752,
-          "recallConfidence": 0.8943,
+          "recallConfidence": 0.8942,
           "confidenceTier": "QUALIFIED"
         },
         {
@@ -3506,7 +3514,7 @@
         {
           "goldenId": "golden_039",
           "score": 0.9243,
-          "recallConfidence": 0.8652,
+          "recallConfidence": 0.8651,
           "confidenceTier": "QUALIFIED"
         },
         {
@@ -3588,7 +3596,7 @@
         {
           "goldenId": "golden_020",
           "score": 0.9658,
-          "recallConfidence": 0.8209,
+          "recallConfidence": 0.8208,
           "confidenceTier": "QUALIFIED"
         },
         {
@@ -3600,7 +3608,7 @@
         {
           "goldenId": "golden_026",
           "score": 0.922,
-          "recallConfidence": 0.8441,
+          "recallConfidence": 0.844,
           "confidenceTier": "QUALIFIED"
         },
         {
@@ -3618,7 +3626,7 @@
         {
           "goldenId": "golden_012",
           "score": 0.9042,
-          "recallConfidence": 0.7971,
+          "recallConfidence": 0.797,
           "confidenceTier": "QUALIFIED"
         },
         {

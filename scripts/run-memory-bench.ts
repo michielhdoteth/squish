@@ -19,8 +19,8 @@
  *     (a small model may follow even LOW-tier wrong context) — treat
  *     confident-wrong rates as a lower bound.
  *   - Abstention uses the production recallAssessment verdict thresholds
- *     (SQUISH_ABSTAIN_BELOW default 0.35, tiers HIGH >= 0.90 / QUALIFIED
- *     >= 0.60 / LOW below).
+ *     (SQUISH_ABSTAIN_BELOW, default DEFAULT_ABSTAIN_BELOW = 0.60; tiers
+ *     HIGH >= 0.90 / QUALIFIED >= 0.60 / LOW below).
  *
  * Run:  bun scripts/run-memory-bench.ts [--out <path>] [--real-model] [--quiet]
  * Deterministic + offline by default (same pinned env as the golden eval).
@@ -34,10 +34,14 @@ import { fileURLToPath } from 'node:url';
 import {
   buildBenchCorpus,
   BENCH_CATEGORIES,
+  TRAP_CLASSES,
   type BenchCorpus,
   type BenchQuery,
   type BenchCategory,
 } from '../tests/benchmarks/fixtures.js';
+// Single source of truth for the abstention floor: the bench mirrors the
+// production default (SQUISH_ABSTAIN_BELOW env still overrides per run).
+import { DEFAULT_ABSTAIN_BELOW } from '../core/scoring/recall-confidence.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -274,10 +278,15 @@ async function main() {
 
   const corpus = buildBenchCorpus();
   const { client, uuidToBench } = await seedCorpus(corpus, dataDir);
-  const abstainBelow = Number(process.env.SQUISH_ABSTAIN_BELOW ?? 0.35);
+  const abstainBelow = Number(
+    process.env.SQUISH_ABSTAIN_BELOW ?? String(DEFAULT_ABSTAIN_BELOW)
+  );
 
   const byCategory = new Map<BenchCategory, CategoryScore>();
   for (const c of BENCH_CATEGORIES) byCategory.set(c, emptyScore());
+  // B12-3: per-trap-class breakdown inside the unanswerable category.
+  // Legacy queries (no trapClass) bucket under 'general'.
+  const byTrapClass = new Map<string, CategoryScore>();
   const perQuery: Array<Record<string, unknown>> = [];
 
   for (const query of corpus.queries) {
@@ -310,9 +319,17 @@ async function main() {
     const s = byCategory.get(query.category)!;
     bucket(penalty, s);
     if (guardOk) s.guardRate += 1;
+    if (query.category === 'unanswerable') {
+      const tcKey = query.trapClass ?? 'general';
+      const tc = byTrapClass.get(tcKey) ?? emptyScore();
+      bucket(penalty, tc);
+      if (guardOk) tc.guardRate += 1;
+      byTrapClass.set(tcKey, tc);
+    }
     perQuery.push({
       benchId: query.benchId,
       category: query.category,
+      trapClass: query.trapClass ?? null,
       penalty,
       guardOk,
       verdict,
@@ -324,6 +341,12 @@ async function main() {
 
   // Finalize rates.
   for (const s of byCategory.values()) {
+    if (s.count > 0) {
+      s.score = s.score / s.count;
+      s.guardRate = s.guardRate / s.count;
+    }
+  }
+  for (const s of byTrapClass.values()) {
     if (s.count > 0) {
       s.score = s.score / s.count;
       s.guardRate = s.guardRate / s.count;
@@ -342,6 +365,23 @@ async function main() {
   const macroScore = byCategory.size
     ? [...byCategory.values()].reduce((sum, s) => sum + s.score, 0) / byCategory.size
     : 0;
+
+  const trapClassReport = (tc: CategoryScore) => ({
+    count: tc.count,
+    penaltyScore: Number(tc.score.toFixed(4)),
+    correct: tc.correct,
+    partial: tc.partial,
+    blank: tc.blank,
+    wrong: tc.wrong,
+    guardRate: Number(tc.guardRate.toFixed(4)),
+  });
+
+  const unanswerableCategory = byCategory.get('unanswerable')!;
+  // Ordered: the 10 designed classes first (stable order), then legacy.
+  const trapClassOrder = [...TRAP_CLASSES, 'general'].filter((k) => byTrapClass.has(k));
+  const byTrapClassOut = Object.fromEntries(
+    trapClassOrder.map((k) => [k, trapClassReport(byTrapClass.get(k)!)])
+  );
 
   const report = {
     meta: {
@@ -375,6 +415,8 @@ async function main() {
             blank: s.blank,
             wrong: s.wrong,
             guardRate: Number(s.guardRate.toFixed(4)),
+            // B12-3: additive per-trap-class breakdown for the abstention category.
+            ...(c === 'unanswerable' ? { byTrapClass: byTrapClassOut } : {}),
           },
         ];
       })
@@ -409,6 +451,45 @@ async function main() {
     console.log(
       `macro=${macroScore.toFixed(3)} micro=${report.overall.microPenaltyScore} confidentWrong=${overall.wrong} runtime=${report.meta.runtimeMs}ms`
     );
+  }
+
+  // B12-3: the adversarial trap-class breakdown is the headline output of
+  // the suite, so it prints even in --quiet mode. Gate expectations:
+  //   overall confidentWrong <= 2, macro >= 0.45, no trap class < -0.5.
+  // A confidently-wrong-dominated class means the system fails that shape -
+  // report it loudly here; fixing product code is a FOLLOW-UP task.
+  console.log('\n=== UNANSWERABLE BY TRAP CLASS ===');
+  printTable(
+    ['trap class', 'n', 'score', 'correct', 'blank', 'wrong', 'guardRate'],
+    trapClassOrder.map((k) => {
+      const s = byTrapClass.get(k)!;
+      return [
+        k,
+        String(s.count),
+        s.score.toFixed(3),
+        String(s.correct),
+        String(s.blank),
+        String(s.wrong),
+        s.guardRate.toFixed(3),
+      ];
+    })
+  );
+  const gateBreaches: string[] = [];
+  if (overall.wrong > 2) gateBreaches.push(`confidentWrong ${overall.wrong} > 2`);
+  if (macroScore < 0.45) gateBreaches.push(`macro ${macroScore.toFixed(4)} < 0.45`);
+  for (const k of trapClassOrder) {
+    const s = byTrapClass.get(k)!;
+    if (s.score < -0.5) {
+      gateBreaches.push(`trap class '${k}' score ${s.score.toFixed(3)} < -0.5 (${s.wrong} confident-wrongs)`);
+    }
+  }
+  if (gateBreaches.length > 0) {
+    console.error('\n[memory-bench] GATE BREACHES (findings for the next task, non-fatal):');
+    for (const b of gateBreaches) console.error(`  - ${b}`);
+  } else if (!quiet) {
+    console.log('gates: PASS (confidentWrong <= 2, macro >= 0.45, no trap class < -0.5)');
+  }
+  if (!quiet) {
     console.log(`report: ${outPath}\n`);
   }
 
@@ -419,7 +500,18 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error('[memory-bench] FAILED:', err);
-  process.exit(1);
-});
+// Run only when executed directly. Mirrors tests/golden/run-eval.ts: without
+// this guard, importing the runner from bench-integrity.test.ts used to
+// execute the whole benchmark in the test process and silently rewrite
+// reports/baseline.json on every `bun test` run.
+const isDirectRun =
+  typeof Bun !== 'undefined'
+    ? import.meta.main
+    : process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (isDirectRun) {
+  main().catch((err) => {
+    console.error('[memory-bench] FAILED:', err);
+    process.exit(1);
+  });
+}

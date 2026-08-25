@@ -20,7 +20,15 @@ import {
   type ConfidenceTier,
 } from '../scoring/recall-confidence.js';
 // Batch B1: topical alignment - same-entity/wrong-attribute detection.
-import { parseMemoryTopic, topicalAlignment, type QueryTopic } from '../scoring/topical-alignment.js';
+import {
+  parseMemoryTopic,
+  topicalAlignment,
+  topicsAboutSameEntity,
+  contentCarriesAttributeBucket,
+  CONTENT_DETECTABLE_BUCKETS,
+  TOPIC_ATTRIBUTE_BUCKETS,
+  type QueryTopic,
+} from '../scoring/topical-alignment.js';
 // Batch 6b: per-memory Ebbinghaus retention replaces the naive age-only curve.
 import { computeRetention, type RetentionRow } from '../decay/retention.js';
 
@@ -314,6 +322,54 @@ export async function collectDbMeta(
 }
 
 /**
+ * Batch B12-4 presumed-relation-unstated scan: per-candidate flags for the
+ * RELATION_UNSTATED_FACTOR discount. Fires for a candidate when
+ *   (a) the query attribute parsed to a KNOWN bucket that memory content can
+ *       actually carry (never on neutral/null parses, never on 'person'-
+ *       style buckets no lexicon entry produces), and
+ *   (b) the candidate's parsed entity matches the query entity, and
+ *   (c) NO memory among the top-K candidates attributed to that entity
+ *       carries that bucket ANYWHERE in its content.
+ * This generalizes the Batch B2 topic-absent coverage factor from a
+ * whole-set scan to an ENTITY-SCOPED scan: the corpus may know plenty about
+ * the entity while remaining silent on precisely the relation the question
+ * presumes - the multi-hop half-fact hijack shape. Pure + deterministic;
+ * confidence-only by contract (never used for ranking).
+ */
+export function findRelationUnstated(
+  contents: Array<string | null | undefined>,
+  queryTopic: QueryTopic | null | undefined
+): boolean[] {
+  const flags = contents.map(() => false);
+  if (!queryTopic || !queryTopic.entity || !queryTopic.attribute) return flags;
+  if (!(TOPIC_ATTRIBUTE_BUCKETS as readonly string[]).includes(queryTopic.attribute)) return flags;
+  // A bucket no content token can produce would fire spuriously on every
+  // entity-matching candidate ('person': queries ask for one, nothing maps
+  // to one) - treat as signal-unavailable instead.
+  if (!CONTENT_DETECTABLE_BUCKETS.has(queryTopic.attribute)) return flags;
+
+  const entityScoped = contents.map(content => {
+    if (typeof content !== 'string' || content.trim().length === 0) return false;
+    const parsed = parseMemoryTopic(content);
+    return parsed.entity !== null && topicsAboutSameEntity(queryTopic.entity!, parsed.entity);
+  });
+
+  let carrierExists = false;
+  for (let i = 0; i < contents.length; i++) {
+    if (!entityScoped[i]) continue;
+    const content = contents[i];
+    if (typeof content === 'string' && contentCarriesAttributeBucket(content, queryTopic.attribute)) {
+      carrierExists = true;
+      break;
+    }
+  }
+  if (carrierExists) return flags;
+
+  for (let i = 0; i < flags.length; i++) flags[i] = entityScoped[i];
+  return flags;
+}
+
+/**
  * Attach evidence + calibrated recall confidence to finalized search results.
  * Additive metadata ONLY: ordering, scores, and array contents are untouched.
  * Returns the best-result summary plus the abstention-aware assessment for
@@ -344,16 +400,26 @@ export async function attachRecallConfidence(
   }
   const candidateAlignments = evidenceByResult.map(e => e.evidence.topicalAlignment);
 
+  // Batch B12-4: one entity-scoped presumed-relation scan per search call,
+  // aligned with the result order. Confidence-only input for the
+  // RELATION_UNSTATED_FACTOR; ordering and scores are untouched.
+  const relationUnstatedFlags = findRelationUnstated(
+    results.map(r => (typeof r.content === 'string' ? r.content : null)),
+    ctx.queryTopic
+  );
+
   let bestConfidence = 0;
   let bestTier: ConfidenceTier = 'LOW';
 
   // Pass 2: score with full candidate-set context. Ordering and scores are
   // untouched - recallConfidence is additive metadata.
-  for (const { result: r, evidence } of evidenceByResult) {
+  for (let i = 0; i < evidenceByResult.length; i++) {
+    const { result: r, evidence } = evidenceByResult[i];
     const scored = computeRecallConfidence(evidence, {
       candidateSemanticScores: ctx.candidateSemanticScores,
       multiSignalQuery: ctx.multiSignalQuery,
       candidateAlignments,
+      relationUnstated: relationUnstatedFlags[i] ?? false,
     });
 
     (r as any).evidence = evidence;

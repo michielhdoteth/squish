@@ -9,8 +9,8 @@
  *
  * Kinds:
  *   past-anchored   explicit date/year anchor ("in 2021", "before March 2024",
- *                   "as of 2023", "back in 2019", "during 2022"). t carries the
- *                   parsed reference point.
+ *                   "as of 2023", "back in 2019", "during 2022",
+ *                   "throughout 2024"). t carries the parsed reference point.
  *   past-unanchored past-reaching language with NO explicit date ("what did X
  *                   use before Y?", "used to", "previously", "earlier").
  *                   t = null: there is no anchor to judge validity against,
@@ -69,12 +69,19 @@ const ANCHOR_ISO_YM = /\b(20\d{2})-(\d{1,2})\b/;
  * Preposition + month word + year: "in March 2024", "before Jan 2022",
  * "as of September 2023". The captured word must be a real month name
  * (validated below) - this is what keeps "in spring 2026" from anchoring.
+ * Batch B12-4 adds "throughout": a duration-spanning preposition over a
+ * period ("used throughout 2024") is past-anchored at that period.
  */
 const ANCHOR_PREP_MONTH_YEAR =
-  /\b(?:in|during|before|after|until|since|as\s+of|back\s+in)\s+([A-Za-z]+)\.?\s+(20\d{2})\b/i;
+  /\b(?:in|during|throughout|before|after|until|since|as\s+of|back\s+in)\s+([A-Za-z]+)\.?\s+(20\d{2})\b/i;
 
-/** Preposition immediately followed by a bare year: "in 2021", "during 2022". */
-const ANCHOR_PREP_YEAR = /\b(?:in|during|before|after|until|since|as\s+of|back\s+in)\s+(20\d{2})\b/i;
+/**
+ * Preposition immediately followed by a bare year: "in 2021", "during 2022".
+ * Batch B12-4 adds "throughout <year>": without it, span-phrasing escaped
+ * the parser (kind 'none'), so point-in-time queries served current-version
+ * answers for periods with no valid version (bench temporal-mismatch cw).
+ */
+const ANCHOR_PREP_YEAR = /\b(?:in|during|throughout|before|after|until|since|as\s+of|back\s+in)\s+(20\d{2})\b/i;
 
 /** Bare month name + year without preposition: "March 2024". */
 const ANCHOR_BARE_MONTH_YEAR = /\b([A-Za-z]+)\.?\s+(20\d{2})\b/;

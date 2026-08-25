@@ -1,5 +1,5 @@
-/**
- * Memory benchmark fixtures (Batch 9).
+﻿/**
+ * Memory benchmark fixtures (Batch 9, adversarial suite Task B12-3).
  *
  * Deterministic, synthetic corpus modeling the four MemConflict-style
  * conflict categories, used by scripts/run-memory-bench.ts to measure
@@ -7,11 +7,15 @@
  * abstention — the axes where hosted memory providers publish their worst
  * numbers (Mem0 BEAM: 32.5% contradiction resolution, 40% abstention).
  *
+ * Section 4b adds the adversarial unanswerable suite: 80 queries across 10
+ * trap classes (see TRAP_CLASSES), each carrying an integrityGuard that
+ * bench-integrity.test.ts uses to prove no active memory answers it.
+ *
  * Every memory carries metadata.benchId; the runner maps stored UUIDs back
  * to bench ids for scoring (search results do not expose metadata).
  *
  * Scoring approximation (LLM-free, documented in the runner): a result is
- * judged by WHICH memory ranked and its calibrated confidence tier — we do
+ * judged by WHICH memory ranked and its calibrated confidence tier â€” we do
  * not simulate an answer model. "Confident-wrong" means the false/absent
  * memory ranked top-1 at QUALIFIED+ confidence.
  */
@@ -35,6 +39,79 @@ export interface BenchQuery {
   expectTop3?: string[];
   /** For unanswerable queries: any hit at/above this tier counts as confident-wrong. */
   wrongIfTop1?: string[];
+  /**
+   * Adversarial sub-class (Task B12-3). Only set on `unanswerable` queries;
+   * purely descriptive for scoring (the switch is untouched) and used by
+   * run-memory-bench.ts for the per-trap-class report breakdown.
+   */
+  trapClass?: TrapClass;
+  /**
+   * Machine-checkable proof inputs for bench-integrity.test.ts: they let the
+   * test PROVE against the seeded corpus that no active memory contains a
+   * direct answer to this query. Absent on legacy fixtures.
+   */
+  integrityGuard?: AdversarialGuard;
+}
+
+/**
+ * Adversarial trap classes (Task B12-3). Each name matches a distinct
+ * failure shape from CONFIDENT-WRONG-AUTOPSY.md and general abstention
+ * literature; every class ships >= 8 queries.
+ */
+export const TRAP_CLASSES = [
+  'entity-only',
+  'wrong-attribute',
+  'wrong-relationship',
+  'semantic-near-miss',
+  'temporal-mismatch',
+  'superseded-fact-current-query',
+  'contradictory-evidence',
+  'absent-entity',
+  'partial-match',
+  'multi-hop-trap',
+] as const;
+
+export type TrapClass = (typeof TRAP_CLASSES)[number];
+
+/**
+ * Per-query verification contract consumed by bench-integrity.test.ts.
+ *
+ * Token semantics (word-boundary, case-insensitive, exact word - no prefix
+ * matching, so "manage" does not hit "management"):
+ *  - entityTokens identify WHO/WHAT the query asks about.
+ *  - attrKeywords identify the asked-but-unstored ATTRIBUTE.
+ *  - Default rule: NO ACTIVE memory may contain (any entityToken) AND
+ *    (any attrKeyword). Classes override or extend this via the flags below.
+ */
+export interface AdversarialGuard {
+  entityTokens: string[];
+  attrKeywords: string[];
+  /**
+   * multi-hop only: each inner list must appear (ALL tokens) inside SOME
+   * single active memory - proving the composing halves exist separately -
+   * while the join (entity + attribute) stays prohibited everywhere.
+   */
+  hopHalfTokens?: string[][];
+  /**
+   * contradictory-evidence only: benchIds of the designed conflict pair.
+   * Exactly these two memories are allowed to match entity+attribute; the
+   * test asserts both are active and their contents disagree.
+   */
+  exemptBenchIds?: string[];
+  /**
+   * superseded-fact-current-query only: after stripping "instead of ..."
+   * clauses, EVERY memory matching entity+attribute must have seeded status
+   * superseded (the successor must not restate the queried attribute).
+   */
+  requireAllSuperseded?: boolean;
+  /** absent-entity only: entityTokens must appear in ZERO rows, any status. */
+  requireEntityAbsent?: boolean;
+  /**
+   * temporal-mismatch only: ISO instant the query asks about. Every row
+   * (ANY status) matching entity+attribute must have valid_from AFTER this
+   * instant - i.e. no version of the chain was valid at the asked time.
+   */
+  askedTimeISO?: string;
 }
 
 export type BenchCategory = 'fact-update' | 'planted-falsehood' | 'conditional-preference' | 'unanswerable' | 'edge-empty' | 'edge-long' | 'edge-special-chars' | 'edge-noise' | 'edge-partial-match';
@@ -51,7 +128,23 @@ export const BENCH_CATEGORIES: BenchCategory[] = [
   'edge-partial-match',
 ];
 
-// ─── 1. Fact updates (dynamic conflict): 30 subjects × 3 versions ───────────
+// â”€â”€â”€ 1. Fact updates (dynamic conflict): 30 subjects Ã— 3 versions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+/**
+ * Version-chain realism note (Batch B12-2b Fix C): the bench seeds through
+ * the REAL write path (`client.remember`), whose contradiction resolver
+ * supersedes an active predecessor when the new row carries an update
+ * indicator ("now", "instead of", ...) AND its extracted subject overlaps
+ * the old row's subject by Jaccard > 0.5. The v2/v3 phrasings below are
+ * modeled on real update flows ("X now uses B instead of A") so seeding
+ * produces genuine superseded status + `updates` association edges and
+ * exactly ONE active version per chain at query time - instead of three
+ * tied active duplicates. Consecutive-pair similarity was verified against
+ * the resolver's exact math (see tests/benchmarks/bench-integrity.test.ts).
+ * Grove's final version says "Fly" without the dot on purpose: the
+ * resolver's subject extractor has no abbreviation guard and splits
+ * sentences on periods, so "Fly.io" truncates the subject mid-name.
+ */
 
 interface UpdateSubject {
   subject: string;
@@ -64,36 +157,36 @@ interface UpdateSubject {
 }
 
 const UPDATE_SUBJECTS: UpdateSubject[] = [
-  { subject: 'atlas', domain: 'database', v1: 'The atlas project uses PostgreSQL as its primary database.', v2: 'The atlas project migrated its database from PostgreSQL to MySQL.', v3: 'The atlas project moved back to PostgreSQL after the MySQL experiment failed.', queryCurrent: 'What database does the atlas project use?', queryPast: 'What database did the atlas project use before the MySQL experiment?' },
-  { subject: 'beacon', domain: 'framework', v1: 'The beacon service is built with Express.', v2: 'The beacon service was rewritten using Fastify.', v3: 'The beacon service settled on Hono after evaluating Fastify alternatives.', queryCurrent: 'What framework does the beacon service use?', queryPast: 'What framework did the beacon service use before Hono?' },
-  { subject: 'cedar', domain: 'package manager', v1: 'The cedar repo uses npm for dependency management.', v2: 'The cedar repo switched from npm to yarn.', v3: 'The cedar repo standardized on pnpm across all workspaces.', queryCurrent: 'Which package manager does the cedar repo use?', queryPast: 'Which package manager did the cedar repo use before pnpm?' },
-  { subject: 'dune', domain: 'deployment', v1: 'Dune deploys to a single VPS via docker compose.', v2: 'Dune moved its deployment to Kubernetes.', v3: 'Dune consolidated deployment back to docker compose on a beefier host.', queryCurrent: 'How does Dune deploy?', queryPast: 'How did Dune deploy before the Kubernetes move?' },
-  { subject: 'ember', domain: 'auth provider', v1: 'Ember uses Auth0 for authentication.', v2: 'Ember switched authentication from Auth0 to Clerk.', v3: 'Ember left Clerk for a self-hosted Ory stack.', queryCurrent: 'What auth provider does Ember use?', queryPast: 'What auth provider did Ember use before Ory?' },
-  { subject: 'flint', domain: 'language', v1: 'The flint parser is written in Python.', v2: 'The flint parser was ported from Python to Rust.', v3: 'The flint parser team moved performance-critical parts to Zig while keeping Rust glue.', queryCurrent: 'What language is the flint parser written in?', queryPast: 'What language was the flint parser originally written in?' },
-  { subject: 'grove', domain: 'hosting', v1: 'Grove is hosted on AWS us-east-1.', v2: 'Grove moved hosting from AWS to GCP.', v3: 'Grove migrated from GCP to Fly.io for edge deploys.', queryCurrent: 'Where is Grove hosted?', queryPast: 'Where was Grove hosted before Fly.io?' },
-  { subject: 'harbor', domain: 'ci', v1: 'Harbor runs CI on Jenkins.', v2: 'Harbor migrated CI from Jenkins to CircleCI.', v3: 'Harbor consolidated CI on GitHub Actions.', queryCurrent: 'What CI does Harbor run?', queryPast: 'What CI did Harbor run before GitHub Actions?' },
-  { subject: 'ignite', domain: 'state management', v1: 'Ignite uses Redux for state management.', v2: 'Ignite replaced Redux with Zustand.', v3: 'Ignite adopted Jotai for atomic state after outgrowing Zustand patterns.', queryCurrent: 'What state management does Ignite use?', queryPast: 'What state management did Ignite use before Jotai?' },
-  { subject: 'juno', domain: 'css', v1: 'Juno styles with plain CSS.', v2: 'Juno adopted Sass from plain CSS.', v3: 'Juno migrated styling to Tailwind with zero custom Sass left.', queryCurrent: 'How does Juno handle styling?', queryPast: 'How did Juno handle styling before Tailwind?' },
-  { subject: 'krypton', domain: 'queue', v1: 'Krypton processes jobs with RabbitMQ.', v2: 'Krypton switched from RabbitMQ to Sidekiq.', v3: 'Krypton standardized on NATS JetStream for all job queues.', queryCurrent: 'What queue does Krypton use?', queryPast: 'What queue did Krypton use before NATS?' },
-  { subject: 'lumen', domain: 'observability', v1: 'Lumen monitors with Datadog.', v2: 'Lumen moved from Datadog to New Relic.', v3: 'Lumen settled on self-hosted Grafana + Loki for observability.', queryCurrent: 'What observability stack does Lumen use?', queryPast: 'What observability did Lumen use before Grafana?' },
-  { subject: 'mesa', domain: 'orm', v1: 'Mesa accesses data through raw SQL.', v2: 'Mesa adopted Prisma from raw SQL.', v3: 'Mesa replaced Prisma with Drizzle for edge compatibility.', queryCurrent: 'What ORM does Mesa use?', queryPast: 'What ORM did Mesa use before Drizzle?' },
-  { subject: 'nimbus', domain: 'testing', v1: 'Nimbus tests with Mocha.', v2: 'Nimbus switched from Mocha to Jest.', v3: 'Nimbus migrated its test suite to Vitest.', queryCurrent: 'What test runner does Nimbus use?', queryPast: 'What test runner did Nimbus use before Vitest?' },
-  { subject: 'onyx', domain: 'cache', v1: 'Onyx caches with Memcached.', v2: 'Onyx moved from Memcached to Redis.', v3: 'Onyx added Dragonfly as its primary cache replacing Redis.', queryCurrent: 'What cache does Onyx use?', queryPast: 'What cache did Onyx use before Dragonfly?' },
-  { subject: 'prism', domain: 'bundler', v1: 'Prism bundles with Webpack.', v2: 'Prism switched from Webpack to Rollup.', v3: 'Prism standardized on tsup for library builds.', queryCurrent: 'What bundler does Prism use?', queryPast: 'What bundler did Prism use before tsup?' },
-  { subject: 'quartz', domain: 'docs', v1: 'Quartz documents with Jekyll.', v2: 'Quartz moved docs from Jekyll to Docusaurus.', v3: 'Quartz adopted Starlight for its documentation site.', queryCurrent: 'What docs tool does Quartz use?', queryPast: 'What docs tool did Quartz use before Starlight?' },
-  { subject: 'ridge', domain: 'api style', v1: 'Ridge exposes a REST API.', v2: 'Ridge moved from REST to GraphQL.', v3: 'Ridge returned to REST with OpenRPC for internal services.', queryCurrent: 'What API style does Ridge use?', queryPast: 'What API style did Ridge use before the REST return?' },
-  { subject: 'slate', domain: 'editor', v1: 'Slate uses CKEditor.', v2: 'Slate replaced CKEditor with TipTap.', v3: 'Slate built its own Lexical-based editor replacing TipTap.', queryCurrent: 'What editor does Slate use?', queryPast: 'What editor did Slate use before Lexical?' },
-  { subject: 'tundra', domain: 'search', v1: 'Tundra searches with Solr.', v2: 'Tundra moved from Solr to Elasticsearch.', v3: 'Tundra adopted Meilisearch for its product search.', queryCurrent: 'What search engine does Tundra use?', queryPast: 'What search engine did Tundra use before Meilisearch?' },
-  { subject: 'umbra', domain: 'payments', v1: 'Umbra bills with Braintree.', v2: 'Umbra switched from Braintree to Stripe.', v3: 'Umbra added Paddle as merchant of record on top of Stripe.', queryCurrent: 'What payments provider does Umbra use?', queryPast: 'What payments provider did Umbra use before Paddle?' },
-  { subject: 'vessel', domain: 'container runtime', v1: 'Vessel runs Docker containers.', v2: 'Vessel moved from Docker to containerd.', v3: 'Vessel standardized on Podman for rootless containers.', queryCurrent: 'What container runtime does Vessel use?', queryPast: 'What container runtime did Vessel use before Podman?' },
-  { subject: 'willow', domain: 'frontend', v1: 'Willow renders with AngularJS.', v2: 'Willow migrated from AngularJS to React.', v3: 'Willow adopted SolidJS for its design system surfaces.', queryCurrent: 'What frontend framework does Willow use?', queryPast: 'What frontend framework did Willow use before SolidJS?' },
-  { subject: 'xenon', domain: 'messaging', v1: 'Xenon sends email via SendGrid.', v2: 'Xenon switched from SendGrid to Mailgun.', v3: 'Xenon moved transactional email to Resend.', queryCurrent: 'What email provider does Xenon use?', queryPast: 'What email provider did Xenon use before Resend?' },
-  { subject: 'yarrow', domain: 'scheduling', v1: 'Yarrow schedules with cron.', v2: 'Yarrow replaced cron with Temporal.', v3: 'Yarrow consolidated scheduling on Inngest.', queryCurrent: 'What scheduler does Yarrow use?', queryPast: 'What scheduler did Yarrow use before Inngest?' },
-  { subject: 'zephyr', domain: 'storage', v1: 'Zephyr stores files on S3.', v2: 'Zephyr moved from S3 to GCS.', v3: 'Zephyr adopted Cloudflare R2 for zero-egress storage.', queryCurrent: 'What object storage does Zephyr use?', queryPast: 'What object storage did Zephyr use before R2?' },
-  { subject: 'basalt', domain: 'linter', v1: 'Basalt lints with TSLint.', v2: 'Basalt moved from TSLint to ESLint.', v3: 'Basalt standardized on Oxlint for speed.', queryCurrent: 'What linter does Basalt use?', queryPast: 'What linter did Basalt use before Oxlint?' },
-  { subject: 'cobalt', domain: 'runtime', v1: 'Cobalt runs on Node 16.', v2: 'Cobalt upgraded from Node 16 to Node 20.', v3: 'Cobalt migrated its runtime to Bun.', queryCurrent: 'What runtime does Cobalt use?', queryPast: 'What runtime did Cobalt use before Bun?' },
-  { subject: 'deltas', domain: 'analytics', v1: 'Deltas tracks events with Segment.', v2: 'Deltas replaced Segment with Jitsu.', v3: 'Deltas moved analytics ingestion to PostHog.', queryCurrent: 'What analytics provider does Deltas use?', queryPast: 'What analytics provider did Deltas use before PostHog?' },
-  { subject: 'estuary', domain: 'secrets', v1: 'Estuary stores secrets in Vault.', v2: 'Estuary moved from Vault to AWS Secrets Manager.', v3: 'Estuary adopted Infisical for secret management.', queryCurrent: 'What secrets manager does Estuary use?', queryPast: 'What secrets manager did Estuary use before Infisical?' },
+  { subject: 'atlas', domain: 'database', v1: 'The atlas project uses PostgreSQL as its primary database.', v2: 'The atlas project now uses MySQL as its primary database instead of PostgreSQL.', v3: 'The atlas project now uses PostgreSQL again as its primary database instead of MySQL.', queryCurrent: 'What database does the atlas project use?', queryPast: 'What database did the atlas project use before the MySQL experiment?' },
+  { subject: 'beacon', domain: 'framework', v1: 'The beacon service is built with Express.', v2: 'The beacon service is now built with Fastify instead of Express.', v3: 'The beacon service is now built with Hono instead of Fastify after evaluation.', queryCurrent: 'What framework does the beacon service use?', queryPast: 'What framework did the beacon service use before Hono?' },
+  { subject: 'cedar', domain: 'package manager', v1: 'The cedar repo uses npm for dependency management.', v2: 'The cedar repo now uses yarn for dependency management instead of npm.', v3: 'The cedar repo now uses pnpm for dependency management instead of yarn.', queryCurrent: 'Which package manager does the cedar repo use?', queryPast: 'Which package manager did the cedar repo use before pnpm?' },
+  { subject: 'dune', domain: 'deployment', v1: 'Dune deploys to a single VPS via docker compose.', v2: 'Dune now deploys to Kubernetes instead of a single VPS docker compose stack.', v3: 'Dune now deploys via docker compose on a beefier host instead of Kubernetes.', queryCurrent: 'How does Dune deploy?', queryPast: 'How did Dune deploy before the Kubernetes move?' },
+  { subject: 'ember', domain: 'auth provider', v1: 'Ember uses Auth0 for authentication.', v2: 'Ember now uses Clerk for authentication instead of Auth0.', v3: 'Ember now uses a self-hosted Ory stack for authentication instead of Clerk.', queryCurrent: 'What auth provider does Ember use?', queryPast: 'What auth provider did Ember use before Ory?' },
+  { subject: 'flint', domain: 'language', v1: 'The flint parser is written in Python.', v2: 'The flint parser is now written in Rust instead of Python.', v3: 'The flint parser is now written partly in Zig instead of only Rust.', queryCurrent: 'What language is the flint parser written in?', queryPast: 'What language was the flint parser originally written in?' },
+  { subject: 'grove', domain: 'hosting', v1: 'Grove is hosted on AWS us-east-1.', v2: 'Grove is now hosted on GCP instead of AWS us-east-1.', v3: 'Grove is now hosted on Fly instead of GCP.', queryCurrent: 'Where is Grove hosted?', queryPast: 'Where was Grove hosted before Fly.io?' },
+  { subject: 'harbor', domain: 'ci', v1: 'Harbor runs its CI on Jenkins.', v2: 'Harbor now runs its CI on CircleCI instead of Jenkins.', v3: 'Harbor now runs its CI on GitHub Actions instead of CircleCI.', queryCurrent: 'What CI does Harbor run?', queryPast: 'What CI did Harbor run before GitHub Actions?' },
+  { subject: 'ignite', domain: 'state management', v1: 'Ignite uses Redux for state management.', v2: 'Ignite now uses Zustand for state management instead of Redux.', v3: 'Ignite now uses Jotai for atomic state instead of Zustand patterns.', queryCurrent: 'What state management does Ignite use?', queryPast: 'What state management did Ignite use before Jotai?' },
+  { subject: 'juno', domain: 'css', v1: 'Juno styles with plain CSS.', v2: 'Juno now styles with Sass instead of plain CSS.', v3: 'Juno now styles with Tailwind instead of custom Sass.', queryCurrent: 'How does Juno handle styling?', queryPast: 'How did Juno handle styling before Tailwind?' },
+  { subject: 'krypton', domain: 'queue', v1: 'Krypton processes jobs with RabbitMQ.', v2: 'Krypton now processes jobs with Sidekiq instead of RabbitMQ.', v3: 'Krypton now processes jobs with NATS JetStream instead of Sidekiq.', queryCurrent: 'What queue does Krypton use?', queryPast: 'What queue did Krypton use before NATS?' },
+  { subject: 'lumen', domain: 'observability', v1: 'Lumen monitors its stack with Datadog.', v2: 'Lumen now monitors its stack with New Relic instead of Datadog.', v3: 'Lumen now monitors its stack with self-hosted Grafana and Loki instead of New Relic.', queryCurrent: 'What observability stack does Lumen use?', queryPast: 'What observability did Lumen use before Grafana?' },
+  { subject: 'mesa', domain: 'orm', v1: 'Mesa accesses data through raw SQL.', v2: 'Mesa now accesses data through Prisma instead of raw SQL.', v3: 'Mesa now accesses data through Drizzle instead of Prisma for edge compatibility.', queryCurrent: 'What ORM does Mesa use?', queryPast: 'What ORM did Mesa use before Drizzle?' },
+  { subject: 'nimbus', domain: 'testing', v1: 'Nimbus tests with Mocha.', v2: 'Nimbus now tests with Jest instead of Mocha.', v3: 'Nimbus now tests with Vitest instead of Jest across its suite.', queryCurrent: 'What test runner does Nimbus use?', queryPast: 'What test runner did Nimbus use before Vitest?' },
+  { subject: 'onyx', domain: 'cache', v1: 'Onyx caches with Memcached.', v2: 'Onyx now caches with Redis instead of Memcached.', v3: 'Onyx now caches with Dragonfly instead of Redis as primary.', queryCurrent: 'What cache does Onyx use?', queryPast: 'What cache did Onyx use before Dragonfly?' },
+  { subject: 'prism', domain: 'bundler', v1: 'Prism bundles with Webpack.', v2: 'Prism now bundles with Rollup instead of Webpack.', v3: 'Prism now bundles with tsup instead of Rollup for library builds.', queryCurrent: 'What bundler does Prism use?', queryPast: 'What bundler did Prism use before tsup?' },
+  { subject: 'quartz', domain: 'docs', v1: 'Quartz documents with Jekyll.', v2: 'Quartz now documents with Docusaurus instead of Jekyll.', v3: 'Quartz now documents with Starlight instead of Docusaurus.', queryCurrent: 'What docs tool does Quartz use?', queryPast: 'What docs tool did Quartz use before Starlight?' },
+  { subject: 'ridge', domain: 'api style', v1: 'Ridge exposes a REST API.', v2: 'Ridge now exposes a GraphQL API instead of REST.', v3: 'Ridge now exposes a REST API again instead of GraphQL for internal services.', queryCurrent: 'What API style does Ridge use?', queryPast: 'What API style did Ridge use before the REST return?' },
+  { subject: 'slate', domain: 'editor', v1: 'Slate uses CKEditor as its editor.', v2: 'Slate now uses TipTap as its editor instead of CKEditor.', v3: 'Slate now uses its own Lexical-based editor instead of TipTap.', queryCurrent: 'What editor does Slate use?', queryPast: 'What editor did Slate use before Lexical?' },
+  { subject: 'tundra', domain: 'search', v1: 'Tundra searches with Solr.', v2: 'Tundra now searches with Elasticsearch instead of Solr.', v3: 'Tundra now searches with Meilisearch instead of Elasticsearch for product search.', queryCurrent: 'What search engine does Tundra use?', queryPast: 'What search engine did Tundra use before Meilisearch?' },
+  { subject: 'umbra', domain: 'payments', v1: 'Umbra handles its payments through Braintree.', v2: 'Umbra now handles its payments through Stripe instead of Braintree.', v3: 'Umbra now handles its payments through Paddle instead of Stripe as merchant of record.', queryCurrent: 'What payments provider does Umbra use?', queryPast: 'What payments provider did Umbra use before Paddle?' },
+  { subject: 'vessel', domain: 'container runtime', v1: 'Vessel runs Docker containers.', v2: 'Vessel now runs containerd containers instead of Docker.', v3: 'Vessel now runs Podman containers instead of containerd for rootless workloads.', queryCurrent: 'What container runtime does Vessel use?', queryPast: 'What container runtime did Vessel use before Podman?' },
+  { subject: 'willow', domain: 'frontend', v1: 'Willow renders with AngularJS.', v2: 'Willow now renders with React instead of AngularJS.', v3: 'Willow now renders design system surfaces with SolidJS instead of React.', queryCurrent: 'What frontend framework does Willow use?', queryPast: 'What frontend framework did Willow use before SolidJS?' },
+  { subject: 'xenon', domain: 'messaging', v1: 'Xenon sends email via SendGrid.', v2: 'Xenon now sends email via Mailgun instead of SendGrid.', v3: 'Xenon now sends transactional email via Resend instead of Mailgun.', queryCurrent: 'What email provider does Xenon use?', queryPast: 'What email provider did Xenon use before Resend?' },
+  { subject: 'yarrow', domain: 'scheduling', v1: 'Yarrow schedules with cron.', v2: 'Yarrow now schedules with Temporal instead of cron.', v3: 'Yarrow now schedules with Inngest instead of Temporal.', queryCurrent: 'What scheduler does Yarrow use?', queryPast: 'What scheduler did Yarrow use before Inngest?' },
+  { subject: 'zephyr', domain: 'storage', v1: 'Zephyr stores its files on S3.', v2: 'Zephyr now stores its files on GCS instead of S3.', v3: 'Zephyr now stores its files on Cloudflare R2 instead of GCS.', queryCurrent: 'What object storage does Zephyr use?', queryPast: 'What object storage did Zephyr use before R2?' },
+  { subject: 'basalt', domain: 'linter', v1: 'Basalt lints with TSLint.', v2: 'Basalt now lints with ESLint instead of TSLint.', v3: 'Basalt now lints with Oxlint instead of ESLint for speed.', queryCurrent: 'What linter does Basalt use?', queryPast: 'What linter did Basalt use before Oxlint?' },
+  { subject: 'cobalt', domain: 'runtime', v1: 'Cobalt runs on Node 16.', v2: 'Cobalt now runs on Node 20 instead of Node 16.', v3: 'Cobalt now runs its runtime on Bun instead of Node.', queryCurrent: 'What runtime does Cobalt use?', queryPast: 'What runtime did Cobalt use before Bun?' },
+  { subject: 'deltas', domain: 'analytics', v1: 'Deltas tracks product events with the Segment analytics stack.', v2: 'Deltas now tracks product events with Jitsu instead of the Segment analytics stack.', v3: 'Deltas now tracks product events with the PostHog analytics stack instead of Jitsu.', queryCurrent: 'What analytics provider does Deltas use?', queryPast: 'What analytics provider did Deltas use before PostHog?' },
+  { subject: 'estuary', domain: 'secrets', v1: 'Estuary stores its secrets in Vault.', v2: 'Estuary now stores its secrets in AWS Secrets Manager instead of Vault.', v3: 'Estuary now stores its secrets in Infisical instead of AWS Secrets Manager.', queryCurrent: 'What secrets manager does Estuary use?', queryPast: 'What secrets manager did Estuary use before Infisical?' },
 ];
 
 export function buildFactUpdateMemories(): BenchMemory[] {
@@ -115,7 +208,7 @@ export function buildFactUpdateQueries(): BenchQuery[] {
   return queries;
 }
 
-// ─── 2. Planted falsehoods (static conflict): 20 subjects ───────────────────
+// â”€â”€â”€ 2. Planted falsehoods (static conflict): 20 subjects â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 interface FalsehoodSubject {
   person: string;
@@ -166,7 +259,7 @@ export function buildFalsehoodQueries(): BenchQuery[] {
   }));
 }
 
-// ─── 3. Condition-bound preferences: 15 subjects ────────────────────────────
+// â”€â”€â”€ 3. Condition-bound preferences: 15 subjects â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 interface PreferenceSubject {
   person: string;
@@ -213,7 +306,7 @@ export function buildPreferenceQueries(): BenchQuery[] {
   return queries;
 }
 
-// ─── 4. Unanswerable (abstention): 20 queries ───────────────────────────────
+// â”€â”€â”€ 4. Unanswerable (abstention): 20 queries â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export function buildUnanswerableQueries(): BenchQuery[] {
   const subjects = [
@@ -228,7 +321,286 @@ export function buildUnanswerableQueries(): BenchQuery[] {
   return subjects.map((q, idx) => ({ benchId: `ua_${idx}_q`, category: 'unanswerable' as const, query: q }));
 }
 
-// ─── 5. Edge cases ─────────────────────────────────────────────────────────
+// ──── 4b. Adversarial unanswerables (Task B12-3): 10 trap classes x 8 ──────
+
+/**
+ * The legacy unanswerables above are all ONE shape: an absent attribute
+ * about a named person. This block stress-tests GENERALIZATION with eight
+ * queries per adversarial trap class (80 new; 100 unanswerables total).
+ * Class designs trace directly to CONFIDENT-WRONG-AUTOPSY.md failure shapes:
+ *
+ *   entity-only / wrong-attribute   Mechanism B territory (attribute gaps)
+ *   semantic-near-miss              Mechanism A territory (lexical monopoly)
+ *   superseded-fact-current-query   Mechanism C territory (version chains)
+ *   contradictory-evidence          dual-active conflicts, ideal = hedge
+ *   temporal-mismatch               point-in-time queries with no valid version
+ *
+ * INTEGRITY CONTRACT: every query carries an integrityGuard that
+ * bench-integrity.test.ts uses to PROVE against the seeded corpus that no
+ * active memory contains a direct answer. Guards use exact word-boundary
+ * matching so "manage" never hits "management" and "car" never hits "career".
+ */
+
+/**
+ * Superseded-current chains: v2 carries an update indicator ("now",
+ * "instead of") and > 0.5 subject Jaccard with v1 (mirroring the resolver
+ * math asserted in bench-integrity.test.ts), so seeding supersedes v1 and
+ * leaves v2 active WITHOUT restating the queried attribute. The queried
+ * attribute word appears ONLY in v1 - asking its current value has no
+ * active answer.
+ */
+interface SupersededChain {
+  person: string;
+  v1: string;
+  v2: string;
+}
+
+const SUPERSEDED_CHAINS: SupersededChain[] = [
+  // NOTE: v1 wording avoids intra-sentence punctuation around the attribute
+  // word - extractSubject/calculateSimilarity split on whitespace only, so
+  // "car," (comma attached) would never equal "car" and the v1->v2 subject
+  // Jaccard would drop below the 0.5 supersession threshold (caught by
+  // bench-integrity.test.ts on first run).
+  { person: 'talia', v1: 'Talia parks her car at the office garage.', v2: 'Talia now parks her bicycle at the office garage instead of the car.' },
+  { person: 'mateo', v1: 'Mateo writes web apps with Django at the startup lab.', v2: 'Mateo now writes apps with Go at the startup lab instead of Django.' },
+  { person: 'renata', v1: 'Renata teaches yoga at the riverside studio.', v2: 'Renata now teaches pilates at the riverside studio instead of yoga.' },
+  { person: 'oscar', v1: 'Oscar brews lager at the dockside brewery.', v2: 'Oscar now brews stout at the dockside brewery instead of lager.' },
+  { person: 'nadia', v1: 'Nadia paints murals with acrylics downtown.', v2: 'Nadia now paints murals with spray paint downtown instead of acrylics.' },
+  { person: 'felix', v1: 'Felix grows tomatoes in the rooftop greenhouse.', v2: 'Felix now grows peppers in the rooftop greenhouse instead of tomatoes.' },
+  { person: 'iveta', v1: 'Iveta plays violin in the civic orchestra.', v2: 'Iveta now plays viola in the civic orchestra instead of violin.' },
+  { person: 'bram', v1: 'Bram roasts colombian beans for his cafe.', v2: 'Bram now roasts ethiopian beans for his cafe instead of colombian ones.' },
+];
+
+/**
+ * Designed conflict pairs: two statements that stay ACTIVE simultaneously
+ * (no update indicator, no negation, no opposite-keyword pair, subject
+ * similarity below every supersession scenario) while disagreeing on one
+ * attribute. Ideal system behavior on the paired query is qualified/abstain,
+ * never confident. Fixture-only data, as sanctioned by the task spec.
+ */
+interface ConflictPair {
+  id: string;
+  a: string;
+  b: string;
+}
+
+const CONFLICT_PAIRS: ConflictPair[] = [
+  { id: 'yara', a: 'Yara books client meetings on Tuesdays.', b: 'Yara schedules client meetings on Thursdays.' },
+  { id: 'zaid', a: 'Zaid reports to the Lisbon office.', b: 'Zaid reports to the Porto office.' },
+  { id: 'cleo', a: 'Cleo keeps the spare keys in the kitchen drawer.', b: 'Cleo keeps the spare keys in the hallway cabinet.' },
+  { id: 'anwar', a: 'Anwar sits on the fourth floor.', b: 'Anwar sits on the sixth floor.' },
+  { id: 'lidia', a: 'Lidia runs sprint reviews on Monday mornings.', b: 'Lidia runs sprint reviews on Wednesday mornings.' },
+  { id: 'berlin-accounts', a: 'Petra manages the Berlin accounts.', b: 'Sofia manages the Berlin accounts.' },
+  { id: 'ruslan', a: 'Ruslan stores backups on the local NAS.', b: 'Ruslan stores backups with a cloud provider.' },
+  { id: 'sanna', a: 'Sannas team meets at nine sharp.', b: 'Sannas team meets at half past nine.' },
+];
+
+export function conflictPairBenchIds(id: string): [string, string] {
+  return [`am_con_${id}_a`, `am_con_${id}_b`];
+}
+
+/** Deterministic June-2026 timestamps, 3h apart, unique per adversarial row. */
+function advIso(seq: number): string {
+  return new Date(Date.UTC(2026, 5, 1, 0, seq * 180)).toISOString();
+}
+
+/**
+ * ORDER MATTERS: these rows seed BEFORE the main corpus. The contradiction
+ * resolver scans only the first 100 ACTIVE rows (rowid order) when deciding
+ * supersessions, so seeding the chains first guarantees each v1 sits inside
+ * the scan window when its v2 arrives, and main-corpus writes cannot
+ * accidentally interact with them (fresh subjects verified dissimilar).
+ */
+export function buildAdversarialMemories(): BenchMemory[] {
+  const memories: BenchMemory[] = [];
+  let seq = 0;
+  for (const c of SUPERSEDED_CHAINS) {
+    memories.push({ benchId: `am_sup_${c.person}_v1`, type: 'fact', tags: [c.person], content: c.v1, createdAt: advIso(seq++) });
+    memories.push({ benchId: `am_sup_${c.person}_v2`, type: 'fact', tags: [c.person], content: c.v2, createdAt: advIso(seq++) });
+  }
+  for (const p of CONFLICT_PAIRS) {
+    const [idA, idB] = conflictPairBenchIds(p.id);
+    memories.push({ benchId: idA, type: 'fact', tags: ['conflict-pair', p.id], content: p.a, createdAt: advIso(seq++) });
+    memories.push({ benchId: idB, type: 'fact', tags: ['conflict-pair', p.id], content: p.b, createdAt: advIso(seq++) });
+  }
+  return memories;
+}
+
+interface AdversarialSpec {
+  trapClass: TrapClass;
+  idx: number;
+  query: string;
+  guard: AdversarialGuard;
+}
+
+export function buildAdversarialUnanswerables(): BenchQuery[] {
+  const specs: AdversarialSpec[] = [
+    // ── entity-only: entity stored under a DIFFERENT attribute only ──
+    { trapClass: 'entity-only', idx: 0, query: 'What is Kenjis favorite food?', guard: { entityTokens: ['kenji'], attrKeywords: ['favorite', 'food'] } },
+    { trapClass: 'entity-only', idx: 1, query: 'How many siblings does Priya have?', guard: { entityTokens: ['priya'], attrKeywords: ['sibling', 'siblings'] } },
+    { trapClass: 'entity-only', idx: 2, query: 'What is Marisols shoe size?', guard: { entityTokens: ['marisol'], attrKeywords: ['shoe', 'size'] } },
+    { trapClass: 'entity-only', idx: 3, query: 'In which city does Tomas live?', guard: { entityTokens: ['tomas'], attrKeywords: ['city', 'live', 'lives'] } },
+    { trapClass: 'entity-only', idx: 4, query: 'What is Aikos favorite movie?', guard: { entityTokens: ['aiko'], attrKeywords: ['movie', 'film'] } },
+    { trapClass: 'entity-only', idx: 5, query: 'Where did Dmitri go on his last vacation?', guard: { entityTokens: ['dmitri'], attrKeywords: ['vacation'] } },
+    { trapClass: 'entity-only', idx: 6, query: 'What is Fatimas native language?', guard: { entityTokens: ['fatima'], attrKeywords: ['language', 'native'] } },
+    { trapClass: 'entity-only', idx: 7, query: 'Which instrument does Hana play?', guard: { entityTokens: ['hana'], attrKeywords: ['instrument'] } },
+
+    // ── wrong-attribute: rich same-entity profile lures retrieval away
+    //    from the asked-but-unstored attribute (autopsy Case 4 shape) ──
+    { trapClass: 'wrong-attribute', idx: 0, query: 'What car does Amara drive?', guard: { entityTokens: ['amara'], attrKeywords: ['car'] } },
+    { trapClass: 'wrong-attribute', idx: 1, query: 'Where does Bruno live?', guard: { entityTokens: ['bruno'], attrKeywords: ['live', 'lives', 'apartment', 'house'] } },
+    { trapClass: 'wrong-attribute', idx: 2, query: 'Which sport does Chiara follow?', guard: { entityTokens: ['chiara'], attrKeywords: ['sport'] } },
+    { trapClass: 'wrong-attribute', idx: 3, query: 'What does Dario do for work?', guard: { entityTokens: ['dario'], attrKeywords: ['job', 'employer', 'salary'] } },
+    { trapClass: 'wrong-attribute', idx: 4, query: 'Which instrument does Elif play?', guard: { entityTokens: ['elif'], attrKeywords: ['instrument'] } },
+    { trapClass: 'wrong-attribute', idx: 5, query: 'What is Farids favorite food?', guard: { entityTokens: ['farid'], attrKeywords: ['favorite', 'food'] } },
+    { trapClass: 'wrong-attribute', idx: 6, query: 'Which languages does Greta speak?', guard: { entityTokens: ['greta'], attrKeywords: ['languages', 'speaks', 'fluent', 'swedish', 'german'] } },
+    { trapClass: 'wrong-attribute', idx: 7, query: 'What car does Hugo drive?', guard: { entityTokens: ['hugo'], attrKeywords: ['car'] } },
+
+    // ── wrong-relationship: relationship X asked where only Y exists ──
+    { trapClass: 'wrong-relationship', idx: 0, query: 'Who manages Kenji?', guard: { entityTokens: ['kenji'], attrKeywords: ['manage', 'manages', 'manager'] } },
+    { trapClass: 'wrong-relationship', idx: 1, query: 'Who is Priyas business partner?', guard: { entityTokens: ['priya'], attrKeywords: ['partner', 'business'] } },
+    { trapClass: 'wrong-relationship', idx: 2, query: 'Who mentors Fatima?', guard: { entityTokens: ['fatima'], attrKeywords: ['mentor', 'mentors'] } },
+    { trapClass: 'wrong-relationship', idx: 3, query: 'Which company sponsors Dario?', guard: { entityTokens: ['dario'], attrKeywords: ['sponsor', 'sponsors', 'company'] } },
+    { trapClass: 'wrong-relationship', idx: 4, query: 'Who is Amaras roommate?', guard: { entityTokens: ['amara'], attrKeywords: ['roommate'] } },
+    { trapClass: 'wrong-relationship', idx: 5, query: 'At which hospital does Bruno work?', guard: { entityTokens: ['bruno'], attrKeywords: ['hospital'] } },
+    { trapClass: 'wrong-relationship', idx: 6, query: 'Who lives next door to Greta?', guard: { entityTokens: ['greta'], attrKeywords: ['neighbor'] } },
+    { trapClass: 'wrong-relationship', idx: 7, query: 'Which dog belongs to Chiara?', guard: { entityTokens: ['chiara'], attrKeywords: ['dog', 'belongs'] } },
+
+    // ── semantic-near-miss: embedding/lexically close paraphrase traps
+    //    around the preference corpus (autopsy Mechanism A shape) ──
+    { trapClass: 'semantic-near-miss', idx: 0, query: 'Which podcasts does Amara play on her commute?', guard: { entityTokens: ['amara'], attrKeywords: ['podcast', 'podcasts'] } },
+    { trapClass: 'semantic-near-miss', idx: 1, query: 'Which coffee beans does Bruno grind at night?', guard: { entityTokens: ['bruno'], attrKeywords: ['bean', 'beans', 'grind'] } },
+    { trapClass: 'semantic-near-miss', idx: 2, query: 'Which novels does Greta save for vacation trips?', guard: { entityTokens: ['greta'], attrKeywords: ['novel', 'novels', 'vacation'] } },
+    { trapClass: 'semantic-near-miss', idx: 3, query: 'Which route does Kaya jog on weekends?', guard: { entityTokens: ['kaya'], attrKeywords: ['route'] } },
+    { trapClass: 'semantic-near-miss', idx: 4, query: 'Which meditation app does Olive subscribe to?', guard: { entityTokens: ['olive'], attrKeywords: ['app', 'subscribe', 'subscription'] } },
+    { trapClass: 'semantic-near-miss', idx: 5, query: 'Which airline does Nils fly most often?', guard: { entityTokens: ['nils'], attrKeywords: ['airline'] } },
+    { trapClass: 'semantic-near-miss', idx: 6, query: 'Which restaurant makes Majas favorite salad dressing?', guard: { entityTokens: ['maja'], attrKeywords: ['restaurant', 'dressing'] } },
+    { trapClass: 'semantic-near-miss', idx: 7, query: 'Which notebook brand does Leon write in?', guard: { entityTokens: ['leon'], attrKeywords: ['notebook', 'brand'] } },
+
+    // ── temporal-mismatch: point-in-time question predating EVERY version
+    //    of an existing chain (no version was valid at the asked time) ──
+    { trapClass: 'temporal-mismatch', idx: 0, query: 'What database did the atlas project use in early 2025?', guard: { entityTokens: ['atlas'], attrKeywords: ['database'], askedTimeISO: '2025-06-30T23:59:59.999Z' } },
+    { trapClass: 'temporal-mismatch', idx: 1, query: 'What framework did the beacon service use throughout 2024?', guard: { entityTokens: ['beacon'], attrKeywords: ['framework', 'built', 'express', 'fastify', 'hono'], askedTimeISO: '2024-12-31T23:59:59.999Z' } },
+    { trapClass: 'temporal-mismatch', idx: 2, query: 'Which package manager did the cedar repo use back in 2023?', guard: { entityTokens: ['cedar'], attrKeywords: ['npm', 'yarn', 'pnpm', 'dependency', 'management'], askedTimeISO: '2023-12-31T23:59:59.999Z' } },
+    { trapClass: 'temporal-mismatch', idx: 3, query: 'Where was Grove hosted during 2024?', guard: { entityTokens: ['grove'], attrKeywords: ['hosted'], askedTimeISO: '2024-12-31T23:59:59.999Z' } },
+    { trapClass: 'temporal-mismatch', idx: 4, query: 'How did Dune deploy in 2025?', guard: { entityTokens: ['dune'], attrKeywords: ['deploy', 'deploys'], askedTimeISO: '2025-12-31T23:59:59.999Z' } },
+    { trapClass: 'temporal-mismatch', idx: 5, query: 'What auth provider did Ember use in 2024?', guard: { entityTokens: ['ember'], attrKeywords: ['auth0', 'clerk', 'ory', 'authentication'], askedTimeISO: '2024-12-31T23:59:59.999Z' } },
+    { trapClass: 'temporal-mismatch', idx: 6, query: 'What language was the flint parser written in during 2022?', guard: { entityTokens: ['flint'], attrKeywords: ['parser', 'written'], askedTimeISO: '2022-12-31T23:59:59.999Z' } },
+    { trapClass: 'temporal-mismatch', idx: 7, query: 'What object storage did Zephyr use in late 2025?', guard: { entityTokens: ['zephyr'], attrKeywords: ['storage', 'stores', 'files', 's3', 'gcs'], askedTimeISO: '2025-06-30T23:59:59.999Z' } },
+
+    // ── superseded-fact-current-query: current value asked where every
+    //    version stating it is superseded and the successor is silent ──
+    { trapClass: 'superseded-fact-current-query', idx: 0, query: 'What car does Talia drive?', guard: { entityTokens: ['talia'], attrKeywords: ['car'], requireAllSuperseded: true } },
+    { trapClass: 'superseded-fact-current-query', idx: 1, query: 'Which web framework does Mateo use?', guard: { entityTokens: ['mateo'], attrKeywords: ['web', 'framework'], requireAllSuperseded: true } },
+    { trapClass: 'superseded-fact-current-query', idx: 2, query: 'Which yoga style does Renata teach?', guard: { entityTokens: ['renata'], attrKeywords: ['yoga'], requireAllSuperseded: true } },
+    { trapClass: 'superseded-fact-current-query', idx: 3, query: 'Which lager recipe does Oscar brew?', guard: { entityTokens: ['oscar'], attrKeywords: ['lager', 'recipe'], requireAllSuperseded: true } },
+    { trapClass: 'superseded-fact-current-query', idx: 4, query: 'Which acrylic technique does Nadia prefer?', guard: { entityTokens: ['nadia'], attrKeywords: ['acrylic', 'acrylics', 'technique'], requireAllSuperseded: true } },
+    { trapClass: 'superseded-fact-current-query', idx: 5, query: 'How large do Felixs tomatoes grow?', guard: { entityTokens: ['felix'], attrKeywords: ['tomato', 'tomatoes'], requireAllSuperseded: true } },
+    { trapClass: 'superseded-fact-current-query', idx: 6, query: 'Who tuned Ivetas violin?', guard: { entityTokens: ['iveta'], attrKeywords: ['violin', 'tuned'], requireAllSuperseded: true } },
+    { trapClass: 'superseded-fact-current-query', idx: 7, query: 'Where does Bram source his colombian beans?', guard: { entityTokens: ['bram'], attrKeywords: ['colombian'], requireAllSuperseded: true } },
+
+    // ── contradictory-evidence: two designed dual-active rows disagree;
+    //    ideal behavior is qualified/abstain, never confident ──
+    {
+      trapClass: 'contradictory-evidence', idx: 0, query: 'On which day does Yara book client meetings?',
+      guard: { entityTokens: ['yara'], attrKeywords: ['meetings', 'tuesdays', 'thursdays'], exemptBenchIds: conflictPairBenchIds('yara') },
+    },
+    {
+      trapClass: 'contradictory-evidence', idx: 1, query: 'Which city office does Zaid report to?',
+      guard: { entityTokens: ['zaid'], attrKeywords: ['office', 'lisbon', 'porto'], exemptBenchIds: conflictPairBenchIds('zaid') },
+    },
+    {
+      trapClass: 'contradictory-evidence', idx: 2, query: 'Where does Cleo keep the spare keys?',
+      guard: { entityTokens: ['cleo'], attrKeywords: ['keys', 'drawer', 'cabinet'], exemptBenchIds: conflictPairBenchIds('cleo') },
+    },
+    {
+      trapClass: 'contradictory-evidence', idx: 3, query: 'On which floor does Anwar sit?',
+      guard: { entityTokens: ['anwar'], attrKeywords: ['floor', 'fourth', 'sixth'], exemptBenchIds: conflictPairBenchIds('anwar') },
+    },
+    {
+      trapClass: 'contradictory-evidence', idx: 4, query: 'When does Lidia run sprint reviews?',
+      guard: { entityTokens: ['lidia'], attrKeywords: ['reviews', 'monday', 'wednesday'], exemptBenchIds: conflictPairBenchIds('lidia') },
+    },
+    {
+      trapClass: 'contradictory-evidence', idx: 5, query: 'Who manages the Berlin accounts?',
+      guard: { entityTokens: ['berlin', 'accounts'], attrKeywords: ['manages'], exemptBenchIds: conflictPairBenchIds('berlin-accounts') },
+    },
+    {
+      trapClass: 'contradictory-evidence', idx: 6, query: 'Where does Ruslan keep his backups?',
+      guard: { entityTokens: ['ruslan'], attrKeywords: ['backups', 'nas', 'cloud'], exemptBenchIds: conflictPairBenchIds('ruslan') },
+    },
+    {
+      trapClass: 'contradictory-evidence', idx: 7, query: 'What time does Sannas team meet?',
+      guard: { entityTokens: ['sannas'], attrKeywords: ['meets', 'nine'], exemptBenchIds: conflictPairBenchIds('sanna') },
+    },
+
+    // ── absent-entity: zero corpus footprint anywhere, any status ──
+    { trapClass: 'absent-entity', idx: 0, query: 'What is Ximenas blood type?', guard: { entityTokens: ['ximena'], attrKeywords: ['blood', 'type'], requireEntityAbsent: true } },
+    { trapClass: 'absent-entity', idx: 1, query: 'Where does Thandiwe keep her passport?', guard: { entityTokens: ['thandiwe'], attrKeywords: ['passport'], requireEntityAbsent: true } },
+    { trapClass: 'absent-entity', idx: 2, query: 'Which languages does Bogdan speak?', guard: { entityTokens: ['bogdan'], attrKeywords: ['language', 'languages'], requireEntityAbsent: true } },
+    { trapClass: 'absent-entity', idx: 3, query: 'Which gym does Esme train at?', guard: { entityTokens: ['esme'], attrKeywords: ['gym'], requireEntityAbsent: true } },
+    { trapClass: 'absent-entity', idx: 4, query: 'What is Ferrans favorite board game?', guard: { entityTokens: ['ferran'], attrKeywords: ['board', 'game'], requireEntityAbsent: true } },
+    { trapClass: 'absent-entity', idx: 5, query: 'When did Aline move to Canada?', guard: { entityTokens: ['aline'], attrKeywords: ['canada'], requireEntityAbsent: true } },
+    { trapClass: 'absent-entity', idx: 6, query: 'What car does Yusuf drive?', guard: { entityTokens: ['yusuf'], attrKeywords: ['car'], requireEntityAbsent: true } },
+    { trapClass: 'absent-entity', idx: 7, query: 'Which university did Milena attend?', guard: { entityTokens: ['milena'], attrKeywords: ['university', 'attended'], requireEntityAbsent: true } },
+
+    // ── partial-match: shares surface tokens with an unrelated memory
+    //    (the old noise-hijack shape from the autopsy) ──
+    { trapClass: 'partial-match', idx: 0, query: 'What brand of coffee pods does the office stock?', guard: { entityTokens: ['coffee', 'pods'], attrKeywords: ['brand', 'stock'] } },
+    { trapClass: 'partial-match', idx: 1, query: 'How much does parking lot B cost per hour?', guard: { entityTokens: ['parking'], attrKeywords: ['cost', 'hour'] } },
+    { trapClass: 'partial-match', idx: 2, query: 'Who won the newsletter writing contest?', guard: { entityTokens: ['newsletter'], attrKeywords: ['contest'] } },
+    { trapClass: 'partial-match', idx: 3, query: 'Which model is the new standing desk?', guard: { entityTokens: ['standing', 'desks', 'desk'], attrKeywords: ['model'] } },
+    { trapClass: 'partial-match', idx: 4, query: 'When does the fire extinguisher inspection expire?', guard: { entityTokens: ['extinguisher'], attrKeywords: ['expire', 'expires'] } },
+    { trapClass: 'partial-match', idx: 5, query: 'Who teaches the Wednesday yoga class?', guard: { entityTokens: ['yoga', 'wednesday'], attrKeywords: ['teacher', 'taught'] } },
+    { trapClass: 'partial-match', idx: 6, query: 'Which toner model fits the floor 2 printer?', guard: { entityTokens: ['printer', 'toner'], attrKeywords: ['model'] } },
+    { trapClass: 'partial-match', idx: 7, query: 'Which technician performs the Saturday maintenance window?', guard: { entityTokens: ['maintenance', 'saturday'], attrKeywords: ['technician'] } },
+
+    // ── multi-hop-trap: composing halves exist separately but NO memory
+    //    states their join; fusion attempts must fail into abstention ──
+    {
+      trapClass: 'multi-hop-trap', idx: 0, query: 'In which city was Priyas car bought?',
+      guard: { entityTokens: ['priya', 'volvo'], attrKeywords: ['bought', 'purchase', 'purchased'], hopHalfTokens: [['priya', 'volvo'], ['kenji', 'osaka']] },
+    },
+    {
+      trapClass: 'multi-hop-trap', idx: 1, query: 'In which city did Kenji buy his phone?',
+      guard: { entityTokens: ['kenji'], attrKeywords: ['buy', 'bought', 'phone'], hopHalfTokens: [['kenji', 'osaka'], ['ivan', 'riga']] },
+    },
+    {
+      trapClass: 'multi-hop-trap', idx: 2, query: 'Which bank issued Marisols credit card?',
+      guard: { entityTokens: ['marisol'], attrKeywords: ['bank', 'credit', 'issued'], hopHalfTokens: [['marisol', 'statistics']] },
+    },
+    {
+      trapClass: 'multi-hop-trap', idx: 3, query: 'At which hospital does Gustavs brother work?',
+      guard: { entityTokens: ['gustav', 'brother'], attrKeywords: ['hospital'], hopHalfTokens: [['gustav', 'swedish'], ['marys', 'hospital']] },
+    },
+    {
+      trapClass: 'multi-hop-trap', idx: 4, query: 'What breed is Hanas sisters dog?',
+      guard: { entityTokens: ['hana', 'sister', 'dog'], attrKeywords: ['breed'], hopHalfTokens: [['hana', 'peanuts'], ['retriever']] },
+    },
+    {
+      trapClass: 'multi-hop-trap', idx: 5, query: 'Which airline flies Qing to ensemble tours?',
+      guard: { entityTokens: ['qing', 'ensemble'], attrKeywords: ['airline', 'flies', 'tours'], hopHalfTokens: [['qing', 'erhu'], ['farid', 'train']] },
+    },
+    {
+      trapClass: 'multi-hop-trap', idx: 6, query: 'Who catered Junes graduation party?',
+      guard: { entityTokens: ['june'], attrKeywords: ['cater', 'party', 'graduation'], hopHalfTokens: [['june', 'seoul'], ['engineering']] },
+    },
+    {
+      trapClass: 'multi-hop-trap', idx: 7, query: 'Which marina takes Kwames fishing boat?',
+      guard: { entityTokens: ['kwame', 'boat'], attrKeywords: ['marina', 'harbor', 'docks'], hopHalfTokens: [['kwame', 'cocoa'], ['ghana']] },
+    },
+  ];
+
+  return specs.map(({ trapClass, idx, query, guard }) => ({
+    benchId: `au_${trapClass}_${idx}_q`,
+    category: 'unanswerable' as const,
+    trapClass,
+    query,
+    integrityGuard: guard,
+  }));
+}
+
+// â”€â”€â”€ 5. Edge cases â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
  * Edge case fixtures for robustness testing.
@@ -262,13 +634,22 @@ export function buildEdgeCaseMemories(): BenchMemory[] {
     memories.push({ benchId: `noise_${idx}`, type: 'observation', tags: n.tags, content: n.content, createdAt: isoDay(5, idx) });
   });
 
-  // The single relevant memory that must be found despite noise (5d)
+  // The single relevant memory that must be found despite noise (5d).
+  // Wording + timestamp notes: this row states the LATEST atlas state
+  // (PostgreSQL 16 + pgvector, after the failed MySQL experiment), so it is
+  // dated AFTER the fu_0 chain. Deliberate phrasing constraints:
+  //   - "uses ... as its primary database" mirrors the query frame so the
+  //     fused semantic score outranks the atlas chain under the final=1.0
+  //     clamp (ties inside the clamp resolve on pre-boost fused score).
+  //   - NO update-indicator words ("now", "instead of", ...) and < 0.85
+  //     subject similarity to the fu_0 rows, so seeding never supersedes
+  //     the atlas chain through it (that would break fu_0_q_current).
   memories.push({
     benchId: 'noise_relevant',
     type: 'fact',
     tags: ['database', 'atlas'],
-    content: 'The atlas project migrated its primary database to PostgreSQL 16 with pgvector for vector search.',
-    createdAt: isoDay(5, 10),
+    content: 'The atlas project uses PostgreSQL 16 with pgvector as its primary database.',
+    createdAt: isoDay(120, 10),
   });
 
   // Partial match memory (5e)
@@ -307,7 +688,7 @@ export function buildEdgeCaseQueries(): BenchQuery[] {
   ];
 }
 
-// ─── Assembled corpus ───────────────────────────────────────────────────────
+// â”€â”€â”€ Assembled corpus â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export interface BenchCorpus {
   memories: BenchMemory[];
@@ -317,6 +698,12 @@ export interface BenchCorpus {
 export function buildBenchCorpus(): BenchCorpus {
   return {
     memories: [
+      // Adversarial rows seed FIRST: the contradiction resolver only scans
+      // the first 100 active rows (rowid order) when matching supersessions,
+      // so early placement keeps the am_sup_* v1->v2 chains inside the scan
+      // window and isolates main-corpus writes from them. See
+      // buildAdversarialMemories and bench-integrity.test.ts.
+      ...buildAdversarialMemories(),
       ...buildFactUpdateMemories(),
       ...buildFalsehoodMemories(),
       ...buildPreferenceMemories(),
@@ -327,12 +714,13 @@ export function buildBenchCorpus(): BenchCorpus {
       ...buildFalsehoodQueries(),
       ...buildPreferenceQueries(),
       ...buildUnanswerableQueries(),
+      ...buildAdversarialUnanswerables(),
       ...buildEdgeCaseQueries(),
     ],
   };
 }
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /** Deterministic ISO timestamp: dayOffset days after 2026-01-01, plus idx hours for stable intra-day ordering. */
 export function isoDay(dayOffset: number, idx: number): string {
@@ -342,3 +730,4 @@ export function isoDay(dayOffset: number, idx: number): string {
 function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
+

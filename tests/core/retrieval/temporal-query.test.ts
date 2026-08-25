@@ -37,6 +37,32 @@ describe('parseTimeReference - past-anchored', () => {
     }
   });
 
+  test('"throughout <year>" anchors past like in/during (Batch B12-4)', () => {
+    // The bench temporal-mismatch phrasing that used to escape every anchor
+    // pattern and fall through to kind 'none'.
+    for (const q of ['throughout 2024', 'What framework did we use throughout 2024?']) {
+      const r = parseTimeReference(q);
+      expect(r.kind).toBe('past-anchored');
+      expect(r.t!.getUTCFullYear()).toBe(2024);
+      expect(r.t!.getUTCMonth()).toBe(6); // mid-year convention
+      expect(r.t!.getUTCDate()).toBe(2);
+    }
+  });
+
+  test('"during <year>" and "in <year>" keep anchoring (regression pins)', () => {
+    for (const q of ['during 2022', 'in 2023']) {
+      const r = parseTimeReference(q);
+      expect(r.kind).toBe('past-anchored');
+      expect(r.t!.getUTCMonth()).toBe(6);
+    }
+  });
+
+  test('"throughout <month> <year>" uses the mid-month convention', () => {
+    const r = parseTimeReference('used throughout March 2024');
+    expect(r.kind).toBe('past-anchored');
+    expect(r.t!.toISOString()).toBe('2024-03-15T12:00:00.000Z');
+  });
+
   test('preposition + month + year uses mid-month convention', () => {
     const r = parseTimeReference('What did we use before March 2024?');
     expect(r.kind).toBe('past-anchored');

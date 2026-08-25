@@ -17,6 +17,18 @@
  *   null           -> either side could not be parsed; the caller stays
  *                     neutral. NEVER penalize what cannot be parsed.
  *
+ * First-person attribution rule (Batch B12-2b): a memory that OPENS with a
+ * first-person marker ("My ...", "We ...", "I ...", "Our ...") carries its
+ * implicit subject on its sleeve - the AUTHOR. That is positive evidence,
+ * distinct from parse failure: against a successfully-parsed third-party
+ * query entity such a memory is JUDGED cannot-answer (alignment 0), while a
+ * query with no parseable entity (the agent asking about itself - "what is
+ * my favorite movie?") keeps the neutral null, since the author may
+ * legitimately be the subject of a self-query.
+ *
+ * Neutrality contract, restated: null = cannot judge; 0-with-first-person-rule =
+ * judged cannot-answer.
+ *
  * HARD DESIGN CONSTRAINT: alignment feeds confidence/verdict ONLY. It is
  * never used for ranking, ordering, or filtering - rank-based eval gates
  * (R@5 / MRR / H@1) must remain byte-identical when this module lands.
@@ -42,6 +54,13 @@ export interface QueryTopic {
    * verbatim phrase. null when no attribute can be extracted.
    */
   attribute: string | null;
+  /**
+   * Batch B12-2b: true when the MEMORY sentence opens with a first-person
+   * marker ("my ", "our ", "i ", "we "). The implicit subject of such a
+   * sentence is its AUTHOR - attribution evidence, not parse failure. Only
+   * ever set on memory-side topics; query topics leave it undefined.
+   */
+  firstPerson?: boolean;
 }
 
 const NULL_TOPIC: QueryTopic = { entity: null, attribute: null };
@@ -68,6 +87,12 @@ const ATTR_PHRASES: ReadonlyArray<readonly [phrase: string, bucket: string]> = [
   ['favorite color', 'color'],
   ['favourite colour', 'color'],
   ['food allergy', 'allergy'],
+  // Batch B12-2b pace bucket: a measurable running metric, not an event.
+  ['personal best', 'pace'],
+  // Batch B12-4 mentorship bucket: the reporting relation is a PHRASE so a
+  // bare "reports" (e.g. "Zaid reports to the Lisbon office", which is a
+  // location statement) never carries mentorship on its own.
+  ['reports to', 'mentorship'],
 ];
 
 /**
@@ -88,6 +113,12 @@ const ATTR_KEYWORDS: Readonly<Record<string, string>> = {
   reside: 'location',
   location: 'location',
   dwell: 'location',
+  // Batch B12-4: settlement words read as current-location questions
+  // ("In which city does X live?"). 'hometown' stays in the birthplace bucket
+  // below on purpose - asking about a hometown asks about ORIGIN, not
+  // residence - and exact-token lookup keeps 'hometown' from hitting 'town'.
+  city: 'location',
+  town: 'location',
   // birth origin (distinct bucket from location on purpose)
   born: 'birthplace',
   birthplace: 'birthplace',
@@ -142,6 +173,27 @@ const ATTR_KEYWORDS: Readonly<Record<string, string>> = {
   jog: 'sport',
   swim: 'sport',
   athletic: 'sport',
+  // Batch B12-2b: event/training vocabulary so same-entity wrong-attribute
+  // detection fires on sports corpora ("asks a number" != "describes an
+  // event" - see the separate pace bucket below).
+  marathon: 'sport',
+  training: 'sport',
+  racing: 'sport',
+  race: 'sport',
+  workout: 'sport',
+  gym: 'sport',
+  fitness: 'sport',
+  triathlon: 'sport',
+  cycling: 'sport',
+  // Batch B12-2b pace bucket: query-side METRIC nouns. Deliberately NOT in
+  // the sport bucket - "What pace does X run?" asks for a number, while
+  // "X trains for a marathon" describes an event; conflating them would
+  // bless an event description as a metric answer.
+  pace: 'pace',
+  speed: 'pace',
+  tempo: 'pace',
+  split: 'pace',
+  pb: 'pace',
   team: 'team',
   support: 'team',
   fan: 'team',
@@ -176,17 +228,36 @@ const ATTR_KEYWORDS: Readonly<Record<string, string>> = {
   residency: 'employer',
   internship: 'employer',
   fellowship: 'employer',
+  // Batch B12-4 mentorship bucket: who-guides/oversees relations. Kept
+  // DISTINCT from 'employer' - "Who mentors X?" asks for a PERSON relation,
+  // not a workplace, and conflating the two would bless an employer record
+  // as a mentor answer. 'manage'/'manager' included per spec; note the
+  // collision with "package manager" is accepted (tech-stack queries carry
+  // their own verbatim attribute when the phrase precedes other words).
+  mentor: 'mentorship',
+  coach: 'mentorship',
+  supervisor: 'mentorship',
+  manage: 'mentorship',
+  manager: 'mentorship',
   // identity / family
   name: 'name',
   called: 'name',
   wife: 'name',
   husband: 'name',
-  brother: 'name',
-  sister: 'name',
   mother: 'name',
   father: 'name',
-  daughter: 'name',
-  son: 'name',
+  // Batch B12-4 family bucket: kinship-count and kinship-identity terms.
+  // Split from 'name' on purpose: "How many siblings does X have?" asks for
+  // a COUNT of relatives, not any single person's name, while marriage/
+  // parent words above stay in 'name' ("What is X's wife's name?").
+  sibling: 'family',
+  brother: 'family',
+  sister: 'family',
+  family: 'family',
+  children: 'family',
+  kid: 'family',
+  son: 'family',
+  daughter: 'family',
 };
 
 /** Articles that break the "plays <article> <instrument>" disambiguation. */
@@ -208,8 +279,24 @@ const CALENDAR_WORDS = new Set([
 /** Canonical attribute buckets, exported for tests and callers that need the closed set. */
 export const TOPIC_ATTRIBUTE_BUCKETS: readonly string[] = [
   'phone', 'location', 'birthplace', 'employer', 'school', 'color', 'movie', 'book', 'food', 'allergy',
-  'drink', 'sport', 'team', 'car', 'salary', 'instrument', 'language', 'pet', 'collection', 'name', 'person',
+  'drink', 'sport', 'pace', 'team', 'car', 'salary', 'instrument', 'language', 'pet', 'collection', 'name', 'person',
+  // Batch B12-4: kinship relations and guide/overseer relations.
+  'family', 'mentorship',
 ];
+
+/**
+ * Batch B12-4: buckets that at least one lexicon entry can PRODUCE on the
+ * memory side (phrase table + keyword table, inflections included via
+ * lookupKeyword). Used by the presumed-relation-unstated guard to stay
+ * neutral on queries whose bucket no memory content could ever carry -
+ * 'person' is the motivating case ("Who leads X?" asks for a person, but no
+ * token maps TO a person), where an entity-scoped absence scan would
+ * otherwise fire spuriously on every candidate.
+ */
+export const CONTENT_DETECTABLE_BUCKETS: ReadonlySet<string> = new Set([
+  ...Object.values(ATTR_KEYWORDS),
+  ...ATTR_PHRASES.map(([, bucket]) => bucket),
+]);
 
 // ---------------------------------------------------------------------------
 // Tokenization + light stemming
@@ -412,6 +499,41 @@ export function parseQueryTopic(query: string): QueryTopic {
     return { entity: run.text.toLowerCase(), attribute };
   }
 
+  // Family F (Batch B12-4): "[In/At/On] which|what <np> was|were|did|does|do
+  // <Entity> ...?" - preposition-led attribute questions ("In which city does
+  // Tomas live?", "At which hospital does Bruno work?") and past-framed
+  // variants ("What city was Kenji's phone bought in?"). The is/are forms are
+  // left to families D/E on purpose. A birth/grow verb in the tail overrides
+  // the noun phrase to birthplace, mirroring family B's semantics.
+  const familyF =
+    /^(?:(?:in|at|on|to|by|near|around)\s+)?(?:which|what)\s+(?<np>.+?)\s+(?:was|were|did|does|do)\s+(?<rest>.+)$/i.exec(text);
+  if (familyF && familyF.groups) {
+    const restTokens = tokenize(familyF.groups.rest);
+    const run = capitalizedRunAt(restTokens, 0);
+    if (!run) return NULL_TOPIC;
+    const restLower = restTokens.map(t => t.lower).join(' ');
+    let attribute = normalizeQueryAttribute(tokenize(familyF.groups.np).map(t => t.raw));
+    if (/\b(born|grow|grew|grown|growing)\b/.test(restLower)) {
+      attribute = 'birthplace';
+    }
+    return { entity: run.text.toLowerCase(), attribute };
+  }
+
+  // Family H (Batch B12-4): "How many|much <np> does|do|did <Entity> ...?" -
+  // quantity questions ("How many siblings does Priya have?"). Same entity
+  // extraction contract as family F; the noun phrase carries the bucket
+  // (siblings -> family).
+  const familyH = /^how\s+(?:many|much)\s+(?<np>.+?)\s+(?:does|do|did)\s+(?<rest>.+)$/i.exec(text);
+  if (familyH && familyH.groups) {
+    const restTokens = tokenize(familyH.groups.rest);
+    const run = capitalizedRunAt(restTokens, 0);
+    if (!run) return NULL_TOPIC;
+    return {
+      entity: run.text.toLowerCase(),
+      attribute: normalizeQueryAttribute(tokenize(familyH.groups.np).map(t => t.raw)),
+    };
+  }
+
   // Family D: "What is the <attr> of <Entity>?"
   const familyD = /^(?:what|which)\s+(?:is|are)\s+the\s+(?<attr>.+?)\s+of\s+(?<ent>.+)$/i.exec(text);
   if (familyD && familyD.groups) {
@@ -436,6 +558,11 @@ export function parseQueryTopic(query: string): QueryTopic {
   const whoVerb = /^who\s+(?<rest>[^?]+)$/i.exec(text);
   if (whoVerb && whoVerb.groups) {
     const tokens = tokenize(whoVerb.groups.rest);
+    // Batch B12-4: derive the attribute from the leading verb when it maps to
+    // a bucket ("Who mentors Fatima?" -> mentorship), so the presumed-relation
+    // signal can judge entity-matching memories that state a DIFFERENT fact.
+    // Verbs outside the lexicon fall back to the generic person query.
+    const verbBucket = tokens.length > 0 ? lookupKeyword(stripPunct(tokens[0].raw)) : null;
     // Prefer the first capitalized phrase AFTER a leading verb; fall back to
     // the last capitalized phrase anywhere ("Who leads Project Aurora?").
     let afterVerbRun: string | null = null;
@@ -449,8 +576,8 @@ export function parseQueryTopic(query: string): QueryTopic {
       }
     }
     const entity = afterVerbRun ?? lastRun;
-    if (entity) return { entity: entity.toLowerCase(), attribute: 'person' };
-    return { entity: null, attribute: 'person' };
+    if (entity) return { entity: entity.toLowerCase(), attribute: verbBucket ?? 'person' };
+    return { entity: null, attribute: verbBucket ?? 'person' };
   }
 
   // Family E: "What is/are [<Possessive Entity>] <attr>?" including the
@@ -478,6 +605,29 @@ export function parseQueryTopic(query: string): QueryTopic {
       entity: entityParts.join(' ').toLowerCase(),
       attribute: normalizeQueryAttribute(midTokens.slice(run.end).map(t => t.raw)),
     };
+  }
+
+  // Family G (Batch B12-4, last resort): "Which|What <np words> <verb words>
+  // <Capitalized Entity> ...?" with NO auxiliary anywhere ("Which airline
+  // flies Qing to ensemble tours?", "Which marina takes Kwames fishing
+  // boat?"). Auxiliary-bearing questions stay owned by families A/A2/D/E/F:
+  // guessing a partial attribute there would fabricate mismatches against
+  // legitimate answers ("What color is X's car?" -> color-vs-car). The first
+  // capitalized run at token index >= 2 is the entity; every preceding token
+  // normalizes into the attribute (verbatim when unmapped).
+  const familyG = /^(?:which|what)\s+(?<mid>[^?]+)$/i.exec(text);
+  if (familyG && familyG.groups) {
+    const midTokens = tokenize(familyG.groups.mid);
+    const hasAuxiliary = midTokens.some(t => /^(?:is|are|was|were|does|do|did)$/i.test(t.lower));
+    if (!hasAuxiliary) {
+      for (let i = 2; i < midTokens.length; i++) {
+        const run = capitalizedRunAt(midTokens, i);
+        if (!run) continue;
+        const preWords = midTokens.slice(0, i).map(t => stripPunct(t.raw));
+        const attribute = preWords.length > 0 ? normalizeQueryAttribute(preWords) : null;
+        return { entity: run.text.toLowerCase(), attribute };
+      }
+    }
   }
 
   // No reliable template matched - honest nulls, never guesses.
@@ -563,12 +713,24 @@ function extractMemoryAttribute(tokens: Token[]): string | null {
 }
 
 /**
+ * Sentence-initial first-person markers (Batch B12-2b). A memory opening
+ * with one of these speaks as its author, so the implicit subject is the
+ * AUTHOR - a named third-party query subject therefore cannot be answered
+ * by it. Case-insensitive; requires the marker word followed by whitespace
+ * ("I'm"/"It"/"Item" do not trigger).
+ */
+const FIRST_PERSON_OPENERS = /^(?:my|our|i|we)\s/i;
+
+/**
  * Same shape as parseQueryTopic for declarative sentences. Only the FIRST
  * sentence is read (corpus rows routinely append rationale after the fact).
- * Unparseable content returns nulls - neutral by contract.
+ * Unparseable content returns nulls - neutral by contract - except that
+ * first-person OPENERS are recorded as `firstPerson: true`: positive
+ * attribution evidence (subject = author), not a parse result.
  */
 export function parseMemoryTopic(content: string): QueryTopic {
   if (!content || !content.trim()) return NULL_TOPIC;
+  const firstPerson = FIRST_PERSON_OPENERS.test(content.trim());
   // Only the FIRST sentence is read: corpus rows routinely append rationale
   // after the fact, and trailing clauses carry other people's names that
   // would corrupt subject extraction. Abbreviation dots (Dr./St.) are guarded.
@@ -577,12 +739,36 @@ export function parseMemoryTopic(content: string): QueryTopic {
   return {
     entity: extractMemoryEntity(tokens),
     attribute: extractMemoryAttribute(tokens),
+    ...(firstPerson ? { firstPerson: true } : {}),
   };
 }
 
 // ---------------------------------------------------------------------------
 // Alignment
 // ---------------------------------------------------------------------------
+
+/**
+ * Batch B12-4: does ANYWHERE in this content carry the given canonical
+ * attribute bucket? Unlike parseMemoryTopic (first sentence, single winning
+ * keyword), this is a presence scan over the FULL text: every token goes
+ * through the same lexicon + light stemming, and phrase-table bigrams are
+ * checked first. Powers the presumed-relation-unstated coverage signal -
+ * a memory "carries" a relation when its surface text mentions it at all.
+ * Pure + deterministic.
+ */
+export function contentCarriesAttributeBucket(content: string, bucket: string): boolean {
+  if (!content || !bucket) return false;
+  const tokens = tokenize(content);
+  const lower = tokens.map(t => t.lower);
+  for (let i = 0; i < lower.length - 1; i++) {
+    const hit = ATTR_PHRASES.find(([p]) => p === `${lower[i]} ${lower[i + 1]}`);
+    if (hit && hit[1] === bucket) return true;
+  }
+  for (let i = 0; i < lower.length; i++) {
+    if (lookupKeyword(stripPunct(lower[i])) === bucket) return true;
+  }
+  return false;
+}
 
 /** Case-insensitive equality-or-containment entity match (min length 3 guards tiny substrings). */
 export function topicsAboutSameEntity(a: string, b: string): boolean {
@@ -598,12 +784,23 @@ export function topicsAboutSameEntity(a: string, b: string): boolean {
 /**
  * Compare a parsed query topic against a parsed memory topic.
  *
- * Returns null whenever either side lacks entity or attribute - absence of
- * evidence is never treated as mismatch. Only fully-parsed pairs receive a
- * 0 / 0.7 / 1 verdict (see module header for the truth table).
+ * First-person rule (Batch B12-2b): a memory that opens with a first-person
+ * marker has its implicit subject ON RECORD - the author - so against a
+ * successfully-parsed third-party query entity it is JUDGED cannot-answer
+ * (0), not unparseable. A query with no parseable entity (the agent asking
+ * about itself) stays null: self-queries may legitimately be answered by
+ * first-person memories.
+ *
+ * Otherwise returns null whenever either side lacks entity or attribute -
+ * absence of evidence is never treated as mismatch. Only fully-parsed pairs
+ * receive a 0 / 0.7 / 1 verdict (see module header for the truth table).
  */
 export function topicalAlignment(q: QueryTopic, m: QueryTopic): number | null {
   if (!q || !m) return null;
+  // Batch B12-2b first-person attribution rule. Ordered BEFORE the parse
+  // gate on purpose: first-person phrasing is evidence ABOUT attribution,
+  // so it converts what used to be an unjudgeable null into a verdict.
+  if (m.firstPerson === true && q.entity !== null) return 0;
   if (q.entity === null || m.entity === null || q.attribute === null || m.attribute === null) return null;
 
   if (!topicsAboutSameEntity(q.entity, m.entity)) return 0; // wrong subject entirely

@@ -185,6 +185,101 @@ describe('conflict capping', () => {
   });
 });
 
+describe('conflict abstain push (Batch B12-4)', () => {
+  /** Perfect convergent evidence that would score near 1.0 without conflicts. */
+  function perfectEvidence(overrides: Partial<RecallEvidence> = {}): RecallEvidence {
+    return makeEvidence({
+      semantic: 0.99,
+      lexical: { rank: 1, score: 0.99 },
+      graph: 0.05,
+      freshness: 1,
+      memoryConfidence: 'certain',
+      ...overrides,
+    });
+  }
+
+  it('applies CONFLICT_ABSTAIN_PUSH after the cap so conflicted answers land clearly below the floor', () => {
+    const { confidence, tier } = computeRecallConfidence(perfectEvidence({ contradictingCount: 1 }), NO_SET);
+    // Pre-push this exact shape saturates to the cap; the push multiplies it.
+    expect(confidence).toBeCloseTo(C.CONFLICT_CAP * C.CONFLICT_ABSTAIN_PUSH, 5);
+    expect(confidence).toBeCloseTo(0.4675, 4); // 0.55 * 0.85
+    expect(confidence).toBeLessThan(DEFAULT_ABSTAIN_BELOW);
+    expect(tier).toBe('LOW');
+  });
+
+  it('pushes every active-conflict flavor: supersededBy and outdated level', () => {
+    const superseded = computeRecallConfidence(
+      perfectEvidence({ temporal: { stale: false, supersededBy: 'newer-id' } }),
+      NO_SET
+    );
+    const outdated = computeRecallConfidence(
+      perfectEvidence({ memoryConfidence: 'outdated', freshness: null }),
+      NO_SET
+    );
+    for (const r of [superseded, outdated]) {
+      expect(r.confidence).toBeLessThan(DEFAULT_ABSTAIN_BELOW);
+      expect(r.tier).toBe('LOW');
+    }
+  });
+
+  it('never touches conflict-free answers (byte-neutral)', () => {
+    const clean = computeRecallConfidence(perfectEvidence(), NO_SET);
+    expect(clean.confidence).toBeGreaterThan(C.TIER_QUALIFIED_MIN);
+    expect(clean.tier).toBe('HIGH');
+  });
+
+  it('assessRecall reports a pushed conflicted answer as no_reliable_memory', () => {
+    const { confidence } = computeRecallConfidence(perfectEvidence({ contradictingCount: 1 }), NO_SET);
+    expect(assessRecall([{ recallConfidence: confidence }]).verdict).toBe('no_reliable_memory');
+  });
+});
+
+describe('presumed-relation-unstated factor (Batch B12-4)', () => {
+  /** Same-entity half-fact evidence: mid-range semantics, no lexical bonus, no alignment parse. */
+  function halfFactEvidence(): RecallEvidence {
+    return makeEvidence({
+      semantic: 0.85,
+      freshness: 1,
+      memoryConfidence: 'certain',
+      topicalAlignment: null, // memory-side or query-side parse gap -> neutral
+    });
+  }
+  // Neutral margin band (0.05 < gap < 0.25) keeps the relation observable.
+  const HEALTHY = { candidateSemanticScores: [0.85, 0.6, 0.5], multiSignalQuery: false };
+
+  it('discounts by RELATION_UNSTATED_FACTOR when the flag is set', () => {
+    const baseline = computeRecallConfidence(halfFactEvidence(), HEALTHY);
+    const flagged = computeRecallConfidence(halfFactEvidence(), { ...HEALTHY, relationUnstated: true });
+    expect(flagged.confidence).toBeCloseTo(baseline.confidence * C.RELATION_UNSTATED_FACTOR, 5);
+    expect(flagged.tier).toBe('LOW');
+    expect(flagged.confidence).toBeLessThan(DEFAULT_ABSTAIN_BELOW);
+  });
+
+  it('is byte-neutral when the flag is absent or false', () => {
+    const baseline = computeRecallConfidence(halfFactEvidence(), HEALTHY);
+    const off = computeRecallConfidence(halfFactEvidence(), { ...HEALTHY, relationUnstated: false });
+    const absent = computeRecallConfidence(halfFactEvidence(), HEALTHY);
+    expect(off.confidence).toBe(baseline.confidence);
+    expect(absent.confidence).toBe(baseline.confidence);
+  });
+
+  it('stacks multiplicatively AFTER agreement so bonuses cannot resurrect trust', () => {
+    const maxed = makeEvidence({
+      semantic: 0.99,
+      lexical: { rank: 1, score: 1 },
+      graph: 0.05,
+      freshness: 1,
+      memoryConfidence: 'certain',
+    });
+    const ctx = { candidateSemanticScores: [0.95, 0.8, 0.5], multiSignalQuery: false };
+    const baseline = computeRecallConfidence(maxed, ctx);
+    const flagged = computeRecallConfidence(maxed, { ...ctx, relationUnstated: true });
+    expect(baseline.confidence).toBeGreaterThan(C.TIER_HIGH_MIN);
+    expect(flagged.confidence).toBeCloseTo(baseline.confidence * C.RELATION_UNSTATED_FACTOR, 5);
+    expect(flagged.confidence).toBeLessThan(C.TIER_QUALIFIED_MIN);
+  });
+});
+
 describe('margin, coverage, retention', () => {
   const strongEv = makeEvidence({ semantic: 0.8, freshness: 1 });
 
@@ -271,11 +366,11 @@ describe('abstention verdicts (assessRecall)', () => {
     expect(a.bestConfidence).toBeCloseTo(0.34);
   });
 
-  it('default floor is 0.35', () => {
-    expect(DEFAULT_ABSTAIN_BELOW).toBe(0.35);
-    expect(getAbstainFloor({} as NodeJS.ProcessEnv)).toBe(0.35);
+  it('default floor is 0.60 (risk/coverage curve optimum)', () => {
+    expect(DEFAULT_ABSTAIN_BELOW).toBe(0.60);
+    expect(getAbstainFloor({} as NodeJS.ProcessEnv)).toBe(0.60);
     expect(getAbstainFloor({ SQUISH_ABSTAIN_BELOW: '0.50' } as unknown as NodeJS.ProcessEnv)).toBe(0.50);
-    expect(getAbstainFloor({ SQUISH_ABSTAIN_BELOW: 'garbage' } as unknown as NodeJS.ProcessEnv)).toBe(0.35);
+    expect(getAbstainFloor({ SQUISH_ABSTAIN_BELOW: 'garbage' } as unknown as NodeJS.ProcessEnv)).toBe(0.60);
   });
 
   it('HIGH best -> confident; QUALIFIED band -> qualified', () => {

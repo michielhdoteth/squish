@@ -93,6 +93,16 @@ export interface RecallConfidenceContext {
    * entity but nothing addresses the asked attribute.
    */
   candidateAlignments?: Array<number | null>;
+  /**
+   * Batch B12-4 presumed-relation-unstated flag for THE CANDIDATE BEING
+   * SCORED: true when the query attribute parsed to a known bucket AND this
+   * candidate's entity matches the query entity AND no memory among the
+   * top-K candidates attributed to that entity carries that bucket anywhere
+   * in its content. Computed per-candidate in search-evidence (entity-scoped
+   * generalization of the topic-absent scan); null/absent = signal
+   * unavailable -> neutral. Never fires on neutral/null parses by contract.
+   */
+  relationUnstated?: boolean;
 }
 
 export interface RecallConfidenceResult {
@@ -205,6 +215,18 @@ export const RECALL_CONFIDENCE_CONSTANTS = {
    * memory known to compete with another version of the fact.
    */
   CONFLICT_CAP: 0.55,
+  /**
+   * Batch B12-4 conflict-abstain push: applied multiplicatively AFTER the
+   * CONFLICT_CAP whenever an active conflict is observed. Rationale: the cap
+   * alone leaves conflicted answers sitting just under the abstain floor
+   * (0.55 vs 0.60), one rounding of context away from being presented as a
+   * hedge. A memory known to compete with another version of the fact is not
+   * merely capped-trustworthy, it is actively suspect: two versions cannot
+   * both be right, so trust should land clearly inside the LOW band. 0.85
+   * puts the worst case at 0.4675 (~0.47) - decisively below the floor while
+   * leaving headroom above the disagreement-discount regime.
+   */
+  CONFLICT_ABSTAIN_PUSH: 0.85,
 
   /**
    * Batch B1 topical alignment factors, applied AFTER the agreement step so
@@ -226,6 +248,19 @@ export const RECALL_CONFIDENCE_CONSTANTS = {
    * scores; this one reads parsed topic structure.
    */
   COVERAGE_TOPIC_ABSENT_FACTOR: 0.85,
+  /**
+   * Batch B12-4 presumed-relation-unstated discount: the query asks for a
+   * KNOWN attribute bucket about a known entity, an entity-matching
+   * candidate ranks top, yet NO memory attributed to that entity anywhere in
+   * the candidate set carries that bucket in its content. The relation the
+   * question presumes is unstated by the entire entity-scoped corpus, so
+   * surface similarity on the ENTITY alone is exactly the multi-hop
+   * half-fact hijack shape ("Kenji was born in Osaka" answering "Where did
+   * Kenji buy his phone?"). Coverage-style multiplicative factor, applied to
+   * entity-matching candidates only; computed in search-evidence (which owns
+   * the alignment plumbing) and consumed here via ctx.relationUnstated.
+   */
+  RELATION_UNSTATED_FACTOR: 0.45,
 
   /** Tier boundaries. HIGH >= 0.90, QUALIFIED 0.60..0.90, LOW < 0.60. */
   TIER_HIGH_MIN: 0.90,
@@ -235,10 +270,19 @@ export const RECALL_CONFIDENCE_CONSTANTS = {
 /**
  * Abstention floor: if the best result's confidence is below this, squish
  * reports verdict 'no_reliable_memory'. Configurable via SQUISH_ABSTAIN_BELOW.
- * Default 0.35 sits well under QUALIFIED so only genuinely weak matches
- * trigger abstention.
+ *
+ * Default 0.60 comes from the empirical risk/coverage curve (sweep script:
+ * scripts/abstention-curve.ts, committed artifact:
+ * tests/benchmarks/reports/abstention-curve.json). On that curve the
+ * confident-wrong rate is invariant across every threshold because every
+ * confident-wrong answer sits above 0.90 confidence - so raising the floor
+ * buys unanswerable honesty for free: hedged guesses on unknowable questions
+ * become honest abstentions while coverage stays at 88.9%. Semantically,
+ * 0.60 means: answer only when the best result clears the QUALIFIED tier;
+ * anything below it is reported as no reliable memory instead of a guess.
+ * The SQUISH_ABSTAIN_BELOW env override still wins when set.
  */
-export const DEFAULT_ABSTAIN_BELOW = 0.35;
+export const DEFAULT_ABSTAIN_BELOW = 0.60;
 
 export function getAbstainFloor(env: NodeJS.ProcessEnv = process.env): number {
   const raw = env.SQUISH_ABSTAIN_BELOW;
@@ -405,6 +449,14 @@ export function computeRecallConfidence(
     factor *= c.TOPICAL_PARTIAL_FACTOR;
   }
 
+  // 2.6 Presumed-relation-unstated (Batch B12-4): entity-scoped coverage
+  // gap. Applied like the topic-absent factor - after agreement, so
+  // convergent-leg bonuses on a same-entity half-fact cannot resurrect
+  // trust in an answer whose presumed relation is stated nowhere.
+  if (ctx?.relationUnstated === true) {
+    factor *= c.RELATION_UNSTATED_FACTOR;
+  }
+
   // 3. Disagreement: high semantics, no corroboration, on a multi-signal query.
   if (isDisagreement(evidence, ctx ?? null)) {
     factor *= 1 - c.DISAGREEMENT_PENALTY_FACTOR;
@@ -425,9 +477,12 @@ export function computeRecallConfidence(
 
   conf *= factor;
 
-  // 7. Conflict hard-cap: contradicting/superseding evidence limits trust.
+  // 7. Conflict hard-cap: contradicting/superseding evidence limits trust,
+  // then the Batch B12-4 abstain push lands conflicted answers clearly
+  // inside the LOW band instead of just under the floor (0.55 * 0.85 ~ 0.47).
   if (hasActiveConflict(evidence)) {
     conf = Math.min(conf, c.CONFLICT_CAP);
+    conf *= c.CONFLICT_ABSTAIN_PUSH;
   }
 
   const confidence = clamp01(conf);

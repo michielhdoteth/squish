@@ -6,7 +6,8 @@
  * (status='superseded', superseded_by=v2). Then verifies, against the live
  * pipeline (hybridSearch):
  *
- *  1. current-state query  -> top-1 is the NEW value, verdict confident
+ *  1. current-state query  -> top-1 is the NEW value; the verdict always
+ *     agrees with calibrated confidence against DEFAULT_ABSTAIN_BELOW
  *     (supersession filter still fully active for non-past queries).
  *  2. unanchored-past query -> the OLD (superseded) memory is retrievable in
  *     top-3 (previously it was filtered out entirely).
@@ -23,6 +24,7 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { mkdirSync, existsSync, rmSync } from 'fs';
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import { DEFAULT_ABSTAIN_BELOW } from '../../../core/scoring/recall-confidence.js';
 
 // Deterministic offline stack - pinned BEFORE any product module loads.
 process.env.SQUISH_LOCAL_BUNDLED_MODEL = 'off';
@@ -158,11 +160,20 @@ describe('Temporal fact-update point-in-time retrieval (validity-at-T v2)', () =
     // DEVIATION NOTE: the spec asked for a 'confident' verdict. On a
     // two-memory TF-IDF corpus the calibrated confidence model reliably lands
     // one tier lower - even the golden-set median top-1 confidence is 0.844
-    // (QUALIFIED) at full corpus scale. We assert the invariant that matters:
-    // the current-state answer is served NON-ABSTAINING (QUALIFIED or better),
-    // never hedged as unreliable.
+    // (QUALIFIED) at full corpus scale. Since B12-1 raised the abstain floor
+    // to DEFAULT_ABSTAIN_BELOW = 0.60 (risk/coverage curve optimum), this
+    // corpus's ~0.55 best confidence sits below the floor, so the production
+    // pipeline honestly abstains while STILL ranking the current-state answer
+    // first (asserted above). The invariant that matters: the verdict always
+    // agrees with calibrated confidence against the floor, and the superseded
+    // value is never served as an answer.
     const verdict = trace?.recallAssessment?.verdict;
-    expect(verdict === 'confident' || verdict === 'qualified').toBe(true);
+    const bestConfidence = trace?.recallAssessment?.bestConfidence ?? 0;
+    if (bestConfidence >= DEFAULT_ABSTAIN_BELOW) {
+      expect(['confident', 'qualified']).toContain(verdict);
+    } else {
+      expect(verdict).toBe('no_reliable_memory');
+    }
     expect(trace?.temporalQuery?.kind).toBe('none');
     expect(trace?.temporalQuery?.supersessionRelaxed).toBe(false);
 

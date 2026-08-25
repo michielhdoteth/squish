@@ -30,6 +30,8 @@ import {
   topicalAlignment,
   topicsAboutSameEntity,
   TOPIC_ATTRIBUTE_BUCKETS,
+  CONTENT_DETECTABLE_BUCKETS,
+  contentCarriesAttributeBucket,
   type QueryTopic,
 } from '../../../core/scoring/topical-alignment.js';
 import {
@@ -39,6 +41,7 @@ import {
   assessRecall,
 } from '../../../core/scoring/recall-confidence.js';
 import { buildEvidence } from '../../../core/memory/search-evidence.js';
+import { findRelationUnstated } from '../../../core/memory/search-evidence.js';
 import type { RecallEvidence } from '../../../core/scoring/recall-confidence.js';
 
 function makeEvidence(overrides: Partial<RecallEvidence> = {}): RecallEvidence {
@@ -61,6 +64,277 @@ function makeEvidence(overrides: Partial<RecallEvidence> = {}): RecallEvidence {
 const HEALTHY_CTX = { candidateSemanticScores: [0.95, 0.6, 0.5], multiSignalQuery: false };
 /** Decisive-but-unclamped context: neutral margin factor, >= MIN_COVERAGE_SET_SIZE candidates. */
 const MARGIN_NEUTRAL_CTX = { candidateSemanticScores: [0.95, 0.8, 0.5], multiSignalQuery: false };
+
+// ---------------------------------------------------------------------------
+// Batch B12-4 lexicon buckets: city/location, family, mentorship
+// ---------------------------------------------------------------------------
+
+describe('city maps to location while hometown stays birthplace (B12-4 M1)', () => {
+  it('parses settlement words in residence questions into location', () => {
+    expect(TOPIC_ATTRIBUTE_BUCKETS).toContain('location');
+    expect(parseQueryTopic('In which city does Tomas live?')).toEqual({ entity: 'tomas', attribute: 'location' });
+    expect(parseQueryTopic('What city does Ivan live in?').attribute).toBe('location');
+    expect(parseQueryTopic('Which town does June live near?').attribute).toBe('location');
+  });
+
+  it('NEGATIVE: hometown is an origin word and must NOT join the location bucket', () => {
+    expect(parseQueryTopic('What is Priyas hometown?').attribute).toBe('birthplace');
+    expect(parseQueryTopic("What is Priya's hometown?").attribute).toBe('birthplace');
+    expect(parseQueryTopic('Where was Kenji born?').attribute).toBe('birthplace');
+  });
+
+  it('NEGATIVE: birth-context phrasing overrides city to birthplace inside family F', () => {
+    // "What city was X born in?" asks ORIGIN, not residence.
+    expect(parseQueryTopic('What city was Kenji born in?')).toEqual({ entity: 'kenji', attribute: 'birthplace' });
+    const q = parseQueryTopic('In which city did Kenji grow up?');
+    expect(q.attribute).toBe('birthplace');
+    // And the two buckets stay distinct on the truth table.
+    expect(topicalAlignment({ entity: 'kenji', attribute: 'location' }, { entity: 'kenji', attribute: 'birthplace' })).toBe(0);
+  });
+});
+
+describe('family bucket for kinship relations (B12-4 M1)', () => {
+  it('parses kinship-count terms into family', () => {
+    expect(TOPIC_ATTRIBUTE_BUCKETS).toContain('family');
+    expect(parseQueryTopic('How many siblings does Priya have?')).toEqual({ entity: 'priya', attribute: 'family' });
+    expect(parseQueryTopic('Does Dmitri have siblings?').attribute).toBeNull(); // template gap stays null
+    expect(parseQueryTopic('How many kids does Tomas have?').attribute).toBe('family');
+    expect(parseQueryTopic('What family does Gustav have?').attribute).toBe('family');
+  });
+
+  it('kinship-identity words moved from name to family', () => {
+    expect(parseQueryTopic('Who is Hanas brother?').attribute).toBe('person'); // who-template
+    // Kinship words win attribute resolution over a trailing 'name' token.
+    expect(parseQueryTopic('What is Hanas sisters name?').attribute).toBe('family');
+    const q = parseQueryTopic('How many brothers does Kenji have?');
+    expect(q.attribute).toBe('family');
+  });
+
+  it('NEGATIVE: marriage/parent words stay in the name bucket, not family', () => {
+    expect(parseQueryTopic('What is Kwames wifes name?').attribute).toBe('name');
+    expect(parseQueryTopic('What is Elenas mothers name?').attribute).toBe('name');
+    expect(parseQueryTopic('What is Ivans husbands job?').attribute).not.toBe('family');
+  });
+
+  it('a car fact cannot answer a siblings question about the same person', () => {
+    const q = parseQueryTopic('How many siblings does Priya have?');
+    const m = parseMemoryTopic('Priya drives a 2019 Volvo V60.');
+    expect(topicalAlignment(q, m)).toBe(0);
+  });
+});
+
+describe('mentorship bucket distinct from employer (B12-4 M1)', () => {
+  it('parses guide/overseer vocabulary into mentorship', () => {
+    expect(TOPIC_ATTRIBUTE_BUCKETS).toContain('mentorship');
+    expect(parseQueryTopic('Who mentors Fatima?')).toEqual({ entity: 'fatima', attribute: 'mentorship' });
+    expect(parseQueryTopic('Who manages Kenji?').attribute).toBe('mentorship');
+    expect(parseQueryTopic('Who coaches Amara?').attribute).toBe('mentorship');
+    // Memory-side vocabulary resolves through the same lexicon.
+    expect(parseMemoryTopic('Amara hired a coach last spring.').attribute).toBe('mentorship');
+    expect(parseMemoryTopic('Her supervisor approved the trip.').attribute).toBe('mentorship');
+  });
+
+  it('"reports to" carries mentorship as a phrase only', () => {
+    expect(contentCarriesAttributeBucket('Zaid reports to the Porto office.', 'mentorship')).toBe(true);
+  });
+
+  it('NEGATIVE: who-is identity forms stay person, not the leading kinship/role noun', () => {
+    expect(parseQueryTopic('Who is Fatimas supervisor?').attribute).toBe('person');
+    expect(parseQueryTopic('Who is Priyas business partner?').attribute).toBe('person');
+  });
+
+  it('NEGATIVE: bare report/reports does NOT carry mentorship', () => {
+    expect(contentCarriesAttributeBucket('Zaid reports quarterly numbers.', 'mentorship')).toBe(false);
+    expect(contentCarriesAttributeBucket('The annual report was published.', 'mentorship')).toBe(false);
+  });
+
+  it('NEGATIVE: lookalike words must not join the bucket', () => {
+    // "maintenance" shares letters with manage but must not resolve to it.
+    expect(contentCarriesAttributeBucket('Network maintenance runs Saturday.', 'mentorship')).toBe(false);
+    // manages reads mentorship, never employer.
+    expect(contentCarriesAttributeBucket('She manages the Berlin accounts.', 'employer')).toBe(false);
+  });
+
+  it('an employer record is judged cannot-answer for a mentorship query', () => {
+    const q = parseQueryTopic('Who mentors Fatima?');
+    const m = parseMemoryTopic('Fatima is a pediatric nurse at St. Marys hospital.');
+    // Memory-side attribute parses to null here - alignment stays neutral -
+    // which is exactly why the presumed-relation-unstated scan exists.
+    expect(m.attribute).toBeNull();
+    expect(topicalAlignment(q, m)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Batch B12-4 query templates: families F, G, H + whoVerb verb attributes
+// ---------------------------------------------------------------------------
+
+describe('family F: preposition-led and past-framed attribute questions (B12-4)', () => {
+  it('parses "[In] which <np> does <Entity> ..." questions', () => {
+    expect(parseQueryTopic('At which hospital does Bruno work?')).toEqual({ entity: 'bruno', attribute: 'hospital' });
+    expect(parseQueryTopic('On which day does Yara book client meetings?')).toEqual({ entity: 'yara', attribute: 'day' });
+  });
+
+  it('parses past-framed "What <np> was <Entity> ... ?" multi-hop questions', () => {
+    expect(parseQueryTopic('In which city was Priyas car bought?')).toEqual({ entity: 'priyas', attribute: 'location' });
+    expect(parseQueryTopic('In which city did Kenji buy his phone?')).toEqual({ entity: 'kenji', attribute: 'location' });
+    expect(parseQueryTopic('What city was Kenjis phone bought in?').attribute).toBe('location');
+  });
+
+  it('returns honest nulls when no capitalized run follows the auxiliary', () => {
+    expect(parseQueryTopic('What framework did the beacon service use throughout 2024?')).toEqual({
+      entity: null,
+      attribute: null,
+    });
+    expect(parseQueryTopic('What database did the atlas project use in early 2025?')).toEqual({
+      entity: null,
+      attribute: null,
+    });
+  });
+
+  it('does not steal is/are forms from families D/E', () => {
+    // E owns what-is forms with a leading entity.
+    expect(parseQueryTopic('What is Fatimas favorite color?')).toEqual({ entity: 'fatima', attribute: 'color' });
+    // F rejects aux-bearing questions whose tail has no capitalized run
+    // (honest null, not a guess).
+    expect(parseQueryTopic('What color was the old logo?')).toEqual({ entity: null, attribute: null });
+  });
+});
+
+describe('family H: how many/much quantity questions (B12-4)', () => {
+  it('parses quantity questions with a proper-noun subject', () => {
+    expect(parseQueryTopic('How many siblings does Priya have?')).toEqual({ entity: 'priya', attribute: 'family' });
+    expect(parseQueryTopic('How much salary does Ivan earn?')).toEqual({ entity: 'ivan', attribute: 'salary' });
+  });
+
+  it('stays null without a recognizable entity or outside many/much', () => {
+    expect(parseQueryTopic('How many employees does the company have?')).toEqual({ entity: null, attribute: null });
+    expect(parseQueryTopic('How has the GPU cluster size changed this year?')).toEqual({ entity: null, attribute: null });
+  });
+});
+
+describe('family G: last-resort no-auxiliary what/which questions (B12-4)', () => {
+  it('extracts the post-verb capitalized entity and verbatim attribute', () => {
+    expect(parseQueryTopic('Which airline flies Qing to ensemble tours?')).toEqual({
+      entity: 'qing',
+      attribute: 'airline flies',
+    });
+    expect(parseQueryTopic('Which marina takes Kwames fishing boat?').entity).toBe('kwames');
+  });
+
+  it('normalizes mapped attribute words before the entity', () => {
+    expect(parseQueryTopic('Which team beats Kyoto United?').attribute).toBe('team');
+  });
+
+  it('refuses auxiliary-bearing questions entirely (families D/E own those shapes)', () => {
+    // Guessing 'color' here would fabricate a mismatch against a legit
+    // car-color answer; the honest result is null.
+    expect(parseQueryTopic('What color is Kenjis car?')).toEqual({ entity: null, attribute: null });
+    expect(parseQueryTopic('Which brand of coffee should we stock?')).toEqual({ entity: null, attribute: null });
+    expect(parseQueryTopic('What happens to the staging database overnight?')).toEqual({ entity: null, attribute: null });
+  });
+
+  it('an instrument memory is judged mismatch for an airline question about Qing', () => {
+    const q = parseQueryTopic('Which airline flies Qing to ensemble tours?');
+    const m = parseMemoryTopic('Qing plays the erhu in a folk ensemble.');
+    expect(topicalAlignment(q, m)).toBe(0);
+  });
+});
+
+describe('whoVerb derives its attribute from the leading verb (B12-4)', () => {
+  it('lexicon verbs become buckets; unknown verbs stay person queries', () => {
+    expect(parseQueryTopic('Who mentors Fatima?')).toEqual({ entity: 'fatima', attribute: 'mentorship' });
+    expect(parseQueryTopic('Who leads Project Aurora?')).toEqual({ entity: 'project aurora', attribute: 'person' });
+    expect(parseQueryTopic('Who maintains the machines our training runs depend on?')).toEqual({
+      entity: null,
+      attribute: 'person',
+    });
+  });
+
+  it('lives reads as location in who-questions', () => {
+    expect(parseQueryTopic('Who lives next door to Greta?')).toEqual({ entity: 'greta', attribute: 'location' });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Batch B12-4 content presence scan + presumed-relation-unstated signal
+// ---------------------------------------------------------------------------
+
+describe('contentCarriesAttributeBucket (B12-4)', () => {
+  it('scans the FULL text, not just the first sentence keyword', () => {
+    expect(contentCarriesAttributeBucket('Kenji was born in Osaka.', 'birthplace')).toBe(true);
+    expect(contentCarriesAttributeBucket('Kenji was born in Osaka and lived there until twelve.', 'location')).toBe(true);
+    expect(contentCarriesAttributeBucket('Priya drives a Volvo. She loves road trips.', 'car')).toBe(true);
+  });
+
+  it('is false when the bucket appears nowhere', () => {
+    expect(contentCarriesAttributeBucket('Kenji was born in Osaka.', 'phone')).toBe(false);
+    expect(contentCarriesAttributeBucket('', 'phone')).toBe(false);
+  });
+
+  it('respects phrase-level buckets like grow up and reports to', () => {
+    expect(contentCarriesAttributeBucket('Growing up in Kyoto shaped her years.', 'birthplace')).toBe(true);
+    expect(contentCarriesAttributeBucket('Ruslan reports to the Lisbon office.', 'mentorship')).toBe(true);
+  });
+});
+
+describe('findRelationUnstated (B12-4 M6)', () => {
+  const KENJI_LOCATION = { entity: 'kenji', attribute: 'location' } as const;
+  const FATIMA_MENTORSHIP = parseQueryTopic('Who mentors Fatima?');
+
+  it('fires on entity-matching candidates when NO same-entity candidate carries the bucket', () => {
+    // Fatima's corpus rows state employment/first-person facts; nothing
+    // anywhere in the top-K carries a mentorship token.
+    const flags = findRelationUnstated(
+      ['Fatima is a pediatric nurse at St. Marys hospital.', 'My surgical residency at Johns Hopkins keeps me busy.'],
+      FATIMA_MENTORSHIP
+    );
+    expect(flags[0]).toBe(true); // entity fatima matches, no carrier anywhere
+    expect(flags[1]).toBe(false); // first-person row parses to another subject
+  });
+
+  it('does not fire when a same-entity candidate DOES carry the bucket anywhere', () => {
+    // 'uses' maps to the phone bucket, so the corpus states a phone relation.
+    const flags = findRelationUnstated(
+      ['Kenji uses an iPhone.', 'Someone once noted Kenji was born in Osaka.'],
+      { entity: 'kenji', attribute: 'phone' }
+    );
+    expect(flags.every(f => f === false)).toBe(true);
+  });
+
+  it('suppresses on self-carriage: a location-stating memory blocks a location query flag', () => {
+    const flags = findRelationUnstated(
+      ['Kenji was born in Osaka and lived there until age twelve.'],
+      KENJI_LOCATION
+    );
+    // 'lived' -> location: the relation IS stated, no presumed-unstated gap.
+    expect(flags[0]).toBe(false);
+  });
+
+  it('never fires on unparsed queries or non-bucket attributes', () => {
+    expect(findRelationUnstated(['anything'], null).every(f => f === false)).toBe(true);
+    expect(findRelationUnstated(['anything'], { entity: 'x', attribute: null }).every(f => f === false)).toBe(true);
+    expect(
+      findRelationUnstated(['Kenji was born in Osaka.'], { entity: 'kenji', attribute: 'airline flies' }).every(
+        f => f === false
+      )
+    ).toBe(true);
+  });
+
+  it('never fires on person-style buckets no content can carry', () => {
+    const flags = findRelationUnstated(['Project Aurora ships weekly releases.'], {
+      entity: 'project aurora',
+      attribute: 'person',
+    });
+    expect(CONTENT_DETECTABLE_BUCKETS.has('person')).toBe(false);
+    expect(flags[0]).toBe(false);
+  });
+
+  it('handles null/empty contents honestly', () => {
+    const flags = findRelationUnstated([null, '', 'Fatima is a pediatric nurse at St. Marys hospital.'], FATIMA_MENTORSHIP);
+    expect(flags).toEqual([false, false, true]);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Query parsing
@@ -166,6 +440,7 @@ describe('parseMemoryTopic', () => {
     expect(parseMemoryTopic('My surgical residency at Johns Hopkins keeps me busy.')).toEqual({
       entity: 'johns hopkins',
       attribute: 'employer',
+      firstPerson: true,
     });
   });
 
@@ -179,6 +454,110 @@ describe('parseMemoryTopic', () => {
   it('returns nulls for empty or entity-free content', () => {
     expect(parseMemoryTopic('')).toEqual({ entity: null, attribute: null });
     expect(parseMemoryTopic('It was raining all afternoon.')).toEqual({ entity: null, attribute: null });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// First-person attribution (Batch B12-2b Fix A)
+// ---------------------------------------------------------------------------
+
+describe('parseMemoryTopic first-person attribution', () => {
+  it('marks my/our/i/we sentence openers as firstPerson, case-insensitive', () => {
+    expect(parseMemoryTopic('My favorite snack is a peanut butter sandwich.').firstPerson).toBe(true);
+    expect(parseMemoryTopic('WE cache computed embeddings inside Redis.').firstPerson).toBe(true);
+    expect(parseMemoryTopic("i'm not sure about that").firstPerson).toBeUndefined(); // marker needs trailing space
+    expect(parseMemoryTopic('Our team ships weekly.').firstPerson).toBe(true);
+    expect(parseMemoryTopic('we agreed on the design').firstPerson).toBe(true);
+    expect(parseMemoryTopic('Kenji was born in Tokyo.').firstPerson).toBeUndefined();
+    expect(parseMemoryTopic('The atlas project uses PostgreSQL.').firstPerson).toBeUndefined();
+  });
+
+  it('does not trigger on words merely starting with the markers', () => {
+    expect(parseMemoryTopic('Item two was shipped late.').firstPerson).toBeUndefined();
+    expect(parseMemoryTopic('Mysql migration finished.').firstPerson).toBeUndefined();
+  });
+
+  it('keeps the field off non-first-person topics so structural comparisons stay stable', () => {
+    const t = parseMemoryTopic('Kenji uses an iPhone.');
+    expect(t).toEqual({ entity: 'kenji', attribute: 'phone' });
+  });
+});
+
+describe('topicalAlignment first-person rule', () => {
+  // The bench's ua_6/ua_8/ua_13 winner: a first-person falsehood with no
+  // parseable subject of its own.
+  const snack = parseMemoryTopic('My favorite snack is a peanut butter sandwich.');
+
+  it('judges a first-person memory cannot-answer for a parsed third-party query entity', () => {
+    // Without the rule this pair was alignment=null (memory entity unparseable)
+    // and the planted falsehood sailed through at HIGH confidence.
+    expect(topicalAlignment({ entity: 'fatima', attribute: 'color' }, snack)).toBe(0);
+    expect(topicalAlignment({ entity: 'hana', attribute: 'movie' }, snack)).toBe(0);
+    expect(topicalAlignment({ entity: 'mireia', attribute: 'book' }, snack)).toBe(0);
+  });
+
+  it('stays neutral when the query has no entity (agent self-queries)', () => {
+    expect(topicalAlignment({ entity: null, attribute: 'movie' }, snack)).toBeNull();
+    expect(topicalAlignment({ entity: null, attribute: null }, snack)).toBeNull();
+  });
+
+  it('applies even when the memory otherwise parsed fully', () => {
+    const residency = parseMemoryTopic('My surgical residency at Johns Hopkins keeps me busy.');
+    expect(residency.entity).toBe('johns hopkins'); // parses, yet...
+    expect(topicalAlignment({ entity: 'fatima', attribute: 'employer' }, residency)).toBe(0);
+  });
+
+  it('leaves third-person memories governed by the plain truth table', () => {
+    const born = parseMemoryTopic('Kenji was born in Tokyo.');
+    expect(topicalAlignment({ entity: 'fatima', attribute: 'color' }, born)).toBe(0); // entity mismatch
+    expect(topicalAlignment({ entity: 'kenji', attribute: 'birthplace' }, born)).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Pace vs sport buckets (Batch B12-2b Fix B)
+// ---------------------------------------------------------------------------
+
+describe('pace metric bucket is distinct from sport event bucket', () => {
+  it('parses query-side pace nouns into the pace bucket', () => {
+    expect(TOPIC_ATTRIBUTE_BUCKETS).toContain('pace');
+    expect(parseQueryTopic('What pace does Pablo run?')).toEqual({ entity: 'pablo', attribute: 'pace' });
+    expect(parseQueryTopic('What speed does Kaya jog at?').attribute).toBe('pace');
+    expect(parseQueryTopic('What is Priyas split?').attribute).toBe('pace');
+    expect(parseQueryTopic('What is Aikos personal best?').attribute).toBe('pace');
+    expect(parseQueryTopic('What is Sven pb for the mile?').attribute).toBe('pace');
+  });
+
+  it('parses memory-side event/training vocabulary into the sport bucket', () => {
+    expect(parseMemoryTopic('Pablo is training for his first marathon in Valencia.')).toEqual({
+      entity: 'pablo',
+      attribute: 'sport',
+    });
+    expect(parseMemoryTopic('Dmitri loves cycling on weekends.').attribute).toBe('sport');
+    expect(parseMemoryTopic('Kaya hits the gym before dawn.').attribute).toBe('sport');
+    expect(parseMemoryTopic('Sven does his workout at noon.').attribute).toBe('sport');
+  });
+
+  it('CRITICAL: a pace query against an event-description memory is judged mismatch (0), not neutral', () => {
+    const q = parseQueryTopic('What pace does Pablo run?');
+    const m = parseMemoryTopic('Pablo is training for his first marathon in Valencia.');
+    expect(topicalAlignment(q, m)).toBe(0);
+    // Direct truth-table form too.
+    expect(topicalAlignment({ entity: 'pablo', attribute: 'pace' }, { entity: 'pablo', attribute: 'sport' })).toBe(0);
+  });
+
+  it('keeps the legit same-bucket sport case at full credit (1)', () => {
+    const q = parseQueryTopic('What sport does Aiko play competitively?');
+    const m = parseMemoryTopic('Aiko plays competitive badminton on weekends.');
+    expect(q.attribute).toBe('sport');
+    expect(m.attribute).toBe('sport');
+    expect(topicalAlignment(q, m)).toBe(1);
+  });
+
+  it('still rewards a genuine metric answer about the same person', () => {
+    const q = parseQueryTopic('What pace does Pablo run?');
+    const m = parseMemoryTopic('Pablo holds a steady pace of five minutes per kilometer.');
+    expect(topicalAlignment(q, m)).toBe(1);
   });
 });
 
@@ -506,5 +885,79 @@ describe('topical alignment end-to-end (unanswerable abstention)', () => {
     const bestConfidence = Math.max(0, ...results.map(r => r.recallConfidence ?? 0));
     expect(bestConfidence).toBeGreaterThanOrEqual(0.6);
     expect(['confident', 'qualified']).toContain(verdict);
+  });
+
+  it('a first-person memory cannot confidently answer a third-party query (B12-2b Fix A)', async () => {
+    // The exact ua_8 mechanism: Hana's first-person snack note used to win
+    // "What is Hanas favorite movie?" at HIGH confidence because its subject
+    // was unparseable and alignment stayed neutral.
+    await rememberMemory({ content: 'My favorite snack is a peanut butter sandwich.', type: 'observation', user: 'test-user' });
+    await rememberMemory({ content: 'The office kitchen was restocked with coffee pods.', type: 'observation', user: 'test-user' });
+
+    const { results, verdict } = await searchWithAssessment('What is Hanas favorite movie?');
+
+    const snack = results.find(r => (r.content ?? '').includes('peanut butter'));
+    if (snack) {
+      expect(snack.evidence?.topicalAlignment).toBe(0); // judged cannot-answer
+      expect(snack.recallConfidence ?? 1).toBeLessThan(0.35);
+    }
+    const bestConfidence = Math.max(0, ...results.map(r => r.recallConfidence ?? 0));
+    expect(bestConfidence).toBeLessThan(0.6);
+    expect(verdict).toBe('no_reliable_memory');
+  });
+
+  it('a metric query is not answered by an event description (B12-2b Fix B)', async () => {
+    // The ua_16 mechanism: "What pace does Pablo run?" vs Pablo's real
+    // marathon-training fact - entities matched but neither side mapped to a
+    // bucket, so confidence ran away. Now both sides parse and mismatch.
+    await rememberMemory({ content: 'Pablo is training for his first marathon in Valencia.', type: 'fact', user: 'test-user' });
+    await rememberMemory({ content: 'The office kitchen was restocked with coffee pods.', type: 'observation', user: 'test-user' });
+
+    const { results, verdict } = await searchWithAssessment('What pace does Pablo run?');
+
+    const marathon = results.find(r => (r.content ?? '').includes('marathon'));
+    if (marathon) {
+      expect(marathon.evidence?.topicalAlignment).toBe(0); // pace asked, sport described
+      expect(marathon.recallConfidence ?? 1).toBeLessThan(0.5);
+    }
+    const bestConfidence = Math.max(0, ...results.map(r => r.recallConfidence ?? 0));
+    expect(verdict).toBe('no_reliable_memory');
+  });
+
+  it('a presumed-relation question is not answered by an unrelated same-entity fact (B12-4 M6)', async () => {
+    // The wrong-relationship_2 mechanism: "Who mentors Fatima?" vs Fatima's
+    // employer-shaped fact. Alignment cannot fire (memory attribute
+    // unparseable), so the entity-scoped relation-unstated discount must.
+    await rememberMemory({ content: 'Fatima is a pediatric nurse at St. Marys hospital.', type: 'fact', user: 'test-user' });
+    await rememberMemory({ content: 'The office kitchen was restocked with coffee pods.', type: 'observation', user: 'test-user' });
+
+    const { results, verdict } = await searchWithAssessment('Who mentors Fatima?');
+
+    const nurse = results.find(r => (r.content ?? '').includes('pediatric'));
+    if (nurse) {
+      expect(nurse.evidence?.topicalAlignment).toBeNull(); // memory-side attr unparseable -> neutral
+      expect(nurse.recallConfidence ?? 1).toBeLessThan(0.5); // RELATION_UNSTATED_FACTOR applied
+      expect(nurse.confidenceTier).toBe('LOW');
+    }
+    const bestConfidence = Math.max(0, ...results.map(r => r.recallConfidence ?? 0));
+    expect(verdict).toBe('no_reliable_memory');
+  });
+
+  it('a multi-hop purchase question is not answered by a birth record (B12-4)', async () => {
+    // The multi-hop-trap_1 shape: "In which city did Kenji buy his phone?"
+    // used to sail through unparsed; family F now parses {kenji, location}
+    // and the birthplace record mismatches.
+    await rememberMemory({ content: 'Kenji was born in Osaka and lived there until age twelve.', type: 'fact', user: 'test-user' });
+    await rememberMemory({ content: 'The office kitchen was restocked with coffee pods.', type: 'observation', user: 'test-user' });
+
+    const { results, verdict } = await searchWithAssessment('In which city did Kenji buy his phone?');
+
+    const born = results.find(r => (r.content ?? '').includes('born'));
+    if (born) {
+      expect(born.evidence?.topicalAlignment).toBe(0); // location asked, birthplace stated
+      expect(born.recallConfidence ?? 1).toBeLessThan(0.4);
+    }
+    const bestConfidence = Math.max(0, ...results.map(r => r.recallConfidence ?? 0));
+    expect(verdict).toBe('no_reliable_memory');
   });
 });
