@@ -13,6 +13,10 @@ Squish is memory infrastructure for AI agents. Use the TypeScript SDK to build m
   <img src="assets/demo/squish-demo.gif" width="780" alt="Squish Demo" />
 </p>
 
+<p align="center">
+  <b>If Squish saves your agent's memory, <a href="https://github.com/michielhdoteth/squish/stargazers">give it a star</a> -- it helps other builders find it.</b>
+</p>
+
 ---
 
 ## Get Started in 30 Seconds
@@ -241,6 +245,18 @@ Squish is the only tool that combines all of these in a single package:
 - Places routing: organize memories by project, feature, or context
 - Full-text search with BM25 ranking
 - Vector search with TF-IDF embeddings (768-dimensional)
+
+### Self-Hosting
+
+Squish is local-first by design: the default mode IS self-hosted. Everything runs on your machine, no account required.
+
+- **Storage**: single encrypted SQLite file (AES-256-GCM for sensitive memories) at `SQUISH_DATA_DIR` (default `~/.squish`)
+- **Embeddings**: local TF-IDF by default -- zero API keys, works fully offline. Optional providers (`openai`, `ollama`, `google`) if you want them
+- **LLM**: optional and off by default (`SQUISH_LLM_ENABLED=false`) -- every core feature works without one
+- **Telemetry**: none. Nothing leaves your machine in local mode
+- **License**: MIT. Fork it, embed it, ship it
+
+Point `SQUISH_DATA_DIR` at any volume or backup target and you are done. See [Environment Flags](#environment-flags) for tuning knobs.
 
 ### Environment Flags
 
