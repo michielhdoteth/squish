@@ -395,7 +395,7 @@ Yes. Squish works with any MCP-compatible agent. One memory server is shared acr
 
 ### Is my data private with Squish?
 
-Yes. In local mode, all data stays on your machine in an encrypted SQLite database. Nothing is sent to any cloud service. AES-256-GCM encryption protects sensitive memories. In cloud mode, data is encrypted in transit and at rest.
+Yes. In local mode, all data stays on your machine in an encrypted SQLite database. Nothing is sent to any cloud service. AES-256-GCM encryption protects sensitive memories. Cloud sync is opt-in and additive: data moves over TLS, connector credentials are encrypted at rest with AES-256-GCM, and synced memories live in the cloud database under your account's access controls -- which is exactly why local remains the default and sync stays optional.
 
 ### What is the difference between recall and sessions?
 
